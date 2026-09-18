@@ -37,6 +37,9 @@ pub(super) struct EventLoopConfig {
     pub(super) green_enabled: bool,
     pub(super) sampling_rate: f64,
     pub(super) evict_ms: u64,
+    /// Cross-batch slow window, `0` disables. From
+    /// `[detection] slow_query_window_minutes`.
+    pub(super) slow_window_ms: u64,
     pub(super) confidence: Confidence,
     /// How long the live cell keeps the last `database_waste` figure
     /// when newer batches carry none (`0` = never keep). Derived from
@@ -145,6 +148,9 @@ struct AnalysisWorkerCtx {
     green_summary_cell: Arc<RwLock<GreenSummary>>,
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
     waste_sticky_ttl_ms: u64,
+    slow_window_ms: u64,
+    /// Slow spans closer than this count as one episode.
+    slow_episode_ms: u64,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
@@ -195,6 +201,9 @@ pub(super) async fn run_event_loop(
             green_summary_cell,
             archive_tx,
             waste_sticky_ttl_ms: loop_cfg.waste_sticky_ttl_ms,
+            slow_window_ms: loop_cfg.slow_window_ms,
+            // Covers the TTL tick plus LRU eviction spread of one slow burst.
+            slow_episode_ms: loop_cfg.evict_ms.saturating_mul(3).max(60_000),
         },
     ));
 
@@ -320,6 +329,14 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
         wctx.per_grouping_labels,
         &wctx.metrics,
     );
+    let mut slow_window = (wctx.slow_window_ms > 0).then(|| {
+        super::slow_window::SlowWindowTracker::new(
+            wctx.slow_window_ms,
+            wctx.slow_episode_ms,
+            wctx.detect_config.slow_threshold_ms,
+            wctx.detect_config.slow_min_occurrences,
+        )
+    });
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();
         process_traces(
@@ -340,6 +357,7 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
                 db_waste_sticky: &mut db_waste_sticky,
                 msg_waste_sticky: &mut msg_waste_sticky,
                 waste_sticky_ttl_ms: wctx.waste_sticky_ttl_ms,
+                slow_window: slow_window.as_mut(),
             },
         )
         .await;
@@ -1490,6 +1508,41 @@ fn record_correlator_evictions(evicted: usize, metrics: &MetricsState) {
     }
 }
 
+/// Count slow spans refused by the slow window key cap, warning once per
+/// process like [`record_correlator_evictions`].
+fn record_slow_window_refusals(refused: usize, metrics: &MetricsState) {
+    static CAP_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if refused == 0 {
+        return;
+    }
+    metrics
+        .slow_window_keys_refused_total
+        .inc_by(refused as u64);
+    if !CAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            refused,
+            "[detection] slow_query_window_minutes key cap reached, new slow \
+             templates are not counted (see \
+             perf_sentinel_slow_window_keys_refused_total)"
+        );
+    }
+}
+
+/// Add the cross-batch slow findings of this batch, when the window is on.
+fn observe_slow_window(
+    traces: &[Trace],
+    findings: &mut Vec<detect::Finding>,
+    now_ms: u64,
+    ctx: &mut ProcessTracesCtx<'_>,
+) {
+    let Some(tracker) = ctx.slow_window.as_deref_mut() else {
+        return;
+    };
+    let (emitted, refused) = tracker.observe(traces, findings, now_ms);
+    findings.extend(emitted);
+    record_slow_window_refusals(refused, ctx.metrics);
+}
+
 /// Green scoring for one batch, or the disabled envelope when green is
 /// off (empty per-endpoint and per-service splits).
 fn score_batch(
@@ -1534,6 +1587,8 @@ struct ProcessTracesCtx<'a> {
     /// cycle, it is filled only on batches where a scrape landed.
     msg_waste_sticky: &'a mut Option<(MessagingWaste, u64)>,
     waste_sticky_ttl_ms: u64,
+    /// Worker-owned cross-batch slow window, `None` when disabled.
+    slow_window: Option<&'a mut super::slow_window::SlowWindowTracker>,
 }
 
 /// Copy the batch summary onto the shared cell, with both waste figures
@@ -1606,7 +1661,9 @@ async fn process_traces(
         .map(|(trace_id, spans)| Trace { trace_id, spans })
         .collect();
 
-    let findings = detect::run_full_detection(&trace_structs, ctx.detect_config);
+    let mut findings = detect::run_full_detection(&trace_structs, ctx.detect_config);
+    let now_ms = current_time_ms();
+    observe_slow_window(&trace_structs, &mut findings, now_ms, &mut ctx);
 
     record_slow_durations(
         &trace_structs,
@@ -1637,7 +1694,6 @@ async fn process_traces(
     crate::acknowledgments::enrich_with_signatures(&mut findings);
     let findings = findings;
 
-    let now_ms = current_time_ms();
     if !findings.is_empty() {
         if let Some(export) = ctx.hub_export {
             let dropped = export.push_batch(&findings, now_ms);
@@ -1919,6 +1975,7 @@ mod tests {
             db_waste_sticky: Box::leak(Box::new(None)),
             msg_waste_sticky: Box::leak(Box::new(None)),
             waste_sticky_ttl_ms: 0,
+            slow_window: None,
         }
     }
 
@@ -1980,6 +2037,79 @@ mod tests {
             test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
         )
         .await;
+    }
+
+    fn slow_trace(trace_id: &str) -> Trace {
+        let event = crate::test_helpers::make_sql_event_with_duration(
+            trace_id,
+            "s1",
+            "SELECT * FROM orders WHERE id = 42",
+            "2025-07-10T14:32:01.123Z",
+            600_000,
+        );
+        Trace {
+            trace_id: trace_id.to_string(),
+            spans: vec![normalize::normalize(event)],
+        }
+    }
+
+    async fn slow_sql_findings(store: &findings_store::FindingsStore) -> Vec<detect::Finding> {
+        let filter = findings_store::FindingsFilter {
+            finding_type: Some("slow_sql".to_string()),
+            limit: 100,
+            ..Default::default()
+        };
+        store
+            .query(&filter)
+            .await
+            .into_iter()
+            .map(|sf| sf.finding)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn process_traces_emits_cross_batch_slow_finding() {
+        let now = current_time_ms();
+        let mut tracker =
+            super::super::slow_window::SlowWindowTracker::new(900_000, 60_000, 500, 3);
+        tracker.observe(&[slow_trace("a")], &[], now - 300_000);
+        tracker.observe(&[slow_trace("b")], &[], now - 120_000);
+        let metrics = MetricsState::new();
+        let carbon = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        let mut ctx = test_ctx(&detect_config, &carbon, &metrics, &store, true, &cell);
+        ctx.slow_window = Some(&mut tracker);
+        let c = slow_trace("c");
+        process_traces(vec![(c.trace_id, c.spans)], ctx).await;
+
+        let findings = slow_sql_findings(&store).await;
+        assert_eq!(findings.len(), 1);
+        assert!(!findings[0].signature.is_empty());
+        assert_eq!(findings[0].pattern.occurrences, 3);
+        assert!(
+            metrics
+                .render()
+                .lines()
+                .any(|l| l.starts_with("perf_sentinel_findings_total{") && l.contains("slow_sql"))
+        );
+    }
+
+    #[tokio::test]
+    async fn process_traces_without_slow_window_keeps_batch_behaviour() {
+        let metrics = MetricsState::new();
+        let carbon = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        let c = slow_trace("c");
+        process_traces(
+            vec![(c.trace_id, c.spans)],
+            test_ctx(&detect_config, &carbon, &metrics, &store, true, &cell),
+        )
+        .await;
+        assert!(slow_sql_findings(&store).await.is_empty());
     }
 
     #[test]
@@ -3652,6 +3782,8 @@ mod tests {
             green_summary_cell: green_summary_cell.clone(),
             archive_tx: None,
             waste_sticky_ttl_ms: 0,
+            slow_window_ms: 0,
+            slow_episode_ms: 60_000,
         }
     }
 
@@ -4204,6 +4336,7 @@ mod tests {
             // Large interval; only the immediate first tick can fire, and on
             // an empty/fresh window it is a no-op.
             evict_ms: 60_000,
+            slow_window_ms: 0,
             confidence: Confidence::DaemonStaging,
             analysis_queue_capacity: 1024,
             per_service_labels: true,

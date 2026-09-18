@@ -1773,6 +1773,12 @@ impl Config {
             &self.detection.slow_query_min_occurrences,
             &1,
         )?;
+        check_range(
+            "slow_query_window_minutes",
+            &self.detection.slow_query_window_minutes,
+            &0,
+            &60,
+        )?;
         check_range("max_fanout", &self.detection.max_fanout, &1, &100_000)?;
         warn_outside_comfort_zone(
             "max_fanout",

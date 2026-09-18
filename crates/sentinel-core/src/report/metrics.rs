@@ -543,6 +543,8 @@ pub struct MetricsState {
     /// cap and lowest-count pairs are silently recycled, so
     /// `/api/correlations` may drop entries between reads.
     pub correlator_pairs_evicted_total: IntCounter,
+    /// New keys refused by the cross-batch slow window's key cap.
+    pub slow_window_keys_refused_total: IntCounter,
     /// cumulative I/O ops per service. Labeled with the
     /// `service` attribute from span `service.name` and, since 0.19.0,
     /// the span's effective `grouping`. Exposed so Grafana dashboards
@@ -942,6 +944,12 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let slow_window_keys_refused_total = IntCounter::new(
+            "perf_sentinel_slow_window_keys_refused_total",
+            "Slow spans refused by the cross-batch slow window key cap",
+        )
+        .expect("metric creation should not fail");
+
         // per-service I/O op counter. Single source of
         // truth for per-service op counts, the Scaphandre scraper
         // reads this via snapshot-diff instead of maintaining a
@@ -1082,6 +1090,9 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(correlator_pairs_evicted_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(slow_window_keys_refused_total.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(service_io_ops_total.clone()))
@@ -1476,6 +1487,7 @@ impl MetricsState {
             analysis_shed_traces_total,
             archive_windows_dropped_total,
             correlator_pairs_evicted_total,
+            slow_window_keys_refused_total,
             service_io_ops_total,
             service_io_ops_overflow_total,
             service_io_ops_grouping_overflow_total,

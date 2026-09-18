@@ -309,6 +309,7 @@ Every numeric field has explicit bounds in `validate()`:
 | `window_duration_ms`                   | 1     | *(none)*             | Non-zero window                                                                      |
 | `slow_query_threshold_ms`              | 1     | *(none)*             | Non-zero threshold                                                                   |
 | `slow_query_min_occurrences`           | 1     | *(none)*             | At least 1 occurrence                                                                |
+| `slow_query_window_minutes`            | 0     | 60                   | `0` disables the cross-batch slow window                                             |
 | `max_fanout`                           | 1     | 100,000              | Prevent disabling detection                                                          |
 | `trace_ttl_ms`                         | 100   | 3,600,000 (1 h)      | Minimum eviction interval                                                            |
 | `sampling_rate`                        | 0.0   | 1.0                  | Valid probability                                                                    |

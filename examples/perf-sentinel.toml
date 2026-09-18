@@ -77,6 +77,9 @@ n_plus_one_min_occurrences = 5   # default 5, min 1
 # repeats across traces are reported as `slow_sql` / `slow_http`.
 slow_query_threshold_ms = 500   # default 500, min 1
 slow_query_min_occurrences = 3   # default 3, min 1
+# Daemon only: count slow episodes of one template across analysis batches
+# over this many minutes. 0 disables.
+slow_query_window_minutes = 15   # default 15, bounds 0..60
 # Max child spans under a single parent before flagging `excessive_fanout`.
 max_fanout = 20   # default 20, bounds 1..100000, warns outside 5..1000
 # Min distinct targets a service must hit in one trace to be `chatty`.

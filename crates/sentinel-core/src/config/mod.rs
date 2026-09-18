@@ -156,6 +156,9 @@ pub struct DetectionConfig {
     pub slow_query_threshold_ms: u64,
     /// Minimum occurrences of a slow template to flag as a finding.
     pub slow_query_min_occurrences: u32,
+    /// Daemon only: window over which slow episodes of one template are
+    /// counted across analysis batches, 0 disables.
+    pub slow_query_window_minutes: u64,
     /// Maximum child spans per parent before flagging excessive fanout.
     pub max_fanout: u32,
     /// Minimum HTTP outbound calls per trace to flag as chatty service.
@@ -517,6 +520,7 @@ impl Default for DetectionConfig {
             window_duration_ms: 500,
             slow_query_threshold_ms: 500,
             slow_query_min_occurrences: 3,
+            slow_query_window_minutes: 15,
             max_fanout: 20,
             chatty_service_min_calls: 15,
             pool_saturation_concurrent_threshold: 10,

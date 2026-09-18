@@ -1225,6 +1225,15 @@ fn rejects_zero_slow_query_threshold() {
 }
 
 #[test]
+fn slow_query_window_minutes_parses_and_validates() {
+    assert_eq!(Config::default().detection.slow_query_window_minutes, 15);
+    let parse = |v: u64| load_from_str(&format!("[detection]\nslow_query_window_minutes = {v}"));
+    assert_eq!(parse(30).unwrap().detection.slow_query_window_minutes, 30);
+    assert_eq!(parse(0).unwrap().detection.slow_query_window_minutes, 0);
+    assert!(parse(61).is_err());
+}
+
+#[test]
 fn rejects_zero_slow_query_min_occurrences() {
     let result = load_from_str("[detection]\nslow_query_min_occurrences = 0");
     assert!(result.is_err());

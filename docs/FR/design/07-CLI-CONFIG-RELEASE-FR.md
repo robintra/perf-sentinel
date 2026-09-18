@@ -278,6 +278,7 @@ Chaque champ numérique a des bornes explicites dans `validate()` :
 | `window_duration_ms`                   | 1     | *(aucun)*            | Fenêtre non nulle                                                                                   |
 | `slow_query_threshold_ms`              | 1     | *(aucun)*            | Seuil non nul                                                                                       |
 | `slow_query_min_occurrences`           | 1     | *(aucun)*            | Au moins 1 occurrence                                                                               |
+| `slow_query_window_minutes`            | 0     | 60                   | `0` désactive la fenêtre lente inter-batchs                                                         |
 | `max_fanout`                           | 1     | 100 000              | Empêcher la désactivation de la détection                                                           |
 | `trace_ttl_ms`                         | 100   | 3 600 000 (1 h)      | Intervalle d'éviction minimum                                                                       |
 | `sampling_rate`                        | 0.0   | 1.0                  | Probabilité valide                                                                                  |
