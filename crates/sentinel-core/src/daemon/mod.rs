@@ -147,8 +147,8 @@ pub enum DaemonError {
         #[source]
         source: archive::ArchiveError,
     },
-    /// Opening the incident archive file failed at startup.
-    #[error("failed to open incident archive at '{path}'")]
+    /// Opening or reading back the incident archive file failed at startup.
+    #[error("failed to open or read incident archive at '{path}'")]
     IncidentArchiveOpen {
         /// Operator-configured path that failed to open.
         path: String,
