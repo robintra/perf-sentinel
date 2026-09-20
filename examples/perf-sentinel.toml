@@ -249,7 +249,8 @@ api_enabled = true                 # default true
 # `/api/incidents`. Never satisfies a POST or DELETE, adds no gate where no
 # write key is set, and must differ from both write keys. Hand it to
 # Grafana and the Hub so nothing that only reads holds a key that can ack
-# or fabricate an incident.
+# or fabricate an incident. A Hub that relays acks holds the
+# `[daemon.ack]` key as a second, separate credential.
 # read_api_key = "a-long-random-string"            # default unset, 12 chars min, 16 recommended
 #                                                  # PERF_SENTINEL_READ_API_KEY wins over this line
 
