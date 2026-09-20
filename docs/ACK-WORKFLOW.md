@@ -204,19 +204,32 @@ perf-sentinel query --daemon http://localhost:4318 inspect
 `a` and `u` are no-op in batch mode (`inspect --input`) since
 acknowledgment requires a running daemon to persist.
 
+### Adding a daemon ack from the Hub (Hub 0.3.0, browser)
+
+A PerfSentinelHub that holds an ack credential for a daemon relays an
+ack or a revoke to it from one page, in the name of the signed-in user.
+The Grafana findings dashboard links to that page from the `Ack` column
+of its three findings tables (`<Hub URL>/?ack=<signature>`), which is
+the way to acknowledge a finding the daemon's ring no longer holds: the
+write route only needs the signature. One submit writes to every checked
+daemon that carries the finding, because each daemon keeps its own
+store. A CI baseline ack shows there and can only be changed in the
+file. See the Hub's `docs/LAUNCHER.md`.
+
 ## Choosing between TOML and daemon
 
-| Scenario                                  | Use                                  |
-| ----------------------------------------- | ------------------------------------ |
-| Permanent decision by the team            | TOML (versioned, auditable in git)   |
-| Temporary defer during an incident        | Daemon (CLI or curl)                 |
-| False positive shared by all environments | TOML                                 |
-| Environment-specific suppression          | Daemon (one per environment)         |
-| Onboarding cleanup of pre-existing        | TOML (bulk via editor)               |
-| Single ack at 3am from PagerDuty          | Daemon CLI                           |
-| Click Ack from MR review on the CI report | Daemon (HTML live mode, since 0.5.23), then TOML via PR: a daemon ack alone never unblocks CI |
-| Audit findings in a terminal session      | Daemon (TUI, since 0.5.24)           |
-| Every ack of an environment reviewed by PR | TOML, with the runtime writes closed (see below) |
+| Scenario                                   | Use                                                                                           |
+|--------------------------------------------|-----------------------------------------------------------------------------------------------|
+| Permanent decision by the team             | TOML (versioned, auditable in git)                                                            |
+| Temporary defer during an incident         | Daemon (CLI or curl)                                                                          |
+| False positive shared by all environments  | TOML                                                                                          |
+| Environment-specific suppression           | Daemon (one per environment)                                                                  |
+| Onboarding cleanup of pre-existing         | TOML (bulk via editor)                                                                        |
+| Single ack at 3am from PagerDuty           | Daemon CLI                                                                                    |
+| Click Ack from MR review on the CI report  | Daemon (HTML live mode, since 0.5.23), then TOML via PR: a daemon ack alone never unblocks CI |
+| Audit findings in a terminal session       | Daemon (TUI, since 0.5.24)                                                                    |
+| Ack a finding the ring no longer holds     | Daemon, from the Hub's ack page or the CLI with the signature                                 |
+| Every ack of an environment reviewed by PR | TOML, with the runtime writes closed (see below)                                              |
 
 ### Pull requests only in an environment
 

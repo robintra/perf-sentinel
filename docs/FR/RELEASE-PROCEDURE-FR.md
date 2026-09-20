@@ -270,7 +270,10 @@ plancher sous forme d'expression régulière sur les mineures inférieures,
 raison pour laquelle l'oublier peint un daemon compatible plutôt que
 cassé. Ne le déplacez que si la dépendance est réelle, une route, un
 paramètre de requête, un champ ou un label dont les panneaux ne peuvent
-pas se passer, jamais à chaque release.
+pas se passer, jamais à chaque release. La rangée `History (Hub)` lit
+PerfSentinelHub et non le daemon, donc un changement de ce côté ne déplace
+jamais le plancher du daemon : sa propre dépendance est la version du Hub
+que nomme la description de son panneau.
 
 ## Ce que fait le workflow de release
 

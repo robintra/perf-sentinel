@@ -746,7 +746,8 @@ livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
   la datasource provisionnée. Renseignez le namespace dans l'URL, et le
   port aussi si vous avez déplacé `service.ports.otlpHttp.port` : le
   chart recoupe cette valeur avec `[daemon] listen_port_http`, ce
-  fichier est hors de ce contrôle.
+  fichier est hors de ce contrôle. Son second bloc, optionnel, pointe sur
+  un PerfSentinelHub pour la rangée `History (Hub)` décrite plus bas.
 - [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
   titre `perf-sentinel findings`, uid `perf-sentinel-findings` : la
   ligne d'état du daemon, une table filtrable des findings, les
@@ -884,6 +885,56 @@ api_key` est renseignée, et les routes non protégées l'ignorent, une
 seule datasource sert donc tous les panneaux. Avec un en-tête
 configuré, Infinity exige `allowedHosts`, que le fichier épingle déjà
 sur l'URL du daemon.
+
+#### Historique et acks par le Hub (depuis 0.24.0)
+
+Les tables ci-dessus lisent le ring du daemon, borné en volume et non en
+durée, donc le sélecteur de temps ne peut pas remonter. Là où un
+[PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est
+déployé (0.3.0 et suivants), la rangée repliée `History (Hub)` lit le Hub
+à la place : son `GET /api/findings` avec la plage du sélecteur (`from`,
+`to`), la variable `Environment`, et les filtres `Service` et
+`Finding type` de la table live. `Findings history` liste une ligne par
+problème que le Hub a vu dans cet environnement un jour de la plage, à
+l'horloge du Hub en UTC, avec `First seen`, `Last seen` et `Status`
+calculés pour ce seul environnement. Elle n'a pas de colonnes
+d'occurrences : les comptes du daemon sont relatifs à son ring et ne
+s'additionnent pas sur des mois, et `perf_sentinel_findings_total` garde
+les volumes dans Prometheus. L'historique par jour commence le jour où le
+Hub est passé en 0.3.0, et le Hub le garde pendant `Hub:Retention`,
+180 jours par défaut.
+
+La rangée a besoin de trois choses, dont le reste du dashboard se passe :
+
+- Une seconde datasource Infinity pointée sur le Hub, le second bloc de
+  `examples/grafana-infinity-datasource.yaml`. Le `GET /api/findings` du
+  Hub ne prend pas de clé, gardez-le donc sur le réseau du cluster. La
+  variable `perf-sentinel Hub` ne propose que les datasources dont le nom
+  contient `Hub`, pour que la rangée ne se lie jamais au daemon par
+  accident. Sans datasource, la rangée est en erreur quand on l'ouvre et
+  rien d'autre ne change.
+- Un Prometheus qui scrape le `/metrics` du Hub : la variable
+  `Environment` liste le label `environment` de
+  `perf_sentinel_hub_findings`. `All` lit toute la flotte.
+- La variable `Hub URL`, l'origine du lanceur du Hub telle que votre
+  navigateur l'atteint.
+
+`Ack`, la première colonne de `Findings`, `Incident findings` et
+`Findings history`, ouvre dans un nouvel onglet la page d'ack du Hub pour
+cette signature (`<Hub URL>/?ack=<signature>`), où un ack ou une
+révocation est relayé aux daemons qui portent le finding. La rangée
+d'historique ajoute son environnement, pour que cette page s'ouvre avec
+les sources de cet environnement cochées. Le lien a besoin de `Hub URL`,
+d'un Hub qui détient une clé d'ack pour la source (le
+`docs/CONFIGURATION.md` du Hub), et d'un finding que le Hub connaît déjà,
+ce qui prend quelques secondes avec `[daemon.hub_export]` et un poll
+sinon. Sans Hub les liens ne mènent nulle part : acquittez depuis la CLI,
+le rapport HTML ou le TUI, voir `docs/FR/ACK-WORKFLOW-FR.md`.
+
+`Acked on` et `Acked by` viennent du miroir que le Hub tient des acks de
+chaque daemon, baseline CI comprise, ce qui demande des daemons à partir
+de 0.24.0. `Acked via` est l'annotation du daemon lui-même à sa dernière
+observation.
 
 ### Règles d'alerte (PrometheusRule)
 

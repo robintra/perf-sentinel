@@ -222,6 +222,7 @@ Un daemon `watch` garde ses findings en mémoire. Le tampon circulaire oublie, e
 Ce qu'il ajoute par-dessus un daemon :
 
 - **Une chronologie durable.** `first_seen` par signature d'acquittement, conservé 180 jours par défaut, pour que "ça a régressé mardi dernier" survive à un redémarrage.
+- **L'historique dans Grafana, par environnement.** Depuis 0.24.0 le dashboard findings a une rangée `History (Hub)` qui suit le sélecteur de temps aussi loin que le Hub conserve, et un lien `Ack` sur chaque finding qui ouvre la page d'ack du Hub. Voir [docs/FR/HELM-DEPLOYMENT-FR.md](docs/FR/HELM-DEPLOYMENT-FR.md).
 - **Push et poll, et un seul des deux possède la joignabilité.** Les daemons poussent dans `/api/import/findings`, et le Hub les interroge en retour comme filet. Seul un poll réussi efface un marqueur d'injoignabilité, parce qu'un daemon qui joint le Hub ne prouve rien sur la capacité du Hub à le joindre.
 - **Un navigateur qui lance une analyse.** Contre un daemon, un backend Tempo ou un backend d'API de requêtage Jaeger, en servant le tableau de bord HTML que `report` produit.
 - **Une API de lecture pour l'outillage.** `/api/findings` pour les greffons d'IDE et les jobs de CI, avec un `status` dérivé à la lecture qui distingue "l'endpoint tourne sans ce finding" de "personne ne regarde".

@@ -90,3 +90,27 @@ datasources:
       # so mount the Secret into the Grafana pod (`envValueFrom` in the
       # Grafana chart) rather than writing the key into this file.
       apiKeyValue: $__env{PERF_SENTINEL_READ_API_KEY}
+
+  # OPTIONAL, since 0.24.0. The `History (Hub)` row of the findings dashboard
+  # reads PerfSentinelHub (0.3.0 and later) rather than the daemon, so that the
+  # time picker reaches back as far as the Hub retains, 180 days by default.
+  # Drop this block when no Hub is deployed: the row then errors when opened
+  # and nothing else changes. Keep "Hub" in the name, the dashboard's
+  # `perf-sentinel Hub` variable only offers datasources whose name carries it,
+  # so that the row never binds to the daemon by accident.
+  - name: perf-sentinel Hub
+    uid: perf-sentinel-hub
+    type: yesoreyeram-infinity-datasource
+    # The Hub's Service, `perf-sentinel-hub` being its chart's fullname and
+    # 8080 its port. Replace <ns> with the Hub's namespace.
+    url: http://perf-sentinel-hub.<ns>.svc.cluster.local:8080
+    access: proxy
+    isDefault: false
+    jsonData:
+      # No header: GET /api/findings is one of the routes the Hub leaves open
+      # for machines, with or without Hub:Auth. Keep it on the cluster network.
+      # The pin is not required without auth, it is kept so that this
+      # datasource can only ever reach the Hub.
+      allowedHosts:
+        - http://perf-sentinel-hub.<ns>.svc.cluster.local:8080
+      timeoutInSeconds: 30

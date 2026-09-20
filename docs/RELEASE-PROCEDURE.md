@@ -263,7 +263,10 @@ sentinel. On `examples/grafana-findings-dashboard.json` the same badge
 carries the floor as a version regex over the minors below it, which is
 why forgetting it paints a daemon compatible rather than broken. Move it
 only when the dependency is real, a route, a query parameter, a field or
-a label the panels cannot do without, never on every release.
+a label the panels cannot do without, never on every release. The
+`History (Hub)` row reads PerfSentinelHub and not the daemon, so a change
+there never moves the daemon floor: its own dependency is the Hub version
+its panel description names.
 
 ## What the release workflow does
 

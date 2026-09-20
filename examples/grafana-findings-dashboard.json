@@ -479,6 +479,120 @@
         "includeAll": false,
         "multi": false,
         "description": "The API's offset for the Incidents table (Incident findings asks by id, and reads this page only from a daemon before 0.24.0): incidents skipped, newest first, before the page of 50 starts. 0, then 50, 100 to page back through a ring of up to 1000 ([daemon.incidents] max_retained). A new incident shifts every page by one row."
+      },
+      {
+        "name": "DS_HUB",
+        "label": "perf-sentinel Hub",
+        "type": "datasource",
+        "query": "yesoreyeram-infinity-datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "regex": "/hub/i",
+        "description": "Optional. The Infinity datasource that points at PerfSentinelHub, read by the History (Hub) row alone. Only datasources whose name contains Hub are offered, so the row never binds to the daemon by accident. Left empty, the row errors when opened and nothing else changes."
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_hub_findings, environment)",
+        "query": {
+          "query": "label_values(perf_sentinel_hub_findings, environment)",
+          "refId": "environment"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Environment of the History (Hub) row, one of the environments the Hub's sources declare, listed from the environment label of perf_sentinel_hub_findings, so Prometheus has to scrape the Hub. All sends a single space, which the Hub reads as the whole fleet. The Hub answers 400 to an environment it does not know."
+      },
+      {
+        "name": "hub_offset",
+        "label": "Hub skip rows",
+        "type": "custom",
+        "query": "0,200,400,600,800,1000,2000,3000,4000",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "1000",
+            "value": "1000"
+          },
+          {
+            "selected": false,
+            "text": "2000",
+            "value": "2000"
+          },
+          {
+            "selected": false,
+            "text": "3000",
+            "value": "3000"
+          },
+          {
+            "selected": false,
+            "text": "4000",
+            "value": "4000"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "The Hub's offset for the History (Hub) row: findings skipped, most recently seen first, before the page of Max rows starts."
+      },
+      {
+        "name": "hub_url",
+        "label": "Hub URL",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Origin of the Hub launcher as your browser reaches it, for example https://hub.example.internal, without a trailing slash. The Ack links of the three findings tables use it to open the Hub's ack page. Empty leaves those links dead."
       }
     ]
   },
@@ -709,7 +823,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -780,6 +894,16 @@
               "selector": "stored_at_ms",
               "text": "Last seen",
               "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.signature",
+              "text": "Signature",
+              "type": "string"
+            },
+            {
+              "selector": "ack",
+              "text": "Ack",
+              "type": "string"
             }
           ]
         }
@@ -993,6 +1117,28 @@
                 "value": 120
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ack"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Ack or revoke in the Hub",
+                    "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1023,21 +1169,23 @@
           "options": {
             "excludeByName": {},
             "indexByName": {
-              "Severity": 0,
-              "Type": 1,
-              "Service": 2,
-              "Grouping": 3,
-              "Endpoint": 4,
-              "Traces": 5,
-              "Occurrences": 6,
-              "Ops/trace": 7,
-              "Est. impact (ops)": 8,
-              "Operation": 9,
-              "Suggestion": 10,
-              "Fix for": 11,
-              "Acked via": 12,
-              "Trace": 13,
-              "Last seen": 14
+              "Ack": 0,
+              "Severity": 1,
+              "Type": 2,
+              "Service": 3,
+              "Grouping": 4,
+              "Endpoint": 5,
+              "Traces": 6,
+              "Occurrences": 7,
+              "Ops/trace": 8,
+              "Est. impact (ops)": 9,
+              "Operation": 10,
+              "Suggestion": 11,
+              "Fix for": 12,
+              "Acked via": 13,
+              "Trace": 14,
+              "Last seen": 15,
+              "Signature": 16
             },
             "renameByName": {}
           }
@@ -1845,7 +1993,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -1916,6 +2064,16 @@
               "selector": "stored_at_ms",
               "text": "Last seen",
               "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.signature",
+              "text": "Signature",
+              "type": "string"
+            },
+            {
+              "selector": "ack",
+              "text": "Ack",
+              "type": "string"
             }
           ]
         }
@@ -2129,6 +2287,28 @@
                 "value": 120
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ack"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Ack or revoke in the Hub",
+                    "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -2159,24 +2339,427 @@
           "options": {
             "excludeByName": {},
             "indexByName": {
-              "Severity": 0,
-              "Type": 1,
-              "Service": 2,
-              "Grouping": 3,
-              "Endpoint": 4,
-              "Traces": 5,
-              "Occurrences": 6,
-              "Ops/trace": 7,
-              "Est. impact (ops)": 8,
-              "Operation": 9,
-              "Suggestion": 10,
-              "Fix for": 11,
-              "First seen": 12,
-              "Trace": 13,
-              "Last seen": 14
+              "Ack": 0,
+              "Severity": 1,
+              "Type": 2,
+              "Service": 3,
+              "Grouping": 4,
+              "Endpoint": 5,
+              "Traces": 6,
+              "Occurrences": 7,
+              "Ops/trace": 8,
+              "Est. impact (ops)": 9,
+              "Operation": 10,
+              "Suggestion": 11,
+              "Fix for": 12,
+              "First seen": 13,
+              "Trace": 14,
+              "Last seen": 15,
+              "Signature": 16
             },
             "renameByName": {}
           }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 100,
+      "title": "History (Hub)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "panels": [
+        {
+          "type": "table",
+          "id": 101,
+          "title": "Findings history",
+          "description": "One row per problem the Hub saw in the chosen environment inside the dashboard's time range, read from the Hub rather than from the daemon's ring. A day counts when the Hub observed the finding that day, on the Hub's clock in UTC.\n\n'First seen', 'Last seen' and 'Status' describe the chosen environment alone, the whole fleet on All. There are no occurrence columns: the daemon's counts are relative to its ring and do not add up over months.\n\n'Acked on' and 'Acked by' come from the Hub's mirror of each daemon's acks, 'Acked via' is the daemon's own annotation at the last observation. The Ack link opens the Hub's ack page for that signature, once Hub URL is set.\n\nNeeds PerfSentinelHub 0.3.0: an older Hub ignores the range and the environment and answers its latest state.",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_HUB}"
+          },
+          "gridPos": {
+            "h": 16,
+            "w": 24,
+            "x": 0,
+            "y": 69
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "yesoreyeram-infinity-datasource",
+                "uid": "${DS_HUB}"
+              },
+              "type": "json",
+              "source": "url",
+              "parser": "backend",
+              "format": "table",
+              "url": "/api/findings?environment=${environment}&from=${__from}&to=${__to}&limit=${limit}&offset=${hub_offset}&service=${service}&finding_type=${type}&include_acked=${include_acked}",
+              "url_options": {
+                "method": "GET"
+              },
+              "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"first_seen\": $i.first_seen, \"last_seen\": $i.last_seen, \"status\": $i.status, \"max_confidence\": $i.max_confidence, \"sources\": $join([$i.sources.name], \", \"), \"acked_on\": $join([$i.acks.source_id], \", \"), \"acked_by\": $join([$i.acks.by], \", \"), \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+              "columns": [
+                {
+                  "selector": "ack",
+                  "text": "Ack",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.severity",
+                  "text": "Severity",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.type",
+                  "text": "Type",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.service",
+                  "text": "Service",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.grouping.0.value",
+                  "text": "Grouping",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.source_endpoint",
+                  "text": "Endpoint",
+                  "type": "string"
+                },
+                {
+                  "selector": "status",
+                  "text": "Status",
+                  "type": "string"
+                },
+                {
+                  "selector": "first_seen",
+                  "text": "First seen",
+                  "type": "timestamp_epoch"
+                },
+                {
+                  "selector": "last_seen",
+                  "text": "Last seen",
+                  "type": "timestamp_epoch"
+                },
+                {
+                  "selector": "sources",
+                  "text": "Sources",
+                  "type": "string"
+                },
+                {
+                  "selector": "acked_on",
+                  "text": "Acked on",
+                  "type": "string"
+                },
+                {
+                  "selector": "acked_by",
+                  "text": "Acked by",
+                  "type": "string"
+                },
+                {
+                  "selector": "acknowledged_by.source",
+                  "text": "Acked via",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.pattern.template",
+                  "text": "Operation",
+                  "type": "string"
+                },
+                {
+                  "selector": "fix",
+                  "text": "Suggestion",
+                  "type": "string"
+                },
+                {
+                  "selector": "fix_for",
+                  "text": "Fix for",
+                  "type": "string"
+                },
+                {
+                  "selector": "max_confidence",
+                  "text": "Confidence",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.trace_id",
+                  "text": "Trace",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.signature",
+                  "text": "Signature",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Severity"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 100
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "critical": {
+                            "color": "red",
+                            "index": 0
+                          },
+                          "warning": {
+                            "color": "orange",
+                            "index": 1
+                          },
+                          "info": {
+                            "color": "blue",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Type"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "n_plus_one_sql": {
+                            "text": "N+1 SQL",
+                            "index": 0
+                          },
+                          "n_plus_one_http": {
+                            "text": "N+1 HTTP",
+                            "index": 1
+                          },
+                          "n_plus_one_messaging": {
+                            "text": "N+1 messaging",
+                            "index": 2
+                          },
+                          "redundant_sql": {
+                            "text": "Redundant SQL",
+                            "index": 3
+                          },
+                          "redundant_http": {
+                            "text": "Redundant HTTP",
+                            "index": 4
+                          },
+                          "slow_sql": {
+                            "text": "Slow SQL",
+                            "index": 5
+                          },
+                          "slow_http": {
+                            "text": "Slow HTTP",
+                            "index": 6
+                          },
+                          "slow_messaging": {
+                            "text": "Slow messaging",
+                            "index": 7
+                          },
+                          "excessive_fanout": {
+                            "text": "Excessive fanout",
+                            "index": 8
+                          },
+                          "chatty_service": {
+                            "text": "Chatty service",
+                            "index": 9
+                          },
+                          "pool_saturation": {
+                            "text": "Pool saturation",
+                            "index": 10
+                          },
+                          "serialized_calls": {
+                            "text": "Serialized calls",
+                            "index": 11
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Operation"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 460
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 130
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "active": {
+                            "text": "Active",
+                            "color": "orange",
+                            "index": 0
+                          },
+                          "likely_resolved": {
+                            "text": "Likely resolved",
+                            "color": "green",
+                            "index": 1
+                          },
+                          "not_observed": {
+                            "text": "Not observed",
+                            "color": "blue",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "First seen"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 170
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last seen"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 170
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ack"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 70
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Ack or revoke in the Hub",
+                        "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}&environment=${environment:percentencode}",
+                        "targetBlank": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Last seen",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "indexByName": {
+                  "Ack": 0,
+                  "Severity": 1,
+                  "Type": 2,
+                  "Service": 3,
+                  "Grouping": 4,
+                  "Endpoint": 5,
+                  "Status": 6,
+                  "First seen": 7,
+                  "Last seen": 8,
+                  "Sources": 9,
+                  "Acked on": 10,
+                  "Acked by": 11,
+                  "Acked via": 12,
+                  "Operation": 13,
+                  "Suggestion": 14,
+                  "Fix for": 15,
+                  "Confidence": 16,
+                  "Trace": 17,
+                  "Signature": 18
+                },
+                "renameByName": {}
+              }
+            }
+          ]
         }
       ]
     }
@@ -2198,5 +2781,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 10
+  "version": 11
 }

@@ -211,19 +211,32 @@ perf-sentinel query --daemon http://localhost:4318 inspect
 `a` et `u` sont no-op en mode batch (`inspect --input`) puisque
 l'acknowledgment a besoin d'un daemon qui tourne pour persister.
 
+### Ajouter un ack daemon depuis le Hub (Hub 0.3.0, navigateur)
+
+Un PerfSentinelHub qui détient une clé d'ack pour un daemon lui relaie un
+ack ou une révocation depuis une page, au nom de l'utilisateur connecté.
+Le dashboard findings de Grafana pointe vers cette page depuis la colonne
+`Ack` de ses trois tables de findings (`<Hub URL>/?ack=<signature>`),
+et c'est le moyen d'acquitter un finding que le ring du daemon ne détient
+plus : la route d'écriture n'a besoin que de la signature. Un seul envoi
+écrit sur chaque daemon coché qui porte le finding, parce que chaque
+daemon garde son propre store. Un ack de la baseline CI s'y affiche et ne
+se modifie que dans le fichier. Voir le `docs/LAUNCHER.md` du Hub.
+
 ## Choisir entre TOML et daemon
 
-| Scénario                                          | Utiliser                                |
-| ------------------------------------------------- | --------------------------------------- |
-| Décision permanente par l'équipe                  | TOML (versionné, auditable git)         |
-| Report temporaire pendant un incident             | Daemon (CLI ou curl)                    |
-| Faux positif partagé par tous les environments    | TOML                                    |
-| Suppression spécifique à un environment           | Daemon (un par environment)             |
-| Nettoyage onboarding sur findings préexistants    | TOML (en bulk via éditeur)              |
-| Ack ponctuel à 3h du matin via PagerDuty          | CLI daemon                              |
-| Clic Ack depuis le rapport CI en revue de MR      | Daemon (mode live HTML, depuis 0.5.23), puis TOML via PR : un ack daemon seul ne débloque jamais la CI |
-| Audit des findings depuis une session terminal    | Daemon (TUI, depuis 0.5.24)             |
-| Tous les acks d'un environnement relus par PR     | TOML, avec les écritures runtime fermées (voir ci-dessous) |
+| Scénario                                         | Utiliser                                                                                               |
+|--------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| Décision permanente par l'équipe                 | TOML (versionné, auditable git)                                                                        |
+| Report temporaire pendant un incident            | Daemon (CLI ou curl)                                                                                   |
+| Faux positif partagé par tous les environments   | TOML                                                                                                   |
+| Suppression spécifique à un environment          | Daemon (un par environment)                                                                            |
+| Nettoyage onboarding sur findings préexistants   | TOML (en bulk via éditeur)                                                                             |
+| Ack ponctuel à 3h du matin via PagerDuty         | CLI daemon                                                                                             |
+| Clic Ack depuis le rapport CI en revue de MR     | Daemon (mode live HTML, depuis 0.5.23), puis TOML via PR : un ack daemon seul ne débloque jamais la CI |
+| Audit des findings depuis une session terminal   | Daemon (TUI, depuis 0.5.24)                                                                            |
+| Acquitter un finding que le ring ne détient plus | Daemon, depuis la page d'ack du Hub ou la CLI avec la signature                                        |
+| Tous les acks d'un environnement relus par PR    | TOML, avec les écritures runtime fermées (voir ci-dessous)                                             |
 
 ### Pull requests uniquement dans un environnement
 
