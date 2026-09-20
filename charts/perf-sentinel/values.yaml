@@ -72,7 +72,17 @@ workload:
       # [daemon.archive] max_size_mb, and write the durable paths yourself
       # under /var/lib/perf-sentinel.
       manageDaemonPaths: true
-      size: 1Gi
+      # -- Claim size. The default covers the per-window archive at its own
+      # defaults, one active file plus max_files (12) rotated ones of
+      # max_size_mb (100) each, about 1.3 GB, with the ack store beside it.
+      # It leaves nothing for a [daemon.incidents] archive_path pointed at
+      # the PVC, as the incidents note further down suggests: that file is
+      # append-only and never rotates, so raise the claim for it or keep it
+      # off the volume. Lower it only alongside manageDaemonPaths: false and
+      # a smaller [daemon.archive] in config.toml. A volumeClaimTemplate is
+      # immutable, so changing this on a live StatefulSet needs the PVC
+      # resized or the release reinstalled.
+      size: 2Gi
       accessModes:
         - ReadWriteOnce
       # -- Leave empty to use the cluster default StorageClass.
