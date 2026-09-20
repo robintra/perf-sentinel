@@ -222,6 +222,7 @@ A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/ap
 What it adds on top of a daemon:
 
 - **A durable timeline.** `first_seen` per acknowledgment signature, retained 180 days by default, so "this regressed last Tuesday" survives a restart.
+- **History in Grafana, per environment.** Since 0.24.0 the findings dashboard has a `History (Hub)` row that follows the time picker as far back as the Hub retains, and an `Ack` link on every finding that opens the Hub's ack page. See [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md).
 - **Push and poll, and one of them owns reachability.** Daemons push into `/api/import/findings`, and the Hub polls them back as a safety net. Only a successful poll clears an unreachable marker, because a daemon reaching the Hub proves nothing about the Hub reaching the daemon.
 - **A browser that runs an analysis.** Against a daemon, a Tempo backend or a Jaeger query backend, serving the same HTML dashboard `report` renders.
 - **One read API for tooling.** `/api/findings` for IDE plugins and CI jobs, with a `status` derived at read time that tells "the endpoint runs without this finding" apart from "nobody is looking".
