@@ -683,6 +683,16 @@ write routes return 503. Switch to `StatefulSet` mode with
 `persistence.enabled: true` (see above), which wires `[daemon.ack]
 storage_path` to the PVC for you.
 
+**Size the PVC for the archive.** At its defaults the per-window archive
+keeps one active file plus `max_files = 12` rotated ones of
+`max_size_mb = 100` each, about 1.3 GB, while the chart's default claim
+is `1Gi`. A full volume does not stop the daemon: the archive writer
+drops the windows it cannot write and counts them in
+`perf_sentinel_archive_windows_dropped_total{reason="write_error"}`. Set
+`workload.statefulset.persistence.size` to `2Gi` or more, or set
+`persistence.manageDaemonPaths: false` and lower `[daemon.archive]
+max_files` or `max_size_mb` in `config.toml`.
+
 **Mind the `securityContext` floor.** The daemon opens every durable
 JSONL with `O_NOFOLLOW` and keeps it owner-only. Mounting the PVC under
 an `fsGroup` adds `g+rw` to the files already on it, and both stores
