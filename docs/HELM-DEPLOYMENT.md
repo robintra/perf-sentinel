@@ -685,13 +685,23 @@ storage_path` to the PVC for you.
 
 **Size the PVC for the archive.** At its defaults the per-window archive
 keeps one active file plus `max_files = 12` rotated ones of
-`max_size_mb = 100` each, about 1.3 GB, while the chart's default claim
-is `1Gi`. A full volume does not stop the daemon: the archive writer
-drops the windows it cannot write and counts them in
-`perf_sentinel_archive_windows_dropped_total{reason="write_error"}`. Set
-`workload.statefulset.persistence.size` to `2Gi` or more, or set
-`persistence.manageDaemonPaths: false` and lower `[daemon.archive]
-max_files` or `max_size_mb` in `config.toml`.
+`max_size_mb = 100` each, about 1.3 GB, which the chart's default claim
+of `2Gi` covers with the ack store beside it. A full volume does not stop
+the daemon: the archive writer drops the windows it cannot write and
+counts them in
+`perf_sentinel_archive_windows_dropped_total{reason="write_error"}`, so
+watch that counter rather than the daemon's health. Raise
+`workload.statefulset.persistence.size` above `2Gi` when you give
+`[daemon.archive]` a larger `max_files` or `max_size_mb`, and go below it
+only with `persistence.manageDaemonPaths: false` and a smaller
+`[daemon.archive]` in `config.toml`. Raise it for
+`[daemon.incidents] archive_path` too when you point that file at the
+PVC, as the incidents note in `values.yaml` suggests: it is append-only
+and never rotates, so it grows for as long as the daemon runs and the
+`2Gi` default leaves it nothing. A StatefulSet's
+`volumeClaimTemplate` is immutable, so a release installed under an
+earlier chart keeps the claim it was created with: resize the PVC where
+the StorageClass allows it, or reinstall.
 
 **Mind the `securityContext` floor.** The daemon opens every durable
 JSONL with `O_NOFOLLOW` and keeps it owner-only. Mounting the PVC under
