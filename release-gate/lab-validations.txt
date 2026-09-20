@@ -330,3 +330,20 @@ v0.22.2	f4eda0f	2026-09-16	PASS
 #   crashed without the import key. It now mounts the same optional Secret.
 # make validate ok, product fmt, clippy and 3557 workspace tests green.
 v0.23.0	b26270f	2026-09-18	PASS
+#
+# v0.24.0, 2026-09-20. Targeted pass, not verify-all-scenarios: the scenarios
+# the release touches plus those its detection changes could shift.
+# No cluster: diff-mutated-findings (the code-anchor arbitration of the release),
+# incident-window-capture (its NDJSON archive, plus the new id leg),
+# findings-page-filters, ack-lifecycle-warning, slow-window-cross-batch,
+# correlation-event-time, archive-window-drops, output-formats-coverage,
+# ci-shift-left, grouping-identity, ruby-activerecord-suggestion, astronomy-shop.
+# Cluster: validate-findings 12/12, grafana-dashboard (parity on the version 11
+# dashboard and every Infinity target replayed), daemon-ack-workflow (plus the
+# new include_toml leg), appsec-hardening, incident-alerting-chain.
+# incident-alerting-chain failed first and was lab-side, not product: its twin
+# checker keyed every rule on `alert` and its promtool cases published no
+# kube_pod_container_info, so they never exercised the new untraced-services
+# record. Fixed in the lab, and leg H now reads both groups so a record that
+# fails to evaluate cannot leave the alerts silently permissive.
+v0.24.0	462d22d	2026-09-20	PASS
