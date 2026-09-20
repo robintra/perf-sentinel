@@ -225,6 +225,12 @@ impl JsonIngest {
             match stream.next() {
                 None => break,
                 Some(Ok(request)) => {
+                    if request.resource_spans.is_empty()
+                        && let Some(err) =
+                            snake_case_otlp_error(&raw[offset..offset + stream.byte_offset()])
+                    {
+                        return Err(err);
+                    }
                     parsed_any = true;
                     let (converted, request_stats) =
                         crate::ingest::otlp::convert_otlp_request_counted_with_grouping(
@@ -364,6 +370,25 @@ fn normalize_otlp_json(value: &mut serde_json::Value) {
         serde_json::Value::Array(items) => items.iter_mut().for_each(normalize_otlp_json),
         _ => {}
     }
+}
+
+/// The error a `snake_case` OTLP document earns, or `None` when the empty
+/// request is the document's own doing.
+///
+/// `opentelemetry-proto` 0.33 ignores a field it does not know, where
+/// 0.32 refused it, so `{"resource_spans": [...]}` deserializes into an
+/// empty request and every span in it disappears without a word. The
+/// protobuf JSON mapping spells its keys in camelCase and that is the
+/// only spelling the decoder reads, so name the spelling rather than
+/// report an analysis of nothing.
+fn snake_case_otlp_error(document: &[u8]) -> Option<JsonIngestError> {
+    let peek = std::str::from_utf8(&document[..document.len().min(1024)]).unwrap_or("");
+    if !TopLevelKeys::new(peek).any(|key| key == "resource_spans") {
+        return None;
+    }
+    Some(JsonIngestError::Parse(serde::de::Error::custom(
+        "OTLP/JSON spells its keys in camelCase: found \"resource_spans\", expected \"resourceSpans\"",
+    )))
 }
 
 /// Detect the format of the JSON input using lightweight byte-level heuristics.
@@ -722,7 +747,7 @@ mod tests {
     fn detect_otlp_snake_case_routes_to_otlp() {
         // snake_case is not a valid OTLP/JSON spelling (with-serde is
         // camelCase-only), but routing it to the OTLP arm yields a clear
-        // serde error instead of Native's "expected array".
+        // error instead of Native's "expected array".
         let json = r#"{"resource_spans": []}"#;
         assert_eq!(detect_format(json.as_bytes()), InputFormat::Otlp);
         let ingest = JsonIngest::new(1_048_576);
@@ -730,6 +755,34 @@ mod tests {
             ingest.ingest(json.as_bytes()),
             Err(JsonIngestError::Parse(_))
         );
+    }
+
+    #[test]
+    fn otlp_snake_case_spans_are_refused_not_dropped() {
+        // opentelemetry-proto 0.33 ignores the field it does not know, so
+        // this document deserializes into an empty request and its span
+        // would vanish silently. The reader has to be told the spelling.
+        let json = r#"{"resource_spans":[{"resource":{"attributes":[]},"scope_spans":[{"spans":[
+            {"trace_id":"5b8efff798038103d269b633813fc60c","span_id":"eee19b7ec3c1b174",
+             "name":"SELECT 1","kind":3,"start_time_unix_nano":"1700000000000000000",
+             "end_time_unix_nano":"1700000000010000000"}]}]}]}"#;
+        let ingest = JsonIngest::new(1_048_576);
+        let err = ingest.ingest(json.as_bytes()).unwrap_err();
+        assert_matches!(err, JsonIngestError::Parse(_));
+        let message = err.to_string();
+        assert!(
+            message.contains("resourceSpans") && message.contains("resource_spans"),
+            "the error names both spellings: {message}"
+        );
+    }
+
+    #[test]
+    fn otlp_camel_case_empty_request_stays_ok() {
+        // The guard reads the spelling, never the emptiness: a document
+        // that really holds no resource span is not an error.
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest.ingest(br#"{"resourceSpans": []}"#).unwrap();
+        assert!(events.is_empty());
     }
 
     #[test]
