@@ -853,10 +853,45 @@ s'accumuler à l'infini.
 | Statut | Condition                                                          |
 |--------|--------------------------------------------------------------------|
 | 201    | Ack créé                                                           |
-| 400    | La signature ne matche pas le format canonique                     |
+| 400    | Body JSON malformé, ou signature hors du format canonique          |
 | 401    | `[daemon.ack] api_key` est défini, header manquant ou mauvais      |
-| 409    | La signature est déjà acquittée (utiliser `DELETE` d'abord)        |
+| 409    | Déjà acquittée, côté daemon ou par la baseline TOML CI (plus bas)  |
+| 415    | `Content-Type: application/json` manquant                          |
+| 422    | JSON valide, mais un champ ne parse pas, `expires_at` par exemple  |
+| 500    | L'écriture dans le store a échoué, `ack store write failed`        |
 | 503    | `[daemon.ack] enabled = false`, le store ack runtime est offline   |
+| 507    | Un plafond du store est atteint, le body dit lequel (plus bas)     |
+
+Le `415`, le `422` et le `400` de body malformé viennent de
+l'extracteur JSON, avant toute vérification de la clé d'API et du
+store, donc leur body est du texte brut et non la forme
+`{"error": ...}` de toutes les autres lignes d'ici.
+
+Un `409` nomme sa cause. `already acked` se lève par un `DELETE`. Une
+signature tenue par une baseline TOML CI active répond plutôt
+`signature is acked by the CI TOML baseline, edit the file via PR
+review`, et un `DELETE` y répond `404`, seule une PR contre le fichier
+la lève. Voir "Interop TOML et JSONL" plus bas.
+
+Un `507` nomme son plafond dans le body d'erreur, et les trois plafonds
+vivent dans `crates/sentinel-core/src/daemon/ack.rs`. `active ack limit
+reached` est `MAX_ACTIVE_ACKS`, 10 000 acks actifs gardés en mémoire,
+libéré en révoquant les acks qui ne s'appliquent plus et, au
+redémarrage, en jetant ceux qui ont expiré mais comptent encore.
+`GET /api/acks` ne sert que 1000 lignes au plus et masque justement ces
+entrées expirées, donc au plafond le redémarrage est la sortie fiable.
+`ack file size cap reached` est `MAX_ACKS_FILE_BYTES`, 64 Mio de
+`acks.jsonl`, que seule la compaction au redémarrage décrite plus haut
+libère. `ack entry size cap reached` est `MAX_ACK_ENTRY_BYTES`, 4 Kio
+par ligne JSONL sérialisée. `by` et `reason` sont d'abord tronqués à
+leurs propres plafonds, donc un champ trop long est accepté et
+raccourci plutôt que refusé, et le plafond de ligne ne se déclenche que
+quand l'échappement JSON fait dépasser 4 Kio à ce qui reste.
+
+Un `500` est le cas attrape-tout d'une écriture que le daemon n'a pas pu
+mener à bout, une erreur du système de fichiers par exemple. Le body de
+la réponse reste `ack store write failed`, le daemon journalise l'erreur
+sous-jacente.
 
 **Exemple :**
 
@@ -887,7 +922,12 @@ immédiatement.
 | 400    | La signature ne matche pas le format canonique         |
 | 401    | API key requise et manquante ou mauvaise               |
 | 404    | La signature n'est pas actuellement acquittée daemon   |
+| 500    | L'écriture a échoué, `ack store write failed`          |
 | 503    | Store ack runtime offline                              |
+
+Une révocation ne répond jamais `507`. Elle ajoute sa propre ligne,
+donc à `MAX_ACKS_FILE_BYTES` cet ajout rate et la réponse ici est
+`500`, voir les plafonds sous `POST` plus haut.
 
 Note : cet endpoint ne révoque que les acks daemon. Les acks TOML CI
 sont en lecture seule au runtime et nécessitent une PR contre le
