@@ -40,8 +40,11 @@ All endpoints return `application/json`. There is no identity layer, only
 three optional shared secrets: `[daemon.ack] api_key` and
 `[daemon.incidents] api_key` gate their writes and the `GET` beside them,
 and `[daemon] read_api_key` opens those two `GET`s without the power to
-write, so a dashboard or the Hub never holds a key that can ack or
-fabricate an incident. The daemon listens on `127.0.0.1` by default (see
+write, so a dashboard never holds a key that can ack or fabricate an
+incident. The Hub reads with that key too. Only a Hub configured to
+relay acks (Hub 0.3.0 and later, one ack credential per source) also
+holds `[daemon.ack] api_key` for that daemon, and sends it on those
+writes alone. The daemon listens on `127.0.0.1` by default (see
 `[daemon] listen_address`
 in `docs/CONFIGURATION.md`), so the API is reachable only from the host
 running the daemon unless you explicitly widen the bind address. Widening
