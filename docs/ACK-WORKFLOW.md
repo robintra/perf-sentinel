@@ -117,7 +117,7 @@ acks live in the file itself, view them with:
 cat .perf-sentinel-acknowledgments.toml
 ```
 
-Over HTTP, `GET /api/acks?include_toml=true` (since 0.23.1) lists both,
+Over HTTP, `GET /api/acks?include_toml=true` (since 0.24.0) lists both,
 each row naming its `source`, see `docs/QUERY-API.md`.
 
 ## Interop: TOML wins on conflict

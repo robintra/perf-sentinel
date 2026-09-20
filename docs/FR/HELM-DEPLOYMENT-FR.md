@@ -866,7 +866,7 @@ après le nombre que choisit la variable `Incident skip rows`
 valeurs suivantes remontent un anneau d'au plus 1000. `Incident findings`
 demande à la route le seul incident que nomme la variable `Incident`
 (`id`), quelle que soit la page affichée au-dessus. Un daemon antérieur
-à 0.23.1 ignore `id`, et la table trouve alors l'incident sur cette même
+à 0.24.0 ignore `id`, et la table trouve alors l'incident sur cette même
 page.
 
 Les deux routes sont protégées, la datasource envoie donc désormais une

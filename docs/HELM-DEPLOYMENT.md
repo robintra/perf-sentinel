@@ -1186,7 +1186,7 @@ after the number the `Incident skip rows` variable picks (0 to 950, by
 50), so 0 shows the 50 most recent and the next values page back
 through a ring of up to 1000. `Incident findings` asks the route for the
 one incident the `Incident` variable names (`id`), whatever page the
-first table shows. A daemon older than 0.23.1 ignores `id`, and the
+first table shows. A daemon older than 0.24.0 ignores `id`, and the
 table then finds the incident on that same page.
 
 Both routes are gated, so the datasource now sends a key.
