@@ -223,6 +223,25 @@ l'acknowledgment a besoin d'un daemon qui tourne pour persister.
 | Ack ponctuel à 3h du matin via PagerDuty          | CLI daemon                              |
 | Clic Ack depuis le rapport CI en revue de MR      | Daemon (mode live HTML, depuis 0.5.23), puis TOML via PR : un ack daemon seul ne débloque jamais la CI |
 | Audit des findings depuis une session terminal    | Daemon (TUI, depuis 0.5.24)             |
+| Tous les acks d'un environnement relus par PR     | TOML, avec les écritures runtime fermées (voir ci-dessous) |
+
+### Pull requests uniquement dans un environnement
+
+Une équipe qui veut que chaque ack d'un environnement, un daemon de CI ou
+de recette par exemple, passe par une pull request relue garde la
+baseline TOML et ferme les écritures runtime sur ce daemon.
+
+Ne posez pas `[daemon.ack] enabled = false` pour cela. Le réglage ferme
+bien les routes, mais le daemon ne charge alors plus aucun ack, baseline
+TOML comprise, donc chaque finding que la baseline acquitte revient dans
+`GET /api/findings`.
+
+Gardez `enabled = true` et donnez à `[daemon.ack] api_key` un secret que
+personne ne détient. `POST` et `DELETE` répondent alors `401` depuis la
+CLI, le rapport HTML comme le TUI, la baseline continue de s'appliquer,
+et `GET /api/acks` reste lisible avec `[daemon] read_api_key`. Sur un Hub
+qui relaie les acks (Hub 0.3.0 et suivants), laissez cette source sans
+clé d'ack : la page d'ack du Hub ne propose alors rien pour elle.
 
 ## Observabilité
 
