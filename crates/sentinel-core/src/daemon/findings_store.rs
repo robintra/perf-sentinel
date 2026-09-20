@@ -35,11 +35,12 @@ pub struct StoredFinding {
     /// instance of the group, the newest on ties, see
     /// [`coalesce_by_signature`].
     pub finding: Finding,
-    /// Monotonic timestamp (ms) of this detection, or of the most
-    /// recent one on a coalesced entry.
+    /// When this detection was analyzed, in Unix epoch milliseconds on
+    /// the daemon's wall clock, or the most recent one on a coalesced
+    /// entry.
     pub stored_at_ms: u64,
-    /// Monotonic timestamp (ms) of the oldest detection this entry
-    /// stands for. `0` on payloads predating the field.
+    /// Same clock, for the oldest detection this entry stands for. `0`
+    /// on payloads predating the field.
     #[serde(default)]
     pub first_seen_ms: u64,
     /// How many per-trace detections this entry stands for, `1` for a
