@@ -902,6 +902,15 @@ piste d'audit des acks expose les identités des relecteurs, les raisons
 et les signatures de findings, donc la clé configurée gouverne aussi les
 lectures, pas seulement les `POST`/`DELETE`.
 
+**Paramètres de requête :**
+
+- `include_toml` (depuis 0.23.1) : `true` liste aussi les acks actifs
+  de la baseline TOML CI, et chaque ligne porte alors une `source`,
+  `daemon` ou `toml`. Par défaut `false`, ce qui laisse la réponse
+  ci-dessous telle qu'elle a toujours été. Une valeur qui n'est pas un
+  booléen renvoie `400`, après le contrôle de la clé. Un daemon
+  antérieur à 0.23.1 ignore le paramètre.
+
 **Réponse :** tableau d'objets, un par ack actif :
 
 ```json
@@ -917,11 +926,51 @@ lectures, pas seulement les `POST`/`DELETE`.
 ]
 ```
 
-Cet endpoint n'expose que les acks JSONL côté daemon. Les acks TOML CI
-chargés au startup ne sont pas inclus, requêter le fichier TOML
-directement pour cette vue, ou appeler
-`GET /api/findings?include_acked=true` et inspecter le champ
-`acknowledged_by.source` pour voir les deux sources unifiées.
+Avec `include_toml=true` :
+
+```json
+[
+  {
+    "action": "ack",
+    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "by": "alice@example.com",
+    "reason": "différé au prochain trimestre",
+    "at": "2026-05-04T13:30:00Z",
+    "expires_at": "2026-08-01T00:00:00Z",
+    "source": "daemon"
+  },
+  {
+    "action": "ack",
+    "signature": "slow_sql:billing-svc:GET__invoices:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "by": "ci-bot",
+    "reason": "baseline permanente",
+    "at": "2026-05-04",
+    "expires_at": "2026-12-31T23:59:59Z",
+    "source": "toml"
+  }
+]
+```
+
+Une ligne `toml` reporte l'entrée de la baseline sur les mêmes champs.
+`by` est son `acknowledged_by`. `at` est son `acknowledged_at` tel que
+le fichier l'écrit, qui n'est pas forcément un horodatage. `expires_at`
+est la fin de son jour d'expiration en UTC. Ses champs `service` et
+`source_endpoint` ne sont pas servis, et une entrée expirée est écartée.
+La liste contient au plus 1000 lignes, les acks du daemon d'abord, puis
+la baseline triée par signature : une baseline qui dépasse le plafond
+perd sa fin.
+
+Les lignes de la baseline exposent les relecteurs et les raisons de tout
+le fichier, pas seulement des findings que ce daemon a vus. La même clé
+les protège, et un daemon sans clé les sert comme le reste de son API.
+
+Sans le paramètre, cet endpoint n'expose que les acks JSONL côté daemon.
+Le paramètre sert un lecteur qui reflète l'état des acks, comme le Hub.
+`perf-sentinel ack list`, le panneau live du rapport HTML et le tableau
+Grafana gardent la liste du daemon seul, parce qu'un ack de la baseline
+ne se révoque pas par l'API. Par finding,
+`GET /api/findings?include_acked=true` et son champ
+`acknowledged_by.source` montrent toujours les deux sources unifiées.
 
 ### POST /api/incidents
 

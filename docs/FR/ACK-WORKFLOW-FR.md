@@ -122,6 +122,9 @@ acks TOML CI vivent dans le fichier lui-même, à consulter avec :
 cat .perf-sentinel-acknowledgments.toml
 ```
 
+En HTTP, `GET /api/acks?include_toml=true` (depuis 0.23.1) liste les
+deux, chaque ligne nommant sa `source`, voir `docs/FR/QUERY-API-FR.md`.
+
 ## Interop : TOML gagne en cas de conflit
 
 Les deux sources sont fusionnées au moment du filtrage des findings.

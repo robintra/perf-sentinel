@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -199,6 +200,15 @@ struct FindingsParams {
     include_acked: bool,
 }
 
+#[derive(Deserialize, Default)]
+struct AcksParams {
+    /// `true` also lists the active CI TOML baseline acks, and every row
+    /// then names its `source`. Default `false` keeps the daemon-only
+    /// listing as it always was.
+    #[serde(default)]
+    include_toml: bool,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct AckRequest {
     by: Option<String>,
@@ -262,6 +272,31 @@ pub struct FindingResponse {
     pub stored: StoredFinding,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acknowledged_by: Option<AckSource>,
+}
+
+/// One row of `GET /api/acks?include_toml=true`. Response-only:
+/// [`AckEntry`] is what the JSONL store persists, so the `source` lives
+/// here rather than on it.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum AckListItem {
+    Daemon {
+        #[serde(flatten)]
+        entry: AckEntry,
+        source: &'static str,
+    },
+    Toml {
+        action: AckAction,
+        signature: String,
+        by: String,
+        reason: String,
+        /// The baseline's `acknowledged_at`, verbatim: the file never
+        /// constrains its format.
+        at: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<DateTime<Utc>>,
+        source: &'static str,
+    },
 }
 
 // ── Response types ────────────────────────────────────────────────
@@ -400,6 +435,27 @@ pub(super) fn lookup_ack(
         });
     }
     None
+}
+
+/// The active CI TOML baseline acks as listing rows, sorted by
+/// signature so a capped listing keeps the same rows from one read to
+/// the next.
+fn toml_ack_items(toml: &HashMap<String, ResolvedTomlAck>, now: DateTime<Utc>) -> Vec<AckListItem> {
+    let mut active: Vec<(&String, &ResolvedTomlAck)> =
+        toml.iter().filter(|(_, t)| t.is_active(now)).collect();
+    active.sort_unstable_by_key(|(signature, _)| *signature);
+    active
+        .into_iter()
+        .map(|(signature, t)| AckListItem::Toml {
+            action: AckAction::Ack,
+            signature: signature.clone(),
+            by: t.inner.acknowledged_by.clone(),
+            reason: t.inner.reason.clone(),
+            at: t.inner.acknowledged_at.clone(),
+            expires_at: t.expires_at_dt,
+            source: "toml",
+        })
+        .collect()
 }
 
 async fn handle_findings_by_trace(
@@ -1100,7 +1156,8 @@ async fn handle_unack(
 async fn handle_list_acks(
     State(state): State<Arc<QueryApiState>>,
     headers: HeaderMap,
-) -> Result<Json<Vec<AckEntry>>, ErrorResponse> {
+    params: Result<Query<AcksParams>, QueryRejection>,
+) -> Result<Response, ErrorResponse> {
     // Gate reads with the ack key or `[daemon] read_api_key`. The ack audit
     // trail exposes reviewer identities, reasons, and finding signatures, so
     // when a key is configured it must govern this endpoint too, not just
@@ -1113,12 +1170,30 @@ async fn handle_list_acks(
         state.ack_api_key.as_deref(),
         state.daemon_config.read_api_key.as_deref(),
     )?;
-    let mut all = match &state.ack_store {
+    // Judged after the key: a malformed flag never answers 400 to a
+    // caller the gate would have refused.
+    let params = match params {
+        Ok(Query(params)) => params,
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
+    let mut daemon = match &state.ack_store {
         Some(s) => s.list_active().await,
         None => Vec::new(),
     };
+    if !params.include_toml {
+        daemon.truncate(MAX_ACKS_RESPONSE);
+        return Ok(Json(daemon).into_response());
+    }
+    let mut all: Vec<AckListItem> = daemon
+        .into_iter()
+        .map(|entry| AckListItem::Daemon {
+            entry,
+            source: "daemon",
+        })
+        .collect();
+    all.extend(toml_ack_items(&state.toml_acks.load(), Utc::now()));
     all.truncate(MAX_ACKS_RESPONSE);
-    Ok(Json(all))
+    Ok(Json(all).into_response())
 }
 
 /// Resolve the audit `by` field: `X-User-Id` header (priority), JSON

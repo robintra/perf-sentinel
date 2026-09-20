@@ -2444,9 +2444,13 @@ async fn list_acks_endpoint_requires_key_when_configured() {
     .await;
     let app = query_api_router(state);
 
-    // No key: 401.
+    // No key: 401, the baseline listing included.
     let resp = app.clone().oneshot(get_request("/api/acks")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        status_of(&app, get_request("/api/acks?include_toml=true")).await,
+        StatusCode::UNAUTHORIZED
+    );
 
     // Correct key: 200.
     let resp = app
@@ -2460,6 +2464,134 @@ async fn list_acks_endpoint_requires_key_when_configured() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+}
+
+/// `GET path`, parsed as the JSON array the ack listing answers.
+async fn list_acks(app: &Router, path: &str) -> Vec<serde_json::Value> {
+    let resp = app.clone().oneshot(get_request(path)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 4 * 1024 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+const TOML_SIG: &str = "slow_sql:billing-svc:GET__invoices:00112233445566778899aabbccddeeff";
+
+#[tokio::test]
+async fn list_acks_default_output_is_unchanged_with_toml_acks_loaded() {
+    let (_dir, store) = fresh_ack_store().await;
+    let toml = HashMap::from([(TOML_SIG.to_string(), toml_baseline_fixture(TOML_SIG))]);
+    let state = make_state_with_acks(Some(store), toml, None).await;
+    let sig = seed_finding(&state, "order-svc").await;
+    let app = query_api_router(state);
+    app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+
+    let list = list_acks(&app, "/api/acks").await;
+    assert_eq!(
+        list.len(),
+        1,
+        "the baseline stays out of the default listing"
+    );
+    assert_eq!(list[0]["signature"], sig);
+    assert!(list[0].get("source").is_none(), "no new field by default");
+}
+
+#[tokio::test]
+async fn list_acks_with_include_toml_lists_both_sources() {
+    let (_dir, store) = fresh_ack_store().await;
+    let toml = HashMap::from([(TOML_SIG.to_string(), toml_baseline_fixture(TOML_SIG))]);
+    let state = make_state_with_acks(Some(store), toml, None).await;
+    let sig = seed_finding(&state, "order-svc").await;
+    let app = query_api_router(state);
+    app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+
+    let list = list_acks(&app, "/api/acks?include_toml=true").await;
+    assert_eq!(list.len(), 2);
+    let daemon = list.iter().find(|a| a["signature"] == sig).unwrap();
+    assert_eq!(daemon["source"], "daemon");
+    assert_eq!(daemon["action"], "ack");
+    assert_eq!(daemon["by"], "anonymous");
+    let baseline = list.iter().find(|a| a["signature"] == TOML_SIG).unwrap();
+    assert_eq!(baseline["source"], "toml");
+    assert_eq!(baseline["action"], "ack");
+    assert_eq!(baseline["by"], "ci-bot");
+    assert_eq!(baseline["reason"], "permanent baseline");
+    assert_eq!(baseline["at"], "2026-05-04");
+    assert!(baseline.get("expires_at").is_none());
+}
+
+#[tokio::test]
+async fn list_acks_with_include_toml_skips_an_expired_toml_ack() {
+    let mut expired = toml_baseline_fixture(TOML_SIG);
+    expired.expires_at_dt = Some(Utc::now() - chrono::Duration::days(1));
+    let mut live =
+        toml_baseline_fixture("slow_sql:billing-svc:GET__live:00112233445566778899aabbccddeeff");
+    live.expires_at_dt = Some(Utc::now() + chrono::Duration::days(1));
+    let toml = HashMap::from([
+        (TOML_SIG.to_string(), expired),
+        (live.inner.signature.clone(), live),
+    ]);
+    let app = query_api_router(make_state_with_acks(None, toml, None).await);
+
+    let list = list_acks(&app, "/api/acks?include_toml=true").await;
+    assert_eq!(list.len(), 1);
+    assert_ne!(list[0]["signature"], TOML_SIG);
+    assert!(
+        list[0]["expires_at"].is_string(),
+        "the parsed expiry is served"
+    );
+}
+
+#[tokio::test]
+async fn list_acks_with_include_toml_keeps_a_free_text_toml_date() {
+    // The baseline file never constrains `acknowledged_at`, so a value
+    // that is not a date must not cost the row.
+    let mut ack = toml_baseline_fixture(TOML_SIG);
+    ack.inner.acknowledged_at = "2026-05-04T10:00:00+02:00, after the audit".to_string();
+    let toml = HashMap::from([(TOML_SIG.to_string(), ack)]);
+    let app = query_api_router(make_state_with_acks(None, toml, None).await);
+
+    let list = list_acks(&app, "/api/acks?include_toml=true").await;
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["at"], "2026-05-04T10:00:00+02:00, after the audit");
+}
+
+#[tokio::test]
+async fn list_acks_with_include_toml_stays_under_the_cap() {
+    let toml: HashMap<String, ResolvedTomlAck> = (0..=MAX_ACKS_RESPONSE)
+        .map(|i| {
+            let sig = format!("slow_sql:svc:GET__r{i}:00112233445566778899aabbccddeeff");
+            (sig.clone(), toml_baseline_fixture(&sig))
+        })
+        .collect();
+    let app = query_api_router(make_state_with_acks(None, toml, None).await);
+
+    let list = list_acks(&app, "/api/acks?include_toml=true").await;
+    assert_eq!(list.len(), MAX_ACKS_RESPONSE);
+}
+
+#[tokio::test]
+async fn list_acks_judges_a_malformed_include_toml_after_the_key() {
+    let (_dir, store) = fresh_ack_store().await;
+    let state = make_state_with_acks(
+        Some(store),
+        HashMap::new(),
+        Some("a-long-enough-secret".into()),
+    )
+    .await;
+    let app = query_api_router(state);
+    let malformed = || get_request("/api/acks?include_toml=maybe");
+
+    assert_eq!(
+        status_of(&app, malformed()).await,
+        StatusCode::UNAUTHORIZED,
+        "a caller without the key learns nothing from the flag"
+    );
+    assert_eq!(
+        status_of(&app, keyed(malformed(), Some("a-long-enough-secret"))).await,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[test]
@@ -2861,6 +2993,14 @@ async fn the_read_key_opens_the_ack_listing_but_not_the_ack_writes() {
 
     assert_eq!(
         status_of(&app, keyed(get_request("/api/acks"), read)).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        status_of(
+            &app,
+            keyed(get_request("/api/acks?include_toml=true"), read)
+        )
+        .await,
         StatusCode::OK
     );
     assert_eq!(

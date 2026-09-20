@@ -875,6 +875,14 @@ since 0.20.0, `[daemon] read_api_key`, and returns `401` without it. The ack aud
 exposes reviewer identities, reasons, and finding signatures, so the
 configured key governs reads too, not only `POST`/`DELETE`.
 
+**Query parameters:**
+
+- `include_toml` (since 0.23.1): `true` also lists the active acks of
+  the CI TOML baseline, and every row then carries a `source`, `daemon`
+  or `toml`. Default `false`, which leaves the response below as it
+  always was. A value that is not a boolean answers `400`, after the key
+  check. A daemon older than 0.23.1 ignores the parameter.
+
 **Response:** array of objects, one per active ack:
 
 ```json
@@ -890,10 +898,50 @@ configured key governs reads too, not only `POST`/`DELETE`.
 ]
 ```
 
-This endpoint surfaces only the daemon-side JSONL acks. CI TOML acks
-loaded at startup are not included, query the TOML file directly for
-that view, or call `GET /api/findings?include_acked=true` and inspect
-the `acknowledged_by.source` field to see both sources unified.
+With `include_toml=true`:
+
+```json
+[
+  {
+    "action": "ack",
+    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "by": "alice@example.com",
+    "reason": "deferred to next quarter",
+    "at": "2026-05-04T13:30:00Z",
+    "expires_at": "2026-08-01T00:00:00Z",
+    "source": "daemon"
+  },
+  {
+    "action": "ack",
+    "signature": "slow_sql:billing-svc:GET__invoices:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "by": "ci-bot",
+    "reason": "permanent baseline",
+    "at": "2026-05-04",
+    "expires_at": "2026-12-31T23:59:59Z",
+    "source": "toml"
+  }
+]
+```
+
+A `toml` row maps the baseline entry onto the same fields. `by` is its
+`acknowledged_by`. `at` is its `acknowledged_at` exactly as the file
+writes it, which may not be a timestamp. `expires_at` is the end of its
+expiry day in UTC. Its `service` and `source_endpoint` are not served,
+and an expired entry is left out. The listing holds at most 1000 rows,
+the daemon acks first, then the baseline sorted by signature, so a
+baseline that passes the cap loses its tail.
+
+The baseline rows expose the reviewers and the reasons of the whole
+file, not only of the findings this daemon has seen. The same key gates
+them, and a daemon with no key serves them like the rest of its API.
+
+Without the parameter this endpoint surfaces only the daemon-side JSONL
+acks. The parameter serves a reader that mirrors the ack state, such as
+the Hub. `perf-sentinel ack list`, the live panel of the HTML report and
+the Grafana table keep the daemon-only listing, because a baseline ack
+cannot be revoked through the API. Per finding,
+`GET /api/findings?include_acked=true` and its `acknowledged_by.source`
+field still show both sources unified.
 
 ### POST /api/incidents
 
