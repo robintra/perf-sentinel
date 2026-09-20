@@ -907,12 +907,12 @@ lectures, pas seulement les `POST`/`DELETE`.
 
 **Paramètres de requête :**
 
-- `include_toml` (depuis 0.23.1) : `true` liste aussi les acks actifs
+- `include_toml` (depuis 0.24.0) : `true` liste aussi les acks actifs
   de la baseline TOML CI, et chaque ligne porte alors une `source`,
   `daemon` ou `toml`. Par défaut `false`, ce qui laisse la réponse
   ci-dessous telle qu'elle a toujours été. Une valeur qui n'est pas un
   booléen renvoie `400`, après le contrôle de la clé. Un daemon
-  antérieur à 0.23.1 ignore le paramètre.
+  antérieur à 0.24.0 ignore le paramètre.
 
 **Réponse :** tableau d'objets, un par ack actif :
 
@@ -1125,7 +1125,7 @@ l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
 `offset` (défaut 0), `limit` (défaut 50, plafonné à 100, chaque incident
 portant jusqu'à 1000 findings). Paginez avec `offset` pour atteindre les
 incidents plus anciens.
-`id` (depuis 0.23.1) renvoie ce seul incident dans un tableau d'un
+`id` (depuis 0.24.0) renvoie ce seul incident dans un tableau d'un
 élément, ou `[]` quand le ring ne le détient pas, et les autres
 paramètres sont alors ignorés.
 

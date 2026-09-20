@@ -880,11 +880,11 @@ configured key governs reads too, not only `POST`/`DELETE`.
 
 **Query parameters:**
 
-- `include_toml` (since 0.23.1): `true` also lists the active acks of
+- `include_toml` (since 0.24.0): `true` also lists the active acks of
   the CI TOML baseline, and every row then carries a `source`, `daemon`
   or `toml`. Default `false`, which leaves the response below as it
   always was. A value that is not a boolean answers `400`, after the key
-  check. A daemon older than 0.23.1 ignores the parameter.
+  check. A daemon older than 0.24.0 ignores the parameter.
 
 **Response:** array of objects, one per active ack:
 
@@ -1083,7 +1083,7 @@ query monitor` and the `perf-sentinel query incidents` subcommand.
 **Query parameters:** `service` and `namespace` (exact match), `offset`
 (default 0), `limit` (default 50, capped at 100, each incident carrying
 up to 1000 findings). Page with `offset` to reach older incidents.
-`id` (since 0.23.1) returns that one incident as a one-element array, or
+`id` (since 0.24.0) returns that one incident as a one-element array, or
 `[]` when the ring does not hold it, and the other parameters are then
 ignored.
 

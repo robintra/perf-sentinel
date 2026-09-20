@@ -178,7 +178,7 @@ Non, le matching par signature exacte est intentionnel en 0.5.17. Les wildcards 
 Revertez le commit. Le run CI suivant fera réapparaître le finding.
 
 **Q : Y a-t-il une API d'acknowledgments sur le daemon ?**
-Oui, depuis 0.5.20. `POST /api/findings/{sig}/ack` crée, `DELETE /api/findings/{sig}/ack` révoque, `GET /api/acks` liste les acks runtime, et aussi la baseline TOML active avec `?include_toml=true` (depuis 0.23.1). La CLI expose la même surface via `perf-sentinel ack create / revoke / list` (depuis 0.5.22). Auth via `PERF_SENTINEL_DAEMON_API_KEY` ou `--api-key-file`.
+Oui, depuis 0.5.20. `POST /api/findings/{sig}/ack` crée, `DELETE /api/findings/{sig}/ack` révoque, `GET /api/acks` liste les acks runtime, et aussi la baseline TOML active avec `?include_toml=true` (depuis 0.24.0). La CLI expose la même surface via `perf-sentinel ack create / revoke / list` (depuis 0.5.22). Auth via `PERF_SENTINEL_DAEMON_API_KEY` ou `--api-key-file`.
 
 **Q : `inspect` (TUI) honore-t-il les acknowledgments ?**
 Oui, les flags CI TOML s'appliquent. Depuis 0.5.24, `perf-sentinel query inspect` (mode daemon live) expose aussi `a` pour acquitter le finding sélectionné via l'API daemon et `u` pour révoquer, avec une modale qui demande reason / expires / by.
