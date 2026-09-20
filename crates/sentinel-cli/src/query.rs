@@ -502,7 +502,7 @@ pub(crate) fn fmt_local_time(ms: u64) -> String {
             || ms.to_string(),
             |t| {
                 crate::render::to_local(&t)
-                    .format(crate::render::LOCAL_TIME_FORMAT)
+                    .format(LOCAL_TIME_FORMAT)
                     .to_string()
             },
         )

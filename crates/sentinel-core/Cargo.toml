@@ -55,7 +55,7 @@ prost = "0.14.4"
 # with-serde (already on via the default `full` feature) is pinned explicitly:
 # the batch `analyze --input` OTLP/JSON arm needs the serde impls (camelCase +
 # hex ids) and must survive a future `default-features = false` slimming.
-opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "trace", "with-serde"] }
+opentelemetry-proto = { version = "0.33.0", features = ["gen-tonic-messages", "trace", "with-serde"] }
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout", "limit"] }
 prometheus = { version = "0.14.0", features = ["process"] }

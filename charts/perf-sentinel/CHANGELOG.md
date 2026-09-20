@@ -10,6 +10,77 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.24.0]
+
+### Added
+
+- **`appVersion` moves to `0.24.0`.** The incident ring is read back from
+  `[daemon.incidents] archive_path` at startup, so `/api/incidents` and the
+  Grafana incident panels no longer come back empty after every restart or
+  upgrade. The archive was written and never read. The replay is bounded to
+  the file's last 256 MiB so an unrotated file cannot hold the daemon past
+  its liveness probe, it happens before the API serves, and nothing is
+  appended back.
+- `GET /api/incidents` takes an `id` and answers with that one incident, or
+  `[]` when the ring no longer holds it, so a client that holds an id stops
+  paging through incidents that each carry up to 1000 frozen findings.
+- `GET /api/acks` takes an `include_toml` that adds the active CI TOML
+  baseline entries to the listing, every row naming its `source`, `daemon`
+  or `toml`. The default response is unchanged, the same key gates both, and
+  the 1000-row cap holds over the two sources together.
+
+### Fixed
+
+- Findings that carried no framework signal now get a `suggested_fix`. An
+  OpenTelemetry Java agent scope (`io.opentelemetry.<library>`) identifies
+  Java, cross-trace and cross-batch slow findings go through the suggestions
+  step, `serialized_calls`, `excessive_fanout`, `chatty_service` and
+  `pool_saturation` carry the scopes and `code_location` of one
+  representative call, and a framework with no fix for a finding type falls
+  back to its language generic. Finding signatures do not depend on either
+  field, so existing acknowledgments still match.
+- Two changes to one incident could reach the `[daemon.incidents]
+  archive_path` file in the opposite order to the one the ring applied them,
+  and the last record of an id is the one that counts, so an incident came
+  back open or without its settled findings. The record is handed to the
+  archive writer before the ring unlocks now.
+
+### Changed
+
+- **`workload.statefulset.persistence.size` defaults to `2Gi`, where it was
+  `1Gi`.** At its defaults the per-window archive keeps one active file plus
+  `max_files` (12) rotated ones of `max_size_mb` (100) each, about 1.3 GB,
+  which a `1Gi` claim could never hold, and the ack store shares the same
+  volume. A full volume does not stop the daemon, the archive writer drops
+  the windows it cannot write and counts them on
+  `perf_sentinel_archive_windows_dropped_total{reason="write_error"}`, so the
+  loss was silent unless somebody watched that counter. A StatefulSet's
+  `volumeClaimTemplate` is immutable, so an existing release keeps the claim
+  it was installed with: resize the PVC itself where the StorageClass allows
+  it, or reinstall. The new default leaves nothing for a
+  `[daemon.incidents] archive_path` pointed at the same volume, which is
+  append-only and never rotates, so raise the claim further for it or keep
+  that file off the PVC. Go back below it with
+  `persistence.manageDaemonPaths: false` and a smaller `[daemon.archive]`
+  in `config.toml` when storage, not the archive, is what you are short of.
+- The example findings dashboard under `examples/` moves to `version` 11: a
+  `History (Hub)` row reading PerfSentinelHub 0.3.0 and later through a
+  second, optional Infinity datasource, an `Ack` column opening the Hub's
+  ack page for a signature, an `Incident skip rows` variable reaching past
+  the 50 most recent incidents, and `info` severity drawn in a colour a dark
+  theme can read. `__inputs` is unchanged, so it still imports without a
+  Hub. It does not ship in the chart, re-import it where it is provisioned.
+- The example incident alerting rules under `examples/` drop the workloads
+  the daemon has not ingested over the last day, through a new
+  `perf_sentinel:untraced_services:1d` recording rule. Their container
+  selector also matched workloads the daemon does not trace, and each of
+  those raised an incident with no finding. Under the VictoriaMetrics
+  operator the recording rule needs the VMAlert's `remoteWrite`. Neither
+  file ships in the chart.
+
+No `values.yaml` key is added or removed, only the one default above moves,
+no template changes, and the shipped alerts are unchanged.
+
 ## [0.23.0]
 
 ### Added

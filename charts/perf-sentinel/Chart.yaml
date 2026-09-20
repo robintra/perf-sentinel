@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.23.0
-appVersion: "0.23.0"
+version: 0.24.0
+appVersion: "0.24.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,15 +36,17 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: added
-      description: "appVersion 0.23.0. The daemon counts slow occurrences across analysis batches: a template slow in `slow_query_min_occurrences` separate episodes within `[detection] slow_query_window_minutes` (default 15, `0` disables, range 0 to 60) yields a slow finding that folds with the batch ones, so a template slow in a few separate episodes, none of them enough on its own, now reports where it stayed in the duration histogram only. New counter `perf_sentinel_slow_window_keys_refused_total`. `GET /api/correlations` gains `source_sample_trace_id`, the trace of the source side of a pair."
-    - kind: fixed
-      description: "Cross-trace correlation pairs findings on their own timestamps instead of the analysis tick that produced them: `median_lag_ms` is no longer always 0, the earlier finding is the source, and `confidence` is no longer inflated by a source that left the window, so fewer pairs clear `min_confidence`. Pairing memory no longer grows with `window_minutes`, which is now validated between 1 and 10080 at config load when correlation is enabled: a `[daemon.correlation]` block outside that range stops the daemon at startup."
     - kind: changed
-      description: "Terminal output shows times in the local time zone, and a `TZ` naming a zone the image lacks resolves against a database embedded in the binary. The two example Grafana dashboards, not shipped in the chart, move to version 10 (overview) and 9 (findings): browser time zone, a `Finding type` variable, `Source trace` and `Target trace` columns. No values.yaml key is added or removed, no template changes, no shipped alert changes."
+      description: "`workload.statefulset.persistence.size` defaults to `2Gi` instead of `1Gi`. At its defaults the per-window archive keeps one active file plus `max_files` (12) rotated ones of `max_size_mb` (100) each, about 1.3 GB, which never fitted a `1Gi` claim: a full volume makes the archive writer drop the windows it cannot write and count them on `perf_sentinel_archive_windows_dropped_total`. A StatefulSet's volumeClaimTemplate is immutable, so an existing release keeps the claim it was installed with until you resize the PVC yourself or reinstall. The new default leaves nothing for a `[daemon.incidents] archive_path` pointed at the same volume, which never rotates, so raise the claim further for it or keep that file off the PVC."
+    - kind: added
+      description: "appVersion 0.24.0. The incident ring is read back from `[daemon.incidents] archive_path` at startup, so `/api/incidents` and the incident panels no longer come back empty after every restart or upgrade. `GET /api/incidents` takes an `id` and answers with that one incident wherever a newer one pushed it. `GET /api/acks` takes an `include_toml` that adds the active CI TOML baseline entries to the listing, every row naming its `source`, `daemon` or `toml`."
+    - kind: fixed
+      description: "Findings that carried no framework signal now get a `suggested_fix`: an OpenTelemetry Java agent scope identifies Java, cross-trace and cross-batch slow findings go through the suggestions step, and `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation` carry the scopes and `code_location` of one representative call. Signatures do not move, so existing acknowledgments still match. Two changes to one incident could also reach the archive in the opposite order to the one the ring applied them, which brought an incident back open or without its settled findings."
+    - kind: changed
+      description: "The example findings dashboard, not shipped in the chart, moves to version 11: a `History (Hub)` row reading PerfSentinelHub through a second optional Infinity datasource, an `Ack` column opening the Hub's ack page for a signature, an `Incident skip rows` variable reaching past the 50 most recent incidents, and readable `info` severity on a dark theme. The example incident alerting rules drop the workloads the daemon has not ingested over the last day, which had each raised an incident with no finding. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.23.0
+      image: ghcr.io/robintra/perf-sentinel:0.24.0
       platforms:
         - linux/amd64
         - linux/arm64

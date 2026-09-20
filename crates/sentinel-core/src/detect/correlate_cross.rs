@@ -1012,14 +1012,14 @@ mod tests {
         // dedup below and the documented degradation above are the two
         // halves of what this type does.
         let key_for = |i: usize| PairKey {
-            source: std::sync::Arc::new(CorrelationEndpoint {
+            source: Arc::new(CorrelationEndpoint {
                 finding_type: FindingType::NPlusOneSql,
                 service: format!("svc-{i}"),
                 template: "tpl".to_string(),
                 grouping_key: None,
                 grouping_value: None,
             }),
-            target: std::sync::Arc::new(CorrelationEndpoint {
+            target: Arc::new(CorrelationEndpoint {
                 finding_type: FindingType::RedundantSql,
                 service: "target".to_string(),
                 template: "tpl".to_string(),
