@@ -11,7 +11,7 @@
  * live in the page.
  */
 (function (global) {
-    "use strict";
+    'use strict';
 
     /**
      * The analysis binary embedded in the Hub, and the Hub service itself. Both
@@ -35,17 +35,17 @@
     /**
      * One actionable sentence per code, naming the next action. The service refuses to
      * expose raw stderr, so this table is the entire failure vocabulary the operator gets.
-     * @type {Record<import("../types").ErrorCode, string>}
+     * @type {Record<import('../types').ErrorCode, string>}
      */
     const ERRORS = {
-        source_unreachable: "nothing answered at its address. Check the daemon or backend is up and that the Hub still has a route to it, then run this again.",
-        source_auth_failed: "it answered and refused the Hub's credentials. Rotate the configured auth header or API key in the source's Secret. Nothing here will work until that is done.",
-        source_rejected_request: "it answered and refused these arguments, usually an unknown service name or a window it does not keep. Check the service against the backend and try a shorter lookback.",
-        timeout: "the run passed this Hub's time ceiling, or the backend took too long to answer. A wide window is the usual cause, halve the trace cap or shorten it. If it repeats instantly whatever the window, the address is probably not answering at all, check the endpoint.",
-        output_too_large: "the source returned more than one run is allowed to hold. Narrow the window or lower the trace cap so less comes back, then run it again.",
-        binary_failed: "the analysis binary failed for a reason none of the other codes covers, and nothing was stored. Run it once more. If it repeats, send this analysis ID to whoever operates the Hub.",
-        invalid_request: "the arguments were rejected before the run started, so nothing was read and nothing was spent. Fix the trace ID or the lookback value and submit again.",
-        internal: "the Hub itself failed and never touched the source. Retry now. If it fails the same way, the Hub needs attention rather than your request."
+        source_unreachable: 'nothing answered at its address. Check the daemon or backend is up and that the Hub still has a route to it, then run this again.',
+        source_auth_failed: 'it answered and refused the Hub\'s credentials. Rotate the configured auth header or API key in the source\'s Secret. Nothing here will work until that is done.',
+        source_rejected_request: 'it answered and refused these arguments, usually an unknown service name or a window it does not keep. Check the service against the backend and try a shorter lookback.',
+        timeout: 'the run passed this Hub\'s time ceiling, or the backend took too long to answer. A wide window is the usual cause, halve the trace cap or shorten it. If it repeats instantly whatever the window, the address is probably not answering at all, check the endpoint.',
+        output_too_large: 'the source returned more than one run is allowed to hold. Narrow the window or lower the trace cap so less comes back, then run it again.',
+        binary_failed: 'the analysis binary failed for a reason none of the other codes covers, and nothing was stored. Run it once more. If it repeats, send this analysis ID to whoever operates the Hub.',
+        invalid_request: 'the arguments were rejected before the run started, so nothing was read and nothing was spent. Fix the trace ID or the lookback value and submit again.',
+        internal: 'the Hub itself failed and never touched the source. Retry now. If it fails the same way, the Hub needs attention rather than your request.'
     };
 
     /**
@@ -54,31 +54,31 @@
      * records, and only the ones a settings read can actually produce.
      */
     const READ_ERRORS = {
-        network_error: "nothing answered at its address. Check the daemon is up and that the Hub still has a route to it.",
-        http_error: "it answered with an error status, so it is running and reachable. This is the daemon refusing or failing the request rather than a network problem.",
-        timeout: "it did not answer inside this Hub's HTTP timeout. Busy is as likely as down.",
-        invalid_status: "it answered, but not with a status this Hub can read. Its /api/status has to carry a version string.",
-        response_too_large: "it answered with more than this Hub reads in one go. A [daemon] section past that cap is worth reporting.",
-        hub_busy: "the Hub capped how many daemon reads run at once and this one hit the cap. It clears in about a second."
+        network_error: 'nothing answered at its address. Check the daemon is up and that the Hub still has a route to it.',
+        http_error: 'it answered with an error status, so it is running and reachable. This is the daemon refusing or failing the request rather than a network problem.',
+        timeout: 'it did not answer inside this Hub\'s HTTP timeout. Busy is as likely as down.',
+        invalid_status: 'it answered, but not with a status this Hub can read. Its /api/status has to carry a version string.',
+        response_too_large: 'it answered with more than this Hub reads in one go. A [daemon] section past that cap is worth reporting.',
+        hub_busy: 'the Hub capped how many daemon reads run at once and this one hit the cap. It clears in about a second.'
     };
 
-    /** @type {Record<import("../types").ErrorCode, string>} */
+    /** @type {Record<import('../types').ErrorCode, string>} */
     const ERROR_TITLES = {
-        source_unreachable: "No connection could be opened.",
-        source_auth_failed: "The source rejected the Hub's credentials.",
-        source_rejected_request: "The source refused the request.",
-        timeout: "The run exceeded the execution ceiling.",
-        output_too_large: "The source returned too much data.",
-        binary_failed: "The analysis binary failed.",
-        invalid_request: "The arguments were rejected before the run started.",
-        internal: "The Hub failed on its own side."
+        source_unreachable: 'No connection could be opened.',
+        source_auth_failed: 'The source rejected the Hub\'s credentials.',
+        source_rejected_request: 'The source refused the request.',
+        timeout: 'The run exceeded the execution ceiling.',
+        output_too_large: 'The source returned too much data.',
+        binary_failed: 'The analysis binary failed.',
+        invalid_request: 'The arguments were rejected before the run started.',
+        internal: 'The Hub failed on its own side.'
     };
 
-    /** @type {Record<import("../types").SourceKind, string>} */
-    const KIND_LABEL = {daemon: "daemon", tempo: "tempo", jaeger_query: "victoria traces"};
+    /** @type {Record<import('../types').SourceKind, string>} */
+    const KIND_LABEL = {daemon: 'daemon', tempo: 'tempo', jaeger_query: 'victoria traces'};
 
     const UNIT_MS = {m: 60000, h: 3600000, d: 86400000};
-    const UNIT_WORD = {m: "minute", h: "hour", d: "day"};
+    const UNIT_WORD = {m: 'minute', h: 'hour', d: 'day'};
 
     /**
      * Coarse duration. Drops a zero remainder so an exact hour reads "1 h", not "1 h 0 m".
@@ -86,15 +86,15 @@
      * @returns {string}
      */
     function dur(ms) {
-        if (ms == null) return "n/a";
+        if (ms == null) return 'n/a';
         const s = Math.max(0, Math.round(ms / 1000));
-        if (s < 60) return s + " s";
+        if (s < 60) return s + ' s';
         const m = Math.floor(s / 60);
-        if (m < 60) return s % 60 ? m + " m " + (s % 60) + " s" : m + " m";
+        if (m < 60) return s % 60 ? m + ' m ' + (s % 60) + ' s' : m + ' m';
         const h = Math.floor(m / 60);
-        if (h < 24) return m % 60 ? h + " h " + (m % 60) + " m" : h + " h";
+        if (h < 24) return m % 60 ? h + ' h ' + (m % 60) + ' m' : h + ' h';
         const d = Math.floor(h / 24);
-        return h % 24 ? d + " d " + (h % 24) + " h" : d + " d";
+        return h % 24 ? d + ' d ' + (h % 24) + ' h' : d + ' d';
     }
 
     /**
@@ -103,21 +103,21 @@
      * well for an age skimmed in a table and badly for a figure someone watches:
      * "10 d" hides a whole day of drift, and a countdown never appears to move.
      * @param {number | null | undefined} ms
-     * @param {"s" | "m"} floor
+     * @param {'s' | 'm'} floor
      * @returns {string}
      */
     function durDown(ms, floor) {
-        if (ms == null) return "n/a";
+        if (ms == null) return 'n/a';
         const s = Math.max(0, Math.round(ms / 1000));
         const d = Math.floor(s / 86400);
         const h = Math.floor(s / 3600) % 24;
         const m = Math.floor(s / 60) % 60;
         const parts = [];
-        if (d) parts.push(d + " d");
-        if (d || h) parts.push(h + " h");
-        if (d || h || m || floor === "m") parts.push(m + " m");
-        if (floor === "s") parts.push((s % 60) + " s");
-        return parts.join(" ");
+        if (d) parts.push(d + ' d');
+        if (d || h) parts.push(h + ' h');
+        if (d || h || m || floor === 'm') parts.push(m + ' m');
+        if (floor === 's') parts.push((s % 60) + ' s');
+        return parts.join(' ');
     }
 
     /**
@@ -133,19 +133,19 @@
         const daemons = [];
         const backends = [];
         (sources || []).forEach(function (source, index) {
-            (source && source.kind === "daemon" ? daemons : backends).push({source: source, index: index});
+            (source && source.kind === 'daemon' ? daemons : backends).push({source: source, index: index});
         });
         return {daemons, backends, split: daemons.length > 0 && backends.length > 0};
     }
 
     /** A countdown, watched: down to the second. */
     function durPrecise(ms) {
-        return durDown(ms, "s");
+        return durDown(ms, 's');
     }
 
     /** An uptime, re-read on an interval: down to the minute, seconds would lie. */
     function durMinutes(ms) {
-        return durDown(ms, "m");
+        return durDown(ms, 'm');
     }
 
     /**
@@ -156,12 +156,12 @@
      */
     function durParts(ms) {
         const s = dur(ms);
-        if (s === "n/a") return [{n: s, u: ""}];
+        if (s === 'n/a') return [{n: s, u: ''}];
         /** @type {{n: string, u: string}[]} */
         const out = [];
         const re = /(\d+)\s*([a-z]+)/g;
         let m;
-        while ((m = re.exec(s)) !== null) out.push({n: m[1] ?? "", u: m[2] ?? ""});
+        while ((m = re.exec(s)) !== null) out.push({n: m[1] ?? '', u: m[2] ?? ''});
         return out;
     }
 
@@ -172,8 +172,8 @@
      */
     function clock(ms) {
         const d = new Date(ms);
-        const p = (/** @type {number} */ n, /** @type {number} */ w) => String(n).padStart(w, "0");
-        return p(d.getHours(), 2) + ":" + p(d.getMinutes(), 2) + ":" + p(d.getSeconds(), 2) + "." + p(d.getMilliseconds(), 3);
+        const p = (/** @type {number} */ n, /** @type {number} */ w) => String(n).padStart(w, '0');
+        return p(d.getHours(), 2) + ':' + p(d.getMinutes(), 2) + ':' + p(d.getSeconds(), 2) + '.' + p(d.getMilliseconds(), 3);
     }
 
     /**
@@ -183,8 +183,8 @@
      * @returns {number}
      */
     function parseDur(s) {
-        const m = /^(\d+)([mhd])$/.exec(s || "");
-        return m ? Number(m[1]) * UNIT_MS[/** @type {"m"|"h"|"d"} */ (m[2])] : 3600000;
+        const m = /^(\d+)([mhd])$/.exec(s || '');
+        return m ? Number(m[1]) * UNIT_MS[/** @type {'m'|'h'|'d'} */ (m[2])] : 3600000;
     }
 
     /**
@@ -192,10 +192,10 @@
      * @returns {string}
      */
     function humanDur(s) {
-        const m = /^(\d+)([mhd])$/.exec(s || "");
+        const m = /^(\d+)([mhd])$/.exec(s || '');
         if (!m) return s;
         const n = Number(m[1]);
-        return n + " " + UNIT_WORD[/** @type {"m"|"h"|"d"} */ (m[2])] + (n > 1 ? "s" : "");
+        return n + ' ' + UNIT_WORD[/** @type {'m'|'h'|'d'} */ (m[2])] + (n > 1 ? 's' : '');
     }
 
     /**
@@ -205,8 +205,8 @@
      */
     function dtLocal(ms) {
         const d = new Date(ms);
-        const p = (/** @type {number} */ n) => String(n).padStart(2, "0");
-        return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+        const p = (/** @type {number} */ n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
 
     /**
@@ -215,8 +215,8 @@
      */
     function dtHuman(ms) {
         const d = new Date(ms);
-        const p = (/** @type {number} */ n) => String(n).padStart(2, "0");
-        return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+        const p = (/** @type {number} */ n) => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
 
     /**
@@ -224,7 +224,7 @@
      * @returns {number[]}
      */
     function vparts(v) {
-        return String(v || "").split(".").map(n => Number(n) || 0);
+        return String(v || '').split('.').map(n => Number(n) || 0);
     }
 
     /**
@@ -255,16 +255,16 @@
      * @returns {{count: number, unit: string}}
      */
     function versionGap(a, b) {
-        const units = ["major", "minor", "patch"];
+        const units = ['major', 'minor', 'patch'];
         const pa = vparts(a);
         const pb = vparts(b);
         for (let i = 0; i < units.length; i++) {
             const d = Math.abs((pb[i] ?? 0) - (pa[i] ?? 0));
-            if (d !== 0) return { count: d, unit: units[i] };
+            if (d !== 0) return {count: d, unit: units[i]};
         }
         // `vcmp` reads the same three segments, so a caller that already
         // ruled out equality never lands here.
-        return { count: 0, unit: "patch" };
+        return {count: 0, unit: 'patch'};
     }
 
     /**
@@ -276,7 +276,7 @@
      * which is what makes a single minor worth surfacing at all.
      *
      * @param {string | null | undefined} producer
-     * @returns {{dir: "behind" | "ahead", label: string, fg: string, bg: string, bd: string} | null}
+     * @returns {{dir: 'behind' | 'ahead', label: string, fg: string, bg: string, bd: string} | null}
      */
     function skew(producer) {
         // With no engine version there is nothing to compare against, and a
@@ -287,18 +287,18 @@
         const g = versionGap(producer, ENGINE);
         return c < 0
             ? {
-                dir: "behind",
-                label: g.count + " " + g.unit + " behind",
-                fg: "var(--warn-fg)",
-                bg: "var(--warn-bg)",
-                bd: "var(--warn-bd)"
+                dir: 'behind',
+                label: g.count + ' ' + g.unit + ' behind',
+                fg: 'var(--warn-fg)',
+                bg: 'var(--warn-bg)',
+                bd: 'var(--warn-bd)'
             }
             : {
-                dir: "ahead",
-                label: g.count + " " + g.unit + " ahead",
-                fg: "var(--info-fg)",
-                bg: "var(--info-bg)",
-                bd: "var(--info-bd)"
+                dir: 'ahead',
+                label: g.count + ' ' + g.unit + ' ahead',
+                fg: 'var(--info-fg)',
+                bg: 'var(--info-bg)',
+                bd: 'var(--info-bd)'
             };
     }
 
@@ -309,47 +309,47 @@
      * detects nothing: the Hub's embedded binary does, so a historical read carries
      * `engine`. Labelling both "engine" is the §7.6 confusion.
      *
-     * @param {import("../types").SourceKind | import("../types").Analysis} kindOrAnalysis
-     * @returns {"producer" | "engine"}
+     * @param {import('../types').SourceKind | import('../types').Analysis} kindOrAnalysis
+     * @returns {'producer' | 'engine'}
      */
     function detector(kindOrAnalysis) {
-        const k = typeof kindOrAnalysis === "string" ? kindOrAnalysis : kindOrAnalysis.kind;
-        return k === "daemon" ? "producer" : "engine";
+        const k = typeof kindOrAnalysis === 'string' ? kindOrAnalysis : kindOrAnalysis.kind;
+        return k === 'daemon' ? 'producer' : 'engine';
     }
 
     /**
      * Presentation status. `empty` is derived here and never stored: it must not
      * become a seventh value of `analysis_runs.status`.
-     * @param {import("../types").Analysis} a
-     * @returns {import("../types").DisplayStatus}
+     * @param {import('../types').Analysis} a
+     * @returns {import('../types').DisplayStatus}
      */
     function statusKey(a) {
-        if (a.status === "succeeded" && a.result && a.result.empty) return "empty";
-        if (a.status === "pending") return "queued";
+        if (a.status === 'succeeded' && a.result && a.result.empty) return 'empty';
+        if (a.status === 'pending') return 'queued';
         return a.status;
     }
 
     /**
      * One-line restatement of what was asked for. Long values are truncated by CSS,
      * never here: the full string stays available in a `title`.
-     * @param {import("../types").Analysis} a
+     * @param {import('../types').Analysis} a
      * @returns {string}
      */
     function argsLine(a) {
         const r = /** @type {Record<string, unknown>} */ (a.request || {});
         /** @type {string[]} */
         const parts = [];
-        if (r["service"]) parts.push("service = " + r["service"]);
-        if (r["trace_id"]) parts.push("trace_id = " + r["trace_id"]);
-        if (r["lookback"]) parts.push("lookback = " + r["lookback"]);
-        if (r["from_ms"]) parts.push("from_ms = " + r["from_ms"]);
-        if (r["to_ms"]) parts.push("to_ms = " + r["to_ms"]);
-        if (r["max_traces"] != null) parts.push("max_traces = " + r["max_traces"]);
-        const detection = /** @type {Record<string, number|string>} */ (r["detection"] || {});
+        if (r['service']) parts.push('service = ' + r['service']);
+        if (r['trace_id']) parts.push('trace_id = ' + r['trace_id']);
+        if (r['lookback']) parts.push('lookback = ' + r['lookback']);
+        if (r['from_ms']) parts.push('from_ms = ' + r['from_ms']);
+        if (r['to_ms']) parts.push('to_ms = ' + r['to_ms']);
+        if (r['max_traces'] != null) parts.push('max_traces = ' + r['max_traces']);
+        const detection = /** @type {Record<string, number|string>} */ (r['detection'] || {});
         Object.keys(detection).forEach(function (name) {
-            parts.push(name + " = " + detection[name]);
+            parts.push(name + ' = ' + detection[name]);
         });
-        return parts.length ? parts.join("   ·   ") : "no parameters  ·  daemon in-memory snapshot";
+        return parts.length ? parts.join('   ·   ') : 'no parameters  ·  daemon in-memory snapshot';
     }
 
     /**
@@ -369,43 +369,43 @@
      *
      * @param {number} n
      * @param {number} [cap]
-     * @returns {{key: import("../types").WeightBand, label: string, fg: string, bg: string, bd: string, body: string, needsAck: boolean}}
+     * @returns {{key: import('../types').WeightBand, label: string, fg: string, bg: string, bd: string, body: string, needsAck: boolean}}
      */
     function weightBand(n, cap) {
-        const hardCap = typeof cap === "number" && cap > 0 ? cap : 2000;
+        const hardCap = typeof cap === 'number' && cap > 0 ? cap : 2000;
         if (!Number.isFinite(n) || n < 1) {
             return {
-                key: "invalid", label: "not a count",
-                fg: "var(--crit-fg)", bg: "var(--crit-bg)", bd: "var(--crit-bd)", needsAck: false,
-                body: "A run needs at least one trace. Drag the handle or type a number between 1 and "
-                    + hardCap + "."
+                key: 'invalid', label: 'not a count',
+                fg: 'var(--crit-fg)', bg: 'var(--crit-bg)', bd: 'var(--crit-bd)', needsAck: false,
+                body: 'A run needs at least one trace. Drag the handle or type a number between 1 and '
+                    + hardCap + '.'
             };
         }
         if (n <= Math.min(500, hardCap)) {
             return {
-                key: "safe", label: "comfortable",
-                fg: "var(--ok-fg)", bg: "var(--ok-bg)", bd: "var(--ok-bd)", needsAck: false,
-                body: "Well inside what the sink returns whole. At this count the report is bounded by how much your traffic is doing wrong, not by the sink."
+                key: 'safe', label: 'comfortable',
+                fg: 'var(--ok-fg)', bg: 'var(--ok-bg)', bd: 'var(--ok-bd)', needsAck: false,
+                body: 'Well inside what the sink returns whole. At this count the report is bounded by how much your traffic is doing wrong, not by the sink.'
             };
         }
         if (n <= Math.min(1200, hardCap)) {
             return {
-                key: "heavy", label: "heavy",
-                fg: "var(--warn-fg)", bg: "var(--warn-bg)", bd: "var(--warn-bd)", needsAck: false,
-                body: "More traces means more findings, and every one of them reaches the report. The span trees stop at the embed cap, so the extra weight here is the list itself, not the trees."
+                key: 'heavy', label: 'heavy',
+                fg: 'var(--warn-fg)', bg: 'var(--warn-bg)', bd: 'var(--warn-bd)', needsAck: false,
+                body: 'More traces means more findings, and every one of them reaches the report. The span trees stop at the embed cap, so the extra weight here is the list itself, not the trees.'
             };
         }
         if (n <= hardCap) {
             return {
-                key: "ceiling", label: "at the ceiling",
-                fg: "var(--crit-fg)", bg: "var(--crit-bg)", bd: "var(--crit-bd)", needsAck: true,
-                body: "At this count the report still keeps every finding, and that is what makes it heavy: the file has no fixed ceiling and takes a moment to open. The run is also long enough to be worth watching against this Hub's time limit."
+                key: 'ceiling', label: 'at the ceiling',
+                fg: 'var(--crit-fg)', bg: 'var(--crit-bg)', bd: 'var(--crit-bd)', needsAck: true,
+                body: 'At this count the report still keeps every finding, and that is what makes it heavy: the file has no fixed ceiling and takes a moment to open. The run is also long enough to be worth watching against this Hub\'s time limit.'
             };
         }
         return {
-            key: "over", label: "above the hard cap",
-            fg: "var(--crit-fg)", bg: "var(--crit-bg)", bd: "var(--crit-bd)", needsAck: false,
-            body: "The service rejects this before the run starts. Nothing is read and nothing is spent."
+            key: 'over', label: 'above the hard cap',
+            fg: 'var(--crit-fg)', bg: 'var(--crit-bg)', bd: 'var(--crit-bd)', needsAck: false,
+            body: 'The service rejects this before the run starts. Nothing is read and nothing is spent.'
         };
     }
 
@@ -416,13 +416,13 @@
      * @param {number} n
      */
     function bytes(n) {
-        if (!Number.isFinite(n) || n < 0) return "";
-        if (n < 1024) return n + " B";
+        if (!Number.isFinite(n) || n < 0) return '';
+        if (n < 1024) return n + ' B';
         const kb = Math.round(n / 1024);
         // Rounding can carry into the next unit: 1023.5 KiB must read
         // "1.0 MB", never "1024 KB".
-        if (kb < 1024) return kb + " KB";
-        return (n / (1024 * 1024)).toFixed(1) + " MB";
+        if (kb < 1024) return kb + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
     /**
@@ -443,8 +443,8 @@
      */
     function shq(value) {
         const text = String(value);
-        if (text !== "" && /^[A-Za-z0-9_@%+=:,./-]+$/.test(text)) return text;
-        return "'" + text.replace(/'/g, "'\\''") + "'";
+        if (text !== '' && /^[A-Za-z0-9_@%+=:,./-]+$/.test(text)) return text;
+        return '\'' + text.replace(/'/g, '\'\\\'\'') + '\'';
     }
 
     /**
@@ -462,16 +462,16 @@
      */
     function psq(value) {
         const text = String(value);
-        if (text !== "" && /^[A-Za-z0-9_.:/=+-]+$/.test(text)) return text;
-        return "'" + text.replace(/'/g, "''") + "'";
+        if (text !== '' && /^[A-Za-z0-9_.:/=+-]+$/.test(text)) return text;
+        return '\'' + text.replace(/'/g, '\'\'') + '\'';
     }
 
     /* One entry per shell the launcher can spell a command for. `wrap` is what
        continues a command on the next line: a backslash in a POSIX shell, a
        backtick in PowerShell. */
     const SHELLS = [
-        {id: "posix", label: "bash / zsh", wrap: "\\", quote: shq},
-        {id: "powershell", label: "PowerShell", wrap: "`", quote: psq}
+        {id: 'posix', label: 'bash / zsh', wrap: '\\', quote: shq},
+        {id: 'powershell', label: 'PowerShell', wrap: '`', quote: psq}
     ];
 
     /**
@@ -486,9 +486,9 @@
      */
     function exportLine(shellId, name, value) {
         const shell = shellById(shellId);
-        return shell.id === "powershell"
-            ? "$env:" + name + " = " + shell.quote(value)
-            : "export " + name + "=" + shell.quote(value);
+        return shell.id === 'powershell'
+            ? '$env:' + name + ' = ' + shell.quote(value)
+            : 'export ' + name + '=' + shell.quote(value);
     }
 
     function shellById(id) {
@@ -509,7 +509,7 @@
     function defaultShell(platform) {
         // Anchored, not a substring: "Darwin" contains "win", and a caller passing
         // a Node style platform string would have handed macOS a PowerShell line.
-        return /^win/i.test(String(platform || "").trim()) ? "powershell" : "posix";
+        return /^win/i.test(String(platform || '').trim()) ? 'powershell' : 'posix';
     }
 
     /**
@@ -533,7 +533,7 @@
      * @returns {string}
      */
     function isoUtc(ms) {
-        return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+        return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
     }
 
     /**
@@ -547,7 +547,7 @@
      * The break follows the engine's own examples: the subcommand, the endpoint
      * and the selector on the first line, everything else on the second.
      *
-     * @param {import("../types").Source} source
+     * @param {import('../types').Source} source
      * @param {Record<string, unknown>} request
      * @returns {string | null}
      */
@@ -555,38 +555,38 @@
         if (!source.engine_subcommand) return null;
         const shell = shellById(shellId);
         const shq = shell.quote;
-        const head = ["perf-sentinel " + source.engine_subcommand, "--endpoint " + shq(source.base_url)];
+        const head = ['perf-sentinel ' + source.engine_subcommand, '--endpoint ' + shq(source.base_url)];
         /** @type {string[]} */
         const tail = [];
-        if (request["trace_id"] != null) {
-            head.push("--trace-id " + shq(String(request["trace_id"])));
+        if (request['trace_id'] != null) {
+            head.push('--trace-id ' + shq(String(request['trace_id'])));
         } else {
-            head.push("--service " + shq(String(request["service"] == null ? "" : request["service"])));
-            if (request["from_ms"] != null) {
-                tail.push("--from " + isoUtc(Number(request["from_ms"])));
-                tail.push("--to " + isoUtc(Number(request["to_ms"])));
+            head.push('--service ' + shq(String(request['service'] == null ? '' : request['service'])));
+            if (request['from_ms'] != null) {
+                tail.push('--from ' + isoUtc(Number(request['from_ms'])));
+                tail.push('--to ' + isoUtc(Number(request['to_ms'])));
             } else {
-                tail.push("--lookback " + shq(String(request["lookback"])));
+                tail.push('--lookback ' + shq(String(request['lookback'])));
             }
-            tail.push("--max-traces " + String(request["max_traces"]));
+            tail.push('--max-traces ' + String(request['max_traces']));
         }
-        if (source.auth_header_name) tail.push("--auth-header-env PERF_SENTINEL_SOURCE_TOKEN");
+        if (source.auth_header_name) tail.push('--auth-header-env PERF_SENTINEL_SOURCE_TOKEN');
         // Undotted, and named rather than left to the engine's discovery of
         // `.perf-sentinel.toml`, which is dotted and cwd-only. The Hub hands this
         // file over as a download, and a downloaded file may not keep a leading
         // dot, so asking for the dotted name would ask for one the reader might not
         // have. Naming it also makes a missing file stop the run instead of
         // silently reverting to the defaults the reader just moved away from.
-        if (Object.keys(request["detection"] || {}).length > 0) tail.push("-c perf-sentinel.toml");
+        if (Object.keys(request['detection'] || {}).length > 0) tail.push('-c perf-sentinel.toml');
         return tail.length === 0
-            ? head.join(" ")
-            : head.join(" ") + " " + shell.wrap + "\n  " + tail.join(" ");
+            ? head.join(' ')
+            : head.join(' ') + ' ' + shell.wrap + '\n  ' + tail.join(' ');
     }
 
     /**
      * The live view of a daemon in a terminal. `--daemon` sits on `query` and not
      * on `monitor`, so the order is not interchangeable.
-     * @param {import("../types").Source} source
+     * @param {import('../types').Source} source
      * @returns {string}
      */
     /**
@@ -601,10 +601,10 @@
      * @returns {string}
      */
     function monitorCommand(source, refreshSeconds, shellId) {
-        const command = "perf-sentinel query --daemon "
-            + shellById(shellId).quote(source.base_url) + " monitor";
+        const command = 'perf-sentinel query --daemon '
+            + shellById(shellId).quote(source.base_url) + ' monitor';
         return Number.isInteger(refreshSeconds) && refreshSeconds > 0
-            ? command + " --refresh " + refreshSeconds
+            ? command + ' --refresh ' + refreshSeconds
             : command;
     }
 
@@ -617,16 +617,16 @@
      * @returns {string}
      */
     function detectionToml(detection) {
-        return ["[detection]"].concat(Object.keys(detection).sort().map(function (name) {
+        return ['[detection]'].concat(Object.keys(detection).sort().map(function (name) {
             const value = detection[name];
             // TOML has no bare words: a choice is a quoted string or a parse error.
-            return name + " = " + (typeof value === "string" ? JSON.stringify(value) : value);
-        })).join("\n");
+            return name + ' = ' + (typeof value === 'string' ? JSON.stringify(value) : value);
+        })).join('\n');
     }
 
     /** True when a value had to be quoted, so the block can name the shell. */
     function quotedForShell(command) {
-        return command.indexOf("'") >= 0;
+        return command.indexOf('\'') >= 0;
     }
 
     /**
@@ -642,11 +642,11 @@
         const gauges = [view.traces, view.analysis_queue, view.findings];
         if (gauges.some(function (g) {
             return g && g.at_capacity;
-        })) return "near_capacity";
-        if (warningCount > 0) return "advised";
+        })) return 'near_capacity';
+        if (warningCount > 0) return 'advised';
         return gauges.every(function (g) {
             return !g || g.pct === null;
-        }) ? "unknown" : "ok";
+        }) ? 'unknown' : 'ok';
     }
 
     /**
@@ -679,12 +679,12 @@
      * says nothing about how close to one it is.
      *
      * @param {number | null | undefined} pct
-     * @returns {"crit" | "warn" | null}
+     * @returns {'crit' | 'warn' | null}
      */
     function gaugeTone(pct) {
-        if (typeof pct !== "number" || !isFinite(pct)) return null;
-        if (pct >= GAUGE_CRIT_PCT) return "crit";
-        if (pct >= GAUGE_WARN_PCT) return "warn";
+        if (typeof pct !== 'number' || !isFinite(pct)) return null;
+        if (pct >= GAUGE_CRIT_PCT) return 'crit';
+        if (pct >= GAUGE_WARN_PCT) return 'warn';
         return null;
     }
 
@@ -700,18 +700,18 @@
     function gaugeMove(before, after) {
         const from = before ? before.value : null;
         const to = after ? after.value : null;
-        if (typeof from !== "number" || typeof to !== "number" || from === to) return null;
+        if (typeof from !== 'number' || typeof to !== 'number' || from === to) return null;
         return to - from;
     }
 
-    const ENGINE_REPOSITORY = "https://github.com/robintra/perf-sentinel";
-    const HUB_REPOSITORY = "https://github.com/robintra/PerfSentinelHub";
+    const ENGINE_REPOSITORY = 'https://github.com/robintra/perf-sentinel';
+    const HUB_REPOSITORY = 'https://github.com/robintra/PerfSentinelHub';
     /* Every chart version with the engine version it ships, which a release tag
        cannot give: a chart-only fix bumps the chart and not the appVersion. */
-    const CHART_PAGE = "https://artifacthub.io/packages/helm/perf-sentinel/perf-sentinel";
+    const CHART_PAGE = 'https://artifacthub.io/packages/helm/perf-sentinel/perf-sentinel';
     /* Not a link. safeHttpsHref would refuse the scheme, and it is a coordinate
        to paste into helm rather than a page to open. */
-    const CHART_COORDINATE = "oci://ghcr.io/robintra/charts/perf-sentinel";
+    const CHART_COORDINATE = 'oci://ghcr.io/robintra/charts/perf-sentinel';
 
     /**
      * Where to get the engine a printed command needs. Pinned to the version
@@ -723,9 +723,9 @@
      * @returns {string}
      */
     function releaseUrl(version) {
-        return /^[0-9][0-9A-Za-z.+-]{0,63}$/.test(String(version || ""))
-            ? ENGINE_REPOSITORY + "/releases/tag/v" + version
-            : ENGINE_REPOSITORY + "/releases";
+        return /^[0-9][0-9A-Za-z.+-]{0,63}$/.test(String(version || ''))
+            ? ENGINE_REPOSITORY + '/releases/tag/v' + version
+            : ENGINE_REPOSITORY + '/releases';
     }
 
     /**
@@ -735,7 +735,7 @@
      * @returns {string}
      */
     function hubReleaseUrl() {
-        return HUB_REPOSITORY + "/releases";
+        return HUB_REPOSITORY + '/releases';
     }
 
     /**
@@ -768,7 +768,7 @@
      * @returns {any}
      */
     function mergeableView(view) {
-        return view && typeof view === "object" && !view.error_code && Array.isArray(view.warnings)
+        return view && typeof view === 'object' && !view.error_code && Array.isArray(view.warnings)
             ? view
             : null;
     }
@@ -785,13 +785,13 @@
      * @param {any} previous the view currently on screen, if any
      * @param {number} sinceFullMs since the last full read
      * @param {number} everyMs how often a full read is due
-     * @returns {"full" | "light" | "probe"}
+     * @returns {'full' | 'light' | 'probe'}
      */
     function refreshPlan(previous, sinceFullMs, everyMs) {
-        if (mergeableView(previous)) return sinceFullMs >= everyMs ? "full" : "light";
+        if (mergeableView(previous)) return sinceFullMs >= everyMs ? 'full' : 'light';
         // Only a view that failed is worth probing. Everything else, nothing read
         // yet or a read in flight, starts over with the read that renders.
-        return previous && typeof previous === "object" && previous.error_code ? "probe" : "full";
+        return previous && typeof previous === 'object' && previous.error_code ? 'probe' : 'full';
     }
 
     /**
@@ -821,11 +821,11 @@
      * @type {Record<string, string>}
      */
     const INCIDENT_KIND_LABEL = {
-        oom_kill: "OOM kill",
-        memory_saturation: "memory saturation",
-        restart: "restart",
-        deploy: "deploy",
-        other: "other"
+        oom_kill: 'OOM kill',
+        memory_saturation: 'memory saturation',
+        restart: 'restart',
+        deploy: 'deploy',
+        other: 'other'
     };
 
     /**
@@ -840,18 +840,18 @@
      * @type {Record<string, string>}
      */
     const FINDING_TYPE_LABEL = {
-        n_plus_one_sql: "N+1 SQL",
-        n_plus_one_http: "N+1 HTTP",
-        n_plus_one_messaging: "N+1 messaging",
-        redundant_sql: "Redundant SQL",
-        redundant_http: "Redundant HTTP",
-        slow_sql: "Slow SQL",
-        slow_http: "Slow HTTP",
-        slow_messaging: "Slow messaging",
-        excessive_fanout: "Excessive fanout",
-        chatty_service: "Chatty service",
-        pool_saturation: "Pool saturation",
-        serialized_calls: "Serialized calls"
+        n_plus_one_sql: 'N+1 SQL',
+        n_plus_one_http: 'N+1 HTTP',
+        n_plus_one_messaging: 'N+1 messaging',
+        redundant_sql: 'Redundant SQL',
+        redundant_http: 'Redundant HTTP',
+        slow_sql: 'Slow SQL',
+        slow_http: 'Slow HTTP',
+        slow_messaging: 'Slow messaging',
+        excessive_fanout: 'Excessive fanout',
+        chatty_service: 'Chatty service',
+        pool_saturation: 'Pool saturation',
+        serialized_calls: 'Serialized calls'
     };
 
     /**
@@ -861,11 +861,11 @@
      * ring was empty. The Hub publishes the same verdict as `capture`, this is the
      * page's copy of the rule for a row it has not asked the Hub about.
      * @param {{oldest_finding_ms?: number | null, window_from_ms: number}} incident
-     * @returns {"complete" | "partial" | "empty"}
+     * @returns {'complete' | 'partial' | 'empty'}
      */
     function incidentCapture(incident) {
-        if (incident.oldest_finding_ms == null) return "empty";
-        return incident.oldest_finding_ms <= incident.window_from_ms ? "complete" : "partial";
+        if (incident.oldest_finding_ms == null) return 'empty';
+        return incident.oldest_finding_ms <= incident.window_from_ms ? 'complete' : 'partial';
     }
 
     /**
@@ -874,10 +874,10 @@
      * after its last span, so a stamp past `at_ms` belongs to the replacement.
      * @param {{first_seen_ms: number}} finding
      * @param {{at_ms: number}} incident
-     * @returns {"before" | "after"}
+     * @returns {'before' | 'after'}
      */
     function findingPhase(finding, incident) {
-        return finding.first_seen_ms > incident.at_ms ? "after" : "before";
+        return finding.first_seen_ms > incident.at_ms ? 'after' : 'before';
     }
 
     /**
@@ -887,9 +887,9 @@
      * @type {Record<string, string>}
      */
     const INCIDENT_READ_STATE = {
-        absent: "it publishes no incidents route",
-        unauthorized: "it refused the Hub's key",
-        error: "the read failed"
+        absent: 'it publishes no incidents route',
+        unauthorized: 'it refused the Hub\'s key',
+        error: 'the read failed'
     };
 
     /**
@@ -901,10 +901,10 @@
      * @returns {string}
      */
     function incidentsCopy(source, nowMs) {
-        if (source.incidents_read_ms == null) return source.name + ": never read";
-        const age = source.name + ": read " + dur(Math.max(0, nowMs - source.incidents_read_ms)) + " ago";
-        const state = INCIDENT_READ_STATE[source.incidents_state || ""];
-        return state ? age + ", " + state : age;
+        if (source.incidents_read_ms == null) return source.name + ': never read';
+        const age = source.name + ': read ' + dur(Math.max(0, nowMs - source.incidents_read_ms)) + ' ago';
+        const state = INCIDENT_READ_STATE[source.incidents_state || ''];
+        return state ? age + ', ' + state : age;
     }
 
     /**
@@ -916,10 +916,10 @@
      * @returns {string}
      */
     function incidentHandoffHash(incident, nowMs) {
-        return "#/new?from=" + incident.window_from_ms
-            + "&to=" + Math.min(incident.window_to_ms, nowMs)
-            + "&service=" + encodeURIComponent(incident.service)
-            + "&incident=" + encodeURIComponent(incident.id);
+        return '#/new?from=' + incident.window_from_ms
+            + '&to=' + Math.min(incident.window_to_ms, nowMs)
+            + '&service=' + encodeURIComponent(incident.service)
+            + '&incident=' + encodeURIComponent(incident.id);
     }
 
     /**
@@ -933,18 +933,301 @@
      * @returns {{fromMs: number, toMs: number, service: string, incidentId: string} | null}
      */
     function readHandoff(hash, nowMs) {
-        const text = String(hash || "");
-        if (text.indexOf("#/new?") !== 0) return null;
-        const params = new URLSearchParams(text.slice("#/new?".length));
+        const text = String(hash || '');
+        if (text.indexOf('#/new?') !== 0) return null;
+        const params = new URLSearchParams(text.slice('#/new?'.length));
         const number = function (key) {
             const raw = params.get(key);
-            return raw === null || raw.trim() === "" ? NaN : Number(raw);
+            return raw === null || raw.trim() === '' ? NaN : Number(raw);
         };
-        const fromMs = number("from");
-        const toMs = Math.min(number("to"), nowMs);
-        const service = (params.get("service") || "").trim();
-        if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs || service === "") return null;
-        return {fromMs: fromMs, toMs: toMs, service: service, incidentId: params.get("incident") || ""};
+        const fromMs = number('from');
+        const toMs = Math.min(number('to'), nowMs);
+        const service = (params.get('service') || '').trim();
+        if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs || service === '') return null;
+        return {fromMs: fromMs, toMs: toMs, service: service, incidentId: params.get('incident') || ''};
+    }
+
+    /**
+     * The route of the ack page. The environment and the source only decide
+     * which rows start checked, so a link without them is whole. A blank one is
+     * left out: Grafana sends a single space for the All choice of a variable.
+     * Both travel trimmed, since a padded one would match no row.
+     * @param {string} signature
+     * @param {string | null | undefined} sourceId
+     * @param {string | null | undefined} [environment]
+     * @returns {string}
+     */
+    function ackRouteHash(signature, sourceId, environment) {
+        const part = function (key, value) {
+            const clean = String(value || '').trim();
+            return clean === '' ? '' : '&' + key + '=' + encodeURIComponent(clean);
+        };
+        return '#/ack?signature=' + encodeURIComponent(signature)
+            + part('environment', environment) + part('source_id', sourceId);
+    }
+
+    /**
+     * The ack route for a `/?ack=<signature>&environment=…&source_id=…` address,
+     * the last two optional, or null without an `ack` parameter. The link
+     * arrives as a query because a hash is lost when the identity provider asks
+     * for a password on the way in. An empty value still routes, so the page can
+     * say the link is incomplete.
+     * @param {string | null | undefined} search
+     * @returns {string | null}
+     */
+    function ackEntryHash(search) {
+        const params = new URLSearchParams(String(search || ''));
+        return params.has('ack')
+            ? ackRouteHash(params.get('ack') || '', params.get('source_id'), params.get('environment'))
+            : null;
+    }
+
+    /**
+     * What a `#/ack?signature=…` hash names, or null when the page cannot act
+     * on it. The signature's bounds are the Hub's own, 1,024 characters and no
+     * control character. A blank signature is refused here because
+     * `/api/findings` reads one as no filter and would answer with a finding the
+     * link never named. A blank source or environment is no context, read as
+     * null, while an environment past 256 characters or carrying a control
+     * character is a link nobody meant to write.
+     * @param {string | null | undefined} hash
+     * @returns {{signature: string, sourceId: string | null, environment: string | null} | null}
+     */
+    function readAckRoute(hash) {
+        const text = String(hash || '');
+        if (text.indexOf('#/ack?') !== 0) return null;
+        const params = new URLSearchParams(text.slice('#/ack?'.length));
+        const named = function (key) {
+            return (params.get(key) || '').trim() || null;
+        };
+        const signature = params.get('signature') || '';
+        if (signature.trim() === '' || signature.length > 1024 || /\p{Cc}/u.test(signature)) return null;
+        const environment = named('environment');
+        if (environment !== null && (environment.length > 256 || /\p{Cc}/u.test(environment))) return null;
+        return {signature: signature, sourceId: named('source_id'), environment: environment};
+    }
+
+    /**
+     * The ack reads whose listing the Hub mirrors acks from. Any other state
+     * leaves `acks[]` silent about that source, which proves nothing.
+     */
+    const ACK_STATES_KNOWN = ['ok', 'truncated'];
+
+    /**
+     * One row per source that carries the finding, with what the page can do
+     * there. An ack lives in one daemon's own store, so each source is acked and
+     * revoked by itself, and an ack hides a finding, so the link's context sets
+     * the default ticks: the source it names, else the sources of the environment
+     * it names, else a source that is alone in taking an action. Every other row
+     * stays the reader's to tick.
+     *
+     * A relaying source whose ack state is unknown takes `either` action. A
+     * daemon below 0.24.0 never has a listing and one failed read proves
+     * nothing, while the relay would still answer, so the daemon is left to
+     * refuse the button that does not apply.
+     * @param {{sources?: Array<{id: string, name: string, environment: string}>,
+     *   acks?: Array<{source_id: string, source: string}>}} finding
+     * @param {Array<import('../types').Source> | null | undefined} sources
+     * @param {{sourceId?: string | null, environment?: string | null} | null | undefined} scope
+     * @returns {Array<{id: string, name: string, environment: string, relay: boolean,
+     *   ack: {source_id: string, source: string} | null, action: 'ack' | 'revoke' | 'either' | 'none',
+     *   checked: boolean, note: string | null}>}
+     */
+    function ackRows(finding, sources, scope) {
+        const sourceId = (scope && scope.sourceId) || null;
+        const environment = (scope && scope.environment) || null;
+        const rows = (finding.sources || []).map(function (carrier) {
+            const source = (sources || []).find(function (candidate) {
+                return candidate.id === carrier.id;
+            });
+            const ack = (finding.acks || []).find(function (candidate) {
+                return candidate.source_id === carrier.id;
+            }) || null;
+            const relay = Boolean(source && source.ack_relay);
+            let action = 'none';
+            let note = null;
+            if (!source) note = 'The Hub no longer configures this source.';
+            else if (!relay) note = 'The Hub holds no ack credential for this source.';
+            else if (ack && ack.source === 'daemon') action = 'revoke';
+            else if (ack) note = 'Acknowledged by the CI baseline, which is edited through a pull request.';
+            else if (ACK_STATES_KNOWN.indexOf(source.acks_state) < 0) {
+                action = 'either';
+                note = 'The ack state of this daemon is unknown, acks_state is '
+                    + (source.acks_state || 'never read') + '. Acknowledge and Revoke both apply, the daemon '
+                    + 'refuses the one that does not, and its answer shows in the result line.';
+            } else action = 'ack';
+            return {
+                id: carrier.id,
+                name: (source || carrier).name,
+                environment: (source || carrier).environment,
+                relay: relay,
+                ack: ack,
+                action: /** @type {'ack' | 'revoke' | 'either' | 'none'} */ (action),
+                checked: false,
+                note: note
+            };
+        });
+        const actionable = rows.filter(function (row) {
+            return row.action !== 'none';
+        });
+        actionable.forEach(function (row) {
+            if (sourceId) row.checked = row.id === sourceId;
+            else if (environment) row.checked = row.environment === environment;
+            else row.checked = actionable.length === 1;
+        });
+        return rows;
+    }
+
+    /**
+     * The `expires_at` of an ack that lasts through the day a date input holds:
+     * the last second of that day in UTC, null for no date, which is a permanent
+     * ack. A day already over in UTC throws, since the Hub refuses an expiry
+     * that is not ahead, and the message is the sentence the page shows.
+     * @param {string | null | undefined} dateValue
+     * @param {number} nowMs
+     * @returns {string | null}
+     */
+    function ackExpiry(dateValue, nowMs) {
+        const day = String(dateValue || '');
+        if (day === '') return null;
+        const endMs = Date.parse(day + 'T23:59:59Z');
+        // The engine rolls the 31st of February over rather than refusing it.
+        if (!Number.isFinite(endMs) || isoUtc(endMs).slice(0, 10) !== day) {
+            throw new RangeError('The expiry is not a date.');
+        }
+        if (endMs <= nowMs) throw new RangeError('The expiry is in the past.');
+        return isoUtc(endMs);
+    }
+
+    /**
+     * Whether a row is checked: the reader's own tick when they made one for the
+     * action the row offers now, what ackRows says otherwise. A tick made on an
+     * ack says nothing once the row reads Revoke, while a source the reader left
+     * out stays out however often the rows are read again. `either` overlaps
+     * both actions, so a tick made on it or read against it still speaks: an ack
+     * state that turns known or unknown between two reads must not tick a row
+     * the reader left out.
+     * @param {{id: string, action: string, checked: boolean}} row
+     * @param {Record<string, {action: string, checked: boolean}> | null | undefined} ticks
+     * @returns {boolean}
+     */
+    function ackChecked(row, ticks) {
+        if (row.action === 'none') return false;
+        const own = (ticks || {})[row.id];
+        const speaks = own && (own.action === row.action || own.action === 'either' || row.action === 'either');
+        return speaks ? own.checked : row.checked;
+    }
+
+    /**
+     * @param {number} count
+     * @returns {string}
+     */
+    function sourceCount(count) {
+        return count + (count === 1 ? ' source' : ' sources');
+    }
+
+    /**
+     * What the two buttons would do with the form as it stands. `blocker` is
+     * what keeps Acknowledge dead, while a revoke needs a checked row and nothing
+     * else. `blocked` is true only when neither button can be pressed, so the
+     * sentence never reads as a refusal beside a button that is ready. A checked
+     * row that takes `either` action counts for both buttons.
+     * @param {Array<{id: string, action: string, checked: boolean}>} rows
+     * @param {Record<string, {action: string, checked: boolean}> | null | undefined} ticks
+     * @param {string | null | undefined} reason
+     * @param {string | null | undefined} expiryValue
+     * @param {number} nowMs
+     * @returns {{ack: Array<{id: string, action: string, checked: boolean}>,
+     *   revoke: Array<{id: string, action: string, checked: boolean}>, expiresAt: string | null,
+     *   blocker: string | null, blocked: boolean, sentence: string}}
+     */
+    function ackPlan(rows, ticks, reason, expiryValue, nowMs) {
+        const checked = function (action) {
+            return rows.filter(function (row) {
+                return (row.action === action || row.action === 'either') && ackChecked(row, ticks);
+            });
+        };
+        const ack = checked('ack');
+        const revoke = checked('revoke');
+        let expiresAt = null;
+        let blocker = null;
+        if (ack.length === 0) blocker = 'No checked source can take an ack.';
+        else if (String(reason || '').trim() === '') blocker = 'An ack needs a reason.';
+        else {
+            try {
+                expiresAt = ackExpiry(expiryValue, nowMs);
+            } catch (error) {
+                blocker = String(error.message);
+            }
+        }
+        const sentences = [];
+        if (ack.length > 0) {
+            sentences.push(blocker || 'Acknowledge writes to ' + sourceCount(ack.length)
+                + (expiresAt ? ', until ' + expiresAt + '.' : ', with no expiry.'));
+        }
+        // The Hub mirrors no ack from a row of unknown state, so it claims none there.
+        const unsure = revoke.some(function (row) {
+            return row.action === 'either';
+        });
+        if (revoke.length > 0) {
+            sentences.push(unsure
+                ? 'Revoke asks ' + sourceCount(revoke.length) + ' to remove the ack, if there is one.'
+                : 'Revoke removes the ack on ' + sourceCount(revoke.length) + '.');
+        }
+        return {
+            ack: ack,
+            revoke: revoke,
+            expiresAt: expiresAt,
+            blocker: blocker,
+            blocked: blocker !== null && revoke.length === 0,
+            sentence: sentences.join(' ') || 'No checked source can take an ack or a revoke.'
+        };
+    }
+
+    /**
+     * The JSON one relay request carries. The Hub names the caller itself, and a
+     * revoke names the finding and nothing else.
+     * @param {'ack' | 'revoke'} action
+     * @param {string} signature
+     * @param {string | null | undefined} reason
+     * @param {string | null | undefined} expiresAt
+     * @returns {{signature: string, reason?: string, expires_at?: string}}
+     */
+    function ackBody(action, signature, reason, expiresAt) {
+        if (action === 'revoke') return {signature: signature};
+        /** @type {{signature: string, reason: string, expires_at?: string}} */
+        const body = {signature: signature, reason: String(reason || '').trim()};
+        if (expiresAt) body.expires_at = expiresAt;
+        return body;
+    }
+
+    /**
+     * The refusals the Hub sends with no body, plus 0 for a request that never
+     * got an answer. Every other refusal carries its own `detail`.
+     * @type {Record<number, string>}
+     */
+    const ACK_REFUSALS = {
+        0: 'The Hub did not answer.',
+        413: 'The request is larger than the Hub accepts.',
+        503: 'The Hub is already relaying two acks. Try again in a moment.'
+    };
+
+    /**
+     * One line per source a submit wrote to, in the order it wrote. `action` is
+     * the button pressed, never `either`: on a row of unknown ack state the
+     * relay's `detail` carries the daemon's refusal of the button that did not apply.
+     * @param {Array<{name: string, action: 'ack' | 'revoke', status: number, detail?: string | null}>} results
+     * @returns {Array<{ok: boolean, text: string}>}
+     */
+    function ackSummary(results) {
+        return results.map(function (result) {
+            const ok = result.status >= 200 && result.status < 300;
+            const said = ok
+                ? (result.action === 'revoke' ? 'ack revoked.' : 'acknowledged.')
+                : result.detail || ACK_REFUSALS[result.status]
+                || 'The Hub refused the request with status ' + result.status + '.';
+            return {ok: ok, text: result.name + ': ' + said};
+        });
     }
 
     global.PSL = {
@@ -964,6 +1247,7 @@
         hubReleaseUrl, updateState, knownShell, CHART_PAGE, CHART_COORDINATE,
         gaugeTone, gaugeMove,
         INCIDENT_KIND_LABEL, FINDING_TYPE_LABEL, incidentCapture, findingPhase, INCIDENT_READ_STATE, incidentsCopy,
-        incidentHandoffHash, readHandoff
+        incidentHandoffHash, readHandoff,
+        ackRouteHash, ackEntryHash, readAckRoute, ackRows, ackExpiry, ackChecked, ackPlan, ackBody, ackSummary
     };
 })(globalThis);

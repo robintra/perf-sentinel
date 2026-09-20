@@ -1776,6 +1776,30 @@ button {
     color: var(--text-3);
 }
 
+/* ------------------------------------------------ screen: ack one finding */
+
+/* A banner and a card carry no margin of their own, and this screen stacks both. */
+.ack-stack {
+    display: grid;
+    gap: 14px;
+}
+
+/* Four short columns: the fleet table's floor would scroll them for nothing. */
+.table.ack-table {
+    min-width: 0;
+}
+
+.ack-table input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--brand);
+}
+
+.ack-expiry {
+    max-width: 220px;
+}
+
 /* ----------------------------------------------- screen: dashboard handoff */
 
 /* The report gets the whole viewport under a slim bar: the surface changes
