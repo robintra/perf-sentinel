@@ -449,7 +449,7 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 | `/api/energy`                   | GET         | aucun                                                                       | Santé live des backends énergie/intensité (depuis 0.8.8)                           |
 | `/api/export/report`            | GET         | hérite des plafonds `/api/findings` et `/api/correlations`                  | Snapshot `Report` JSON complet, prêt à piper dans `perf-sentinel report --input -` |
 | `/api/findings/{signature}/ack` | POST/DELETE | aucun                                                                       | Acquitte (POST) ou révoque (DELETE) un finding au runtime (depuis 0.5.20)          |
-| `/api/acks`                     | GET         | aucun                                                                       | Liste les acks runtime actifs                                                      |
+| `/api/acks`                     | GET         | plafonné à `MAX_ACKS_RESPONSE = 1000`                                       | Liste les acks runtime actifs, plus la baseline TOML CI avec `?include_toml=true`  |
 
 ### Sémantique du snapshot `/api/export/report`
 

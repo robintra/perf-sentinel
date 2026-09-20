@@ -482,7 +482,7 @@ Ten routes are mounted via `query_api_router()`. The router is only merged into 
 | `/api/energy`                   | GET         | none                                                                     | Live health of the energy/intensity backends (since 0.8.8)                                 |
 | `/api/export/report`            | GET         | inherits `/api/findings` + `/api/correlations` caps                      | Full `Report` snapshot as JSON, ready to pipe into `perf-sentinel report --input -`        |
 | `/api/findings/{signature}/ack` | POST/DELETE | none                                                                     | Acknowledge (POST) or revoke (DELETE) a finding at runtime (since 0.5.20)                  |
-| `/api/acks`                     | GET         | none                                                                     | List active runtime acks                                                                   |
+| `/api/acks`                     | GET         | capped at `MAX_ACKS_RESPONSE = 1000`                                     | List active runtime acks, plus the CI TOML baseline with `?include_toml=true`              |
 
 ### `/api/export/report` snapshot semantics
 
