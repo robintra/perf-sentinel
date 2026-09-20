@@ -263,9 +263,9 @@ Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le
 1. Regrouper les spans SQL par service
 2. Pour chaque service, trier les spans par timestamp de début
 3. Exécuter un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[début, début + durée]`, suivre la concurrence maximale
-4. Ignorer les services où la concurrence maximale est inférieure ou égale à `pool_saturation_concurrent_threshold` (défaut 10)
+4. Ignorer les services où la concurrence maximale est inférieure à `pool_saturation_concurrent_threshold` (défaut 10)
 5. Émettre un finding `pool_saturation` avec le service et le pic de concurrence
-6. Sévérité : Warning si > seuil, Critical si > 3x seuil
+6. Sévérité : toujours Warning, quel que soit le pic. À la différence du fanout et du chatty service, ce détecteur n'a pas de palier Critical
 
 ### Sweep line
 
