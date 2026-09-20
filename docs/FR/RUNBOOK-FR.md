@@ -73,12 +73,14 @@ Pour tout ce qui est plus ancien, la source de vérité est votre backend de tra
 
 Trois durées de vie différentes coexistent, et le TTL de 30 s, le plus visible, est le plus court des trois. Aller chercher Tempo alors que l'archive contient déjà la réponse est l'erreur la plus fréquente.
 
-| Quoi                                      | Vit dans                                                         | Expire quand                                                                                                                                                                      |
-|-------------------------------------------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Les spans (nécessaires à un explain tree) | La `TraceWindow` en mémoire                                      | `trace_ttl_ms` s'écoule, 30 s par défaut, ou éviction LRU au-delà de `max_active_traces`                                                                                          |
-| Les findings                              | Le ring buffer de findings                                       | Le ring dépasse `max_retained_findings` (10000). **Aucun TTL** : sur une flotte calme ils sont encore servis le lendemain, sur une flotte bavarde ils partent en quelques minutes |
-| Les findings, par fenêtre, sur disque     | L'archive NDJSON (`[daemon.archive]`)                            | Au-delà de `max_files` (12) fichiers tournés de `max_size_mb` (100) chacun, le plus ancien est supprimé, environ 1,3 Go aux défauts. **Aucun TTL** : rien n'expire par l'âge |
-| Les corrélations cross-trace              | `/api/correlations` et `/api/export/report`, en direct seulement | Immédiatement. **Ni archivées, ni reproductibles hors ligne**, voir plus bas                                                                                                      |
+| Quoi                                                                 | Vit dans                                                         | Expire quand                                                                                                                                                                      |
+|----------------------------------------------------------------------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Les spans (nécessaires à un explain tree)                            | La `TraceWindow` en mémoire                                      | `trace_ttl_ms` s'écoule, 30 s par défaut, ou éviction LRU au-delà de `max_active_traces`                                                                                          |
+| Les findings                                                         | Le ring buffer de findings                                       | Le ring dépasse `max_retained_findings` (10000). **Aucun TTL** : sur une flotte calme ils sont encore servis le lendemain, sur une flotte bavarde ils partent en quelques minutes |
+| Les findings, par fenêtre, sur disque                                | L'archive NDJSON (`[daemon.archive]`)                            | Au-delà de `max_files` (12) fichiers tournés de `max_size_mb` (100) chacun, le plus ancien est supprimé, environ 1,3 Go aux défauts. **Aucun TTL** : rien n'expire par l'âge      |
+| Les findings, dernier état et jours d'observation, par environnement | Le store SQLite du Hub (Hub 0.3.0 et suivants)                   | `Hub:Retention` s'écoule depuis la dernière observation, 180 jours par défaut                                                                                                     |
+| Les findings, chaque détection                                       | Votre backend de logs, alimenté par le stdout du daemon          | La rétention de ce backend                                                                                                                                                        |
+| Les corrélations cross-trace                                         | `/api/correlations` et `/api/export/report`, en direct seulement | Immédiatement. **Ni archivées, ni reproductibles hors ligne**, voir plus bas                                                                                                      |
 
 "Est-ce encore là après 3 heures" n'a donc pas de réponse temporelle pour les findings, seulement une réponse en volume. Les deux gauges qui disent à quelle distance du plafond vous êtes sont `perf_sentinel_stored_findings` et `perf_sentinel_max_retained_findings`, à lire comme un ratio :
 
@@ -110,6 +112,18 @@ la réponse d'une seconde aux deux bouts sans le dire.
 parse que `%Y-%m-%dT%H:%M:%SZ`.
 
 L'archivage est **désactivé par défaut** (`archive` non défini). S'il n'a jamais été configuré, rien n'a été écrit et le rejeu Tempo est la seule voie restante.
+
+**Un backend de logs garde chaque détection, si vous collectez déjà les logs du daemon.** Le daemon écrit chaque finding comme une ligne JSON sur stdout et ses propres logs en texte sur stderr, donc un collecteur qui suit le conteneur garde les findings aussi longtemps que ce backend les retient, sans aucun réglage côté perf-sentinel. Avec Loki, l'étape `json` distingue les deux d'elle-même, parce qu'une ligne de texte échoue à l'analyse :
+
+```logql
+sum by (signature, type, severity, service) (
+  count_over_time(
+    {namespace="<ns>", container="perf-sentinel"} | json | __error__="" | signature != "" [$__range]
+  )
+)
+```
+
+La requête suit le sélecteur de temps de Grafana et ne demande rien au daemon. Elle a trois coûts. Elle stocke une ligne par détection, donc un N+1 fréquent pèse sur le volume de logs comme il pèse sur le ring. Elle ne porte aucun état d'acquittement, puisqu'une ligne de log ne change plus une fois écrite. Et les limites de requête du backend (`max_query_length` et `max_query_series` pour Loki) bornent la profondeur et le nombre de signatures qu'une requête atteint, à vérifier avant de compter sur une longue plage. Le Hub est la voie prise en charge pour l'historique des findings, cette recette convient à une flotte qui paie déjà la rétention de ses logs.
 
 **Les corrélations cross-trace ne sont pas récupérables après coup.** Le `Report` archivé porte un tableau `correlations` vide par construction, et l'`analyze` batch ne produit jamais de corrélations, donc un rejeu Tempo ne les reconstruira pas non plus. Si une corrélation compte pour un incident, elle doit être capturée pendant que le daemon la détient encore. Une fois la fenêtre glissante du corrélateur passée, cette sortie est définitivement perdue.
 

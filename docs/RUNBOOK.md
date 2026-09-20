@@ -73,12 +73,14 @@ For anything older, the source of truth is your trace backend (typically Grafana
 
 Three different lifetimes are in play, and the visible 30 s TTL is the shortest of them. Reaching for Tempo when the archive already holds the answer is the common misstep.
 
-| What                               | Lives in                                                | Expires when                                                                                                                                                 |
-|------------------------------------|---------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Spans (needed for an explain tree) | `TraceWindow` in memory                                 | `trace_ttl_ms` elapses, 30 s by default, or LRU eviction past `max_active_traces`                                                                            |
-| Findings                           | Findings ring buffer                                    | The ring fills past `max_retained_findings` (10000). **No TTL**: on a quiet fleet they are still served the next day, on a busy one they are gone in minutes |
-| Findings, per window, on disk      | NDJSON archive (`[daemon.archive]`)                     | Past `max_files` (12) rotated files of `max_size_mb` (100) each, the oldest file is deleted, about 1.3 GB at the defaults. **No TTL**: nothing expires by age |
-| Cross-trace correlations           | `/api/correlations` and `/api/export/report`, live only | Immediately. **Not archived, not reproducible offline**, see below                                                                                           |
+| What                                                  | Lives in                                                | Expires when                                                                                                                                                  |
+|-------------------------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Spans (needed for an explain tree)                    | `TraceWindow` in memory                                 | `trace_ttl_ms` elapses, 30 s by default, or LRU eviction past `max_active_traces`                                                                             |
+| Findings                                              | Findings ring buffer                                    | The ring fills past `max_retained_findings` (10000). **No TTL**: on a quiet fleet they are still served the next day, on a busy one they are gone in minutes  |
+| Findings, per window, on disk                         | NDJSON archive (`[daemon.archive]`)                     | Past `max_files` (12) rotated files of `max_size_mb` (100) each, the oldest file is deleted, about 1.3 GB at the defaults. **No TTL**: nothing expires by age |
+| Findings, latest state and days seen, per environment | The Hub's SQLite store (Hub 0.3.0 and later)            | `Hub:Retention` elapses since the last observation, 180 days by default                                                                                       |
+| Findings, every detection                             | Your log backend, fed by the daemon's stdout            | That backend's retention                                                                                                                                      |
+| Cross-trace correlations                              | `/api/correlations` and `/api/export/report`, live only | Immediately. **Not archived, not reproducible offline**, see below                                                                                            |
 
 So "is it still there after 3 hours" has no time answer for findings, only a volume answer. The two gauges that tell you how close you are to the ceiling are `perf_sentinel_stored_findings` and `perf_sentinel_max_retained_findings`, meant to be read as a ratio:
 
@@ -109,6 +111,18 @@ by up to a second at both ends without saying so. `fromdateiso8601`
 needs the fraction stripped first, it parses `%Y-%m-%dT%H:%M:%SZ` only.
 
 Archiving is **off by default** (`archive` is unset). If it was never configured, nothing was written and Tempo replay is the only route left.
+
+**A log backend keeps every detection, if you already ship the daemon's logs.** The daemon writes each finding as one JSON line on stdout and its own logs as text on stderr, so a collector that tails the container keeps the findings for as long as that backend retains them, with no perf-sentinel setting involved. With Loki, the `json` stage tells the two apart by itself, because a text line fails to parse:
+
+```logql
+sum by (signature, type, severity, service) (
+  count_over_time(
+    {namespace="<ns>", container="perf-sentinel"} | json | __error__="" | signature != "" [$__range]
+  )
+)
+```
+
+The query follows the Grafana time picker and asks nothing of the daemon. It has three costs. It stores one line per detection, so a hot N+1 weighs on the log volume the way it weighs on the ring. It carries no acknowledgment state, since a log line never changes once written. And the backend's own query limits (`max_query_length` and `max_query_series` for Loki) bound how far back and how many signatures one query reaches, so check them before counting on a long range. The Hub is the supported path to findings history, this recipe suits a fleet that already pays for log retention.
 
 **Cross-trace correlations cannot be recovered after the fact.** The archived `Report` carries an empty `correlations` array by construction, and batch `analyze` never produces correlations at all, so a Tempo replay will not rebuild them either. If a correlation matters for an incident, it has to be captured while the daemon still holds it. Once the correlator's rolling window has moved on, that output is gone for good.
 
