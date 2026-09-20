@@ -308,7 +308,7 @@ Chatty service findings have `green_impact.estimated_extra_io_ops = 0`. The dete
 2. Group SQL spans by service name
 3. For each service group, compute peak concurrency via sweep-line
 4. If peak concurrency < `pool_saturation_concurrent_threshold` (default 10), skip
-5. Assign severity: Warning if > threshold, Critical if > 3x threshold
+5. Severity is always Warning, whatever the peak: unlike fanout and chatty service, this detector has no Critical tier
 
 ```
 Input:  trace with N spans, grouped by service
