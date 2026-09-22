@@ -1250,13 +1250,18 @@ struct IncidentIntake {
 
 #[derive(Debug, Deserialize, Default)]
 struct IncidentsParams {
-    /// One incident by id, the other parameters ignored, so a client that
-    /// holds an id does not page through frozen findings to find it.
+    /// One incident by id, `service`, `namespace`, `offset` and `limit`
+    /// ignored, so a client that holds an id does not page through frozen
+    /// findings to find it.
     id: Option<String>,
     service: Option<String>,
     namespace: Option<String>,
     offset: Option<usize>,
     limit: Option<usize>,
+    /// `false` returns each incident without its frozen findings, with
+    /// `finding_count` in their place, by id as well as by page. Absent or
+    /// `true`, the full record.
+    findings: Option<bool>,
 }
 
 /// Which key a request to the incident routes has to present.
@@ -1507,24 +1512,36 @@ async fn handle_post_incidents(
 async fn handle_list_incidents(
     State(state): State<Arc<QueryApiState>>,
     headers: HeaderMap,
-    Query(params): Query<IncidentsParams>,
-) -> Result<Json<Vec<super::incidents::Incident>>, ErrorResponse> {
+    params: Result<Query<IncidentsParams>, QueryRejection>,
+) -> Result<Response, ErrorResponse> {
     let store = check_incident_preconditions(&state, &headers, IncidentAccess::Read)?;
+    // Judged after the key, as in `handle_list_acks`.
+    let params = match params {
+        Ok(Query(params)) => params,
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
+    let with_findings = params.findings.unwrap_or(true);
     if let Some(id) = params.id.as_deref() {
-        return Ok(Json(store.get(id).await.into_iter().collect()));
+        return Ok(if with_findings {
+            Json(Vec::from_iter(store.get(id).await)).into_response()
+        } else {
+            Json(Vec::from_iter(store.get_summary(id).await)).into_response()
+        });
     }
     let limit = params.limit.unwrap_or(50).min(MAX_INCIDENTS_RESPONSE);
     let offset = params.offset.unwrap_or(0);
-    Ok(Json(
-        store
-            .list(
-                params.service.as_deref(),
-                params.namespace.as_deref(),
-                offset,
-                limit,
-            )
-            .await,
-    ))
+    let service = params.service.as_deref();
+    let namespace = params.namespace.as_deref();
+    Ok(if with_findings {
+        Json(store.list(service, namespace, offset, limit).await).into_response()
+    } else {
+        Json(
+            store
+                .list_summaries(service, namespace, offset, limit)
+                .await,
+        )
+        .into_response()
+    })
 }
 
 /// A key-gated `GET`: the write key that gates the route, or `[daemon]

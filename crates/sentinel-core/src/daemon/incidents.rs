@@ -175,6 +175,62 @@ impl Incident {
     }
 }
 
+/// An [`Incident`] without its frozen findings, which it counts instead:
+/// what `GET /api/incidents?findings=false` returns, for a table that
+/// shows the count and would otherwise pull every finding to compute it.
+/// Response-only, the archive keeps the full record.
+#[derive(Debug, Serialize)]
+pub(crate) struct IncidentSummary {
+    id: String,
+    service: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
+    kind: IncidentKind,
+    at_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ended_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    window_from_ms: u64,
+    window_to_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oldest_finding_ms: Option<u64>,
+    finding_count: usize,
+}
+
+impl IncidentSummary {
+    /// Destructured field by field, so a field added to [`Incident`]
+    /// fails to compile here instead of going missing from the summary.
+    fn of(incident: &Incident) -> Self {
+        let Incident {
+            id,
+            service,
+            namespace,
+            kind,
+            at_ms,
+            ended_at_ms,
+            detail,
+            window_from_ms,
+            window_to_ms,
+            oldest_finding_ms,
+            findings,
+        } = incident;
+        Self {
+            id: id.clone(),
+            service: service.clone(),
+            namespace: namespace.clone(),
+            kind: *kind,
+            at_ms: *at_ms,
+            ended_at_ms: *ended_at_ms,
+            detail: detail.clone(),
+            window_from_ms: *window_from_ms,
+            window_to_ms: *window_to_ms,
+            oldest_finding_ms: *oldest_finding_ms,
+            finding_count: findings.len(),
+        }
+    }
+}
+
 /// Bounded ring of recorded incidents, newest last.
 ///
 /// The shape of [`super::findings_store::FindingsStore`] on purpose,
@@ -260,6 +316,17 @@ impl IncidentStore {
         self.inner.read().await.iter().find(|i| i.id == id).cloned()
     }
 
+    /// [`Self::get`] as an [`IncidentSummary`], built under the read lock
+    /// so the frozen findings are counted, never copied.
+    pub(crate) async fn get_summary(&self, id: &str) -> Option<IncidentSummary> {
+        self.inner
+            .read()
+            .await
+            .iter()
+            .find(|i| i.id == id)
+            .map(IncidentSummary::of)
+    }
+
     /// Set the end of a retained incident that had none. Returns the
     /// updated record when that transition happened, and `None`
     /// otherwise. See [`Self::close_then`] to archive it in order.
@@ -320,6 +387,31 @@ impl IncidentStore {
         offset: usize,
         limit: usize,
     ) -> Vec<Incident> {
+        self.select(service, namespace, offset, limit, Incident::clone)
+            .await
+    }
+
+    /// [`Self::list`] as [`IncidentSummary`] rows, built under the read
+    /// lock so the frozen findings are counted, never copied.
+    pub(crate) async fn list_summaries(
+        &self,
+        service: Option<&str>,
+        namespace: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Vec<IncidentSummary> {
+        self.select(service, namespace, offset, limit, IncidentSummary::of)
+            .await
+    }
+
+    async fn select<T>(
+        &self,
+        service: Option<&str>,
+        namespace: Option<&str>,
+        offset: usize,
+        limit: usize,
+        row: impl Fn(&Incident) -> T,
+    ) -> Vec<T> {
         let buf = self.inner.read().await;
         buf.iter()
             .rev()
@@ -327,7 +419,7 @@ impl IncidentStore {
             .filter(|i| namespace.is_none_or(|ns| i.namespace.as_deref() == Some(ns)))
             .skip(offset)
             .take(limit)
-            .cloned()
+            .map(row)
             .collect()
     }
 }

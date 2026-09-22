@@ -864,6 +864,74 @@ async fn the_id_parameter_returns_that_incident_whatever_the_page() {
 }
 
 #[tokio::test]
+async fn findings_false_lists_each_incident_with_a_count_instead() {
+    const AT_MS: u64 = 1_788_271_380_000;
+    let state = make_state();
+    for kind in [
+        detect::FindingType::NPlusOneSql,
+        detect::FindingType::ChattyService,
+    ] {
+        push_finding(&state, "cart-svc", kind, AT_MS - 1_000).await;
+    }
+    // Resolved, annotated and namespaced, so every optional field is
+    // present and the comparison below covers them all.
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::json!([{
+            "status": "resolved",
+            "labels": {"service": "cart-svc", "namespace": "shop", "perf_sentinel_kind": "oom_kill"},
+            "annotations": {"summary": "container exceeded its memory limit"},
+            "startsAt": "2026-09-01T14:03:00Z",
+            "endsAt": "2026-09-01T14:05:00Z"
+        }])))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let full = list_incidents(Arc::clone(&state), "").await;
+    assert_eq!(
+        full,
+        list_incidents(Arc::clone(&state), "?findings=true").await,
+        "true is the default"
+    );
+    let full = full[0].as_object().unwrap().clone();
+    assert_eq!(full["findings"].as_array().unwrap().len(), 2);
+
+    let id = full["id"].as_str().unwrap();
+    for query in [
+        "?findings=false".to_string(),
+        format!("?id={id}&findings=false"),
+    ] {
+        let listed = list_incidents(Arc::clone(&state), &query).await;
+        assert_eq!(listed.as_array().unwrap().len(), 1, "{query}: {listed}");
+        let summary = listed[0].as_object().unwrap();
+        assert!(!summary.contains_key("findings"), "{query}: {listed}");
+        assert_eq!(summary["finding_count"], 2, "{query}");
+        let mut expected = full.clone();
+        expected.remove("findings");
+        expected.insert("finding_count".to_string(), 2.into());
+        assert_eq!(summary, &expected, "every other field as the full record");
+    }
+}
+
+#[tokio::test]
+async fn the_findings_flag_is_judged_after_the_key() {
+    let mut keyed_state = make_state().clone_for_test();
+    keyed_state.daemon_config.incidents.api_key = Some("write-key-long-enough".to_string());
+    let app = query_api_router(Arc::new(keyed_state));
+    let malformed = || get_request("/api/incidents?findings=maybe");
+
+    assert_eq!(
+        status_of(&app, malformed()).await,
+        StatusCode::UNAUTHORIZED,
+        "a caller without the key learns nothing from the flag"
+    );
+    assert_eq!(
+        status_of(&app, keyed(malformed(), Some("write-key-long-enough"))).await,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
 async fn the_handlers_archive_each_change_of_an_incident() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let mut archived = make_state().clone_for_test();

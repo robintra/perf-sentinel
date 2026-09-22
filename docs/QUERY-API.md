@@ -1127,16 +1127,23 @@ other record it once and archive it once.
 ### GET /api/incidents
 
 The recorded incidents, newest first, each with its findings, frozen
-at reception and merged once by the settle pass. The `POST` key or
-`[daemon] read_api_key`. Backs the Incidents tab of `perf-sentinel
-query monitor` and the `perf-sentinel query incidents` subcommand.
+at reception and merged once by the settle pass (their count alone with
+`findings=false`). The `POST` key or `[daemon] read_api_key`. Backs the
+Incidents tab of `perf-sentinel query monitor` and the `perf-sentinel
+query incidents` subcommand.
 
 **Query parameters:** `service` and `namespace` (exact match), `offset`
 (default 0), `limit` (default 50, capped at 100, each incident carrying
 up to 1000 findings). Page with `offset` to reach older incidents.
 `id` (since 0.24.0) returns that one incident as a one-element array, or
-`[]` when the ring does not hold it, and the other parameters are then
-ignored.
+`[]` when the ring does not hold it, and `service`, `namespace`,
+`offset` and `limit` are then ignored.
+`findings=false` returns each incident without its `findings` array and
+with `finding_count` in its place, by `id` as well as by page, for a
+listing that needs the count and not the findings a page of incidents
+froze. Absent or `true`, the full record. Any other value answers 400,
+and only once the key is accepted, so a caller without it still gets
+401.
 
 **Response shape:** array of objects:
 
@@ -1153,6 +1160,7 @@ ignored.
 | `window_to_ms`      | number | `at_ms` plus two `trace_ttl_ms`, see above                                                     |
 | `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                          |
 | `findings`          | array  | `StoredFinding` objects, folded over the window alone, merged once by the settle pass           |
+| `finding_count`     | number | Number of frozen findings, in place of `findings` when `findings=false`                         |
 
 **Read `oldest_finding_ms` before trusting a short `findings` array.**
 Below `window_from_ms` the capture is complete. Above it, the ring had
