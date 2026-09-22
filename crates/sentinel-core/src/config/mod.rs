@@ -181,9 +181,14 @@ pub struct DetectionConfig {
     pub grouping_attributes: Vec<String>,
 }
 
+/// The Kubernetes namespace grouping attribute. An incident carrying a
+/// namespace freezes only the findings this attribute does not place in
+/// another namespace, see [`DaemonIncidentsConfig::namespace_label`].
+pub const K8S_NAMESPACE_ATTRIBUTE: &str = "k8s.namespace.name";
+
 /// Default for [`DetectionConfig::grouping_attributes`]. Kubernetes first,
 /// since `service.namespace` often carries a constant such as a product name.
-pub const DEFAULT_GROUPING_ATTRIBUTES: [&str; 2] = ["k8s.namespace.name", "service.namespace"];
+pub const DEFAULT_GROUPING_ATTRIBUTES: [&str; 2] = [K8S_NAMESPACE_ATTRIBUTE, "service.namespace"];
 
 /// Upper bound on configured grouping attributes. Each one is captured per
 /// span, so an unbounded list is a memory multiplier on the hot path.
@@ -432,9 +437,13 @@ pub struct DaemonIncidentsConfig {
     /// guessed from `alertname`.
     pub kind_label: String,
     /// Alert label whose value becomes the incident's `namespace`. Default
-    /// `namespace`, the label kube-prometheus alerts carry natively. Read
-    /// for display and filtering only: an alert without it is recorded
-    /// all the same, and the label is never a Prometheus label here.
+    /// `namespace`, the label kube-prometheus alerts carry natively. An
+    /// incident carrying one leaves out of its freeze the findings whose
+    /// [`K8S_NAMESPACE_ATTRIBUTE`] grouping names another namespace, so it
+    /// narrows the freeze only with that attribute among
+    /// `[detection] grouping_attributes`. An alert without it is recorded
+    /// all the same, frozen by service alone, and the label is never a
+    /// Prometheus label here.
     pub namespace_label: String,
     /// Optional newline-delimited JSON file every new incident, close and
     /// settle is appended to, opened at startup and read back into the

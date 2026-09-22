@@ -1075,11 +1075,24 @@ libellés réclament.
 
 Trois libellés sont lus, tous configurables :
 
-| Libellé                              | Défaut               | Signification                                                                                                                                                |
-|--------------------------------------|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `[daemon.incidents] service_label`   | `service`            | Le nom de service perf-sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée                                      |
-| `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | L'un de `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Tout le reste vaut `other`                                                            |
-| `[daemon.incidents] namespace_label` | `namespace`          | Optionnel. Sa valeur est portée sur l'incident comme `namespace` et le paramètre `namespace` de `GET /api/incidents` filtre dessus. Jamais un motif de refus |
+| Libellé                              | Défaut               | Signification                                                                                                                                                                                                                           |
+|--------------------------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `[daemon.incidents] service_label`   | `service`            | Le nom de service perf-sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée                                                                                                                 |
+| `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | L'un de `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Tout le reste vaut `other`                                                                                                                                       |
+| `[daemon.incidents] namespace_label` | `namespace`          | Optionnel. Sa valeur est portée sur l'incident comme `namespace`, restreint le gel aux findings de ce namespace (voir plus bas) et c'est sur elle que filtre le paramètre `namespace` de `GET /api/incidents`. Jamais un motif de refus |
+
+**Un incident avec un namespace fige les findings de ce namespace.** Un
+déploiement d'un même service sur plusieurs tenants déclenche une alerte
+par namespace, et chaque incident porte les findings de son propre
+tenant, pas ceux de tous. Le gel écarte un finding dont le regroupement
+nomme un autre `k8s.namespace.name`, quelle que soit la place de cet
+attribut dans `[detection] grouping_attributes`, et garde celui qui ne
+porte pas cet attribut, puisque rien ne le place ailleurs. Il ne se
+restreint donc qu'avec `k8s.namespace.name` parmi `grouping_attributes`,
+que la liste par défaut met en premier : regroupé par un autre attribut
+seulement, un incident fige les findings du service comme il le ferait
+sans namespace, et le daemon le signale au démarrage. Une alerte sans
+namespace fige les findings du service dans tous les namespaces.
 
 Un `deploy` est posté pour la même raison qu'un `restart` : figer ce qui
 brûlait déjà avant le déploiement, et pour qu'un redémarrage provoqué par

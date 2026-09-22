@@ -1039,11 +1039,24 @@ with the fleet-wide `service` derivation these three labels need.
 
 Three labels are read, all configurable:
 
-| Label                                | Default              | Meaning                                                                                                                                                              |
-|--------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `[daemon.incidents] service_label`   | `service`            | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused                                                              |
-| `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`                                                                       |
-| `[daemon.incidents] namespace_label` | `namespace`          | Optional. Its value is carried on the incident as `namespace` and the `namespace` parameter of `GET /api/incidents` filters on it. Never a reason to refuse an alert |
+| Label                                | Default              | Meaning                                                                                                                                                                                                                                |
+|--------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `[daemon.incidents] service_label`   | `service`            | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused                                                                                                                                |
+| `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`                                                                                                                                         |
+| `[daemon.incidents] namespace_label` | `namespace`          | Optional. Its value is carried on the incident as `namespace`, narrows the freeze to that namespace's findings (see below) and is what the `namespace` parameter of `GET /api/incidents` filters on. Never a reason to refuse an alert |
+
+**An incident with a namespace freezes that namespace's findings.** A
+rollout of one service across tenants fires one alert per namespace, and
+each incident holds its own tenant's findings, not every tenant's. The
+freeze leaves out a finding whose grouping names another
+`k8s.namespace.name`, wherever that attribute sits in `[detection]
+grouping_attributes`, and keeps one that carries no such attribute,
+since nothing places it elsewhere. It therefore narrows only with
+`k8s.namespace.name` among `grouping_attributes`, which the default
+list puts first: grouped by another attribute alone, an incident
+freezes the service's findings as it would without a namespace, and
+the daemon warns of it at startup. An alert without a namespace
+freezes the service's findings in every namespace.
 
 A deploy is posted for the same reason as a restart: to freeze what was
 already firing before the rollout, and so a restart the rollout causes

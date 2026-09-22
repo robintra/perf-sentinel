@@ -14,6 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use serde::Serialize;
 use tokio::sync::RwLock;
 
+use crate::config::K8S_NAMESPACE_ATTRIBUTE;
 use crate::detect::Finding;
 
 type FoldKey<'a> = (Option<(&'a str, &'a str)>, &'a str);
@@ -161,10 +162,13 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Fol
     out
 }
 
-/// The three screens that run during the buffer pass: service, finding
-/// type and grouping. All three are invariant within a folded row, the
-/// first two through the signature and the third through the fold key,
-/// so both read paths apply them before folding rather than after.
+/// The screens that run during the buffer pass: service, finding type,
+/// grouping and namespace. The first three are invariant within a folded
+/// row, the first two through the signature and the third through the
+/// fold key, so both read paths apply them before folding rather than
+/// after. The namespace is not invariant when it is not the first
+/// grouping attribute, so it can only screen instances: after the fold,
+/// a row folded across two namespaces would be kept or dropped whole.
 /// Shared so a third caller cannot screen on one and not the others.
 /// Severity is deliberately absent: it is a property of the group's
 /// worst instance, so it can only be judged after the fold.
@@ -176,6 +180,15 @@ fn matches_buffer_pass_filters(sf: &StoredFinding, filter: &FindingsFilter) -> b
     }
     if let Some(ref grouping) = filter.grouping
         && sf.finding.grouping_value() != Some(grouping.as_str())
+    {
+        return false;
+    }
+    if let Some(ref ns) = filter.namespace
+        && sf
+            .finding
+            .grouping
+            .iter()
+            .any(|g| &*g.key == K8S_NAMESPACE_ATTRIBUTE && *g.value != **ns)
     {
         return false;
     }
@@ -294,6 +307,14 @@ pub struct FindingsFilter {
     /// the API without conversion. Screened during the buffer pass, like
     /// `service`.
     pub grouping: Option<String>,
+    /// Optional Kubernetes namespace screen, the one an incident carrying
+    /// a namespace freezes through. Leaves out an instance whose grouping
+    /// names a different [`K8S_NAMESPACE_ATTRIBUTE`] and keeps one that
+    /// names this one or none. Reads every grouping attribute, not only
+    /// the first, since where the namespace sits depends on
+    /// `grouping_attributes`. Screened during the buffer pass, like
+    /// `service`.
+    pub namespace: Option<String>,
     /// Rows to skip before `limit` applies, so a listing past the cap is
     /// read a page at a time. On the folded listing it lands after the
     /// fold, the severity screen and the delta bound; on the raw
@@ -647,6 +668,43 @@ mod tests {
             })
             .await;
         assert_eq!(folded.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn namespace_screen_reads_every_attribute_before_the_fold() {
+        // `service.namespace` first, so both tenants' instances share a
+        // fold key and only a screen on instances can part them.
+        let placed = |ns: &str| {
+            let mut f = make_finding("svc", FindingType::RedundantSql);
+            f.grouping = [
+                crate::test_helpers::grouping("service.namespace", "payments"),
+                crate::test_helpers::k8s_grouping(ns),
+            ]
+            .concat();
+            enrich_with_signatures(std::slice::from_mut(&mut f));
+            f
+        };
+        let mut unplaced = make_finding_with_template("svc", FindingType::RedundantSql, "SELECT 2");
+        enrich_with_signatures(std::slice::from_mut(&mut unplaced));
+        let store = FindingsStore::new(100);
+        store
+            .push_batch(&[placed("a"), placed("b"), placed("b"), unplaced], 1000)
+            .await;
+
+        let folded = store
+            .query_coalesced(&FindingsFilter {
+                namespace: Some("a".to_string()),
+                limit: 100,
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(folded.len(), 2, "a's row and the unplaced one");
+        let own = folded
+            .iter()
+            .find(|row| row.finding.pattern.template == "SELECT 1")
+            .unwrap();
+        assert_eq!(own.seen_count, 1, "b's instances never reach the fold");
+        assert_eq!(own.finding.grouping[1].value.as_ref(), "a");
     }
 
     #[tokio::test]

@@ -699,7 +699,7 @@ async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
     let resp = query_api_router(Arc::clone(&state))
         .oneshot(post_incidents_request(&serde_json::json!([{
             "status": "firing",
-            "labels": {"service": "cart-svc", "perf_sentinel_kind": "oom_kill"},
+            "labels": {"service": "cart-svc", "namespace": "a", "perf_sentinel_kind": "oom_kill"},
             "startsAt": starts_at
         }])))
         .await
@@ -709,14 +709,19 @@ async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
     assert_eq!(before[0]["findings"].as_array().unwrap().len(), 1);
 
     // The traces live at the crash are analysed one TTL later, after the
-    // reception freeze. Default TTL is 30 s, the settle waits three.
-    push_finding(
-        &state,
-        "cart-svc",
-        detect::FindingType::ChattyService,
-        now + 30_000,
-    )
-    .await;
+    // reception freeze. Default TTL is 30 s, the settle waits three. One
+    // of the two late findings sits in another namespace, which the
+    // settle has to leave out as the reception freeze did.
+    for (kind, ns) in [
+        (detect::FindingType::ChattyService, "a"),
+        (detect::FindingType::RedundantSql, "b"),
+    ] {
+        let mut f = crate::test_helpers::make_finding(kind, detect::Severity::Warning);
+        f.service = "cart-svc".to_string();
+        f.grouping = grouped(ns);
+        crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut f));
+        state.findings_store.push_batch(&[f], now + 30_000).await;
+    }
     // The pass registers its timer on first poll, which has to happen
     // before the clock jumps or the sleep starts from the advanced time.
     tokio::task::yield_now().await;
@@ -729,7 +734,13 @@ async fn the_settle_pass_merges_the_traces_live_at_the_incident() {
     assert_eq!(
         frozen.len(),
         2,
-        "the settle merged the live trace into the record: {after}"
+        "the settle merged the live trace of the incident's namespace alone: {after}"
+    );
+    assert!(
+        frozen
+            .iter()
+            .all(|f| f["finding"]["type"] != "redundant_sql"),
+        "the other namespace's late finding stays out: {after}"
     );
     assert_eq!(
         state.settle_permits.available_permits(),
@@ -933,6 +944,86 @@ async fn the_namespace_label_is_carried_and_filters_the_listing() {
             .len(),
         1,
         "both filters apply"
+    );
+}
+
+#[tokio::test]
+async fn an_incident_freezes_the_findings_of_its_own_namespace_only() {
+    // One rollout in two namespaces: one service, one window, the findings
+    // told apart by `k8s.namespace.name` alone, first grouping attribute
+    // or not.
+    const AT_MS: u64 = 1_788_271_380_000;
+    let state = make_state();
+    let tenant = |ns: &str| {
+        [
+            crate::test_helpers::grouping("tenant.id", "acme"),
+            crate::test_helpers::k8s_grouping(ns),
+        ]
+        .concat()
+    };
+    for (kind, grouping) in [
+        (detect::FindingType::NPlusOneSql, grouped("a")),
+        (detect::FindingType::RedundantSql, grouped("b")),
+        (detect::FindingType::ChattyService, Vec::new()),
+        (detect::FindingType::RedundantHttp, tenant("a")),
+        (detect::FindingType::NPlusOneHttp, tenant("b")),
+    ] {
+        let mut f = crate::test_helpers::make_finding(kind, detect::Severity::Warning);
+        f.service = "web-production".to_string();
+        f.grouping = grouping;
+        crate::acknowledgments::enrich_with_signatures(std::slice::from_mut(&mut f));
+        state.findings_store.push_batch(&[f], AT_MS - 60_000).await;
+    }
+    let resp = query_api_router(Arc::clone(&state))
+        .oneshot(post_incidents_request(&serde_json::json!([
+            {
+                "status": "firing",
+                "labels": {"service": "web-production", "namespace": "a", "perf_sentinel_kind": "deploy"},
+                "startsAt": "2026-09-01T14:03:00Z"
+            },
+            {
+                "status": "firing",
+                "labels": {"service": "web-production", "perf_sentinel_kind": "deploy"},
+                "startsAt": "2026-09-01T14:03:00Z"
+            }
+        ])))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let listed = list_incidents(Arc::clone(&state), "").await;
+    let frozen_types = |namespace: Option<&str>| {
+        let incident = listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["namespace"].as_str() == namespace)
+            .unwrap();
+        let mut types: Vec<&str> = incident["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["finding"]["type"].as_str().unwrap())
+            .collect();
+        types.sort_unstable();
+        types
+    };
+    assert_eq!(
+        frozen_types(Some("a")),
+        ["chatty_service", "n_plus_one_sql", "redundant_http"],
+        "a keeps its own findings, second attribute included, and the unplaced one; \
+         b's are left out wherever its namespace sits"
+    );
+    assert_eq!(
+        frozen_types(None),
+        [
+            "chatty_service",
+            "n_plus_one_http",
+            "n_plus_one_sql",
+            "redundant_http",
+            "redundant_sql"
+        ],
+        "without a namespace the service alone decides"
     );
 }
 

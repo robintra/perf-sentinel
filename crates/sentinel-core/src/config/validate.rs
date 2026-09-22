@@ -9,7 +9,7 @@ use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
 use crate::score::scaphandre::ScaphandreConfig;
 
-use super::{Config, RESERVED_DISCLOSE_OUTPUT_PATH_VERSION};
+use super::{Config, K8S_NAMESPACE_ATTRIBUTE, RESERVED_DISCLOSE_OUTPUT_PATH_VERSION};
 
 /// The shared-secret floor for every write route on the daemon API.
 ///
@@ -642,6 +642,21 @@ impl Config {
                     "[daemon.incidents] {name} contains control characters"
                 ));
             }
+        }
+        // Advisory only: the namespace an alert carries narrows the freeze
+        // through this grouping attribute alone, so without it every
+        // incident freezes by service, which nothing else would say.
+        if !self
+            .detection
+            .grouping_attributes
+            .iter()
+            .any(|a| a.as_str() == K8S_NAMESPACE_ATTRIBUTE)
+        {
+            tracing::warn!(
+                "[daemon.incidents] is enabled without {K8S_NAMESPACE_ATTRIBUTE} among \
+                 [detection] grouping_attributes: an incident's namespace cannot narrow \
+                 its frozen findings, every incident freezes by service alone"
+            );
         }
         Ok(())
     }

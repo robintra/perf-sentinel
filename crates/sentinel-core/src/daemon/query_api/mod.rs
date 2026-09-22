@@ -341,6 +341,7 @@ async fn handle_findings(
         finding_type: non_empty(params.finding_type),
         severity: non_empty(params.severity),
         grouping: non_empty(params.grouping),
+        namespace: None,
         since_ms: params.since_ms,
         until_ms: params.until_ms,
         offset: params.offset.unwrap_or(0),
@@ -926,6 +927,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             finding_type: None,
             severity: None,
             grouping: None,
+            namespace: None,
             since_ms: None,
             until_ms: None,
             offset: 0,
@@ -1305,6 +1307,9 @@ fn window_end_ms(state: &QueryApiState, at_ms: u64) -> u64 {
 /// Both bounds, so the fold runs over the window alone and `seen_count`
 /// describes it. The oldest stamp is read under the same guard as the
 /// fold, because it is what tells a short answer from an incomplete one.
+/// A namespace on the incident screens out the findings of the same
+/// service in other namespaces, which a rollout across tenants would
+/// otherwise freeze into every one of its incidents.
 async fn freeze_window(
     state: &QueryApiState,
     req: &super::incidents::IncidentRequest,
@@ -1315,6 +1320,7 @@ async fn freeze_window(
     let to = window_end_ms(state, req.at_ms);
     let filter = FindingsFilter {
         service: Some(req.service.clone()),
+        namespace: req.namespace.clone(),
         since_ms: Some(from),
         until_ms: Some(to),
         limit: MAX_FINDINGS_LIMIT,
