@@ -347,3 +347,13 @@ v0.23.0	b26270f	2026-09-18	PASS
 # record. Fixed in the lab, and leg H now reads both groups so a record that
 # fails to evaluate cannot leave the alerts silently permissive.
 v0.24.0	462d22d	2026-09-20	PASS
+#
+# v0.25.0, 2026-09-22. Targeted pass, not verify-all-scenarios: no detector
+# and no scoring path moved, only the incident freeze and the incidents
+# listing. No cluster: incident-window-capture 29/29 against the release
+# binary (freeze at reception, settle merge, idempotent reposts, counted
+# refusals, NDJSON archive, namespace listing filter, id parameter). Not
+# run: incident-alerting-chain, whose rules and receiver are unchanged, and
+# grafana-dashboard, the one scenario that replays the Infinity targets of
+# the version 12 dashboard's findings=false query.
+v0.25.0	dd01136	2026-09-22	PASS
