@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.24.0
-appVersion: "0.24.0"
+version: 0.25.0
+appVersion: "0.25.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,17 +36,15 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: changed
-      description: "`workload.statefulset.persistence.size` defaults to `2Gi` instead of `1Gi`. At its defaults the per-window archive keeps one active file plus `max_files` (12) rotated ones of `max_size_mb` (100) each, about 1.3 GB, which never fitted a `1Gi` claim: a full volume makes the archive writer drop the windows it cannot write and count them on `perf_sentinel_archive_windows_dropped_total`. A StatefulSet's volumeClaimTemplate is immutable, so an existing release keeps the claim it was installed with until you resize the PVC yourself or reinstall. The new default leaves nothing for a `[daemon.incidents] archive_path` pointed at the same volume, which never rotates, so raise the claim further for it or keep that file off the PVC."
     - kind: added
-      description: "appVersion 0.24.0. The incident ring is read back from `[daemon.incidents] archive_path` at startup, so `/api/incidents` and the incident panels no longer come back empty after every restart or upgrade. `GET /api/incidents` takes an `id` and answers with that one incident wherever a newer one pushed it. `GET /api/acks` takes an `include_toml` that adds the active CI TOML baseline entries to the listing, every row naming its `source`, `daemon` or `toml`."
+      description: "appVersion 0.25.0. `GET /api/incidents` takes `findings=false`, which returns each incident without its frozen findings and with `finding_count` in their place, by `id` as well as by page. The default response is unchanged."
     - kind: fixed
-      description: "Findings that carried no framework signal now get a `suggested_fix`: an OpenTelemetry Java agent scope identifies Java, cross-trace and cross-batch slow findings go through the suggestions step, and `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation` carry the scopes and `code_location` of one representative call. Signatures do not move, so existing acknowledgments still match. Two changes to one incident could also reach the archive in the opposite order to the one the ring applied them, which brought an incident back open or without its settled findings."
-    - kind: changed
-      description: "The example findings dashboard, not shipped in the chart, moves to version 11: a `History (Hub)` row reading PerfSentinelHub through a second optional Infinity datasource, an `Ack` column opening the Hub's ack page for a signature, an `Incident skip rows` variable reaching past the 50 most recent incidents, and readable `info` severity on a dark theme. The example incident alerting rules drop the workloads the daemon has not ingested over the last day, which had each raised an incident with no finding. No values.yaml key is added or removed, and no template changes."
+      description: "An incident carrying a namespace froze the findings of its service in every namespace, so a rollout across tenants recorded one incident per namespace, each holding every tenant's findings. The freeze now leaves out a finding whose `k8s.namespace.name` grouping attribute names another namespace, which needs that attribute among `[detection] grouping_attributes`, as it is by default. The daemon warns at startup when incidents are enabled without it."
+    - kind: fixed
+      description: "The example findings dashboard, not shipped in the chart, moves to version 12: its `Incidents` table asks with `findings=false` and reads `finding_count`, instead of pulling every frozen finding of 50 incidents on each refresh, which Grafana's Infinity backend parser inflated past a 1 GiB memory limit. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.24.0
+      image: ghcr.io/robintra/perf-sentinel:0.25.0
       platforms:
         - linux/amd64
         - linux/arm64

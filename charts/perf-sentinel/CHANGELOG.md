@@ -10,6 +10,36 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.0]
+
+### Added
+
+- **`appVersion` moves to `0.25.0`.** `GET /api/incidents` takes
+  `findings=false`, which returns each incident without its frozen findings
+  and with `finding_count` in their place, by `id` as well as by page. The
+  default response is unchanged, so `perf-sentinel query incidents` and the
+  monitor's Incidents tab see no difference.
+
+### Fixed
+
+- An incident carrying a namespace froze the findings of its service in
+  every namespace, so a rollout across tenants recorded one incident per
+  namespace, each holding every tenant's findings. The freeze now leaves out
+  a finding whose `k8s.namespace.name` grouping attribute names another
+  namespace, and keeps one that carries no such attribute. It needs
+  `k8s.namespace.name` among `[detection] grouping_attributes`, which the
+  default list puts first, and the daemon warns at startup when
+  `[daemon.incidents]` is enabled without it. Incidents already recorded
+  keep what they froze.
+- The example findings dashboard under `examples/` moves to `version` 12.
+  Its `Incidents` table asks with `findings=false` and reads
+  `finding_count`, instead of pulling every frozen finding of 50 incidents
+  on each refresh, which Grafana's Infinity backend parser inflated past a
+  1 GiB memory limit until Grafana was OOM-killed. It counts the findings
+  when a daemon that ignores the parameter still sends them. `__inputs` is
+  unchanged. It does not ship in the chart, re-import it where it is
+  provisioned.
+
 ## [0.24.0]
 
 ### Added
