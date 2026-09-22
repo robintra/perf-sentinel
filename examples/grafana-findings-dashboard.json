@@ -1747,7 +1747,7 @@
     {
       "type": "table",
       "title": "Incidents",
-      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. A page of 50, each incident with its frozen findings, starting after 'Incident skip rows' incidents, so 0 shows the 50 most recent. The time picker does not apply.\n\n'Findings' counts the rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
+      "description": "GET /api/incidents, newest first, one row per incident your alerting posted, opt-in via [daemon.incidents]. A page of 50, starting after 'Incident skip rows' incidents, so 0 shows the 50 most recent. The time picker does not apply.\n\nAsked with findings=false, so each incident arrives with finding_count in place of its frozen findings, which keeps the response small however many findings the page froze. A daemon that ignores the parameter still sends the findings, and the panel counts them instead.\n\n'Findings' is the number of rows frozen between Window from and Window to, closed two trace TTLs after the incident. 'Capture' reads Ring reached against Window from: partial means the ring had evicted part of the window (the NDJSON archive may still answer), empty ring means nothing retained. 'Ended' is blank while the alert fires.\n\nClick a row to load its findings below (Incident variable). Sent with [daemon] read_api_key as X-API-Key, never the key your alerting posts with.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1769,11 +1769,11 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/incidents?limit=50&offset=${incident_offset}",
+          "url": "/api/incidents?limit=50&offset=${incident_offset}&findings=false",
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"namespace\": $i.namespace, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
+          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"namespace\": $i.namespace, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $exists($i.finding_count) ? $i.finding_count : $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
           "columns": [
             {
               "selector": "at_ms",
@@ -2781,5 +2781,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 11
+  "version": 12
 }

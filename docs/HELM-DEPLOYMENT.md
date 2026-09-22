@@ -1192,10 +1192,14 @@ frozen for that incident, folded over the window alone, with a
 `First seen` column in place of `Acked via`: a first sighting later than
 the incident's start is a row that fired only after the restart. The
 time picker filters neither table, since the route has no time filter.
-`Incidents` reads a page of 50 incidents, each with its frozen findings,
-after the number the `Incident skip rows` variable picks (0 to 950, by
-50), so 0 shows the 50 most recent and the next values page back
-through a ring of up to 1000. `Incident findings` asks the route for the
+`Incidents` reads a page of 50 incidents after the number the
+`Incident skip rows` variable picks (0 to 950, by 50), so 0 shows the
+50 most recent and the next values page back through a ring of up to
+1000. It asks for them with `findings=false`, each incident carrying
+`finding_count` in place of its frozen findings, so the response stays
+small however many findings the page froze. A daemon that predates the
+parameter ignores it and sends the findings, which the table then
+counts. `Incident findings` asks the route for the
 one incident the `Incident` variable names (`id`), whatever page the
 first table shows. A daemon older than 0.24.0 ignores `id`, and the
 table then finds the incident on that same page.

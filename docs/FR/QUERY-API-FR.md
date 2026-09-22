@@ -1170,8 +1170,9 @@ course l'enregistrent une fois et l'archivent une fois.
 
 Les incidents enregistrés, du plus récent au plus ancien, chacun avec ses
 findings, figés à la réception et fusionnés une fois par la passe de
-consolidation. La clé du `POST` ou `[daemon] read_api_key`. Alimente
-l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
+consolidation (leur seul compte avec `findings=false`). La clé du `POST`
+ou `[daemon] read_api_key`. Alimente l'onglet Incidents de
+`perf-sentinel query monitor` et la sous-commande
 `perf-sentinel query incidents`.
 
 **Paramètres de requête :** `service` et `namespace` (match exact),
@@ -1179,8 +1180,14 @@ l'onglet Incidents de `perf-sentinel query monitor` et la sous-commande
 portant jusqu'à 1000 findings). Paginez avec `offset` pour atteindre les
 incidents plus anciens.
 `id` (depuis 0.24.0) renvoie ce seul incident dans un tableau d'un
-élément, ou `[]` quand le ring ne le détient pas, et les autres
-paramètres sont alors ignorés.
+élément, ou `[]` quand le ring ne le détient pas, et `service`,
+`namespace`, `offset` et `limit` sont alors ignorés.
+`findings=false` renvoie chaque incident sans son tableau `findings` et
+avec `finding_count` à sa place, par `id` comme par page, pour une liste
+qui a besoin du compte et non des findings qu'une page d'incidents a
+figés. Absent ou `true`, l'enregistrement complet. Toute autre valeur
+répond 400, et seulement une fois la clé acceptée, si bien qu'un
+appelant sans elle reçoit toujours 401.
 
 **Forme de la réponse :** tableau d'objets :
 
@@ -1197,6 +1204,7 @@ paramètres sont alors ignorés.
 | `window_to_ms`      | number | `at_ms` plus deux `trace_ttl_ms`, voir plus haut                                                                |
 | `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                                   |
 | `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre, fusionnés une fois par la consolidation                   |
+| `finding_count`     | number | Nombre de findings figés, à la place de `findings` avec `findings=false`                                        |
 
 **Lisez `oldest_finding_ms` avant de faire confiance à un tableau
 `findings` court.** En dessous de `window_from_ms`, la capture est

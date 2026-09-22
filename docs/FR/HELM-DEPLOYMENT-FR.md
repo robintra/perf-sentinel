@@ -861,10 +861,14 @@ fenêtre, avec une colonne `First seen` à la place de `Acked via` : une
 première apparition postérieure au début de l'incident est une ligne
 qui n'a tiré qu'après le redémarrage. Le sélecteur de temps ne filtre
 aucune des deux tables, puisque la route n'a pas de filtre temporel.
-`Incidents` lit une page de 50 incidents, chacun avec ses findings figés,
-après le nombre que choisit la variable `Incident skip rows`
-(de 0 à 950, par pas de 50), donc 0 montre les 50 plus récents et les
-valeurs suivantes remontent un anneau d'au plus 1000. `Incident findings`
+`Incidents` lit une page de 50 incidents après le nombre que choisit la
+variable `Incident skip rows` (de 0 à 950, par pas de 50), donc 0 montre
+les 50 plus récents et les valeurs suivantes remontent un anneau d'au
+plus 1000. Elle les demande avec `findings=false`, chaque incident
+portant `finding_count` à la place de ses findings figés, si bien que la
+réponse reste petite quel que soit le nombre de findings que la page a
+figés. Un daemon antérieur au paramètre l'ignore et envoie les findings,
+que la table compte alors. `Incident findings`
 demande à la route le seul incident que nomme la variable `Incident`
 (`id`), quelle que soit la page affichée au-dessus. Un daemon antérieur
 à 0.24.0 ignore `id`, et la table trouve alors l'incident sur cette même
