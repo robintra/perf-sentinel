@@ -4291,6 +4291,22 @@ lookback_ms = 999
 }
 
 #[test]
+fn accepts_incidents_without_the_namespace_grouping_attribute_with_warning() {
+    // The screen an incident's namespace applies has nothing to read,
+    // which is a startup warning, not a refusal.
+    let toml = "
+[detection]
+grouping_attributes = [\"service.namespace\"]
+
+[daemon.incidents]
+enabled = true
+api_key = \"a-long-random-string\"
+";
+    let config = load_from_str(toml).unwrap();
+    assert_eq!(config.detection.grouping_attributes, ["service.namespace"]);
+}
+
+#[test]
 fn validate_daemon_incidents_refuses_control_characters_in_labels_and_path() {
     let bad_label = "
 [daemon.incidents]

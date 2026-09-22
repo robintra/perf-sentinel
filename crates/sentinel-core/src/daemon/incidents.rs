@@ -98,8 +98,11 @@ pub struct Incident {
     /// The perf-sentinel service the incident is about. This is the join
     /// key to the findings, so an alert without one is refused.
     pub service: String,
-    /// The namespace the alert carried, when it carried one. A label for
-    /// reading and filtering, never a join key: the findings are frozen
+    /// The namespace the alert carried, when it carried one. It narrows
+    /// the freeze: a finding whose
+    /// [`crate::config::K8S_NAMESPACE_ATTRIBUTE`] grouping names another
+    /// namespace is left out, one that carries no such attribute is kept,
+    /// since nothing places it elsewhere. Absent, the findings are frozen
     /// by service alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,

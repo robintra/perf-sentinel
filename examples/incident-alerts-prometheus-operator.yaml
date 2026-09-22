@@ -20,7 +20,10 @@
 #   perf_sentinel_kind  one of oom_kill, memory_saturation, restart, deploy,
 #                       other. Read, never guessed from alertname.
 #   namespace           optional, carried on the incident and filterable on
-#                       GET /api/incidents.
+#                       GET /api/incidents. It restricts the freeze to the
+#                       findings of that namespace, provided
+#                       k8s.namespace.name is among [detection]
+#                       grouping_attributes, as it is by default.
 #
 # kube-prometheus alerts carry `namespace` and `pod`, never `service` and never
 # a kind, which is why these rules exist rather than a route over the existing
