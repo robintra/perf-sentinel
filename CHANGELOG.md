@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-22
+
+This release bumps the minor rather than the patch: `GET /api/incidents` takes a `findings` parameter a client can hold on to, and `perf-sentinel-core`, published on crates.io, gains a `namespace` field on `FindingsFilter`, which is already `#[non_exhaustive]`, and the `config::K8S_NAMESPACE_ATTRIBUTE` constant. Nothing is removed and no public type changes shape, so a 0.24.0 client keeps working against a 0.25.0 daemon, and the 0.25.0 findings dashboard reaching an older daemon counts the findings that daemon still sends rather than failing.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure and found inside their window two days after 0.24.0 audited them. Nothing in 0.25.0 touches a scoring path.
+
 ### Added
 
 - `GET /api/incidents` takes a `findings` parameter. Every incident carries its frozen findings, up to 1000 each, so a client that needs only their number, the findings dashboard's `Incidents` table among them, pulled the findings of a whole page to count them. With `findings=false` each incident comes without its `findings` array and with `finding_count` in its place, every other field unchanged, by `id` as well as by page. The daemon builds these rows under the ring's read lock, counting the findings it leaves out rather than copying them. Absent or `true`, the response is unchanged, so the archive, `perf-sentinel query incidents`, the Incidents tab of `perf-sentinel query monitor` and existing clients see no difference, and an older daemon ignores the parameter and sends the findings. A malformed value answers `400` only after the key check, as `include_toml` does on `GET /api/acks`, and the route's other parameters now follow the same order, where a malformed `offset` or `limit` answered `400` before the key. `docs/QUERY-API.md` and its French mirror describe it.
