@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- The example incident alerting rules (`examples/incident-alerts-prometheus-operator.yaml` and its VictoriaMetrics twin) could post an incident with no finding for a Job pod. The OOM, restart and memory-saturation rules select pods by container name and read the service from a pod name shaped `<deployment>-<replicaset hash>-<pod hash>`, which a Job pod can fit too: trivy-operator names the container of each scan Job after the container it scans, so every scan of a traced image matched the selector. The `perf_sentinel:untraced_services:1d` recording rule drops such a workload, but only from its next evaluation, up to two minutes after the pod appears, and a scan pod that restarted within that time reached the daemon as an incident. The three rules now drop the pods a Job owns, through `kube_pod_owner{owner_kind="Job"}`. They stay open on what they cannot judge: a pod without an owner series still passes, and a StatefulSet or DaemonSet pod, whose name the regex does not fit, still reaches the daemon without a service, to be refused and counted. The deploy rule already read Deployments only and is unchanged.
+
 ## [0.25.0] - 2026-09-22
 
 This release bumps the minor rather than the patch: `GET /api/incidents` takes a `findings` parameter a client can hold on to, and `perf-sentinel-core`, published on crates.io, gains a `namespace` field on `FindingsFilter`, which is already `#[non_exhaustive]`, and the `config::K8S_NAMESPACE_ATTRIBUTE` constant. Nothing is removed and no public type changes shape, so a 0.24.0 client keeps working against a 0.25.0 daemon, and the 0.25.0 findings dashboard reaching an older daemon counts the findings that daemon still sends rather than failing.

@@ -47,7 +47,13 @@
 #      name minus its last two segments. That is what the `label_replace`
 #      regex does, and it only fits that shape: a StatefulSet pod
 #      (`<name>-<ordinal>`), a DaemonSet pod (one suffix) or a bare pod does
-#      not match it, and a Job pod matches it wrongly. Adapt the regex, or
+#      not match it, and a Job pod matches it wrongly. So the three pod
+#      rules drop the pods a Job owns (`kube_pod_owner{owner_kind="Job"}`):
+#      trivy-operator's scan Jobs, for one, name their container after the
+#      one they scan, and the recording rule below drops such an untraced
+#      Job only from its next evaluation, too late for a scan pod that
+#      restarts at once. The other shapes still reach the daemon without a
+#      service, which refuses them and counts them. Adapt the regex, or
 #      write `service` as a literal label when one rule covers one service.
 #
 # Each rule aggregates with `max by (namespace, pod)` BEFORE deriving the
@@ -114,6 +120,8 @@ spec:
                 (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
                 and on (namespace, pod)
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
@@ -137,6 +145,8 @@ spec:
                 (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
                 unless on (namespace, pod)
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
@@ -174,6 +184,8 @@ spec:
                   kube_pod_container_resource_limits{container="app", resource="memory"}
                 )
                 > 0.9
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
