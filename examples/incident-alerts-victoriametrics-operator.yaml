@@ -49,6 +49,8 @@ spec:
                 (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
                 and on (namespace, pod)
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
@@ -65,6 +67,8 @@ spec:
                 (increase(kube_pod_container_status_restarts_total{container="app"}[5m]) > 0)
                 unless on (namespace, pod)
                 (kube_pod_container_status_last_terminated_reason{container="app", reason="OOMKilled"} == 1)
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
@@ -89,6 +93,8 @@ spec:
                   kube_pod_container_resource_limits{container="app", resource="memory"}
                 )
                 > 0.9
+                unless on (namespace, pod)
+                kube_pod_owner{owner_kind="Job"}
               ),
               "service", "$1", "pod", "^(.*)-[^-]+-[^-]+$")
             unless on (service)
