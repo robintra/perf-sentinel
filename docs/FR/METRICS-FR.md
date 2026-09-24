@@ -139,10 +139,17 @@ analysable. Valeurs du label `reason` de
   HTTP (span interne, hit de cache, middleware...). Depuis 0.11.2,
   cela couvre aussi un span SERVER dont l'URL décrit sa propre requête
   entrante, puisqu'il s'agit d'un traitement entrant et non d'un appel
-  sortant amputé. Dominant attendu sur les flottes bien instrumentées.
+  sortant amputé. Cela couvre aussi un ping de driver : un
+  `db.statement` ou un `db.query.text` exactement vide, sans
+  `db.operation` ni `db.operation.name`. C'est ainsi que
+  l'instrumentation JDBC trace l'`execute("")` qu'un pool lance via
+  `PgConnection.isValid()` avant de prêter une connexion inactive.
+  Dominant attendu sur les flottes bien instrumentées.
 - `missing_db_statement` : le span a `db.system` mais ni
-  `db.statement` ni `db.query.text`. Typique des drivers configurés
-  pour omettre le texte des requêtes.
+  `db.statement` ni `db.query.text` ne porte de texte (une valeur vide
+  avec une opération nommée, ou faite d'espaces, compte comme
+  manquante). Typique des drivers configurés pour omettre le texte des
+  requêtes.
 - `missing_http_url` : le span a une méthode HTTP mais ni `http.url`
   ni `url.full`, et n'est pas un span SERVER. Un traitement entrant ne
   porte légitimement qu'une méthode et un chemin, le compter comme un

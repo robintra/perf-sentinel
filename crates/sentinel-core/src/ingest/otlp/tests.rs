@@ -4843,19 +4843,18 @@ fn usable_ratio_zero_when_every_io_span_is_unusable() {
 
 #[test]
 fn blank_db_statement_counts_as_a_missing_statement() {
-    // Found on a real capture: a redacting instrumentation kept the key
-    // and emptied the value. Taken at face value it became a SQL event
-    // with an empty target, which normalized to an empty template and
-    // surfaced as `redundant_sql` advising the team to cache an
-    // operation with no name.
-    for blank in ["", "   "] {
-        let span = make_bare_span(
-            &[9; 8],
-            vec![
-                make_kv("db.system", "postgresql"),
-                make_kv("db.statement", blank),
-            ],
-        );
+    // A redacting instrumentation keeps the key and the operation, and
+    // empties the text. Taken at face value it became a SQL event with an
+    // empty target, which normalized to an empty template and surfaced as
+    // `redundant_sql` advising the team to cache an operation with no name.
+    // Whitespace is no empty query, so it stays a gap without an operation.
+    for (blank, operation) in [("", Some("SELECT")), ("   ", None)] {
+        let mut attributes = vec![
+            make_kv("db.system", "postgresql"),
+            make_kv("db.statement", blank),
+        ];
+        attributes.extend(operation.map(|op| make_kv("db.operation", op)));
+        let span = make_bare_span(&[9; 8], attributes);
         let req = make_request("order-svc", vec![span]);
         let (events, stats) = convert_otlp_request_counted(&req);
         assert!(
@@ -4867,6 +4866,48 @@ fn blank_db_statement_counts_as_a_missing_statement() {
             "it is the instrumentation gap the retention metrics exist to show"
         );
     }
+}
+
+#[test]
+fn driver_ping_counts_as_not_io() {
+    // PgConnection.isValid() runs execute(""): a pool validating an idle
+    // connection, not a query and not an instrumentation gap.
+    for key in ["db.statement", "db.query.text"] {
+        let span = make_bare_span(
+            &[11; 8],
+            vec![
+                make_kv("db.system", "postgresql"),
+                make_kv("db.name", "orders"),
+                make_kv(key, ""),
+            ],
+        );
+        let req = make_request("order-svc", vec![span]);
+        let (events, stats) = convert_otlp_request_counted(&req);
+        assert!(
+            events.is_empty(),
+            "a ping must not produce an event, got {events:?}"
+        );
+        assert_eq!(stats.filtered_missing_db_statement, 0, "{key}");
+        assert_eq!(stats.filtered_not_io, 1, "{key}");
+        assert_eq!(stats.usable_span_ratio(), None, "a ping is not I/O-shaped");
+    }
+}
+
+#[test]
+fn empty_statement_with_an_operation_stays_a_gap() {
+    // Stable semconv spelling of the redaction case: the operation survives.
+    let span = make_bare_span(
+        &[12; 8],
+        vec![
+            make_kv("db.system.name", "postgresql"),
+            make_kv("db.query.text", ""),
+            make_kv("db.operation.name", "UPDATE"),
+        ],
+    );
+    let req = make_request("order-svc", vec![span]);
+    let (_, stats) = convert_otlp_request_counted(&req);
+    assert_eq!(stats.filtered_missing_db_statement, 1);
+    assert_eq!(stats.filtered_not_io, 0);
 }
 
 #[test]
