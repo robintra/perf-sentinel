@@ -357,3 +357,23 @@ v0.24.0	462d22d	2026-09-20	PASS
 # grafana-dashboard, the one scenario that replays the Infinity targets of
 # the version 12 dashboard's findings=false query.
 v0.25.0	dd01136	2026-09-22	PASS
+#
+# v0.25.1, 2026-09-24. Targeted pass, not verify-all-scenarios: an ingest
+# filter reason and the example alerting rules moved, no detector and no
+# scoring code. Against c225ebf4, as the release binary and as a daemon image
+# built from it (seed-daemon-local, image on all three nodes, /api/status
+# 0.25.1).
+# Driver ping A/B on the Spring services, HikariCP over PostgreSQL. Tempo
+# holds each ping as a root span named after the database, db.statement=""
+# and no operation. The 0.25.0 image counted missing_db_statement=9, the 9
+# pings Tempo held and no other statement-less DB span. After the switch and
+# a restart of the three services, 0.25.1 kept missing_db_statement at 0
+# through 642 pings and 120264 received spans.
+# Cluster: validate-findings 12/12, incident-alerting-chain 11 PASS 1 SKIP
+# (kubeconform, by design), the Job pod case of leg C included.
+# No cluster: datadog-bridge 12/12 (its seeded missing_db_statement gap still
+# counts), java-ci-file-export 6/6, non-sql-datastore-drop (not_io=1, the
+# SERVER root), astronomy-shop 4/4.
+# incident-alerting-chain failed its rules-fire leg first, lab-side: a fresh
+# cluster had no lab-tracegen:1 image. make seed-tracegen, then 11/0/1.
+v0.25.1	f147b61	2026-09-24	PASS
