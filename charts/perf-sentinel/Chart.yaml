@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.0
-appVersion: "0.25.0"
+version: 0.25.1
+appVersion: "0.25.1"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,15 +36,13 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: added
-      description: "appVersion 0.25.0. `GET /api/incidents` takes `findings=false`, which returns each incident without its frozen findings and with `finding_count` in their place, by `id` as well as by page. The default response is unchanged."
     - kind: fixed
-      description: "An incident carrying a namespace froze the findings of its service in every namespace, so a rollout across tenants recorded one incident per namespace, each holding every tenant's findings. The freeze now leaves out a finding whose `k8s.namespace.name` grouping attribute names another namespace, which needs that attribute among `[detection] grouping_attributes`, as it is by default. The daemon warns at startup when incidents are enabled without it."
+      description: "appVersion 0.25.1. A driver ping no longer counts as a `missing_db_statement` gap. The empty statement a connection pool runs through `PgConnection.isValid()` before lending an idle connection, traced by the OpenTelemetry JDBC instrumentation with `db.statement=\"\"`, is now filtered as `not_io`, so a Java service behind a pool no longer shows its pings as spans missing their statement, and they no longer lower its usable span ratio."
     - kind: fixed
-      description: "The example findings dashboard, not shipped in the chart, moves to version 12: its `Incidents` table asks with `findings=false` and reads `finding_count`, instead of pulling every frozen finding of 50 incidents on each refresh, which Grafana's Infinity backend parser inflated past a 1 GiB memory limit. No values.yaml key is added or removed, and no template changes."
+      description: "The example incident alerting rules, not shipped in the chart, drop the pods a Job owns from the OOM, restart and memory-saturation rules, through `kube_pod_owner{owner_kind=\"Job\"}`. A trivy-operator scan Job names its container after the container it scans, so a scan pod that restarted could post an incident with no finding. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.0
+      image: ghcr.io/robintra/perf-sentinel:0.25.1
       platforms:
         - linux/amd64
         - linux/arm64
