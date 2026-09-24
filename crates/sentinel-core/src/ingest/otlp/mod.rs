@@ -321,6 +321,10 @@ impl CodeAttrs<'_> {
 struct ClassifiedAttrs<'a> {
     db_statement: Option<&'a str>,
     db_query_text: Option<&'a str>,
+    // Legacy and stable operation keys, read only to tell a driver ping from
+    // a redacted statement (see is_driver_ping).
+    db_operation: Option<&'a str>,
+    db_operation_name: Option<&'a str>,
     db_system: Option<&'a str>,
     // Stable OTel 1.27+ semconv key for the DB system. db.system is the older
     // experimental spelling. The current datadogreceiver emits this one.
@@ -407,6 +411,8 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
         match kv.key.as_str() {
             "db.statement" => out.db_statement = any_value_as_str(value),
             "db.query.text" => out.db_query_text = any_value_as_str(value),
+            "db.operation" => out.db_operation = any_value_as_str(value),
+            "db.operation.name" => out.db_operation_name = any_value_as_str(value),
             "db.system" => out.db_system = any_value_as_str(value),
             "db.system.name" => out.db_system_name = any_value_as_str(value),
             "dd.span.Resource" => out.dd_resource = any_value_as_str(value),
@@ -891,15 +897,14 @@ fn has_http_signal(c: &ClassifiedAttrs<'_>) -> bool {
 /// disagree on what counts as a statement.
 fn resolve_sql_statement<'a>(c: &ClassifiedAttrs<'a>, db_system: Option<&str>) -> Option<&'a str> {
     // A blank statement is a missing one. Instrumentations do emit
-    // `db.statement=""` (a redacting layer that keeps the key), and taking
-    // it at face value produced a SQL event with an empty target: it
-    // normalized to an empty template, grouped with every other blank one
-    // on the endpoint, and surfaced as `redundant_sql` telling the team to
-    // cache an operation with no name. Treated as absent, the span becomes
-    // the `missing_db_statement` gap it always was, which is what the
-    // retention metrics and `min_usable_span_ratio` are there to show.
-    // Blank-checked, not trimmed: trimming a non-blank statement would
-    // change its ack signature.
+    // `db.statement=""` (a redacting layer that keeps the key, or a driver
+    // ping, see is_driver_ping), and taking it at face value produced a SQL
+    // event with an empty target: it normalized to an empty template,
+    // grouped with every other blank one on the endpoint, and surfaced as
+    // `redundant_sql` telling the team to cache an operation with no name.
+    // Treated as absent, the span becomes a `missing_db_statement` gap, or
+    // `not_io` when it is a driver ping. Blank-checked, not trimmed:
+    // trimming a non-blank statement would change its ack signature.
     let non_blank = |s: &&'a str| !s.trim().is_empty();
     c.db_statement
         .filter(non_blank)
@@ -1031,7 +1036,8 @@ fn classify_stitch_role<'a>(span: &Span, c: &ClassifiedAttrs<'a>) -> SpanRole<'a
     }
     if let Some(statement) = resolve_sql_statement(c, db_system) {
         SpanRole::Donor(statement)
-    } else if !has_http_signal(c)
+    } else if !is_driver_ping(c)
+        && !has_http_signal(c)
         && c.rpc_system.is_none()
         && c.messaging_system.is_none()
         && looks_like_query_execution(&span.name)
@@ -1660,6 +1666,22 @@ fn convert_resource_spans<'a>(
     }
 }
 
+/// A connection-validation ping: the statement key is present and exactly
+/// empty, and no operation is named. `PgConnection.isValid()` runs
+/// `execute("")`, which a pool calls before lending an idle connection, and
+/// the `OTel` JDBC instrumentation traces it like any statement. A redacting
+/// layer keeps the operation it strips the text from, and whitespace is not
+/// an empty query, so both stay `missing_db_statement` gaps.
+fn is_driver_ping(c: &ClassifiedAttrs<'_>) -> bool {
+    let no_text = |s: Option<&str>| s.is_none_or(str::is_empty);
+    let unnamed = |s: Option<&str>| s.is_none_or(|op| op.trim().is_empty());
+    (c.db_statement == Some("") || c.db_query_text == Some(""))
+        && no_text(c.db_statement)
+        && no_text(c.db_query_text)
+        && unnamed(c.db_operation)
+        && unnamed(c.db_operation_name)
+}
+
 /// Classify why a span was skipped: distinguishes "internal span" from
 /// "I/O span missing the attribute that carries its statement or url".
 fn span_filter_reason(
@@ -1677,8 +1699,9 @@ fn span_filter_reason(
     // statement is an instrumentation gap. Keyed on presence, not on the SQL
     // allowlist, so a statement-less span on a SQL engine outside the allowlist
     // (Snowflake, Trino, ...) is still reported instead of silently masked.
-    // db_system is the canonicalized effective system.
-    if db_system.is_some() {
+    // db_system is the canonicalized effective system. A driver ping is no
+    // query at all, so it is not a gap either.
+    if db_system.is_some() && !is_driver_ping(classified) {
         OtlpSpanFilterReason::MissingDbStatement
     } else if !server
         && classified

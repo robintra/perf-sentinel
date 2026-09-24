@@ -136,10 +136,15 @@ pre-warmed to 0:
   method (internal span, cache hit, middleware...). Since 0.11.2 this
   also covers a SERVER span whose URL describes its own inbound
   request, since that is inbound work rather than a stripped outbound
-  call. Expected to dominate on well-instrumented fleets.
+  call. It also covers a driver ping: an exactly empty `db.statement`
+  or `db.query.text` with no `db.operation` or `db.operation.name`,
+  which is how the JDBC instrumentation traces the `execute("")` a
+  pool issues through `PgConnection.isValid()` before lending an idle
+  connection. Expected to dominate on well-instrumented fleets.
 - `missing_db_statement`: span has `db.system` but neither
-  `db.statement` nor `db.query.text`. Typical of drivers configured
-  to omit query text.
+  `db.statement` nor `db.query.text` carries text (a blank value with
+  a named operation, or whitespace, counts as missing). Typical of
+  drivers configured to omit query text.
 - `missing_http_url`: span has an HTTP method but neither `http.url`
   nor `url.full`, and is not a SERVER span. An inbound handler
   legitimately carries just a method and a path, so counting it as a
