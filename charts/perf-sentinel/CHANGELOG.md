@@ -10,6 +10,27 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.1]
+
+### Fixed
+
+- **`appVersion` moves to `0.25.1`.** A driver ping no longer counts as a
+  `missing_db_statement` gap. `PgConnection.isValid()` runs `execute("")`,
+  which a connection pool calls before lending an idle connection, and the
+  OpenTelemetry JDBC instrumentation traces it with `db.statement=""`. Such a
+  span is now filtered as `not_io`, so a Java service behind a pool no longer
+  shows its pings as spans missing their statement, and they no longer lower
+  its usable span ratio.
+- The example incident alerting rules under `examples/` drop the pods a Job
+  owns from the OOM, restart and memory-saturation rules, through
+  `kube_pod_owner{owner_kind="Job"}`. A trivy-operator scan Job names its
+  container after the container it scans, so a scan pod that restarted could
+  post an incident with no finding. They do not ship in the chart, re-apply
+  them where they are deployed.
+
+No `values.yaml` key is added or removed, no template changes, and the shipped
+alerts are unchanged.
+
 ## [0.25.0]
 
 ### Added

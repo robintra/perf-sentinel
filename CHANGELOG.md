@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-09-24
+
+This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. One figure an operator can gate on moves: pool pings no longer count against the SQL usable span ratio, so a Java service behind a connection pool reads a higher ratio, and an `analyze --ci` run that failed `min_usable_span_ratio` on those pings alone can now pass. A ping whose span name reads as a query execution also no longer adopts a sibling's statement in the split-span stitch, where it had counted as one more execution of that statement.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure and found inside their window two days after 0.25.0 audited them. Nothing in 0.25.1 touches the scoring code.
+
 ### Fixed
 
 - A driver ping no longer counts as an instrumentation gap. `PgConnection.isValid()` runs `execute("")`, which a connection pool such as HikariCP calls before lending an idle connection, and the OTel JDBC instrumentation traces it with `db.statement=""`. perf-sentinel read that as a `missing_db_statement` gap, so a correctly instrumented Java service showed pool pings as spans missing their statement and they lowered its usable span ratio. A statement key that is present and exactly empty, with no `db.operation` or `db.operation.name`, is now filtered as `not_io` and never adopts a sibling's statement in the split-span stitch. A redacted statement keeps its operation and whitespace is no empty query, so both still count as `missing_db_statement`.
