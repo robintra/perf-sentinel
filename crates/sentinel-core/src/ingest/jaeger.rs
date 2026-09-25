@@ -375,9 +375,7 @@ fn convert_jaeger_span(
     };
     let operation = match io_kind {
         super::TagIoKind::Sql => db_system.unwrap_or("sql").to_string(),
-        super::TagIoKind::HttpOut => find_tag(tags, "http.method")
-            .or_else(|| find_tag(tags, "http.request.method"))
-            .unwrap_or_else(|| "GET".to_string()),
+        super::TagIoKind::HttpOut => http_method(tags),
     };
 
     // Service name from the per-trace Arc cache, cloned (O(1)) per span.
@@ -400,9 +398,7 @@ fn convert_jaeger_span(
 
     // Status code (HTTP only)
     let status_code = match io_kind {
-        super::TagIoKind::HttpOut => find_tag(tags, "http.status_code")
-            .or_else(|| find_tag(tags, "http.response.status_code"))
-            .and_then(|s| s.parse().ok()),
+        super::TagIoKind::HttpOut => http_status_code(tags),
         super::TagIoKind::Sql => None,
     };
 
@@ -473,6 +469,23 @@ fn convert_jaeger_span(
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)
+}
+
+/// HTTP verb of an outbound span: legacy, then stable semconv, then the
+/// Micrometer Observation `method` tag (only reached on a span with a URL).
+fn http_method(tags: &[JaegerTag]) -> String {
+    find_tag(tags, "http.method")
+        .or_else(|| find_tag(tags, "http.request.method"))
+        .or_else(|| find_tag(tags, "method"))
+        .unwrap_or_else(|| "GET".to_string())
+}
+
+/// HTTP status of an outbound span, same precedence as [`http_method`].
+fn http_status_code(tags: &[JaegerTag]) -> Option<u16> {
+    find_tag(tags, "http.status_code")
+        .or_else(|| find_tag(tags, "http.response.status_code"))
+        .or_else(|| find_tag(tags, "status"))
+        .and_then(|s| s.parse().ok())
 }
 
 fn find_tag(tags: &[JaegerTag], key: &str) -> Option<String> {
@@ -1586,5 +1599,34 @@ mod tests {
         assert_eq!(http.target, "http://api/items");
         assert_eq!(http.operation, "POST");
         assert_eq!(http.status_code, Some(201));
+    }
+
+    #[test]
+    fn micrometer_method_and_status_tags_are_read() {
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "http post",
+                    "references": [],
+                    "startTime": 1720621921200000,
+                    "duration": 1000,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "http.url", "value": "http://api/items" },
+                        { "key": "method", "value": "POST" },
+                        { "key": "status", "value": "201" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let events = JaegerIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events[0].operation, "POST");
+        assert_eq!(events[0].status_code, Some(201));
     }
 }

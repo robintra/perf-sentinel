@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- Outbound HTTP spans from Spring Boot services traced through Micrometer Observation now keep their method and status. The `spring-boot-starter-opentelemetry` starter and the Micrometer Zipkin bridge tag RestClient, RestTemplate and WebClient calls with `method` and `status` instead of `http.request.method` and `http.response.status_code`, so every call read as a `GET` without a status, and a `POST` and a `GET` to the same URL could group together. The OTLP, Zipkin and Jaeger ingestion paths read these two tags after both OTel conventions, and only on a span already classified as an outbound call through its URL. A non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.
+
 ## [0.25.1] - 2026-09-24
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. One figure an operator can gate on moves: pool pings no longer count against the SQL usable span ratio, so a Java service behind a connection pool reads a higher ratio, and an `analyze --ci` run that failed `min_usable_span_ratio` on those pings alone can now pass. A ping whose span name reads as a query execution also no longer adopts a sibling's statement in the split-span stitch, where it had counted as one more execution of that statement.

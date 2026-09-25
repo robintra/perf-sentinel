@@ -90,7 +90,7 @@ La chaîne d'ancêtres du span SQL est `postgresql -> order-consumed`, le `CONSU
 
 Cet index n'est construit que si la requête porte un span `CONSUMER` lié, et il sert aussi de garde par service : un service sans un tel span saute les deux recherches. L'indexation par parent impose une décision que la remontée d'ancêtres n'avait jamais eu à prendre, car plusieurs spans `receive` frères peuvent partager un parent. Le premier dans l'ordre du lot l'emporte, ce qui est déterministe mais arbitraire : rien dans les spans ne dit quel message a causé quelle requête.
 
-Les conventions sémantiques OTel legacy (pré-1.21) et stables (1.21+) sont toutes deux supportées : `db.statement` et `db.query.text` pour le SQL, `http.url` et `url.full` pour le HTTP, `http.method` et `http.request.method` pour le verbe, `http.status_code` et `http.response.status_code` pour le statut. Cela assure la compatibilité avec les anciens SDKs OTel comme avec les agents Java modernes (v2.x).
+Les conventions sémantiques OTel legacy (pré-1.21) et stables (1.21+) sont toutes deux supportées : `db.statement` et `db.query.text` pour le SQL, `http.url` et `url.full` pour le HTTP, `http.method` et `http.request.method` pour le verbe, `http.status_code` et `http.response.status_code` pour le statut. Cela assure la compatibilité avec les anciens SDKs OTel comme avec les agents Java modernes (v2.x). Sur un span HTTP sortant, les tags Micrometer Observation `method` et `status` (RestClient, RestTemplate et WebClient de Spring Boot) sont lus en dernier, après les deux conventions.
 
 ### Protection contre la dérive d'horloge
 

@@ -338,6 +338,11 @@ struct ClassifiedAttrs<'a> {
     url_path: Option<&'a str>,
     http_method: Option<&'a str>,
     http_request_method: Option<&'a str>,
+    // Micrometer Observation low-cardinality tags (Spring Boot RestClient,
+    // RestTemplate, WebClient). Generic names, so read only as a last resort
+    // on a span already classified as outbound HTTP by its URL.
+    micrometer_method: Option<&'a str>,
+    micrometer_status: Option<&'a str>,
     // RPC semconv (gRPC, Dubbo, ...): no statement or URL, so these are the
     // only keys that identify the callee. See classify_io_event.
     rpc_system: Option<&'a str>,
@@ -423,6 +428,8 @@ fn classify_span_attrs(attrs: &[KeyValue]) -> ClassifiedAttrs<'_> {
             "url.path" => out.url_path = any_value_as_str(value),
             "http.method" => out.http_method = any_value_as_str(value),
             "http.request.method" => out.http_request_method = any_value_as_str(value),
+            "method" => out.micrometer_method = any_value_as_str(value),
+            "status" => out.micrometer_status = any_value_as_str(value),
             "rpc.system" => out.rpc_system = any_value_as_str(value),
             "rpc.service" => out.rpc_service = any_value_as_str(value),
             "rpc.method" => out.rpc_method = any_value_as_str(value),
@@ -1721,6 +1728,15 @@ fn span_filter_reason(
 /// `kind` is the OTLP `SpanKind`: SERVER spans are inbound context rather than
 /// outbound HTTP calls, RPC admits only CLIENT, and messaging only PRODUCER.
 /// Supports both legacy (pre-1.21) and stable (1.21+) `OTel` conventions.
+/// Micrometer `status` tag, read only on a span that carries a URL: an RPC
+/// callee is also an `HttpOut` event, and its `status` is no HTTP code.
+fn micrometer_http_status(c: &ClassifiedAttrs<'_>) -> Option<i64> {
+    c.http_url
+        .or(c.url_full)
+        .and(c.micrometer_status)
+        .and_then(|s| s.parse().ok())
+}
+
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
     db_system: Option<&str>,
@@ -1749,6 +1765,7 @@ fn classify_io_event(
         let method = c
             .http_method
             .or(c.http_request_method)
+            .or(c.micrometer_method)
             .unwrap_or("GET")
             .to_string();
         Some((EventType::HttpOut, url.to_string(), method))
@@ -1925,6 +1942,7 @@ fn convert_span<'a>(
         classified
             .http_status_code
             .or(classified.http_response_status_code)
+            .or_else(|| micrometer_http_status(classified))
             .and_then(|c| u16::try_from(c).ok())
     } else {
         None

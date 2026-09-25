@@ -2247,6 +2247,103 @@ fn status_code_extraction() {
     assert_eq!(events[0].status_code, Some(404));
 }
 
+/// Spring Boot `RestClient` span exported through the Micrometer `OTel` bridge:
+/// method and status are Micrometer tags, the status a string.
+fn make_micrometer_client_span(extra: Vec<KeyValue>) -> Span {
+    let mut attributes = vec![
+        make_kv("http.url", "http://inventory-svc/api/items/42"),
+        make_kv("uri", "/api/items/{id}"),
+        make_kv("client.name", "inventory-svc"),
+        make_kv("outcome", "SUCCESS"),
+    ];
+    attributes.extend(extra);
+    Span {
+        trace_id: vec![1; 16],
+        span_id: vec![3; 8],
+        name: "http post".to_string(),
+        kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32,
+        start_time_unix_nano: 1_000_000_000,
+        end_time_unix_nano: 1_001_000_000,
+        attributes,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn micrometer_client_span_reads_method_and_status() {
+    let span =
+        make_micrometer_client_span(vec![make_kv("method", "POST"), make_kv("status", "201")]);
+    let events = convert_otlp_request(&make_request("order-svc", vec![span]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+    assert_eq!(events[0].operation, "POST");
+    assert_eq!(events[0].status_code, Some(201));
+}
+
+#[test]
+fn micrometer_status_without_response_is_absent() {
+    let span = make_micrometer_client_span(vec![
+        make_kv("method", "GET"),
+        make_kv("status", "CLIENT_ERROR"),
+    ]);
+    let events = convert_otlp_request(&make_request("order-svc", vec![span]));
+
+    assert_eq!(events[0].status_code, None);
+}
+
+#[test]
+fn otel_method_and_status_win_over_micrometer_tags() {
+    let span = make_micrometer_client_span(vec![
+        make_kv("method", "POST"),
+        make_kv("status", "201"),
+        make_kv("http.request.method", "PUT"),
+        make_int_kv("http.response.status_code", 204),
+    ]);
+    let events = convert_otlp_request(&make_request("order-svc", vec![span]));
+
+    assert_eq!(events[0].operation, "PUT");
+    assert_eq!(events[0].status_code, Some(204));
+}
+
+#[test]
+fn status_tag_is_ignored_on_an_rpc_client_span() {
+    let span = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![3; 8],
+        name: "order.v1.OrderService/GetOrder".to_string(),
+        kind: opentelemetry_proto::tonic::trace::v1::span::SpanKind::Client as i32,
+        attributes: vec![
+            make_kv("rpc.system", "grpc"),
+            make_kv("rpc.service", "order.v1.OrderService"),
+            make_kv("rpc.method", "GetOrder"),
+            make_kv("status", "0"),
+        ],
+        ..Default::default()
+    };
+    let events = convert_otlp_request(&make_request("order-svc", vec![span]));
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_type, EventType::HttpOut);
+    assert_eq!(events[0].status_code, None);
+}
+
+#[test]
+fn micrometer_method_tag_without_url_is_not_http() {
+    let span = Span {
+        trace_id: vec![1; 16],
+        span_id: vec![3; 8],
+        name: "tasks.scheduled.execution".to_string(),
+        attributes: vec![
+            make_kv("method", "refreshCache"),
+            make_kv("status", "SUCCESS"),
+        ],
+        ..Default::default()
+    };
+
+    assert!(convert_otlp_request(&make_request("order-svc", vec![span])).is_empty());
+}
+
 #[test]
 fn service_name_from_resource() {
     let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
