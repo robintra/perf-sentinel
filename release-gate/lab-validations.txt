@@ -377,3 +377,24 @@ v0.25.0	dd01136	2026-09-22	PASS
 # incident-alerting-chain failed its rules-fire leg first, lab-side: a fresh
 # cluster had no lab-tracegen:1 image. make seed-tracegen, then 11/0/1.
 v0.25.1	f147b61	2026-09-24	PASS
+#
+# v0.25.2, 2026-09-25. Targeted pass, not verify-all-scenarios: two attribute
+# reads on outbound HTTP spans in the OTLP, Zipkin and Jaeger ingest, no
+# detector and no scoring code. Against 3fa75b63 as the release binary,
+# /api/status 0.25.2. No cluster.
+# New micrometer-http-client 12/12: a Spring Boot 4.1.1 service traced through
+# Micrometer Observation, whose 14 CLIENT spans carry method and status and no
+# OTel HTTP key, read over OTLP (capture), Zipkin v2 JSON (Brave bridge),
+# Jaeger JSON (the capture replayed into Jaeger 2.20.0) and the daemon's OTLP
+# receiver. Each path splits n_plus_one_http into POST x6 and GET x7, embeds
+# POST 201, GET 200 and GET 404, and leaves the refused call
+# (status=CLIENT_ERROR) without a status. The four paths agree on both
+# signatures, the GET one unchanged from 0.25.1.
+# Control: the published 0.25.1 binary fails the 8 method and status checks
+# (GET x13 without a status on every path) and passes the 4 build and shape
+# checks.
+# Not run: validate-findings. Every lab stack sets the OTel HTTP keys, which
+# still win, and the daemon leg covers the receiver.
+# Found on the way: Jaeger 2.21.0 removed /api/traces (jaegertracing/jaeger
+# #9260), the endpoint perf-sentinel jaeger-query calls.
+v0.25.2	17bf44f	2026-09-25	PASS
