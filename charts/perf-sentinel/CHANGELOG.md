@@ -10,6 +10,21 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.2]
+
+### Added
+
+- **`appVersion` moves to `0.25.2`.** Outbound HTTP spans from a Spring Boot
+  service traced through Micrometer Observation keep their method and status.
+  The `spring-boot-starter-opentelemetry` starter and the Micrometer Zipkin
+  bridge tag RestClient, RestTemplate and WebClient calls with `method` and
+  `status`, which the daemon now reads after both OpenTelemetry conventions,
+  so such a call no longer reads as a `GET` without a status. A finding on a
+  call that is not a `GET` gets a new signature, and an acknowledgment of the
+  old one stops matching it.
+
+No `values.yaml` key is added or removed, and no template changes.
+
 ## [0.25.1]
 
 ### Fixed
