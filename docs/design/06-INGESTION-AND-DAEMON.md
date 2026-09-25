@@ -90,7 +90,7 @@ The SQL span's ancestor chain is `postgresql -> order-consumed`, so the linked `
 
 That index is built only when a request carries a linked `CONSUMER` span, and it doubles as the per-service gate: a service with no such span skips both lookups. Keying by parent forces a decision the ancestor walk never faced, since several sibling `receive` spans can share one parent. The first in batch order wins, which is deterministic but arbitrary: nothing in the spans says which message caused which query.
 
-Both legacy (pre-1.21) and stable (1.21+) [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported: `db.statement` and `db.query.text` for SQL, `http.url` and `url.full` for HTTP, `http.method` and `http.request.method` for the HTTP verb, `http.status_code` and `http.response.status_code` for the status. This ensures compatibility with both older OTel SDKs and modern Java agents (v2.x).
+Both legacy (pre-1.21) and stable (1.21+) [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported: `db.statement` and `db.query.text` for SQL, `http.url` and `url.full` for HTTP, `http.method` and `http.request.method` for the HTTP verb, `http.status_code` and `http.response.status_code` for the status. This ensures compatibility with both older OTel SDKs and modern Java agents (v2.x). On an outbound HTTP span, the Micrometer Observation tags `method` and `status` (Spring Boot RestClient, RestTemplate, WebClient) are read last, after both conventions.
 
 ### Clock skew protection
 

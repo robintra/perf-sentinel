@@ -317,6 +317,8 @@ fn convert_zipkin_span(
         super::TagIoKind::Sql => db_system.unwrap_or("sql").to_string(),
         super::TagIoKind::HttpOut => get_tag("http.method")
             .or_else(|| get_tag("http.request.method"))
+            // Micrometer Observation tag, only reached on a span with a URL
+            .or_else(|| get_tag("method"))
             .unwrap_or("GET")
             .to_string(),
     };
@@ -333,6 +335,7 @@ fn convert_zipkin_span(
     let status_code = match io_kind {
         super::TagIoKind::HttpOut => get_tag("http.status_code")
             .or_else(|| get_tag("http.response.status_code"))
+            .or_else(|| get_tag("status"))
             .and_then(|s| s.parse().ok()),
         super::TagIoKind::Sql => None,
     };
@@ -1349,5 +1352,31 @@ mod tests {
         assert_eq!(http.target, "http://api/items");
         assert_eq!(http.operation, "POST");
         assert_eq!(http.status_code, Some(201));
+    }
+
+    #[test]
+    fn micrometer_method_and_status_tags_are_read() {
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "http post",
+                "kind": "CLIENT",
+                "timestamp": 1720621921200000,
+                "duration": 1000,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "http.url": "http://api/items",
+                    "method": "POST",
+                    "status": "201"
+                }
+            }
+        ]"#;
+        let events = ZipkinIngest::new(1_048_576)
+            .ingest(json.as_bytes())
+            .unwrap();
+
+        assert_eq!(events[0].operation, "POST");
+        assert_eq!(events[0].status_code, Some(201));
     }
 }
