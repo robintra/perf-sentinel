@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-09-25
+
+This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. Findings can move for a Spring Boot service traced through Micrometer Observation. An outbound call that is not a `GET` now carries its own verb in its template, so the finding it raises gets a new signature and an acknowledgment recorded against the old `GET` signature stops matching it, and a `POST` and a `GET` to the same URL that had grouped into one finding now count apart, which can split that finding or leave each half below its threshold. A service traced by an OpenTelemetry agent or SDK keeps its signatures, since the OpenTelemetry keys still win.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure and found inside their window a day after 0.25.1 audited them. Nothing in 0.25.2 touches the scoring code.
+
 ### Added
 
 - Outbound HTTP spans from Spring Boot services traced through Micrometer Observation now keep their method and status. The `spring-boot-starter-opentelemetry` starter and the Micrometer Zipkin bridge tag RestClient, RestTemplate and WebClient calls with `method` and `status` instead of `http.request.method` and `http.response.status_code`, so every call read as a `GET` without a status, and a `POST` and a `GET` to the same URL could group together. The OTLP, Zipkin and Jaeger ingestion paths read these two tags after both OTel conventions, and only on a span already classified as an outbound call through its URL. A non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.

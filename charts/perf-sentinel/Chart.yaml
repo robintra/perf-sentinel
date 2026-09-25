@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.1
-appVersion: "0.25.1"
+version: 0.25.2
+appVersion: "0.25.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,13 +36,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "appVersion 0.25.1. A driver ping no longer counts as a `missing_db_statement` gap. The empty statement a connection pool runs through `PgConnection.isValid()` before lending an idle connection, traced by the OpenTelemetry JDBC instrumentation with `db.statement=\"\"`, is now filtered as `not_io`, so a Java service behind a pool no longer shows its pings as spans missing their statement, and they no longer lower its usable span ratio."
-    - kind: fixed
-      description: "The example incident alerting rules, not shipped in the chart, drop the pods a Job owns from the OOM, restart and memory-saturation rules, through `kube_pod_owner{owner_kind=\"Job\"}`. A trivy-operator scan Job names its container after the container it scans, so a scan pod that restarted could post an incident with no finding. No values.yaml key is added or removed, and no template changes."
+    - kind: added
+      description: "appVersion 0.25.2. Outbound HTTP spans from a Spring Boot service traced through Micrometer Observation keep their method and status. The daemon reads the `method` and `status` tags that the `spring-boot-starter-opentelemetry` starter and the Micrometer Zipkin bridge set, after both OpenTelemetry conventions, so such a call no longer reads as a `GET` without a status. A finding on a call that is not a `GET` gets a new signature. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.1
+      image: ghcr.io/robintra/perf-sentinel:0.25.2
       platforms:
         - linux/amd64
         - linux/arm64
