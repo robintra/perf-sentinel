@@ -210,7 +210,7 @@ fn slow_sql_detected_in_fixture() {
         .collect();
     assert_eq!(slow_sql.len(), 1, "expected 1 slow SQL finding");
     assert_eq!(slow_sql[0].pattern.occurrences, 3);
-    // Max duration is 2600ms > 5x threshold (2500ms) -> Critical
+    // Max duration is 2600ms > 5x threshold (2500ms), so Critical
     assert_eq!(
         slow_sql[0].severity,
         sentinel_core::detect::Severity::Critical
@@ -307,7 +307,7 @@ fn pipeline_without_region_emits_only_embodied_floor() {
     assert!((co2.operational_gco2 - 0.0).abs() < f64::EPSILON);
     assert!(co2.embodied_gco2 > 0.0, "embodied is region-independent");
     assert!(co2.total.mid > 0.0);
-    // Per-offender scalar uses default_region; without one set it stays None.
+    // Per-offender scalar uses default_region. Without one set, it stays None.
     for offender in &report.green_summary.top_offenders {
         assert!(offender.co2_grams.is_none());
     }
@@ -697,7 +697,7 @@ fn sanitizer_aware_strict_reclassifies_vertx_reactive_n_plus_one_end_to_end() {
         redundant.is_empty(),
         "redundant detector should have skipped the reclassified bare-driver group"
     );
-    // The redundant→n_plus_one swap must not change the green accounting:
+    // Swapping redundant for n_plus_one must not change the green accounting:
     // both finding types contribute identically to `avoidable_io_ops`
     // (see `is_avoidable_io` in `detect/mod.rs`), so a 15-occurrence
     // group still yields 14 avoidable ops.
