@@ -14,7 +14,7 @@ La sous-commande est ajoutée en v0.6.x et remplace les recettes de divulgation 
 
 `audited` est réservé pour une release future. Le schéma JSON accepte la valeur pour la compatibilité ascendante, mais la CLI sort avec le code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") et le daemon refuse de démarrer avec `intent = "audited"` configuré.
 
-Pour l'intent `official`, le validateur refuse également les rapports sous 75% de couverture de calibration runtime. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution d'énergie par service présente) ou fallback (part I/O du proxy utilisée comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution par service, donc la part proxy commence à dominer les totaux et la revendication "official" perd une couverture par service significative. La justification empirique du seuil exact 75% (versus 50% ou 90%) est documentée dans [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime).
+Pour l'intent `official`, le validateur refuse également les rapports sous 75% de couverture de calibration runtime. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution d'énergie par service présente) ou fallback (part I/O du proxy utilisée comme substitut). Une couverture sous 75% signifie que plus d'un quart des fenêtres de la période ne portaient pas d'attribution par service, donc la part proxy commence à dominer les totaux et la revendication "official" perd une couverture par service significative. La justification empirique du seuil exact 75% (versus 50% ou 90%) est documentée dans [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime).
 
 ### Couverture temporelle et autres warnings (v1.2)
 
@@ -59,7 +59,7 @@ perf-sentinel disclose --tui \
 Seuls `--input` et `--org-config` restent requis. La période, l'intent et la confidentialité se règlent en direct :
 
 - `g` fait défiler la granularité (mois, trimestre, année, `custom`). Pour les trois premières, `from` et `to` se calent sur les bornes calendaires. `custom` permet d'éditer chaque borne à la main.
-- `←` / `→` (ou `h` / `l`) avancent la période d'une unité. En `custom` elles déplacent la borne active d'un jour, `[` et `]` la déplacent d'un mois, et `Tab` bascule entre la borne `from` et la borne `to`.
+- `←` / `→` (ou `h` / `l`) déplacent la période d'une unité à la fois. En `custom` elles déplacent la borne active d'un jour, `[` et `]` la déplacent d'un mois, et `Tab` bascule entre la borne `from` et la borne `to`.
 - `i` bascule l'intent (internal ou official), `c` bascule la confidentialité (G1 internal ou G2 public).
 - Le résumé indique le nombre de fenêtres, la couverture de période face au seuil officiel, les services mesurés et exclus, les totaux (requêtes, carbone, énergie, ratio de gaspillage), et le verdict du validateur officiel quand l'intent est official.
 - Le pied de page affiche la commande `disclose` exacte pour les réglages courants. Copiez-la pour produire le rapport haché.
@@ -100,7 +100,7 @@ Une période qui mêle des archives antérieures à la divulgation canonique et 
 L'agrégateur lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :
 
 ```json
-{"ts":"2026-01-15T14:30:00Z","report":{ ...Report complet... }}
+{"ts":"2026-01-15T14:30:00Z","report":{ ...full Report... }}
 ```
 
 Configurer l'archive daemon via :
@@ -112,7 +112,7 @@ max_size_mb = 100
 max_files = 12
 ```
 
-Quand le fichier actif dépasse `max_size_mb`, perf-sentinel le renomme en `reports-<timestamp-utc>.ndjson` et ouvre un nouveau fichier. Les anciens fichiers tournés au-delà de `max_files` sont élagués par date de modification.
+Quand le fichier actif dépasse `max_size_mb`, perf-sentinel le renomme en `reports-<utc-timestamp>.ndjson` et ouvre un nouveau fichier. Les anciens fichiers tournés au-delà de `max_files` sont élagués par date de modification.
 
 Les opérateurs qui collectent déjà stdout du daemon via un sidecar peuvent passer le fichier (ou le dossier) résultant à `--input` directement, à condition que chaque ligne soit une enveloppe `{ts, report}`.
 
@@ -120,7 +120,7 @@ Les opérateurs qui collectent déjà stdout du daemon via un sidecar peuvent pa
 
 Les champs statiques organisation/méthodologie/scope vivent dans un fichier TOML que vous versionnez dans votre dépôt d'infrastructure à côté du reste de la config perf-sentinel. Un exemple complet est dans `docs/examples/perf-sentinel-org.toml`. Le même fichier est référencé par `[reporting] org_config_path` quand le daemon doit valider les rapports publiables au démarrage.
 
-## Exemple : brouillon internal (G1)
+## Exemple : brouillon interne (G1)
 
 ```bash
 perf-sentinel disclose \
@@ -212,8 +212,8 @@ name: official disclosure
 on:
   workflow_dispatch:
     inputs:
-      from: { description: "début de période (YYYY-MM-DD)", required: true }
-      to:   { description: "fin de période (YYYY-MM-DD)",   required: true }
+      from: { description: "period start (YYYY-MM-DD)", required: true }
+      to:   { description: "period end (YYYY-MM-DD)",   required: true }
 
 permissions:
   contents: read
@@ -225,7 +225,7 @@ jobs:
     environment: official-disclosure   # les reviewers requis gardent ce job
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      - name: Produire et signer la divulgation officielle
+      - name: Produce and sign the official disclosure
         run: |
           perf-sentinel disclose \
             --intent official \
@@ -285,7 +285,7 @@ Les divulgations `intent = "official"` devraient être signées via
 Sigstore pour qu'un consommateur puisse vérifier que le fichier a
 été publié par votre organisation et n'a pas été modifié. Le
 pipeline s'active explicitement : passer
-`--emit-attestation <chemin>` à `disclose` pour obtenir un
+`--emit-attestation <path>` à `disclose` pour obtenir un
 statement in-toto v1 sidecar, puis signer ce statement avec
 `cosign`.
 
@@ -304,25 +304,25 @@ perf-sentinel disclose \
 # 2. Signer l'attestation avec cosign contre Sigstore public. Le
 #    fichier produit à l'étape 1 est déjà un Statement in-toto v1
 #    complet, donc on le signe directement avec `cosign sign-blob`.
-#    L'issuer OIDC (flow navigateur ou token GitHub Actions)
+#    L'issuer OIDC (flux navigateur ou token GitHub Actions)
 #    enregistre l'identité signataire. Le bundle inclut la preuve
 #    d'inclusion Rekor.
 #    Ne PAS utiliser `cosign attest-blob --predicate attestation.intoto.jsonl` :
-#    cette commande traite son entrée comme un predicate brut et la
-#    wrappe dans un nouveau Statement, produisant une entrée
-#    double-wrappée permanente dans le journal Rekor public.
+#    cette commande traite son entrée comme un predicate brut et
+#    l'enveloppe dans un nouveau Statement, produisant une entrée
+#    permanente doublement enveloppée dans le journal Rekor public.
 cosign sign-blob \
     --bundle bundle.sig \
     --new-bundle-format \
     attestation.intoto.jsonl
 
-# 3. Patcher integrity.signature dans report.json pour que les
+# 3. Renseigner integrity.signature dans report.json pour que les
 #    vérifieurs trouvent le bundle et l'entrée Rekor (voir
 #    "Édition de integrity.signature" plus bas pour le schéma et
-#    le helper jq). Puis bumper report_metadata.integrity_level
+#    le helper jq). Puis passer report_metadata.integrity_level
 #    de "hash-only" à "signed" (ou "signed-with-attestation" si le
 #    binaire producteur porte une provenance SLSA). Une future
-#    subcommand `perf-sentinel sign` automatisera cette étape.
+#    sous-commande `perf-sentinel sign` automatisera cette étape.
 
 # 4. Publier report.json, attestation.intoto.jsonl, bundle.sig à
 #    votre URL de transparence.
@@ -342,10 +342,10 @@ Les sept champs et la source de chaque valeur :
 |-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `format`          | constante `"sigstore-cosign-intoto-v1"` pour ce schéma                                                                                                                                            |
 | `bundle_url`      | URL où vous publierez `bundle.sig` à l'étape 4                                                                                                                                                    |
-| `signer_identity` | sortie cosign à l'étape 2, ligne `Successfully verified SCT...` ou `tlog entry... signed by`. Aussi lisible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_identity` | sortie cosign (stdout/stderr) à l'étape 2, ligne `Successfully verified SCT...` ou `tlog entry... signed by`. Aussi lisible dans le certificat via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
 | `signer_issuer`   | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté                                                                                                                           |
 | `rekor_url`       | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée)                                          |
-| `rekor_log_index` | sortie cosign à l'étape 2, ligne `tlog entry created with index: X`. Ou via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer                                                       |
+| `rekor_log_index` | sortie cosign (stdout) à l'étape 2, ligne `tlog entry created with index: X`. Ou la récupérer via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer                                                       |
 | `signed_at`       | horodatage de l'entrée Rekor, ISO 8601 UTC                                                                                                                                                        |
 
 Exemple avant / après sur une divulgation fraîche :
@@ -363,7 +363,7 @@ Exemple avant / après sur une divulgation fraîche :
 ```
 
 ```json
-// Après l'étape 3 (après cosign sign-blob réussi et locators collés)
+// Après l'étape 3 (cosign sign-blob a réussi et l'opérateur a collé les champs de localisation)
 "integrity": {
   "content_hash": "sha256:abc123...",
   "binary_hash": "sha256:def456...",
@@ -433,10 +433,10 @@ Rien de tout cela ne prouve la sincérité de la mesure à la source. Un
 opérateur qui contrôle le daemon et ses fichiers peut régénérer une
 chaîne cohérente, exactement comme il peut choisir un coefficient
 défavorable. Ces paramètres sont désormais publiés eux aussi, voir
-`carbon_methodologies`, `scoring_coefficients` et les champs embodied
-dans `methodology.calibration_inputs`, ce qui les rend contestables
-plutôt qu'invisibles. L'étape restante est l'ancrage de la tête de
-chaîne hors du contrôle de l'opérateur, ce à quoi
+`carbon_methodologies`, `scoring_coefficients` et les champs du
+carbone embarqué dans `methodology.calibration_inputs`, ce qui les
+rend contestables plutôt qu'invisibles. L'étape restante est
+l'ancrage de la tête de chaîne hors du contrôle de l'opérateur, ce à quoi
 `integrity.cross_period_log` reste réservé. La garantie permet de
 détecter une altération après coup, mais reste auto-déclarée à la
 source.
@@ -499,7 +499,7 @@ les champs depuis la sortie cosign et met à jour le rapport en une
 passe :
 
 ```bash
-# Signer et capturer la sortie cosign pour parsing
+# Signer et capturer la sortie cosign pour l'analyser
 cosign sign-blob \
     --bundle bundle.sig \
     --new-bundle-format \
@@ -516,11 +516,12 @@ LOG_INDEX=$(grep "tlog entry created with index" cosign.log \
 SIGNER=$(grep "Successfully signed" cosign.log \
          | sed 's/.*by //' | tr -d '"')
 
-# Choisir l'issuer qui matche votre provider OIDC.
+# Choisir l'issuer qui correspond à votre fournisseur OIDC.
 ISSUER="https://accounts.google.com"  # ou token.actions.githubusercontent.com
 
-# Patcher report.json avec les sept champs de locator et bumper
-# integrity_level. Ajuster bundle_url à votre host de transparence.
+# Renseigner les sept champs de localisation dans report.json et
+# relever integrity_level. Ajuster bundle_url à votre hôte de
+# transparence.
 jq --arg url "https://transparency.example.fr/bundle.sig" \
    --arg sig "$SIGNER" \
    --arg issuer "$ISSUER" \
@@ -577,7 +578,7 @@ perf-sentinel verify-hash \
     --expected-identity release@example.fr \
     --expected-issuer https://accounts.google.com
 
-# Mode distant : fetch le rapport et les sidecars par convention HTTPS.
+# Mode distant : récupère le rapport et les sidecars par convention HTTPS.
 perf-sentinel verify-hash \
     --url https://example.fr/perf-sentinel-report.json \
     --expected-identity release@example.fr \
@@ -614,9 +615,9 @@ outil manquant d'une tentative de falsification.
 
 Quand un rapport porte des métadonnées d'attestation binaire,
 `verify-hash` n'ignore pas ce bloc en silence : sans
-`--verify-binary <chemin>` l'attestation reste non vérifiée et le
+`--verify-binary <path>` l'attestation reste non vérifiée et le
 résultat plafonne à PARTIAL au lieu de TRUSTED. Passez
-`--verify-binary <chemin>` pour lancer `gh attestation verify` sur le
+`--verify-binary <path>` pour lancer `gh attestation verify` sur le
 binaire producteur (nécessite le CLI `gh` et le réseau), afin que la
 provenance soit contrôlée et que le code `0` le reflète.
 
@@ -626,7 +627,7 @@ provenance soit contrôlée et que le code `0` le reflète.
 même répertoire, avec des **noms fixes** :
 
 ```
-https://example.fr/<nom-du-rapport>             (le rapport)
+https://example.fr/<report-filename>            (le rapport)
 https://example.fr/attestation.intoto.jsonl     (sidecar statement in-toto)
 https://example.fr/bundle.sig                   (sidecar bundle cosign)
 ```
