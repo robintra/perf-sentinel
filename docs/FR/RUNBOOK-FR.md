@@ -21,7 +21,7 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 - [Exemplars absents dans Grafana](#exemplars-absents-dans-grafana)
 - [Scraper d'énergie bloqué](#scraper-dénergie-bloqué)
 - [`/api/correlations` renvoie vide](#apicorrelations-renvoie-vide)
-- [`/api/export/report` retourne 503 ou un rapport vide](#apiexportreport-retourne-503-ou-un-rapport-vide)
+- [`/api/export/report` retourne un rapport vide](#apiexportreport-retourne-un-rapport-vide)
 - [Crash ou redémarrage du daemon](#crash-ou-redémarrage-du-daemon)
 - [Appliquer un changement de config](#appliquer-un-changement-de-config)
 
@@ -658,20 +658,20 @@ Redémarrez le daemon pour appliquer.
 
 ---
 
-## `/api/export/report` retourne 503 ou un rapport vide
+## `/api/export/report` retourne un rapport vide
 
-**Symptôme.** Rediriger la sortie du daemon vers le dashboard HTML échoue avec HTTP 503, ou produit un dashboard à zéro findings sur un daemon qui tourne manifestement.
+**Symptôme.** Rediriger la sortie du daemon vers le dashboard HTML produit un dashboard à zéro findings sur un daemon qui tourne manifestement.
 
 ```bash
-curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --input - --output /tmp/report.html
-# HTTP 503: {"error": "daemon has not yet processed any events"}
+curl -s http://perf-sentinel:4318/api/export/report | jq -r '.warning_details[].kind'
+# cold_start
 ```
 
 **Causes probables.**
 
-1. **Cold start.** L'endpoint retourne 503 tant que `events_processed > 0` n'est pas vrai, parce que rendre un dashboard avec des compteurs à zéro sur un daemon qui n'a pas encore vu son premier batch OTLP serait trompeur. Attendez le premier batch, puis réessayez. `GET /api/status` expose le compteur `events_processed` live.
-2. **`api_enabled = false`.** Si la config désactive la query API, `/api/export/report` n'est pas monté et `curl` retourne un 404, pas un 503. Réactivez `[daemon] api_enabled = true`.
-3. **Findings store vide, pas cold start.** Sur un daemon lancé depuis longtemps qui a traité des events mais n'a aucun finding dans le ring buffer (trafic propre, ou `max_retained_findings = 0`), l'endpoint retourne 200 avec un tableau `findings` vide. Le dashboard résultant affiche un état "No findings", ce qui est correct.
+1. **Cold start.** Tant que le daemon n'a pas traité un premier batch (`events_processed` et `traces_analyzed` tous deux au-dessus de 0), l'endpoint retourne 200 avec un rapport vide et une entrée `cold_start` dans `warning_details`. Attendez le premier batch, puis réessayez. `/metrics` expose les deux compteurs sous `perf_sentinel_events_processed_total` et `perf_sentinel_traces_analyzed_total`.
+2. **`api_enabled = false`.** Si la config désactive la query API, `/api/export/report` n'est pas monté et `curl` retourne un 404. Réactivez `[daemon] api_enabled = true`.
+3. **Findings store vide, pas cold start.** Sur un daemon lancé depuis longtemps qui a traité des events mais n'a aucun finding dans le ring buffer (trafic propre, ou `max_retained_findings = 0`), l'endpoint retourne 200 avec un tableau `findings` vide et sans avertissement `cold_start`. Le dashboard résultant affiche un état "No findings", ce qui est correct.
 
 **Note opérationnelle.** Le snapshot n'est pas atomique entre `findings` et `correlations` : les deux collections peuvent être décalées d'un batch (findings de la génération N, correlations de N+1). Pour un dashboard post-mortem c'est acceptable. Si vous avez besoin d'une cohérence stricte, utilisez `analyze --input traces.json` sur un fichier de traces capturé à la place.
 
