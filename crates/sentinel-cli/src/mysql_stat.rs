@@ -90,8 +90,8 @@ pub(crate) fn rank_with_trace_match(
 
 /// Scrape a `mysqld_exporter` endpoint one-shot and produce the ranking
 /// report the HTML dashboard embeds. Exits `EXIT_TOOLING_ERROR` on
-/// transport or parse failure, `mysql-stat` has no quality gate to breach.
-/// Mirrors `load_pg_stat_from_prometheus`.
+/// transport or parse failure, since `mysql-stat` has no quality gate to
+/// breach. Mirrors `load_pg_stat_from_prometheus`.
 #[cfg(feature = "daemon")]
 pub(crate) async fn load_mysql_stat_from_prometheus(
     url: &str,
@@ -255,10 +255,11 @@ fn print_mysql_stat_report(report: &sentinel_core::ingest::mysql_stat::MySqlStat
     if let Some(tm) = &report.trace_match {
         // Spelled out rather than labelled: the share of statements and the
         // share of calls are different figures, and a reader who meets
-        // "trace-matched" cold has nothing to anchor either to. Still never
-        // "coverage", hence the second line: digest counters are cumulative
-        // since the last stats reset while the traces cover one window, so
-        // this understates tracing instead of measuring a sampling rate.
+        // "trace-matched" cold has nothing to anchor either to. Neither
+        // figure is called "coverage". The second line says why: digest
+        // counters are cumulative since the last stats reset while the
+        // traces cover one window, so this understates tracing instead of
+        // measuring a sampling rate.
         println!(
             "{dim}Also seen in the traces: {} of {} statement(s) here, \
              accounting for {:.1}% of the calls the database counted.{reset}",
