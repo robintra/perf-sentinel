@@ -177,8 +177,8 @@ fn cli_analyze_gate_not_annotated_as_demo() {
 fn cli_analyze_rejects_oversized_file() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     // Local batch reads are capped at MAX_BATCH_INPUT_BYTES (1 GiB),
-    // decoupled from [daemon] max_payload_size since 0.8.7. A sparse
-    // file trips the metadata pre-check without writing real data.
+    // decoupled from [daemon] max_payload_size. A sparse file trips the
+    // metadata pre-check without writing real data.
     let file_path = dir.path().join("huge.json");
     let file = fs::File::create(&file_path).expect("failed to create oversized file");
     file.set_len(1024 * 1024 * 1024 + 1)
@@ -282,7 +282,6 @@ fn cli_analyze_detects_redundant_and_critical() {
     // With --ci, the process may exit 1 if quality gate fails, but JSON is still on stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Parse the JSON output and verify finding types and severities
     let report: Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|e| panic!("output should be valid JSON: {e}\nstdout: {stdout}"));
     let findings = report["findings"]
@@ -297,7 +296,6 @@ fn cli_analyze_detects_redundant_and_critical() {
     assert!(has_critical, "should have critical N+1 SQL finding");
     assert!(has_redundant, "should have redundant SQL finding");
 
-    // Verify green_impact is present on findings
     for finding in findings {
         assert!(
             finding.get("green_impact").is_some(),
@@ -305,7 +303,6 @@ fn cli_analyze_detects_redundant_and_critical() {
         );
     }
 
-    // Verify top_offenders is populated
     let top_offenders = report["green_summary"]["top_offenders"]
         .as_array()
         .expect("top_offenders should be array");
@@ -445,7 +442,7 @@ fn cli_analyze_ci_fails_on_violations() {
     );
     // Exit code 1 specifically, distinct from EXIT_TOOLING_ERROR (75, see
     // cli_analyze_rejects_invalid_json above): CI pipelines branch on this
-    // exact code to recognize a genuine threshold breach. See docs/CI.md
+    // exact code to recognize a threshold breach. See docs/CI.md
     // "Exit codes".
     assert_eq!(
         output.status.code(),
@@ -1177,18 +1174,17 @@ fn cli_analyze_emits_suggested_fix_for_php_laravel_n_plus_one() {
 
 #[test]
 fn cli_warning_details_in_json_export() {
-    // The 0.5.19 `Report.warning_details` field must round-trip
+    // The `Report.warning_details` field must round-trip
     // through `analyze --format json`. The batch CLI has no source
     // of warnings today (cold-start lives only in the daemon path,
     // ingestion_drops needs a Prometheus counter from the daemon),
     // so the field is expected to be absent when empty (the serde
     // attribute is `skip_serializing_if = "Vec::is_empty"`).
     //
-    // The contract this test pins: when present, it must be an
-    // array of objects with `kind` and `message` string fields, and
-    // the JSON must always parse back into the typed Report shape
-    // without error. Pre-0.5.19 baselines that never had the field
-    // continue to parse via `serde(default)`.
+    // When present, the field must be an array of objects with `kind`
+    // and `message` string fields, and the JSON must always parse back
+    // into the typed Report shape without error. Pre-0.5.19 baselines
+    // that never had the field continue to parse via `serde(default)`.
     let fixture_path = format!(
         "{}/../../tests/fixtures/n_plus_one_sql.json",
         env!("CARGO_MANIFEST_DIR")

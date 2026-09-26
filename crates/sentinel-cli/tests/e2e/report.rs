@@ -144,11 +144,10 @@ fn cli_report_help_mentions_all_flags() {
 
 #[test]
 fn cli_report_exits_zero_on_quality_gate_fail() {
-    // The realistic fixture fails the default quality gate (see
-    // pipeline output during fixture crafting: quality_gate.passed =
-    // false). `report` differs from `analyze --ci` here: it must exit
-    // 0 regardless, because the gate status is rendered as a badge in
-    // the HTML top bar, not as a CI signal.
+    // The realistic fixture fails the default quality gate
+    // (quality_gate.passed = false). `report` differs from `analyze --ci`
+    // here: it must exit 0 regardless, because the gate status is
+    // rendered as a badge in the HTML top bar, not as a CI signal.
     let fixture_path = format!(
         "{}/../../tests/fixtures/report_realistic.json",
         env!("CARGO_MANIFEST_DIR")
@@ -172,8 +171,8 @@ fn cli_report_exits_zero_on_quality_gate_fail() {
         "report must exit 0 even when gate fails"
     );
     let html = fs::read_to_string(&out_path).expect("read html");
-    // The static shell carries both badge labels; check the payload
-    // says the gate actually failed.
+    // The static shell carries both badge labels, so check that the
+    // payload says the gate failed.
     let payload = extract_payload_json_from_html(&html);
     assert_eq!(
         payload["report"]["quality_gate"]["passed"], false,
@@ -217,7 +216,7 @@ fn cli_report_overrides_default_cap_with_explicit_flag() {
     );
     assert_eq!(trimmed["kept"], 1);
     // At least 2 distinct findings-bearing traces exist in the
-    // realistic fixture; the `total` figure must reflect that.
+    // realistic fixture. The `total` figure must reflect that.
     assert!(
         trimmed["total"].as_u64().unwrap() >= 2,
         "total must count all candidate traces"
@@ -249,7 +248,7 @@ fn cli_report_logs_trim_notice_when_capped() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     // The operator set the cap, so the notice names it as theirs instead
-    // of prescribing the very flag that caused the trim.
+    // of prescribing the flag that caused the trim.
     assert!(
         stderr.contains("past the --max-traces-embedded cap"),
         "expected the explicit-cap notice in stderr, got:\n{stderr}"
@@ -741,7 +740,7 @@ fn cli_report_pg_stat_top_rejects_over_cap() {
 
 #[test]
 fn cli_report_pg_stat_top_rejects_negative() {
-    // Either the u32 parse error or the range validator fires, both
+    // Either the u32 parse error or the range validator fires. Both
     // satisfy the non-zero exit contract.
     let fixture = format!(
         "{}/../../tests/fixtures/report_realistic.json",
@@ -964,8 +963,9 @@ fn cli_report_renders_correlations_from_daemon_shape() {
 #[test]
 fn cli_report_accepts_bom_prefixed_report_json() {
     // Windows editors (Notepad, some VS Code flows) save UTF-8 with a
-    // leading BOM (EF BB BF). The auto-detect's byte-peek used to trip
-    // on the BOM and reject the input; this test pins down the strip.
+    // leading BOM (EF BB BF). This test checks that the BOM is stripped
+    // before the auto-detect's byte-peek, which would otherwise reject the
+    // input.
     let mut raw = vec![0xEF, 0xBB, 0xBF];
     raw.extend_from_slice(
         serde_json::to_vec(&serde_json::json!({
@@ -1095,11 +1095,10 @@ fn cli_report_help_mentions_new_flags() {
 }
 
 // Regression suite for the input format auto-detection contract of
-// `report --input`. Pre-0.5.14 the helper dispatched on first byte only,
-// so a Jaeger export (`{"data": [...]}`) was misrouted to the Report
-// parser and died on `missing field 'analysis'`. The fix makes the `{`
-// branch try Report first and fall back to JsonIngest (which handles
-// Jaeger via detect_format).
+// `report --input`. A dispatch on the first byte only would route a Jaeger
+// export (`{"data": [...]}`) to the Report parser, which fails on
+// `missing field 'analysis'`. The `{` branch therefore tries Report first
+// and falls back to JsonIngest (which handles Jaeger via detect_format).
 
 #[test]
 fn cli_report_accepts_jaeger_input() {
@@ -1289,10 +1288,9 @@ fn cli_report_accepts_report_snapshot_input() {
 
 #[test]
 fn cli_report_rejects_invalid_input_with_clear_error() {
-    // Pre-0.5.14, a Jaeger payload produced "missing field 'analysis'",
-    // a low-level serde message that hid the real disambiguation. The
-    // fix surfaces a stderr that names both accepted top-level-object
-    // shapes (Report JSON and Jaeger export) when neither parses.
+    // When neither parses, stderr must name both accepted top-level-object
+    // shapes (Report JSON and Jaeger export) instead of the low-level serde
+    // message "missing field 'analysis'", which hid the real disambiguation.
     let dir = tempfile::tempdir().expect("tempdir");
     let bogus_path = dir.path().join("bogus.json");
     fs::write(&bogus_path, r#"{"foo": "bar"}"#).expect("write bogus");
@@ -1545,12 +1543,12 @@ fn cli_report_help_lists_the_mysql_stat_prometheus_flags() {
 // Findings order: `--sort`, its default, and the span-tree embed that
 // follows it. The realistic fixture yields six findings whose detector
 // order is [order-01, order-02, notify-01, payment-01, payment-02,
-// chat-05] and whose six signatures are all distinct, so every finding
-// is its own recurrence group and the aggregate impact the sort ranks on
+// chat-05]. Their six signatures are all distinct, so every finding is
+// its own recurrence group and the aggregate impact the sort ranks on
 // equals the unitary `estimated_extra_io_ops`. Both sort permutations
-// contain a 3-cycle, which is what makes these tests a guard: applying
-// the inverse permutation instead of the permutation leaves swaps intact
-// and misorders every longer cycle, so it would put trace-order-02 first.
+// contain a 3-cycle, which lets these tests catch a sort that applies the
+// inverse permutation. The inverse leaves swaps intact and misorders
+// every longer cycle, so such a sort would put trace-order-02 first.
 // ---------------------------------------------------------------------
 
 /// Render a workspace-root fixture with extra flags and return the
@@ -1649,8 +1647,8 @@ const SEVERITY_ORDER: [&str; 6] = [
 
 // The realistic fixture holds no critical finding, so it can only prove
 // warning-before-info. demo.json is the one workspace-root fixture that
-// carries all three severities (1 critical, 7 warnings, 3 infos), which
-// is what pins the critical rank to the top of the list.
+// carries all three severities (1 critical, 7 warnings, 3 infos), so it
+// pins the critical rank to the top of the list.
 const DEMO_SEVERITY_ORDER: [&str; 11] = [
     "trace-demo-nplus-sql",
     "trace-demo-messaging",
@@ -1719,9 +1717,9 @@ fn cli_report_sort_severity_puts_the_critical_above_every_warning_and_info() {
         [0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2],
         "one critical, then seven warnings, then three infos"
     );
-    // The three ranks must all be reached, otherwise the ordering below
-    // is asserted across a subset of the scale, which is the very gap
-    // the realistic fixture leaves.
+    // The three ranks must all be reached. Otherwise the ordering below
+    // is asserted across a subset of the scale, which is the gap the
+    // realistic fixture leaves.
     for rank in [0, 1, 2] {
         assert!(
             ranks.contains(&rank),
@@ -1739,9 +1737,9 @@ fn cli_report_sort_severity_puts_the_critical_above_every_warning_and_info() {
     );
     // The critical also carries the top impact, so leading the list is
     // not on its own proof of a severity sort. Its 9 avoidable ops would
-    // put it first under either key; the tail is what separates them,
-    // the two impact-bearing infos rank below every zero-impact warning
-    // here and above them under `--sort impact`.
+    // put it first under either key. The tail tells the keys apart. The
+    // two impact-bearing infos rank below every zero-impact warning here
+    // and above them under `--sort impact`.
     let impacts = finding_impacts(&payload);
     assert_eq!(impacts[0], 9, "the critical is also the heaviest finding");
     assert_eq!(

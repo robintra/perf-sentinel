@@ -2,8 +2,8 @@
 //!
 //! These tests exercise the CLI binary directly so they cover the full
 //! parse + dispatch + verification path. Cosign delegation is not
-//! mocked end to end (a PATH-override stub is fragile across runners);
-//! the content hash branch is exercised in full, the signature and
+//! mocked end to end (a PATH-override stub is fragile across runners).
+//! The content hash branch is exercised in full. The signature and
 //! binary attestation branches are exercised via metadata-present /
 //! absent permutations.
 
@@ -66,7 +66,8 @@ fn verify_hash_returns_partial_with_exit_2_when_signature_absent() {
     // Exit code 2 distinguishes PARTIAL (verification could not
     // complete) from UNTRUSTED (exit 1, a check actively failed).
     // A scripted `verify-hash && deploy` still blocks because exit is
-    // non-zero. Content hash matches, signature was never verified.
+    // non-zero. The content hash matches but the signature was never
+    // verified.
     let tmp = tempfile::tempdir().expect("tempdir");
     let report_path = write_example_with_fixed_hash(tmp.path());
     let v = run_verify(&["--report", report_path.to_str().unwrap()]);
@@ -85,9 +86,9 @@ fn verify_hash_returns_partial_with_exit_2_when_signature_absent() {
 #[test]
 fn verify_hash_signed_without_identity_flags_is_untrusted() {
     // A report carrying a Sigstore signature block but verified WITHOUT
-    // --expected-identity/--expected-issuer must fail closed: an
-    // unconstrained Sigstore bundle can be forged by any OIDC account
-    // holder, so the signature check returns FAIL -> UNTRUSTED (exit 1),
+    // --expected-identity/--expected-issuer must fail closed. Any OIDC
+    // account holder can forge an unconstrained Sigstore bundle, so the
+    // signature check returns FAIL and the verdict is UNTRUSTED (exit 1),
     // never a silent pass. The identity gate short-circuits before cosign
     // is invoked, so this needs no cosign binary on PATH. Content hash
     // still matches because the signature is a post-sign (blanked) field.
