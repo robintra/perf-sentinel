@@ -9,7 +9,8 @@ l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes
   artefact CI (GitLab Pages, GitHub Pages, Artifactory, S3 static
   hosting). La sortie est identique pour tous les utilisateurs.
 - **Live** (depuis 0.5.23, opt-in via `--daemon-url`) : le fichier
-  HTML contacte un daemon en runtime pour les interactions ack/revoke.
+  HTML contacte en runtime un daemon en cours d'exécution pour les
+  interactions ack/revoke.
   Le dashboard ajoute des boutons `Ack`/`Revoke` par finding, un
   indicateur de statut de connexion, un panneau Acknowledgments, une
   bascule `Show acknowledged`, et un bouton de rafraîchissement manuel.
@@ -24,7 +25,7 @@ perf-sentinel report --input traces.json --output report.html
 open report.html
 ```
 
-C'est l'artefact que toute pipeline CI peut produire. `--sort <CLE>`
+C'est l'artefact que tout job CI peut produire. `--sort <KEY>`
 prend `impact` (le défaut) ou `severity`, mêmes clés que
 `analyze --sort`. Il ordonne la liste de findings sur laquelle la page
 s'ouvre. Avec `--max-traces-embedded <N>`, il décide aussi quels arbres
@@ -43,7 +44,7 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
 
 ### Onglets de statistiques base de données
 
-- `--pg-stat <FICHIER>` embarque un export `pg_stat_statements` CSV ou
+- `--pg-stat <FILE>` embarque un export `pg_stat_statements` CSV ou
   JSON : le dashboard gagne un onglet `pg_stat` plus la navigation
   croisée Explain vers `pg_stat` sur les spans SQL dont le template
   normalisé correspond à une ligne. `--pg-stat-prometheus <URL>`
@@ -53,21 +54,21 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
   suppose la requête intégrée de `postgres_exporter`, qui publie
   `pg_stat_statements_seconds_total` avec un label `query`. Un exporter
   qui exécute une requête écrite à la main nomme ses propres colonnes :
-  `--pg-stat-metric <SERIE>` et `--pg-stat-query-label <LABEL>` pointent
+  `--pg-stat-metric <SERIES>` et `--pg-stat-query-label <LABEL>` pointent
   alors le scrape vers ces noms. Sans label correspondant, l'onglet
   se rabat sur `queryid` et affiche des identifiants opaques au lieu des
   requêtes, et la navigation croisée ne peut plus rien apparier.
   Deux autres options couvrent ce qu'une requête écrite à la main change
-  au-delà des noms. `--pg-stat-calls-metric <SERIE>` nomme le compteur
+  au-delà des noms. `--pg-stat-calls-metric <SERIES>` nomme le compteur
   d'appels, récupéré par une seconde requête et joint sur `queryid`, car
   tous les exporters publient les appels comme une série à part et non
   comme un label. Une valeur vide saute cette requête : le classement par
   appels reste alors à zéro et le classement par moyenne répète le total. `--pg-stat-unit
   seconds|milliseconds` déclare ce que compte la série de temps :
-  `pg_stat_statements` compte en millisecondes, la requête intégrée de
-  l'exporter convertit en secondes, et lire l'une pour l'autre se trompe
-  d'un facteur mille.
-- `--mysql-stat <FICHIER>` embarque un export
+  `pg_stat_statements` lui-même compte en millisecondes, la requête
+  intégrée de l'exporter convertit en secondes, et lire l'une pour
+  l'autre se trompe d'un facteur mille.
+- `--mysql-stat <FILE>` embarque un export
   `events_statements_summary_by_digest` CSV ou JSON (MySQL Performance
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
   sous-sélecteur de classements (quatrième classement : lignes examinées).
@@ -79,14 +80,14 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
   défaut. Le scrape suppose
   `mysql_perf_schema_events_statements_seconds_total` avec un label
   `digest_text`. Une recording rule nomme sa propre série, donc
-  `--mysql-stat-metric <SERIE>` et `--mysql-stat-query-label <LABEL>`
+  `--mysql-stat-metric <SERIES>` et `--mysql-stat-query-label <LABEL>`
   pointent le scrape vers ces noms. Sans label correspondant, l'onglet
   se rabat sur `digest` et affiche des hachages opaques au lieu des
   requêtes. Le collecteur publie `COUNT_STAR`, `SUM_ROWS_SENT` et
   `SUM_ROWS_EXAMINED` comme des séries à part et non comme des labels :
   une requête chacune les récupère et les joint sur l'identité du digest.
-  `--mysql-stat-calls-metric <SERIE>`, `--mysql-stat-rows-sent-metric
-  <SERIE>` et `--mysql-stat-rows-examined-metric <SERIE>` les nomment, et une
+  `--mysql-stat-calls-metric <SERIES>`, `--mysql-stat-rows-sent-metric
+  <SERIES>` et `--mysql-stat-rows-examined-metric <SERIES>` les nomment, et une
   valeur vide saute la requête correspondante : le classement par appels reste alors à
   zéro et le classement par moyenne répète le total. Cette identité est
   `digest` plus le label de schéma, donc
@@ -149,7 +150,7 @@ pour voir les deux, recliquez une pastille active pour la retirer. Aucune
 pastille active affiche toutes les sévérités, il n'y a donc pas de
 pastille `All`. `Clear filters`, en bout de rangée, vide toutes les
 familles d'un coup et n'apparaît qu'une fois quelque chose de filtré.
-`Échap` fait la même chose au clavier.
+`Escape` fait la même chose au clavier.
 
 Les trois autres familles se replient chacune dans un menu, dans l'ordre
 `Type`, `Service`, puis l'attribut de regroupement. Ce dernier menu prend
@@ -157,10 +158,10 @@ le nom de la clé d'attribut quand le rapport n'en contient qu'une, et
 chaque option ne porte alors que la valeur. Un rapport qui mélange les
 clés (par exemple `k8s.namespace.name` sur certains findings et
 `service.namespace` sur d'autres) garde le nom générique `Grouping` et
-écrit `clé=valeur` sur chaque option, puisque c'est la clé qui distingue
-les valeurs. Chaque menu accepte plusieurs valeurs. Les valeurs d'un
-même menu sont combinées par OU, et les menus entre eux par ET :
-`Type : N+1 SQL, Slow SQL` avec `Service : order-svc` se lit donc
+écrit `key=value` sur chaque option, puisque c'est la clé qui distingue
+les valeurs. Chaque menu accepte plusieurs valeurs à la fois. Les valeurs
+d'un même menu sont combinées par OU, et les menus entre eux par ET :
+`Type: N+1 SQL, Slow SQL` avec `Service: order-svc` se lit donc
 "l'un ou l'autre de ces deux problèmes, sur ce seul service". Un menu qui
 filtre l'annonce une fois replié, sous la forme `Type · 2`.
 
@@ -201,7 +202,7 @@ sinon la ligne même que vous ouvrez. `?` ouvre la liste complète des raccourci
 
 La carte `Findings` est un aplat de couleur sémantique : vert quand le
 rapport est propre, bleu quand il n'y a que des findings info, orange
-pour des warnings, rouge dès qu'un critique est présent. La carte
+pour des warnings, rouge dès qu'un finding critique est présent. La carte
 voisine promeut la sévérité la plus haute présente : son libellé, son
 compte et sa teinte pastel suivent cette sévérité, et la sous-ligne ne
 liste que les sévérités inférieures. La carte `Δ Baseline` passe au
@@ -257,7 +258,7 @@ img-src data:; base-uri 'none'; form-action 'none';
 connect-src http://localhost:4318
 ```
 
-### Validation de la URL daemon
+### Validation de l'URL du daemon
 
 Le CLI rejette :
 
@@ -286,11 +287,11 @@ l'opérateur n'ouvre le rapport. Les URL loopback (`localhost`,
 `127.0.0.1`, `[::1]`) sont exemptées car les environnements de dev font
 tourner le daemon en HTTP en clair.
 
-### Flow d'authentification
+### Flux d'authentification
 
 1. Démarrage : GET `/api/status` pour déterminer la connectivité.
    L'endpoint status n'est pas authentifié (lecture seule, pas de
-   secrets), donc le badge de la barre du haut peut atteindre `Connected`
+   secrets), donc le badge de la barre du haut atteint `Connected`
    sans clé.
 2. Premier clic `Ack`/`Revoke` : POST ou DELETE sur
    `/api/findings/<sig>/ack`. Sur un 401, la modale d'auth s'ouvre
@@ -323,17 +324,18 @@ tourner le daemon en HTTP en clair.
   statique, utilisez `perf-sentinel query findings --include-acked`
   ou l'API HTTP daemon directement.
 - Pas de rafraîchissement automatique. Le navigateur n'interroge pas le
-  daemon en permanence. Utilisez le bouton de rafraîchissement manuel. La
-  supervision temps réel relève de Grafana, pas d'un artefact HTML par MR.
+  daemon sans action de l'utilisateur. Utilisez le bouton de
+  rafraîchissement manuel. La supervision temps réel relève de Grafana,
+  pas d'un artefact HTML par MR.
 - Pas de lien croisé `Explain` par ligne en mode live au-delà du
   comportement statique. Ack/Revoke ne déplace pas l'utilisateur de
   l'onglet Findings.
-- Pas d'opérations en masse. Un finding à la fois.
+- Pas d'opérations en masse. Acquittez un finding à la fois.
 - `sessionStorage` est purgé à la fermeture de l'onglet.
   Ne stockez pas de secrets de longue durée dans un artefact CI
   ouvert dans un profil de navigateur partagé.
 
-### Caveat sécurité
+### Mise en garde de sécurité
 
 La X-API-Key est stockée non chiffrée dans `sessionStorage`. C'est
 acceptable pour un opérateur sur son poste personnel, où
@@ -345,7 +347,7 @@ scripts cross-origin et les gestionnaires d'événements inline, ce qui
 atténue le risque sans l'éliminer.
 
 **Réserve sur `script-src 'unsafe-inline'`** : le dashboard embarque son
-JavaScript dans le fichier HTML (le rapport est un artefact
+JavaScript dans le fichier HTML (le rapport est un artefact unique et
 autonome, sans ressources externes). La CSP garde `script-src
 'unsafe-inline'` pour cette raison. En mode live, `connect-src` est
 limité à `'self'` plus l'URL daemon passée par l'opérateur, donc même
@@ -403,16 +405,16 @@ perf-sentinel report --input traces.json --output /tmp/live.html \
   --daemon-url http://localhost:4318
 open /tmp/live.html
 # Vérifier : badge Connected vert, boutons Ack présents sur chaque
-# row, onglet Acks visible, bouton refresh visible.
+# ligne, onglet Acks visible, bouton de rafraîchissement visible.
 
 # 4. Cliquer Ack sur n'importe quel finding, remplir la modale,
-# submit. Le badge sur la row passe à Revoke.
+# valider. Le badge sur la ligne passe à Revoke.
 
 # 5. Cliquer Revoke, confirmer. Le badge repasse à Ack.
 
 # 6. Redémarrer le daemon avec [daemon.ack] api_key positionné.
-# Générez un secret frais à chaque run, ne jamais coller une valeur
-# littérale en production :
+# Générer un nouveau secret à chaque exécution, ne jamais coller de
+# valeur littérale en production :
 kill $DAEMON_PID
 SMOKE_KEY=$(openssl rand -hex 16)
 cat >> /tmp/daemon.toml <<EOF
@@ -421,11 +423,12 @@ EOF
 perf-sentinel watch --config /tmp/daemon.toml &
 DAEMON_PID=$!
 sleep 1
-# Recharger /tmp/live.html, cliquer Ack : la modale d'auth s'ouvre,
-# entrer $SMOKE_KEY, submit. La requête ack se retente automatiquement.
+# Recharger /tmp/live.html, cliquer Ack : une modale d'authentification
+# s'ouvre, entrer $SMOKE_KEY, valider. La requête ack est retentée
+# automatiquement.
 
 # 7. Recharger l'onglet à nouveau. La clé persiste en sessionStorage,
-# pas de re-prompt jusqu'à fermeture de l'onglet.
+# pas de nouvelle demande jusqu'à fermeture de l'onglet.
 
 kill $DAEMON_PID
 ```
