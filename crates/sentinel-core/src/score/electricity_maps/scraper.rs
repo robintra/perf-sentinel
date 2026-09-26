@@ -63,7 +63,8 @@ struct CarbonIntensityResponse {
     /// Whether the value was estimated rather than measured. Documented
     /// at <https://app.electricitymaps.com/developer-hub/api/getting-started>
     /// (Estimations section). Optional with `#[serde(default)]` so the
-    /// scraper survives API version changes that omit the field.
+    /// scraper still parses responses from API versions that omit the
+    /// field.
     #[serde(default, rename = "isEstimated")]
     is_estimated: Option<bool>,
     /// Estimation algorithm tag, e.g. `"TIME_SLICER_AVERAGE"`. Optional
@@ -140,9 +141,9 @@ async fn run_scraper_loop(config: ElectricityMapsConfig, state: Arc<ElectricityM
 /// and a local-k3d cluster both pinned to `FR`) only spends one API
 /// call per zone per tick. Critical on quota-constrained tiers.
 /// `cloud_region` keys sharing the same zone are atomically updated
-/// together: either all of them get the fresh reading or none do, the
-/// previous reading is preserved by the `current_owned + insert-only-
-/// on-success` pattern.
+/// together: either all of them get the fresh reading or none do. When
+/// none do, the previous reading is preserved by the
+/// `current_owned + insert-only-on-success` pattern.
 async fn run_one_tick(
     client: &http_client::HttpClient,
     config: &ElectricityMapsConfig,
@@ -257,8 +258,8 @@ fn update_failure_counter(consecutive_failures: &mut u32, any_success: bool) {
 
 /// Compose the `carbon-intensity/latest` request URL. The optional
 /// query params are only appended when they differ from the API
-/// defaults (`lifecycle` / `hourly`), so the wire stays exactly
-/// as-was for users who have not opted into the knobs.
+/// defaults (`lifecycle` / `hourly`), so the request stays unchanged
+/// for users who have not opted into the knobs.
 fn build_request_url(
     api_endpoint: &str,
     zone: &str,
@@ -367,7 +368,7 @@ mod tests {
 
     /// Test-only wrapper that calls the real `fetch_intensity` with the
     /// API knobs at their defaults. Keeps the per-test call sites
-    /// short, the knob behaviour itself is exercised separately via the
+    /// short. The knob behaviour itself is exercised separately via the
     /// pure `build_request_url` helper.
     async fn fetch_intensity_test(
         client: &http_client::HttpClient,
@@ -574,10 +575,10 @@ mod tests {
     async fn fetch_intensity_v3_and_v4_responses_parse_identically() {
         // Wire-format parity guard: the CHANGELOG and design doc both
         // claim the v3 and v4 `carbon-intensity/latest` responses are
-        // schema-identical. Lock the contract: the same response body
-        // produces the same `FetchedReading` regardless of which API
-        // path the daemon was configured against. A future v5 default
-        // flip silently breaking the parser would fail this test.
+        // schema-identical. The same response body must produce the
+        // same `FetchedReading` regardless of which API path the daemon
+        // was configured against. A future v5 default flip silently
+        // breaking the parser would fail this test.
         let body = r#"{"zone":"FR","carbonIntensity":56.0,"isEstimated":true,"estimationMethod":"TIME_SLICER_AVERAGE","datetime":"2026-04-27T12:00:00Z"}"#;
         let (v3_endpoint, v3_server) = spawn_one_shot_server(http_200(body)).await;
         let (v4_endpoint, v4_server) = spawn_one_shot_server(http_200(body)).await;
@@ -672,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_intensity_rejects_negative_carbon_intensity() {
-        // Valid schema, but the value is negative, the API should never
+        // Valid schema but a negative value. The API should never
         // return this, but we validate defensively to avoid silently
         // flipping the sign of CO₂ estimates.
         let body = r#"{"carbonIntensity":-5.0}"#;
@@ -692,10 +693,9 @@ mod tests {
     }
 
     // NaN coverage: serde_json rejects bare `NaN` per JSON spec, so the
-    // `is_finite()` guard in fetch_intensity is belt-and-braces. The
-    // `fetch_intensity_rejects_negative_carbon_intensity` test above
-    // exercises the same JsonParse arm, which is the actual coverage
-    // target.
+    // `is_finite()` guard in fetch_intensity is a redundant safeguard.
+    // The `fetch_intensity_rejects_negative_carbon_intensity` test above
+    // exercises the same JsonParse arm, which is the coverage target.
 
     #[tokio::test]
     async fn fetch_intensity_rejects_invalid_uri() {
@@ -726,7 +726,7 @@ mod tests {
 
     /// Smoke test for `spawn_electricity_maps_scraper`: it must return a
     /// `JoinHandle` and not panic during task construction. The loop
-    /// then polls an unreachable endpoint on the first tick; we abort
+    /// then polls an unreachable endpoint on the first tick. We abort
     /// immediately so the test doesn't hang.
     #[tokio::test]
     async fn spawn_scraper_returns_joinhandle_and_aborts_cleanly() {
@@ -745,8 +745,8 @@ mod tests {
         // Give the task a moment to start its initial tick setup, then abort.
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         handle.abort();
-        // Aborted tasks return JoinError::Cancelled; awaiting them must
-        // not panic from our side.
+        // Aborted tasks return JoinError::Cancelled, and awaiting them
+        // must not panic from our side.
         let _ = handle.await;
     }
 
@@ -761,9 +761,9 @@ mod tests {
     /// the JSON body to return.
     ///
     /// Zones absent from `responses` get an HTTP 503. Callers that map
-    /// every zone in their `region_map` into `responses` see no 503,
-    /// callers that intentionally omit a zone (partial-failure tests)
-    /// rely on this fallback to simulate a per-zone API failure.
+    /// every zone in their `region_map` into `responses` see no 503.
+    /// Partial-failure tests omit a zone and rely on this fallback to
+    /// simulate a per-zone API failure.
     async fn spawn_counting_server(
         responses: HashMap<String, String>,
     ) -> (
@@ -868,7 +868,7 @@ mod tests {
             "expected 2 API calls (one per unique zone), got {count}"
         );
 
-        // Both FR cloud_regions resolve to the same intensity; DE differs.
+        // Both FR cloud_regions resolve to the same intensity. DE differs.
         let snap = state.snapshot(monotonic_ms() + 1_000_000, u64::MAX);
         assert!((snap["aws:eu-west-3"] - 56.0).abs() < 1e-10);
         assert!((snap["local-k3d"] - 56.0).abs() < 1e-10);
@@ -923,36 +923,29 @@ mod tests {
 
     #[tokio::test]
     async fn run_scraper_loop_publishes_state_when_some_zones_succeed_and_others_fail() {
-        // 0.5.9 partial-success regression guard. Two unique zones, FR
-        // returns 200 (success), DE returns 503 (failure). The 0.5.9
-        // contract: even if one zone fails, the loop still calls
+        // Partial-success regression guard (0.5.9 contract). Two unique
+        // zones: FR returns 200 (success), DE returns 503 (failure).
+        // Even if one zone fails, the loop still calls
         // `state.publish(new_table)` so successful zones land in the
         // snapshot, and (zone-set-level semantic) the
         // `consecutive_failures` counter is reset because at least
         // one zone returned data.
         //
-        // What this test locks in: the publish-on-partial-success
-        // observable. We pre-seed the state with a stale entry for
-        // `aws:eu-central-1` so we can distinguish "publish ran and
-        // preserved the stale entry via current_owned" from "publish
-        // never ran and we observe leftover state from a different
-        // path".
+        // This test locks in the publish-on-partial-success observable.
         //
-        // What this test does NOT lock in directly: the
-        // `consecutive_failures` counter value. The variable is
-        // closure-local in `run_scraper_loop` and not exposed
-        // anywhere observable. A future change that re-incremented
-        // the counter on any per-zone failure (request-level
-        // regression) would not fail this test. Capturing the
-        // tracing::warn! emission would be the only direct way to
-        // assert it, which would require a tracing-subscriber
+        // It does NOT lock in the `consecutive_failures` counter value
+        // directly. The variable is local to `run_scraper_loop` and
+        // not observable. A change that incremented the counter on any
+        // per-zone failure (request-level regression) would not fail
+        // this test. Asserting it directly would require capturing the
+        // tracing::warn! emission, which needs a tracing-subscriber
         // dev-dependency we do not currently carry.
         let mut responses = HashMap::new();
         responses.insert(
             "FR".to_string(),
             r#"{"zone":"FR","carbonIntensity":56.0}"#.to_string(),
         );
-        // DE intentionally absent, the helper returns 503 for it.
+        // DE is absent, so the helper returns 503 for it.
         let (endpoint, _counter, server_handle) = spawn_counting_server(responses).await;
 
         let mut region_map = HashMap::new();
@@ -984,7 +977,7 @@ mod tests {
 
         let snap = state.snapshot(monotonic_ms() + 1_000_000, u64::MAX);
 
-        // FR succeeded, its cloud_region must carry the fresh value.
+        // FR succeeded, so its cloud_region must carry the fresh value.
         let fr = snap
             .get("aws:eu-west-3")
             .copied()
@@ -994,11 +987,11 @@ mod tests {
             "FR cloud_region must carry the fresh 56.0 reading, got {fr}"
         );
 
-        // DE failed, its pre-seeded stale value must be preserved by
-        // the current_owned + insert-only-on-success pattern. This is
-        // the "all-or-nothing per shared zone" invariant in action:
-        // a failed zone keeps its previous reading, it is neither
-        // wiped nor replaced with placeholder data.
+        // DE failed, so its pre-seeded stale value must be preserved by
+        // the current_owned + insert-only-on-success pattern (the
+        // "all-or-nothing per shared zone" invariant). A failed zone
+        // keeps its previous reading and is neither wiped nor replaced
+        // with placeholder data.
         let de = snap
             .get("aws:eu-central-1")
             .copied()
