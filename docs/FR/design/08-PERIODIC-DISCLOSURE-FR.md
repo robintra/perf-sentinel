@@ -1,20 +1,20 @@
 # Rapport public périodique
 
-Notes de design pour le pipeline de transparence : schéma (actuel v1.5), agrégateur, validateur, archive daemon, et la sous-commande `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`.
+Notes de design pour le pipeline de divulgation publique périodique : schéma (actuel v1.5), agrégateur, validateur, archive daemon, et la sous-commande `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`.
 
 ## Disposition des modules
 
 ```
 crates/sentinel-core/src/report/periodic/
-  ├── mod.rs        // re-exports
+  ├── mod.rs        // réexportations
   ├── schema.rs     // types wire v1.5
   ├── errors.rs     // ValidationError, HashError, AggregationError
-  ├── hasher.rs     // JSON canonique + SHA-256 + binary_hash helper
+  ├── hasher.rs     // JSON canonique + SHA-256 + fonction utilitaire binary_hash
   ├── validator.rs  // validate_official, validate_content_hash
   ├── aggregator.rs // lecteur archive NDJSON, attribution par service
-  └── org_config.rs // loader TOML opérateur
+  └── org_config.rs // chargeur du TOML fourni par l'opérateur
 
-crates/sentinel-core/src/daemon/archive.rs   // writer d'archive
+crates/sentinel-core/src/daemon/archive.rs   // écriture de l'archive
 crates/sentinel-cli/src/disclose.rs          // dispatcher CLI
 ```
 
@@ -26,7 +26,7 @@ Le content hash est un SHA-256 sur la forme JSON canonique du rapport avec `inte
 
 1. **L'ordre des champs est celui de la déclaration des structs.** `serde_json` préserve l'ordre des champs lors de la sérialisation. Réorganiser des champs dans `schema.rs` casse le hash et doit donc s'accompagner d'un incrément de version de schéma.
 2. **Chaque map est un `BTreeMap`.** `HashMap` itère dans un ordre non déterministe et défait le hash. Le schéma utilise `BTreeMap<String, String>` pour `notes.reference_urls`, et les buffers intermédiaires de l'agrégateur (`per_service`, `anti_patterns`, `first_seen`, `last_seen`) suivent la même discipline.
-3. **`Application::G1` et `Application::G2` sont en `#[serde(untagged)]`.** Pas de discriminateur, la dispatch se fait par présence de champ requis (`anti_patterns` pour G1, `anti_patterns_detected_count` pour G2). Le tableau applications est imposé homogène par le validateur, donc le niveau type est permissif mais l'invariant runtime est strict.
+3. **`Application::G1` et `Application::G2` sont en `#[serde(untagged)]`.** Pas de champ discriminant, l'aiguillage se fait par présence de champ requis (`anti_patterns` pour G1, `anti_patterns_detected_count` pour G2). Le tableau applications est imposé homogène par le validateur, donc le niveau type est permissif mais l'invariant runtime est strict.
 
 L'implémentation du hasher (`hasher.rs`) lance ensuite `canonicalize(Value)` qui reconstruit chaque objet JSON via `BTreeMap<String, Value>` et récurse dans les tableaux. C'est défensif : `serde_json::Map` sans la feature `preserve_order` est déjà un `BTreeMap`, mais le passage explicite garde l'implémentation correcte si une dépendance future active la feature de manière transitive.
 
@@ -38,7 +38,7 @@ Mettre `content_hash` à `""` (chaîne vide) préserve la clé dans la forme can
 
 ## Granularité G1 / G2
 
-Les deux granularités existent parce qu'un rapport de transparence publiable ne doit pas exposer le détail par anti-pattern (qui se lit comme un runbook des faiblesses) tandis que les brouillons internes en bénéficient. Le validateur impose :
+Les deux granularités existent parce qu'un rapport de transparence publiable ne doit pas exposer le détail par anti-pattern (qui peut se lire comme un runbook des faiblesses) tandis que les brouillons internes en bénéficient. Le validateur impose :
 
 - `confidentiality = "internal"` accepte G1 ou G2.
 - `confidentiality = "public"` exige G2.
@@ -50,7 +50,7 @@ Le choix de `#[serde(untagged)]` plutôt qu'un discriminateur explicite a été 
 - Le tableau applications est censé être homogène, donc un consommateur externe parsant le JSON n'a pas à gérer un tableau aux tags mixtes.
 - Les appelants Rust internes travaillent aussi en pratique sur une slice homogène, donc le `match` sur `Application::G1(_)` / `Application::G2(_)` reste local à quelques sites du builder CLI.
 
-## Validator collect-all
+## Validateur collect-all
 
 `validate_official` retourne `Result<(), Vec<ValidationError>>` et accumule toutes les violations en un seul passage plutôt que de quitter à la première. Raisons :
 
@@ -63,12 +63,12 @@ La fonction délègue à des helpers par section (`validate_organisation`, `vali
 
 `intent = "internal"` est un no-op : un brouillon a le droit d'être incomplet. `intent = "audited"` court-circuite avec un unique `ValidationError::AuditedNotImplemented`, accepté par le JSON schema pour la compatibilité ascendante mais non implémenté au runtime.
 
-## Aggregator et attribution par service
+## Agrégateur et attribution par service
 
 L'agrégateur lit des fichiers NDJSON (ou des dossiers contenant des `*.ndjson`), où chaque ligne est une enveloppe :
 
 ```json
-{"ts":"<RFC 3339 UTC>","report":{...Report complet...}}
+{"ts":"<RFC 3339 UTC>","report":{...full Report...}}
 ```
 
 Pour chaque enveloppe dans la période :
@@ -83,9 +83,11 @@ Les lignes malformées (échecs de parse) sont sautées avec un `tracing::warn!`
 
 ## Writer d'archive daemon
 
-Le writer est une tâche `tokio::spawn` alimentée par un `tokio::sync::mpsc::Sender<OwnedArchive>` borné, capacité 256. Côté producteur (dans `process_traces`, sur le worker d'analyse), `archive::try_send(tx, OwnedArchive { ts, report })` évite que la boucle de scoring par fenêtre ne bloque sur l'I/O disque. Envoyer un `OwnedArchive` typé (et non une chaîne pré-sérialisée) sort le coût `serde_json::to_string` du chemin chaud et laisse la tâche writer l'amortir contre l'I/O disque.
+Le writer est une tâche `tokio::spawn` alimentée par un `tokio::sync::mpsc::Sender<OwnedArchive>` borné, capacité 256. Côté producteur (dans `process_traces`, sur le worker d'analyse), le code appelle `archive::try_send(tx, OwnedArchive { ts, report })` pour que le chemin de scoring par fenêtre du daemon ne bloque jamais sur l'I/O disque. Envoyer un `OwnedArchive` typé (et non une chaîne pré-sérialisée) sort le coût `serde_json::to_string` du chemin chaud et laisse la tâche writer l'amortir contre l'I/O disque.
 
-Le canal borné applique une politique drop-on-full : quand le writer prend du retard, les nouvelles fenêtres sont jetées avec un `tracing::warn!`. La capacité 256 est dimensionnée pour que l'état d'un writer bloqué en régime permanent remonte en quelques secondes plutôt que de laisser un canal non borné provoquer un OOM du daemon.
+Le canal borné applique une politique drop-on-full : quand le writer prend du retard, les nouvelles fenêtres sont jetées avec un `tracing::warn!`. La capacité de 256 messages est dimensionnée pour que l'état d'un writer bloqué en régime permanent remonte en quelques secondes plutôt que de laisser un canal non borné provoquer un OOM du daemon.
+
+La tâche writer effectue des I/O `std::fs` synchrones avec tampon. Par construction, les producteurs ne bloquent jamais dessus (`try_send` en drop-on-full), les écritures ligne par ligne passent par un `BufWriter`, et la rotation s'exécute une fois par tranche de `max_size_mb` écrits. Le pire cas d'un système de fichiers figé est un worker du runtime bloqué dans cette tâche, ce que le canal borné convertit en fenêtres jetées plutôt qu'en contre-pression sur le chemin d'analyse. `tokio::fs` ou `spawn_blocking` ajouteraient un surcoût par ligne sans aucun gain sur le comportement.
 
 La rotation se déclenche quand `bytes_written` dépasse `max_size_mb * 1_048_576`. Le fichier actif est renommé en `<stem>-<UTC-timestamp>.ndjson` d'abord, puis un nouveau fichier est ouvert via `OpenOptions::create_new(true).append(true)` pour fermer la course TOCTOU où un attaquant co-résident pourrait planter un symlink entre le rename et la réouverture. `prune` retire les plus anciens fichiers tournés jusqu'à n'en conserver au plus que `max_files`. Le pruning trie par `mtime` décroissant et valide que le suffixe d'horodatage correspond à la forme `is_rotation_stamp`, ainsi un fichier sans rapport dans le répertoire d'archive (par exemple `archive-evil.ndjson`) n'est jamais supprimé.
 
@@ -97,11 +99,11 @@ L'agrégateur a besoin de `green_summary` (pour énergie/carbone) et de `per_end
 
 Comme `process_traces` reçoit déjà la valeur `per_endpoint_io_ops` de `score_green`, la garder pour l'archive n'ajoute aucun coût au chemin chaud.
 
-### Tier évitable canonique à l'archivage (1.1+)
+### Palier évitable canonique à l'archivage (1.1+)
 
-Le `n_plus_one_threshold` de l'opérateur décide quels patterns N+1 deviennent des findings, donc un seuil relâché réduit l'énergie/carbone évitable que la disclosure déclarerait. `disclose` ne fait que sommer des chiffres déjà archivés et ne peut pas re-détecter (les findings supprimés par un seuil élevé sont absents de l'archive). Le chiffre non manipulable doit donc être produit là où les traces brutes existent encore : le chemin d'archivage du daemon.
+Le `n_plus_one_threshold` de l'opérateur décide quels patterns N+1 deviennent des findings, donc un seuil relâché réduit l'énergie/carbone évitable que la divulgation déclarerait. `disclose` ne fait que sommer des chiffres déjà archivés et ne peut pas re-détecter (les findings supprimés par un seuil élevé sont absents de l'archive). Le chiffre non manipulable doit donc être produit là où les traces brutes existent encore : le chemin d'archivage du daemon.
 
-`score::canonical::compute_disclosure_waste` exécute une passe N+1 + redondant supplémentaire au seuil épinglé `DISCLOSURE_N_PLUS_ONE_THRESHOLD` (`2`) et rééchelonne l'énergie/carbone évitable depuis `operational_gco2` et `accounted_io_ops` du résumé opérationnel (pas de second calcul carbone complet). Il renvoie les deux paliers, archivés sur `Report.disclosure_waste` : `canonical` au seuil épinglé et `operational` à celui de l'opérateur. Le tableau de bord live et `findings_store` gardent la sémantique opérationnelle, donc seule l'archive de disclosure porte le palier canonique. L'agrégateur regroupe les deux paliers dans `aggregate.canonical_waste` / `operational_waste`, les champs plats évitables étant des alias du palier canonique. La passe supplémentaire n'est payée que quand l'archivage est activé.
+`score::canonical::compute_disclosure_waste` exécute une passe N+1 + redondant supplémentaire au seuil épinglé dans le binaire `DISCLOSURE_N_PLUS_ONE_THRESHOLD` (`2`) et remet à l'échelle l'énergie/carbone évitable depuis `operational_gco2` et `accounted_io_ops` du résumé opérationnel (pas de second calcul carbone complet). Il renvoie les deux paliers, archivés sur `Report.disclosure_waste` : `canonical` au seuil épinglé et `operational` à celui de l'opérateur. Le tableau de bord live et `findings_store` gardent la sémantique opérationnelle, donc seule l'archive de divulgation porte le palier canonique. L'agrégateur regroupe les deux paliers dans `aggregate.canonical_waste` / `operational_waste`, les champs plats évitables étant des alias du palier canonique. La passe supplémentaire n'est payée que quand l'archivage est activé.
 
 Une amélioration différée estamperait le seuil canonique par fenêtre et réconcilierait à travers un parc de binaires hétérogène à l'agrégation. Aujourd'hui l'agrégateur réconcilie les seuils par `max` et expose les binaires producteurs via `aggregate.binary_versions`.
 
@@ -111,7 +113,7 @@ Le validateur authentifie le *label* canonique (`canonical_waste.n_plus_one_thre
 
 Le TOML fourni par l'opérateur est un blueprint partiel pour les champs statiques d'un `PeriodicReport`. Il porte `organisation`, `methodology`, `scope_manifest` (sans les chiffres runtime) et `notes` optionnel. L'agrégateur remplit les sections runtime (`aggregate`, `applications`, `integrity`).
 
-`load_from_path` retourne `OrgConfig` ou `OrgConfigError` (`Io` ou `Parse`). `validate_for_official` retourne `Vec<String>` plutôt que des erreurs typées parce que le daemon les aplatit dans `DaemonError::ReportingValidation { errors: Vec<String> }` pour des logs de démarrage lisibles. La sous-commande `disclose` côté CLI appelle le typé `validate_official` sur le rapport entièrement assemblé, ce qui lui permet de remonter aussi les violations au niveau agrégat (par exemple `applications` vide, ratio hors plage).
+`load_from_path` retourne `OrgConfig` ou `OrgConfigError` (`Io` ou `Parse`). `validate_for_official` retourne `Vec<String>` plutôt que des erreurs typées parce que le daemon les aplatit dans `DaemonError::ReportingValidation { errors: Vec<String> }` pour des logs de démarrage lisibles. La sous-commande `disclose` côté CLI appelle la version typée `validate_official` sur le rapport entièrement assemblé, ce qui lui permet de remonter aussi les violations au niveau agrégat (par exemple `applications` vide, ratio hors plage).
 
 Les champs TOML reflètent verbatim le schéma wire. Un opérateur qui lit le JSON Schema peut écrire le TOML sans consulter un deuxième document, et un mainteneur qui renomme un champ wire doit le renommer aux deux endroits.
 
@@ -138,7 +140,7 @@ Le dispatcher (`disclose.rs::cmd_disclose`) retourne `i32` pour que l'appelant p
 
 `audited` est intercepté en premier, avant toute I/O, pour que l'utilisateur reçoive le message "not yet implemented" quel que soit l'état de l'org-config.
 
-`generated_by` vaut `"ci"` quand `$CI` est dans l'environnement, `"cli-batch"` sinon. Le chemin daemon utilisera `"daemon"` quand les disclosures planifiées seront ajoutées. C'est un placeholder pour les trois valeurs documentées du champ.
+`generated_by` vaut `"ci"` quand `$CI` est dans l'environnement, `"cli-batch"` sinon. Le chemin daemon utilisera `"daemon"` quand les divulgations planifiées seront ajoutées. C'est un placeholder pour les trois valeurs documentées du champ.
 
 ## Commandes de vérification
 
@@ -169,7 +171,7 @@ Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son 
 
 ## Le seuil de 75% de calibration runtime
 
-La constante `MIN_PERIOD_COVERAGE_FOR_OFFICIAL` dans `report::periodic::validator` conditionne une disclosure d'intent `official` à `period_coverage >= 0.75`. Les rapports en deçà sont refusés avec un message qui invite l'opérateur à raccourcir la période ou à se rabattre sur `intent = internal`.
+La constante `MIN_PERIOD_COVERAGE_FOR_OFFICIAL` dans `report::periodic::validator` conditionne une divulgation d'intent `official` à `period_coverage >= 0.75`. Les rapports en deçà sont refusés avec un message qui invite l'opérateur à raccourcir la période ou à se rabattre sur `intent = internal`.
 
 ### Pourquoi 75% et pas une autre valeur
 
@@ -192,33 +194,33 @@ Ce seuil n'est pas normatif. Il doit être ajusté si un retour terrain d'opéra
 
 ## Couverture temporelle (v1.2)
 
-`period_coverage` (ci-dessus) répond à "quelle part de la période était runtime-calibrated", pas à "quelle part de la période a été mesurée tout court". Les deux sont indépendants : un daemon qui n'a tourné que trois jours sur 90 déclarés peut quand même rapporter `period_coverage = 1.0` si ces trois jours étaient pleinement calibrés. Rien dans le schéma v1.1 ne révélait ce trou. `days_covered` est de l'arithmétique calendaire pure (`(to - from) + 1`), il décrit la fenêtre déclarée par l'opérateur, pas l'activité réelle du daemon.
+`period_coverage` (ci-dessus) répond à "quelle part de la période était runtime-calibrated", pas à "quelle part de la période a été mesurée tout court". Les deux sont indépendants : un daemon qui n'a tourné que trois jours sur 90 déclarés peut quand même rapporter `period_coverage = 1.0` si ces trois jours étaient pleinement calibrés. Rien dans le schéma v1.1 ne révélait ce trou. `days_covered` est de l'arithmétique calendaire pure (`(to - from) + 1`), donc il décrit la fenêtre déclarée par l'opérateur, pas l'activité réelle du daemon.
 
 `aggregate.temporal_coverage` comble ce trou. L'agrégateur suit l'ensemble des jours calendaires UTC distincts portant au moins une fenêtre agrégée (`Builder.observed_days`, inséré dans `process_window` juste après que la fenêtre est validée, pour rester aligné avec `windows_aggregated`). `finalize` divise ce décompte par `period.days_covered` et enregistre aussi `observed_days`, `days_in_period` et `largest_gap_days` (la plus longue suite de jours consécutifs de la période sans fenêtre).
 
-### Pourquoi un warning publié, pas une barrière
+### Pourquoi un avertissement publié, pas une barrière
 
-L'archivage du daemon est **déclenché par le trafic**, pas par une minuterie. `process_traces` retourne tôt sur un lot vide et le `try_send` d'archive est après ce garde, donc une fenêtre sans trafic n'écrit aucune ligne NDJSON. Par conséquent `temporal_coverage` mesure les *jours avec trafic observé*, une borne basse de l'activité, pas l'uptime du daemon. Les jours légitimement calmes (nuits, week-ends, services peu sollicités, un service sans requête un jour férié) l'abaissent. Une barrière dure `official` rejetterait donc des rapports légitimes de déploiements intermittents ou peu sollicités. Donc `validate_official` ne fait que vérifier la plage du champ (`[0, 1]`, fini) et ne bloque jamais dessus. La CLI `disclose` publie la valeur, affiche un avertissement sur stderr sous `LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD`, et ajoute un disclaimer en bande (couvert par le hash) portant la mise en garde sur le déclenchement par le trafic. Le lecteur juge.
+L'archivage du daemon est **déclenché par le trafic**, pas par une minuterie. `process_traces` retourne tôt sur un lot vide et le `try_send` d'archive est placé après cette vérification, donc une fenêtre sans trafic n'écrit aucune ligne NDJSON. Par conséquent `temporal_coverage` mesure les *jours avec trafic observé*, une borne basse de l'activité, pas l'uptime du daemon. Les jours légitimement calmes (nuits, week-ends, services peu sollicités, un service sans requête un jour férié) l'abaissent. Une barrière dure `official` rejetterait donc des rapports légitimes de déploiements intermittents ou peu sollicités. Donc `validate_official` ne fait que vérifier la plage du champ (`[0, 1]`, fini) et ne bloque jamais dessus. La CLI `disclose` publie la valeur, affiche un avertissement sur stderr sous `LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD`, et ajoute un disclaimer en bande (couvert par le hash) portant la mise en garde sur le déclenchement par le trafic. Le lecteur juge.
 
-### Ce qu'il adresse et ce qu'il n'adresse pas
+### Ce qu'il traite et ce qu'il ne traite pas
 
 C'est le signal interne au binaire le plus proche de l'échappatoire d'auto-déclaration "il suffit d'arrêter perf-sentinel une partie de la période". L'extinction partielle se voit maintenant comme un `temporal_coverage` bas et un `largest_gap_days` grand. Il ne traite **pas** la non-participation totale (ne jamais lancer l'outil ne laisse aucun rapport) ni un dénominateur malhonnête (`total_requests_in_period` fixé bas), tous deux irréductibles sans infrastructure externe, voir Révisions futures. Deux vérifications de cohérence bon marché l'accompagnent : `days_covered` doit valoir `(to_date - from_date) + 1` (rejet dur, seul un fichier édité à la main peut échouer) et `requests_measured` ne doit pas dépasser un `total_requests_in_period` déclaré par l'opérateur (rejet dur).
 
 ## Crosswalk standard et critères RGESN (v1.3)
 
-La v1.3 ajoute deux champs de correspondance interprétative, dont aucun n'est une barrière. `methodology.standard_crosswalk` est un crosswalk vers les datapoints ESRS E1 : une aide de correspondance qui pointe chaque chiffre de la disclosure vers le datapoint CSRD / ESRS E1 le plus proche, avec un disclaimer explicite indiquant qu'il ne remplace pas un inventaire audité. `applications[].anti_patterns[].rgesn_criteria` tague chaque anti-pattern détecté avec les critères RGESN 2024 (Référentiel général d'écoconception de services numériques) auxquels il se rattache, pour qu'un auditeur écoconception puisse relier un finding au référentiel. Les deux sont des extensions additives `#[serde(default)]` : les lecteurs plus anciens les ignorent, et un rapport écrit sans eux se rehashe à l'identique. La référence wire des deux vit dans `docs/FR/SCHEMA-FR.md`.
+La v1.3 ajoute deux champs de correspondance interprétative, dont aucun n'est une barrière. `methodology.standard_crosswalk` est un crosswalk vers les datapoints ESRS E1 : une aide de correspondance qui pointe chaque chiffre de la divulgation vers le datapoint CSRD / ESRS E1 le plus proche, avec un disclaimer explicite indiquant qu'il ne remplace pas un inventaire audité. `applications[].anti_patterns[].rgesn_criteria` tague chaque anti-pattern détecté avec les critères RGESN 2024 (Référentiel général d'écoconception de services numériques) auxquels il se rattache, pour qu'un auditeur écoconception puisse relier un finding au référentiel. Les deux sont des extensions additives `#[serde(default)]` : les lecteurs plus anciens les ignorent, et un rapport écrit sans eux se rehashe à l'identique. La référence wire des deux vit dans `docs/FR/SCHEMA-FR.md`.
 
 ## Blocs de gaspillage par workload (v1.4, v1.5)
 
-La v1.4 ajoute `aggregate.database_waste` et la v1.5 son jumeau messaging `aggregate.messaging_waste`, aux côtés des trois valeurs messaging de `PatternName`. Les deux sont informatifs et restent hors de tous les totaux, aucune figure existante ne change donc de sens.
+La v1.4 ajoute `aggregate.database_waste` et la v1.5 son jumeau messaging `aggregate.messaging_waste`, aux côtés des trois valeurs messaging de `PatternName`. Les deux sont informatifs et restent hors de tous les totaux, aucun chiffre existant ne change donc de sens.
 
 **Un type, deux champs.** `MessagingWasteAggregate` est un alias de type de `DatabaseWasteAggregate`, pas une copie : les deux blocs sont identiques sur le fil, une seule structure supprime donc la possibilité d'une dérive. Le schéma JSON reflète cela par un `$ref` plutôt qu'une `$def` dupliquée, car une définition recopiée à la main dans le fichier que les consommateurs valident réintroduirait la dérive que l'alias empêche. Le nom `DatabaseWasteAggregate` est conservé pour les lecteurs v1.4.
 
 **Trois seaux de provenance, pas deux.** L'agrégation répartit selon l'étiquette `model` entre `measured_*`, `declared_*` et `estimated_windows`, avec `measured_windows + declared_windows + estimated_windows == windows_with_figure` imposé par le validateur. La forme à deux seaux livrée d'abord (tout ce qui n'est pas `estimated` compte comme mesuré) plaçait un cluster provisionné déclaré dans un champ nommé `measured_energy_kwh`, sur la seule surface où la provenance est tout l'enjeu. `models` prouve quelles étiquettes sont apparues mais couvre toute la période, il ne peut donc pas re-séparer l'énergie. La paire déclarée porte `skip_serializing_if`, un rapport sans source déclarée garde donc la forme d'octets exacte qu'il avait avant l'existence des champs et se re-hashe sur son `content_hash` d'origine.
 
-**Invariants préservés par l'agrégation.** Une étiquette de provenance hors du charset de `is_valid_model_tag` fait tomber le bloc entier avant qu'aucune figure n'atteigne les sommes, plutôt que d'en publier un partiel. `None` et `0.0` restent distincts sur les jambes carbone : une conversion absente ne doit jamais se lire comme une affirmation de zéro carbone. `windows_with_carbon <= windows_with_figure` signale une image carbone partielle. Le validateur tolère une répartition entièrement nulle, ce à quoi ressemble un rapport antérieur aux champs.
+**Invariants préservés par l'agrégation.** Une étiquette de provenance hors du charset de `is_valid_model_tag` fait tomber le bloc entier avant qu'aucun chiffre n'atteigne les sommes, plutôt que d'en publier un partiel. `None` et `0.0` restent distincts sur les jambes carbone : une conversion absente ne doit jamais se lire comme une affirmation de zéro carbone. `windows_with_carbon <= windows_with_figure` signale une image carbone partielle. Le validateur tolère une répartition entièrement nulle, ce à quoi ressemble un rapport antérieur aux champs.
 
-## Paliers canoniques : rendre la figure publique non manipulable
+## Paliers canoniques : rendre le chiffre public non manipulable
 
 `score/canonical.rs` existe à cause d'un conflit d'intérêts intégré à l'outil. L'opérateur règle `n_plus_one_threshold`, qui décide combien de répétitions deviennent un finding. L'augmenter est un réglage légitime en CI, où le but est un rapport signal sur bruit sur lequel une équipe agira. Mais l'énergie et le carbone évitables qu'une divulgation publie dérivent de ces mêmes findings : le bouton qui calme la CI réduit aussi le chiffre que l'organisation divulgue.
 
@@ -227,8 +229,8 @@ Chaque fenêtre archivée porte donc **deux** paliers d'évitable. Le palier op�
 Il en découle trois conséquences.
 
 - **Les deux paliers sont calculés ensemble, au moment du scoring, dans le daemon.** Ils ne peuvent pas être recalculés plus tard : `disclose` lit des paliers pré-calculés dans l'archive, car les reconstruire demanderait les spans, disparus depuis longtemps. Une fenêtre archivée sans palier canonique n'est pas intégrée du tout à la divulgation, plutôt qu'intégrée au seuil de l'opérateur, pour qu'une archive de millésimes mélangés ne puisse pas confondre les deux en silence.
-- **La figure canonique n'est pas "la bonne" et l'opérationnelle "la fausse".** Elles répondent à deux questions différentes : ce que cette équipe a décidé de poursuivre, contre ce que compte un étalon public fixe. La divulgation porte le seuil qui a produit chaque palier, la différence est donc auditable plutôt qu'implicite.
-- **Les figures de gaspillage se remettent à l'échelle depuis une base indépendante du ratio.** `messaging_waste` et `database_waste` calculent leur jambe canonique depuis l'`energy_gco2` de la fenêtre et non depuis le gaspillage opérationnel, pour qu'un seuil opérateur qui annule la figure opérationnelle ne puisse pas annuler le carbone canonique.
+- **Le chiffre canonique n'est pas "le bon" et l'opérationnel "le faux".** Ils répondent à deux questions différentes : ce que cette équipe a décidé de poursuivre, contre ce que compte un étalon public fixe. La divulgation porte le seuil qui a produit chaque palier, la différence est donc auditable plutôt qu'implicite.
+- **Les chiffres de gaspillage se remettent à l'échelle depuis une base indépendante du ratio.** `messaging_waste` et `database_waste` calculent leur jambe canonique depuis l'`energy_gco2` de la fenêtre et non depuis le gaspillage opérationnel, pour qu'un seuil opérateur qui annule le chiffre opérationnel ne puisse pas annuler le carbone canonique.
 
 Les invariants anti-triche sont testés sous la feature `daemon`, seul mode qui produit les deux paliers.
 
@@ -246,12 +248,12 @@ Les invariants anti-triche sont testés sous la feature `daemon`, seul mode qui 
 |------------------------------------------------------|------------------------------------------------|
 | `report/periodic/schema.rs`                          | types wire, invariants de déterminisme         |
 | `report/periodic/hasher.rs`                          | JSON canonique + SHA-256, binary hash          |
-| `report/periodic/validator.rs`                       | validator collect-all, KNOWN_PATTERNS          |
+| `report/periodic/validator.rs`                       | validateur collect-all, KNOWN_PATTERNS         |
 | `report/periodic/aggregator.rs`                      | folding NDJSON, attribution par service        |
-| `report/periodic/org_config.rs`                      | loader TOML opérateur                          |
+| `report/periodic/org_config.rs`                      | chargeur du TOML opérateur                     |
 | `report/periodic/errors.rs`                          | enums d'erreur                                 |
 | `daemon/archive.rs`                                  | writer NDJSON non bloquant avec rotation/prune |
 | `daemon/mod.rs` (`validate_official_reporting`)      | garde-fou de démarrage                         |
 | `daemon/event_loop.rs`                               | hook archive dans `process_traces`             |
-| `config/` (`ReportingConfig`, `DaemonArchiveConfig`) | sections TOML + validators                     |
+| `config/` (`ReportingConfig`, `DaemonArchiveConfig`) | sections TOML + validateurs                    |
 | `sentinel-cli/src/disclose.rs`                       | dispatcher CLI, value enums, build_report      |
