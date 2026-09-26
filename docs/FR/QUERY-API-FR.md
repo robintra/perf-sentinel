@@ -15,33 +15,33 @@ surface produit de premier plan, avec un contrat de stabilité.
 - [Vue d'ensemble des endpoints](#vue-densemble-des-endpoints) : description en une ligne par endpoint.
 - [Restreindre les écritures en production](#restreindre-les-écritures-en-production-reverse-proxy) : réserver les acks et l'export de rapport à un groupe via un reverse proxy.
 - [Endpoints](#endpoints) : référence complète par endpoint avec requête, réponse et exemples concrets.
-- [Réponses d'erreur](#réponses-derreur) : codes de statut et formes du body.
-- [Cas d'usage](#cas-dusage) : alerting Prometheus, panneaux Grafana custom, runbooks SRE.
+- [Réponses d'erreur](#réponses-derreur) : codes de statut et formes du corps.
+- [Cas d'usage](#cas-dusage) : alerting Prometheus, panneaux Grafana personnalisés, runbooks SRE.
 - [Contrat de stabilité](#contrat-de-stabilité) : garanties de stabilité v0.4.1+.
 - [Voir aussi](#voir-aussi) : références croisées vers les docs reliées.
 
 ## Vue d'ensemble des endpoints
 
-| Méthode | Chemin                          | Rôle                                                                              |
-|---------|---------------------------------|-----------------------------------------------------------------------------------|
-| GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                           |
-| GET     | `/api/config`                   | Configuration `[daemon]` effective, lecture seule, secrets résumés (depuis 0.8.8) |
-| GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                          |
-| GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity    |
-| GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                     |
-| GET     | `/api/explain/{trace_id}`       | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne    |
-| GET     | `/api/correlations`             | Corrélations temporelles cross-trace actives                                      |
-| GET     | `/api/export/report`            | Snapshot de l'état live en JSON Report, pipe-compatible avec `report --input -`   |
-| POST    | `/api/findings/{signature}/ack` | Acquitter un finding au runtime (depuis 0.5.20)                                   |
-| DELETE  | `/api/findings/{signature}/ack` | Révoquer un ack runtime                                                           |
-| GET     | `/api/acks`                     | Lister les acks runtime actifs                                                    |
+| Méthode | Chemin                          | Rôle                                                                                       |
+|---------|---------------------------------|--------------------------------------------------------------------------------------------|
+| GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                                    |
+| GET     | `/api/config`                   | Configuration `[daemon]` effective, lecture seule, secrets résumés (depuis 0.8.8)          |
+| GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                                   |
+| GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity             |
+| GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                              |
+| GET     | `/api/explain/{trace_id}`       | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne             |
+| GET     | `/api/correlations`             | Corrélations temporelles cross-trace actives                                               |
+| GET     | `/api/export/report`            | Snapshot de l'état live en JSON Report, pipe-compatible avec `report --input -`            |
+| POST    | `/api/findings/{signature}/ack` | Acquitter un finding au runtime (depuis 0.5.20)                                            |
+| DELETE  | `/api/findings/{signature}/ack` | Révoquer un ack runtime                                                                    |
+| GET     | `/api/acks`                     | Lister les acks runtime actifs                                                             |
 | POST    | `/api/incidents`                | Enregistrer un incident depuis un webhook Alertmanager et figer sa fenêtre (depuis 0.20.0) |
 | GET     | `/api/incidents`                | Lister les incidents enregistrés avec leurs findings figés (depuis 0.20.0)                 |
 
 Tous les endpoints retournent du `application/json`. Pas de couche
-d'identité, seulement trois secrets partagés optionnels : `[daemon.ack]
+d'identité, seulement trois secrets partagés optionnels. `[daemon.ack]
 api_key` et `[daemon.incidents] api_key` gardent leurs écritures et le
-`GET` qui les accompagne, et `[daemon] read_api_key` ouvre ces deux `GET`
+`GET` qui les accompagne. `[daemon] read_api_key` ouvre ces deux `GET`
 sans le pouvoir d'écrire, donc un dashboard ne détient jamais une clé
 capable d'acquitter ou de fabriquer un incident. Le Hub lit lui aussi
 avec cette clé. Seul un Hub configuré pour relayer les acks (Hub 0.3.0
@@ -50,11 +50,11 @@ api_key` pour ce daemon, et ne l'envoie que sur ces écritures. Le daemon
 écoute sur `127.0.0.1` par défaut
 (voir `[daemon] listen_address` dans `docs/FR/CONFIGURATION-FR.md`), donc
 l'API n'est joignable que depuis l'hôte qui exécute le daemon, sauf si
-vous élargissez explicitement l'adresse de bind. Élargir vers une adresse
-non-loopback logue un avertissement au démarrage (les endpoints n'ont pas
+vous élargissez explicitement l'adresse d'écoute. Élargir vers une adresse
+non-loopback journalise un avertissement au démarrage (les endpoints n'ont pas
 d'auth applicative, le daemon attend donc un reverse-proxy ou une network
-policy en frontal, le modèle Kubernetes où le pod bind `0.0.0.0` derrière
-un Service et une NetworkPolicy). Pour laisser les devs
+policy en frontal, le modèle Kubernetes où le pod écoute sur `0.0.0.0`
+derrière un Service et une NetworkPolicy). Pour laisser les devs
 lire les findings tout en réservant les écritures (acks) et l'export du
 rapport officiel aux architectes ou au DevOps, voir
 [Restreindre les écritures en production](#restreindre-les-écritures-en-production-reverse-proxy).
@@ -63,15 +63,14 @@ rapport officiel aux architectes ou au DevOps, voir
 
 - L'API de requêtage partage le même port HTTP que l'ingestion OTLP HTTP
   (`[daemon] listen_port_http`, défaut `4318`), l'endpoint Prometheus
-  `/metrics` et la sonde de liveness `GET /health`. Un seul port,
-  quatre surfaces.
+  `/metrics` et la sonde de liveness `GET /health`.
 - L'API de requêtage peut être désactivée au démarrage avec
   `[daemon] api_enabled = false`. Utile quand le daemon tourne dans un
   hôte multi-tenant hostile et que vous ne voulez que l'ingestion OTLP.
   Dans ce mode, `/metrics` et `/health` restent exposés : ce sont des
   surfaces d'infrastructure, pas partie de l'API de requêtage.
 - Pour les sondes Kubernetes ou load-balancer, préférer `GET /health` à
-  `GET /api/status` : `/health` est toujours actif, ne prend aucun lock
+  `GET /api/status` : `/health` est toujours actif, ne prend aucun verrou
   et reste réactif sous toute charge d'ingestion.
 - La taille du **ring buffer** (un buffer circulaire à taille fixe qui
   évince les plus anciennes entrées une fois plein) des findings est bornée par
@@ -80,11 +79,11 @@ rapport officiel aux architectes ou au DevOps, voir
 
 ## Restreindre les écritures en production (reverse proxy)
 
-Un besoin de production fréquent : laisser n'importe quel dev **lire**
-les findings tout en réservant les chemins d'**écriture** (acquitter et
-révoquer) ainsi que l'**export du rapport officiel** aux architectes ou
-au DevOps. Cela empêche qu'un finding soit acquitté sans l'aval des
-personnes responsables de la posture de production.
+Un besoin de production fréquent est de laisser n'importe quel dev
+**lire** les findings tout en réservant les chemins d'**écriture**
+(acquitter et révoquer) ainsi que l'**export du rapport officiel** aux
+architectes ou au DevOps. Cela empêche qu'un finding soit acquitté sans
+l'aval des personnes responsables de la posture de production.
 
 Le daemon ne porte ni fournisseur d'identité ni modèle de rôles. La clé
 optionnelle `[daemon.ack] api_key` (voir
@@ -123,8 +122,8 @@ renvoie 401.
 ### oauth2-proxy + nginx
 
 [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) gère
-l'authentification OIDC et expose l'identité authentifiée sous forme de
-headers de réponse. Son endpoint `/oauth2/auth` impose aussi
+l'authentification OIDC et expose l'identité authentifiée sous forme
+d'en-têtes de réponse. Son endpoint `/oauth2/auth` impose aussi
 l'appartenance à un groupe par requête via le paramètre de requête
 `allowed_groups`, donc la décision d'autorisation est prise par
 oauth2-proxy, pas par une logique `if` nginx fragile. nginx route les
@@ -213,9 +212,9 @@ server {
 
 ### Pourquoi c'est sûr
 
-- **Bindez le daemon en loopback** (`[daemon] listen_address = "127.0.0.1"`)
-  ou sur une interface interne que seul le proxy atteint. Le proxy est la
-  seule porte d'entrée.
+- **Faites écouter le daemon en loopback**
+  (`[daemon] listen_address = "127.0.0.1"`) ou sur une interface interne
+  que seul le proxy atteint. Le proxy est la seule porte d'entrée.
 - **Gardez `[daemon.ack] api_key` défini** comme second facteur. Si
   quelqu'un atteint le port du daemon en direct, en contournant le proxy,
   il ne peut toujours pas écrire sans la clé.
@@ -229,7 +228,7 @@ server {
   donc `by` comme une étiquette indicative, pas comme un enregistrement
   non-répudiable. Le bloc nginx le pose depuis la sous-requête
   authentifiée (`$auth_user`) et écrase donc toute valeur fournie par le
-  client, ce qui ferme la faille de spoofing. L'identité authentifiée
+  client, ce qui ferme la faille d'usurpation. L'identité authentifiée
   atterrit alors dans le store JSONL d'acks, vous donnant une piste
   d'audit de qui a acquitté quoi.
 - `perf-sentinel-admins` est illustratif. Utilisez le groupe que votre
@@ -240,7 +239,7 @@ server {
 ### GET /api/status
 
 Retourne un objet de liveness compact. Utilisez-le comme readiness probe
-ou comme moyen le moins coûteux de vérifier que le daemon est up.
+ou comme moyen le moins coûteux de vérifier que le daemon tourne.
 
 **Paramètres de requête :** aucun.
 
@@ -261,9 +260,9 @@ ou comme moyen le moins coûteux de vérifier que le daemon est up.
 Les trois paires gauge/plafond alimentent le graphe Headroom de
 l'onglet Trends de `perf-sentinel query monitor` : chaque paire se lit
 comme "à quel point cette gauge runtime approche de son plafond
-configuré". Le conseiller de réglages commence à émettre des hints à
-90 % de `max_active_traces`. Les champs sont additifs, les clients
-écrits contre des daemons plus anciens continuent de parser.
+configuré". Le conseiller de réglages commence à émettre des indications
+à 90 % de `max_active_traces`. Les champs sont additifs, donc les
+clients écrits contre des daemons plus anciens continuent de parser.
 
 **Exemple :**
 
@@ -337,7 +336,7 @@ curl -sS http://127.0.0.1:4318/api/config
 }
 ```
 
-(Champs abrégés ci-dessus, la réponse live porte l'ensemble complet
+(Champs abrégés ci-dessus. La réponse live porte l'ensemble complet
 listé sous **Forme de réponse**.)
 
 ### GET /api/energy
@@ -348,7 +347,7 @@ Redfish, SPECpower cloud) et l'API d'intensité temps réel Electricity
 Maps. Alimente l'onglet Scrapers de `perf-sentinel query monitor`. Le
 mix effectif lui-même (quelle source a gagné la chaîne de précédence
 par service, intensité de grille par région) vit sur
-`/api/export/report` sous `green_summary`, cet endpoint répond
+`/api/export/report` sous `green_summary`. Cet endpoint répond
 seulement "chaque backend est-il configuré, frais, et en succès".
 
 **Paramètres de requête :** aucun.
@@ -369,15 +368,15 @@ mesurée (`alumet`, `scaphandre`, `kepler`, `redfish`, `cloud_energy`,
 Les champs optionnels sont omis plutôt que mis à zéro pour les backends
 non configurés : les gauges Prometheus sous-jacentes sont
 pré-enregistrées à 0, et un `0` littéral se lirait comme un scrape
-frais. `electricity_maps` n'a pas de gauge de fraîcheur par
-construction, sa vivacité se lit dans les entrées
-`intensity_source = "real_time"` du breakdown par région du report.
+frais. `electricity_maps` n'a pas de gauge de fraîcheur. Sa vivacité se
+lit dans les entrées `intensity_source = "real_time"` de la ventilation
+par région du rapport.
 
 Deux précautions de lecture sur l'âge. Un backend configuré lit encore
 `last_scrape_age_seconds = 0.0` pendant son premier intervalle de
-scrape après le démarrage du daemon, avant le moindre scrape effectif :
-le lire avec `scrapes_ok = 0` pour distinguer "pas encore scrappé" de
-"frais". Et pour `cloud_energy`, l'âge trace la joignabilité de
+scrape après le démarrage du daemon, avant le moindre scrape : le lire
+avec `scrapes_ok = 0` pour distinguer "pas encore scrappé" de "frais".
+Et pour `cloud_energy`, l'âge suit la joignabilité de
 l'endpoint Prometheus configuré, pas la couverture par service : un
 tick compte comme réussi dès qu'un service produit une lecture.
 
@@ -411,7 +410,7 @@ curl -sS http://127.0.0.1:4318/api/energy
 Retourne un tableau JSON des findings récents, du plus récent au plus
 ancien. Chaque élément encapsule le finding lui-même plus des métadonnées
 d'occurrence côté daemon. La détection est par trace, un pattern
-récurrent est donc détecté une fois par trace qui l'exhibe. Le buffer
+récurrent est donc détecté une fois par trace qui le présente. Le buffer
 conserve ces instances, et ce listing les replie par signature canonique
 (la même clé que les acquittements) pour qu'un problème distinct tienne
 en une ligne (depuis 0.10.0). Le repli a lieu à la lecture :
@@ -422,17 +421,17 @@ peut donc pas monopoliser la page.
 
 **Paramètres de requête :**
 
-| Nom             | Type    | Défaut  | Description                                                                                                             |
-|-----------------|---------|---------|-------------------------------------------------------------------------------------------------------------------------|
-| `service`       | string  | aucun   | Match exact sur le champ `finding.service`                                                                              |
-| `type`          | string  | aucun   | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
-| `severity`      | string  | aucun   | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
-| `grouping`      | string  | aucun   | Match exact sur la valeur de grouping effective du finding, celle que porte son label Prometheus `grouping`             |
-| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
-| `until_ms`      | integer | aucun   | Borne haute sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                    |
-| `offset`        | integer | `0`     | Lignes repliées à sauter avant que `limit` s'applique, les pages qui précèdent celle-ci                                 |
-| `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
-| `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                             |
+| Nom             | Type    | Défaut  | Description                                                                                                                 |
+|-----------------|---------|---------|-----------------------------------------------------------------------------------------------------------------------------|
+| `service`       | string  | aucun   | Correspondance exacte sur le champ `finding.service`                                                                        |
+| `type`          | string  | aucun   | Correspondance exacte sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                              |
+| `severity`      | string  | aucun   | Correspondance exacte sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                  |
+| `grouping`      | string  | aucun   | Correspondance exacte sur la valeur de grouping effective du finding, celle que porte son label Prometheus `grouping`       |
+| `since_ms`      | integer | aucun   | Borne basse sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                        |
+| `until_ms`      | integer | aucun   | Borne haute sur `stored_at_ms`, en millisecondes epoch Unix, incluse                                                        |
+| `offset`        | integer | `0`     | Lignes repliées à sauter avant que `limit` s'applique, les pages qui précèdent celle-ci                                     |
+| `limit`         | integer | `100`   | Nombre maximum d'entrées retournées, plafonné côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
+| `include_acked` | boolean | `false` | Retourne aussi les findings acquittés, chacun annoté d'un `acknowledged_by`                                                 |
 
 Les paramètres inconnus sont ignorés. Les valeurs malformées (ex.
 `limit=abc`) retournent un HTTP 400 avec un corps d'erreur généré par
@@ -469,8 +468,8 @@ gouverne `max_retained_findings`.
 `since_ms` valant par défaut le début du buffer, et le repli ne porte
 alors que sur les détections comprises dans la fenêtre, donc
 `first_seen_ms` et `seen_count` décrivent la fenêtre. Sans cela, un
-pattern chronique qui tourne depuis une semaine matcherait toutes les
-fenêtres d'incident jamais demandées, puisque après le repli son
+pattern chronique qui tourne depuis une semaine correspondrait à toutes
+les fenêtres d'incident jamais demandées, puisque après le repli son
 enveloppe de vie les chevauche toutes. **`since_ms` seul est un poll de
 rattrapage** : appliqué après le repli, contre la détection la plus
 récente de chaque ligne, donc la ligne continue de rapporter son
@@ -502,9 +501,9 @@ lui-même.
   quelque part n'apparaît donc pas aussi sous `?severity=warning`, et
   `seen_count` compte toutes les détections de la signature, quelle que
   soit la sévérité de chacune.
-- `stored_at_ms` : timestamp Unix entier en millisecondes de la
+- `stored_at_ms` : horodatage Unix entier en millisecondes de la
   détection la plus récente repliée dans cette entrée.
-- `first_seen_ms` : timestamp Unix entier en millisecondes de la plus
+- `first_seen_ms` : horodatage Unix entier en millisecondes de la plus
   ancienne détection retenue pour cette signature (depuis 0.10.0). Sur
   un endpoint qui ne replie pas (`/api/findings/{trace_id}`), il vaut
   `stored_at_ms`.
@@ -584,35 +583,35 @@ L'objet `finding` exposé par `/api/findings` et
 `perf-sentinel analyze --format json`. Champs stables à partir de
 v0.4.1 :
 
-| Champ             | Type               | Description                                                                                                                                                                  |
-|-------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `type`            | string (enum)      | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
-| `severity`        | string (enum)      | `critical`, `warning`, `info`                                                                                                                                                |
-| `trace_id`        | string             | Trace ID où le pattern a été détecté                                                                                                                                         |
-| `service`         | string             | Service qui a émis l'anti-pattern                                                                                                                                            |
-| `source_endpoint` | string             | Endpoint entrant normalisé qui héberge le pattern, ou le cadre de code (`com.foo.PurgeJob.execute`) quand le point d'entrée ne porte aucun attribut HTTP                     |
-| `pattern`         | object             | `{ template, occurrences, window_ms, distinct_params }`, plus `occurrences_by_service` (`{ service: nombre }`, depuis 0.18.0) seulement quand les spans du groupe viennent de plus d'un service, `service` figurant toujours parmi ses clés et les nombres sommant à `occurrences`                                                                                                                      |
-| `suggestion`      | string             | Indication de remédiation lisible                                                                                                                                            |
-| `first_timestamp` | string (ISO 8601)  | Premier span du groupe détecté                                                                                                                                               |
-| `last_timestamp`  | string (ISO 8601)  | Dernier span du groupe détecté                                                                                                                                               |
-| `confidence`      | string (enum)      | `ci_batch`, `daemon_staging`, `daemon_production`                                                                                                                            |
-| `green_impact`    | object (optionnel) | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` quand le scoring green est activé                                                                        |
-| `code_location`   | object (optionnel) | `{ function?, filepath?, lineno?, namespace? }` quand les attributs OTel `code.*` sont présents                                                                              |
-| `suggested_fix`   | object (optionnel) | `{ pattern, framework, recommendation, reference_url? }` quand le framework peut être inféré (Java/JPA en v1)                                                                |
+| Champ             | Type               | Description                                                                                                                                                                                                                                                                        |
+|-------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `type`            | string (enum)      | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`                                                             |
+| `severity`        | string (enum)      | `critical`, `warning`, `info`                                                                                                                                                                                                                                                      |
+| `trace_id`        | string             | Trace ID où le pattern a été détecté                                                                                                                                                                                                                                               |
+| `service`         | string             | Service qui a émis l'anti-pattern                                                                                                                                                                                                                                                  |
+| `source_endpoint` | string             | Endpoint entrant normalisé qui héberge le pattern, ou le cadre de code (`com.foo.PurgeJob.execute`) quand le point d'entrée ne porte aucun attribut HTTP                                                                                                                           |
+| `pattern`         | object             | `{ template, occurrences, window_ms, distinct_params }`, plus `occurrences_by_service` (`{ service: nombre }`, depuis 0.18.0) seulement quand les spans du groupe viennent de plus d'un service, `service` figurant toujours parmi ses clés et les nombres sommant à `occurrences` |
+| `suggestion`      | string             | Indication de remédiation lisible                                                                                                                                                                                                                                                  |
+| `first_timestamp` | string (ISO 8601)  | Premier span du groupe détecté                                                                                                                                                                                                                                                     |
+| `last_timestamp`  | string (ISO 8601)  | Dernier span du groupe détecté                                                                                                                                                                                                                                                     |
+| `confidence`      | string (enum)      | `ci_batch`, `daemon_staging`, `daemon_production`                                                                                                                                                                                                                                  |
+| `green_impact`    | object (optionnel) | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` quand le scoring green est activé                                                                                                                                                                              |
+| `code_location`   | object (optionnel) | `{ function?, filepath?, lineno?, namespace? }` quand les attributs OTel `code.*` sont présents                                                                                                                                                                                    |
+| `suggested_fix`   | object (optionnel) | `{ pattern, framework, recommendation, reference_url? }` quand le framework peut être inféré (Java/JPA en v1)                                                                                                                                                                      |
 
 ### GET /api/findings/{trace_id}
 
-Retourne tous les findings dont le `trace_id` matche le segment de
+Retourne tous les findings dont le `trace_id` correspond au segment de
 chemin, sous forme de tableau JSON. Même forme d'élément que
-`/api/findings`. Le cap dur de 1000 entrées s'applique (traces
+`/api/findings`. Le plafond strict de 1000 entrées s'applique (traces
 pathologiques avec des centaines de clusters N+1). Contrairement à
 `/api/findings`, cet endpoint ne replie PAS par signature : c'est le
 chemin de triage d'une trace dont les spans ont déjà expiré de la
 fenêtre, il répond donc avec chaque détection retenue de cette trace et
 chaque entrée porte `seen_count: 1`.
 
-**Paramètre de chemin :** `trace_id` (string, match exact). Le segment
-est URL-décodé par axum avant comparaison.
+**Paramètre de chemin :** `trace_id` (string, correspondance exacte).
+Le segment est URL-décodé par axum avant comparaison.
 
 **Forme de la réponse :** même `Vec<StoredFinding>` que `/api/findings`.
 Un **tableau vide `[]`** est retourné quand le trace ID est inconnu
@@ -658,16 +657,16 @@ curl -sS "http://127.0.0.1:4318/api/findings/trace-n1-sql"
 
 Retourne l'arbre de spans d'une trace **encore présente dans la fenêtre
 de corrélation du daemon** (TTL par défaut : 30 secondes après l'arrivée
-du dernier span de la trace). Utile pour debugger une trace live juste
+du dernier span de la trace). Utile pour déboguer une trace live juste
 après son émission.
 
 **Important :** les findings sont retenus dans le ring buffer longtemps
-après que la trace elle-même ait été évincée de la fenêtre. Cela veut
+après que la trace elle-même a été évincée de la fenêtre. Cela veut
 dire que `/api/findings/{trace_id}` continue à fonctionner pendant des
 heures après que la trace a disparu, mais que `/api/explain/{trace_id}`
 ne fonctionne que pendant la TTL de la fenêtre.
 
-**Paramètre de chemin :** `trace_id` (string, match exact).
+**Paramètre de chemin :** `trace_id` (string, correspondance exacte).
 
 **Forme de la réponse (trace en mémoire) :** objet avec un tableau
 `roots`. Chaque nœud décrit un span avec :
@@ -679,7 +678,7 @@ ne fonctionne que pendant la TTL de la fenêtre.
 | `service`        | string         | Service qui a émis le span                                                         |
 | `operation`      | string         | Nom de l'opération (ex. `SELECT`, `GET`, `POST`)                                   |
 | `template`       | string         | Requête SQL ou route HTTP normalisée                                               |
-| `timestamp`      | string         | Timestamp de début ISO 8601                                                        |
+| `timestamp`      | string         | Horodatage de début ISO 8601                                                       |
 | `duration_us`    | number         | Durée en microsecondes                                                             |
 | `findings`       | array          | Findings rattachés à ce span, chacun `{ type, severity, suggestion, occurrences }` |
 | `children`       | array          | Nœuds spans enfants, récursif                                                      |
@@ -734,25 +733,25 @@ curl -sS "http://127.0.0.1:4318/api/explain/trace-does-not-exist"
 
 Retourne les corrélations temporelles cross-trace actives, triées par
 confiance décroissante. Tableau vide quand
-`[daemon.correlation] enabled = false` (défaut). Capé à 1000 entrées.
+`[daemon.correlation] enabled = false` (défaut). Plafonné à 1000 entrées.
 
 **Paramètres de requête :** aucun.
 
 **Forme de la réponse :** tableau de `CrossTraceCorrelation`. Chaque
 entrée contient :
 
-| Champ                      | Type    | Description                                                                       |
-|----------------------------|---------|-----------------------------------------------------------------------------------|
-| `source`                   | object  | Endpoint en tête, le finding au timestamp de premier span le plus ancien : `{ finding_type, service, template }` |
-| `target`                   | object  | Endpoint en queue, dont le premier span a démarré après `source` dans `lag_threshold_ms` |
-| `co_occurrence_count`      | number  | Nombre de co-occurrences dans la fenêtre roulante                                 |
-| `source_total_occurrences` | number  | Occurrences totales de `source` sur les mêmes seaux de fenêtre que `co_occurrence_count` |
-| `confidence`               | number  | Ratio `co_occurrence_count / source_total_occurrences`                            |
-| `median_lag_ms`            | number  | Lag médian en temps d'événement entre les timestamps de premier span de `source` et `target` |
-| `first_seen`               | string  | Timestamp ISO 8601 de la première co-occurrence, sur l'horloge d'analyse du daemon |
-| `last_seen`                | string  | Timestamp ISO 8601 de la co-occurrence la plus récente, sur l'horloge d'analyse du daemon |
-| `sample_trace_id`          | string  | Optionnel : dernier id de trace côté cible, omis en batch et baseline rejouée     |
-| `source_sample_trace_id`   | string  | Optionnel : id de trace côté source de la même co-occurrence, omis en batch et baseline rejouée |
+| Champ                      | Type   | Description                                                                                                        |
+|----------------------------|--------|--------------------------------------------------------------------------------------------------------------------|
+| `source`                   | object | Endpoint en tête, le finding à l'horodatage de premier span le plus ancien : `{ finding_type, service, template }` |
+| `target`                   | object | Endpoint en queue, dont le premier span a démarré après `source` dans `lag_threshold_ms`                           |
+| `co_occurrence_count`      | number | Nombre de co-occurrences dans la fenêtre roulante                                                                  |
+| `source_total_occurrences` | number | Occurrences totales de `source` sur les mêmes seaux de fenêtre que `co_occurrence_count`                           |
+| `confidence`               | number | Ratio `co_occurrence_count / source_total_occurrences`                                                             |
+| `median_lag_ms`            | number | Lag médian en temps d'événement entre les horodatages de premier span de `source` et `target`                      |
+| `first_seen`               | string | Horodatage ISO 8601 de la première co-occurrence, sur l'horloge d'analyse du daemon                                |
+| `last_seen`                | string | Horodatage ISO 8601 de la co-occurrence la plus récente, sur l'horloge d'analyse du daemon                         |
+| `sample_trace_id`          | string | Optionnel : dernier id de trace côté cible, omis en batch et baseline rejouée                                      |
+| `source_sample_trace_id`   | string | Optionnel : id de trace côté source de la même co-occurrence, omis en batch et baseline rejouée                    |
 
 **Exemple :**
 
@@ -793,17 +792,17 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 
 ### GET /api/export/report
 
-Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec la même forme que `perf-sentinel analyze --format json`. Ferme la boucle entre le daemon live et le dashboard HTML `perf-sentinel report` post-mortem : le rapport HTML peut ingérer un snapshot daemon via HTTP par simple composition shell.
+Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec la même forme que `perf-sentinel analyze --format json`. Le dashboard HTML `perf-sentinel report` post-mortem peut ingérer ce snapshot du daemon live via HTTP par simple composition shell.
 
-La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config), donc le snapshot porte une photo CO2 vivante de ce batch (voir **Portée du snapshot** plus bas pour ce qu'elle couvre et ne couvre pas). Le bandeau de chips et le tab GreenOps du dashboard HTML apparaissent naturellement sur les daemons configurés avec Electricity Maps. La quality gate est évaluée sur le snapshot, contre les findings vivants et les seuils figés au démarrage du daemon, donc `quality_gate.passed` porte le même verdict que celui du pipeline batch sur cet état. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
+La section `analysis` reflète les compteurs du daemon sur toute sa durée de vie (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config). Le snapshot porte une photo CO2 vivante de ce batch (voir **Portée du snapshot** plus bas pour ce qu'elle couvre et ne couvre pas). Le bandeau de chips et l'onglet GreenOps du dashboard HTML apparaissent sur les daemons configurés avec Electricity Maps. La quality gate est évaluée sur le snapshot, contre les findings vivants et les seuils figés au démarrage du daemon, donc `quality_gate.passed` porte le même verdict que celui du pipeline batch sur cet état. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
 
-**Portée du snapshot.** Deux populations coexistent dans le payload, et les confondre fausse les chiffres carbone de plusieurs ordres de grandeur. `findings` est plafonné par `[daemon] max_export_findings` (défaut 1000, surchargeable au lancement par `watch --max-export-findings`), les plus récentes : un daemon qui retient 46 000 findings en exporte 2 %, couvrant les dernières minutes plutôt que son uptime. `green_summary` n'est pas un agrégat sur ces findings : c'est le dernier résumé par batch écrit par l'event loop, donc ses valeurs absolues (`total_io_ops`, `co2`, `energy_kwh`) décrivent un batch, tandis que ses ratios restent représentatifs. La `quality_gate` compte donc les règles sur findings depuis la tranche exportée et lit `io_waste_ratio` sur ce batch. L'endpoint énonce ces deux faits dans `warning_details` sous le kind `snapshot_scope`, que le dashboard HTML affiche dans son bandeau. La sortie batch ne porte aucun de ces warnings : là, tous les chiffres viennent de la même passe sur l'entrée.
+**Portée du snapshot.** Deux populations coexistent dans le payload, et les confondre fausse les chiffres carbone de plusieurs ordres de grandeur. `findings` est plafonné par `[daemon] max_export_findings` (défaut 1000, surchargeable au lancement par `watch --max-export-findings`), les plus récentes : un daemon qui retient 46 000 findings en exporte 2 %, couvrant les dernières minutes plutôt que son uptime. `green_summary` n'est pas un agrégat sur ces findings : c'est le dernier résumé par batch écrit par l'event loop, donc ses valeurs absolues (`total_io_ops`, `co2`, `energy_kwh`) décrivent un batch, tandis que ses ratios restent représentatifs. La `quality_gate` compte donc les règles sur findings depuis la tranche exportée et lit `io_waste_ratio` sur ce batch. L'endpoint énonce ces deux faits dans `warning_details` sous le kind `snapshot_scope`, que le dashboard HTML affiche dans son bandeau. La sortie batch ne porte aucun de ces avertissements : là, tous les chiffres viennent de la même passe sur l'entrée.
 
-**Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les probes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans warning et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) reste préservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier event ingéré et le premier eviction tick.
+**Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les sondes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans chaîne d'avertissement et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) est conservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier événement ingéré et le premier tick d'éviction.
 
-**Arbres de spans.** Le snapshot porte les spans masqués des traces que ses findings désignent, sous `embedded_traces`, pour que `perf-sentinel report --input <snapshot>` dessine encore l'arbre de l'onglet Explain. Ils viennent d'un buffer circulaire distinct dimensionné par `[daemon] max_retained_traces` (défaut 50), pas de la fenêtre de corrélation, qui lâche les spans d'une trace quelques secondes après sa fin. C'est pourquoi `/api/explain/{trace_id}` ne répond que sur une trace vivante alors qu'un rapport exporté continue de fonctionner. Un finding dont la trace est sortie du buffer est exporté normalement, le dashboard signale alors l'arbre comme absent. Seuls des champs masqués voyagent : le template normalisé, jamais la requête brute. Mettez `max_retained_traces = 0` pour n'exporter que les findings.
+**Arbres de spans.** Le snapshot porte les spans masqués des traces que ses findings désignent, sous `embedded_traces`, pour que `perf-sentinel report --input <snapshot>` dessine encore l'arbre de l'onglet Explain. Ils viennent d'un buffer circulaire distinct dimensionné par `[daemon] max_retained_traces` (défaut 50), pas de la fenêtre de corrélation, qui lâche les spans d'une trace quelques secondes après sa fin. C'est pourquoi `/api/explain/{trace_id}` ne répond que sur une trace vivante alors qu'un rapport exporté continue de fonctionner. Un finding dont la trace est sortie du buffer est exporté normalement, et le dashboard signale alors l'arbre comme absent. Seuls des champs masqués voyagent : le template normalisé, jamais la requête brute. Mettez `max_retained_traces = 0` pour n'exporter que les findings.
 
-**Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc dashboarder ou alerter sur la fréquence des snapshots.
+**Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc suivre la fréquence des snapshots dans un dashboard ou alerter dessus.
 
 Exemple :
 
@@ -813,7 +812,7 @@ curl -s http://daemon.internal:4318/api/export/report \
     | perf-sentinel report --input - --output report.html
 ```
 
-La sous-commande `report` auto-détecte la forme JSON : un tableau au top-level est traité comme des événements de trace (passés dans normalize + detect + score), un objet au top-level est traité comme un Report pré-calculé (pris tel quel). L'onglet Correlations du dashboard HTML s'active automatiquement quand le Report produit par le daemon porte des `correlations` non vides.
+La sous-commande `report` auto-détecte la forme JSON : un tableau de premier niveau est traité comme des événements de trace (passés dans normalize + detect + score), un objet de premier niveau est traité comme un Report pré-calculé (pris tel quel). L'onglet Correlations du dashboard HTML s'active automatiquement quand le Report produit par le daemon porte des `correlations` non vides.
 
 ### POST /api/findings/{signature}/ack
 
@@ -825,20 +824,20 @@ produit par la même logique de hash que le workflow TOML CI (voir
 Le daemon maintient un store JSONL append-only à
 `~/.local/share/perf-sentinel/acks.jsonl` par défaut (configurable via
 `[daemon.ack] storage_path`). Le store est rejoué et compacté à chaque
-redémarrage du daemon, donc une boucle de churn ack/unack ne peut pas
-s'accumuler à l'infini.
+redémarrage du daemon, donc une succession d'acks et de révocations ne
+peut pas s'accumuler à l'infini.
 
-**Headers :**
+**En-têtes :**
 
-- `Content-Type: application/json` (requis, même avec un body vide).
+- `Content-Type: application/json` (requis, même avec un corps vide).
 - `X-User-Id: <identifiant>` (optionnel, alimente le champ d'audit
-  `by` avec priorité sur le body JSON, fallback sur `"anonymous"`).
+  `by` avec priorité sur le corps JSON, repli sur `"anonymous"`).
 - `X-API-Key: <secret>`, ou `Authorization: Bearer <secret>` portant la
   même clé (requis uniquement quand `[daemon.ack] api_key` est défini
-  dans la config daemon, comparaison constant-time, `[daemon]
+  dans la config daemon, comparaison en temps constant, `[daemon]
   read_api_key` est refusée ici).
 
-**Body (tous champs optionnels) :**
+**Corps (tous champs optionnels) :**
 
 ```json
 {
@@ -853,32 +852,32 @@ s'accumuler à l'infini.
 | Statut | Condition                                                          |
 |--------|--------------------------------------------------------------------|
 | 201    | Ack créé                                                           |
-| 400    | Body JSON malformé, ou signature hors du format canonique          |
-| 401    | `[daemon.ack] api_key` est défini, header manquant ou mauvais      |
+| 400    | Corps JSON malformé, ou signature hors du format canonique         |
+| 401    | `[daemon.ack] api_key` est défini, en-tête manquant ou mauvais     |
 | 409    | Déjà acquittée, côté daemon ou par la baseline TOML CI (plus bas)  |
 | 415    | `Content-Type: application/json` manquant                          |
 | 422    | JSON valide, mais un champ ne parse pas, `expires_at` par exemple  |
 | 500    | L'écriture dans le store a échoué, `ack store write failed`        |
-| 503    | `[daemon.ack] enabled = false`, le store ack runtime est offline   |
-| 507    | Un plafond du store est atteint, le body dit lequel (plus bas)     |
+| 503    | `[daemon.ack] enabled = false`, le store ack runtime est hors ligne |
+| 507    | Un plafond du store est atteint, le corps dit lequel (plus bas)    |
 
-Le `415`, le `422` et le `400` de body malformé viennent de
+Le `415`, le `422` et le `400` de corps malformé viennent de
 l'extracteur JSON, avant toute vérification de la clé d'API et du
-store, donc leur body est du texte brut et non la forme
+store, donc leur corps est du texte brut et non la forme
 `{"error": ...}` de toutes les autres lignes d'ici.
 
 Un `409` nomme sa cause. `already acked` se lève par un `DELETE`. Une
 signature tenue par une baseline TOML CI active répond plutôt
 `signature is acked by the CI TOML baseline, edit the file via PR
-review`, et un `DELETE` y répond `404`, seule une PR contre le fichier
+review`, et un `DELETE` y répond `404`. Seule une PR contre le fichier
 la lève. Voir "Interop TOML et JSONL" plus bas.
 
-Un `507` nomme son plafond dans le body d'erreur, et les trois plafonds
+Un `507` nomme son plafond dans le corps d'erreur, et les trois plafonds
 vivent dans `crates/sentinel-core/src/daemon/ack.rs`. `active ack limit
 reached` est `MAX_ACTIVE_ACKS`, 10 000 acks actifs gardés en mémoire,
 libéré en révoquant les acks qui ne s'appliquent plus et, au
 redémarrage, en jetant ceux qui ont expiré mais comptent encore.
-`GET /api/acks` ne sert que 1000 lignes au plus et masque justement ces
+`GET /api/acks` ne sert que 1000 lignes au plus et masque ces
 entrées expirées, donc au plafond le redémarrage est la sortie fiable.
 `ack file size cap reached` est `MAX_ACKS_FILE_BYTES`, 64 Mio de
 `acks.jsonl`, que seule la compaction au redémarrage décrite plus haut
@@ -889,9 +888,9 @@ raccourci plutôt que refusé, et le plafond de ligne ne se déclenche que
 quand l'échappement JSON fait dépasser 4 Kio à ce qui reste.
 
 Un `500` est le cas attrape-tout d'une écriture que le daemon n'a pas pu
-mener à bout, une erreur du système de fichiers par exemple. Le body de
-la réponse reste `ack store write failed`, le daemon journalise l'erreur
-sous-jacente.
+mener à bien, une erreur du système de fichiers par exemple. Le corps de
+la réponse reste `ack store write failed` et le daemon journalise
+l'erreur sous-jacente.
 
 **Exemple :**
 
@@ -910,8 +909,8 @@ annotation `acknowledged_by`.
 
 ### DELETE /api/findings/{signature}/ack
 
-Révoquer un ack daemon précédemment créé. Mêmes headers d'auth que
-`POST`. Le finding correspondant réapparaît dans `GET /api/findings`
+Révoquer un ack daemon précédemment créé. Mêmes en-têtes d'authentification
+que `POST`. Le finding correspondant réapparaît dans `GET /api/findings`
 immédiatement.
 
 **Réponses :**
@@ -919,17 +918,17 @@ immédiatement.
 | Statut | Condition                                              |
 |--------|--------------------------------------------------------|
 | 204    | Ack révoqué                                            |
-| 400    | La signature ne matche pas le format canonique         |
-| 401    | API key requise et manquante ou mauvaise               |
+| 400    | La signature ne correspond pas au format canonique     |
+| 401    | Clé d'API requise et manquante ou mauvaise             |
 | 404    | La signature n'est pas actuellement acquittée daemon   |
 | 500    | L'écriture a échoué, `ack store write failed`          |
-| 503    | Store ack runtime offline                              |
+| 503    | Store ack runtime hors ligne                           |
 
 Une révocation ne répond jamais `507`. Elle ajoute sa propre ligne,
 donc à `MAX_ACKS_FILE_BYTES` cet ajout rate et la réponse ici est
 `500`, voir les plafonds sous `POST` plus haut.
 
-Note : cet endpoint ne révoque que les acks daemon. Les acks TOML CI
+Cet endpoint ne révoque que les acks daemon. Les acks TOML CI
 sont en lecture seule au runtime et nécessitent une PR contre le
 fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
 
@@ -940,10 +939,9 @@ d'expiration). Lecture seule, mais protégée dès que les écritures d'acks
 le sont : quand `[daemon.ack] api_key` est défini, cet endpoint exige un
 en-tête `X-API-Key` correspondant ou un `Authorization: Bearer`,
 portant la clé d'ack ou, depuis 0.20.0, `[daemon] read_api_key`, et
-renvoie `401` sans lui. La
-piste d'audit des acks expose les identités des relecteurs, les raisons
-et les signatures de findings, donc la clé configurée gouverne aussi les
-lectures, pas seulement les `POST`/`DELETE`.
+renvoie `401` sans lui. La piste d'audit des acks expose les identités
+des relecteurs, les raisons et les signatures de findings, donc la clé
+configurée gouverne aussi les lectures.
 
 **Paramètres de requête :**
 
@@ -1025,9 +1023,9 @@ Opt-in via `[daemon.incidents]`, `503` quand la section est absente.
 peut pas voir la mémoire d'un service observé : il n'a aucun chemin
 d'ingestion de métriques OTLP, et un service qui sature continue en
 général d'émettre des spans, plus lentement. Votre alerting possède le
-moment. Ce que perf-sentinel possède, ce sont les findings d'une période,
-et il est le seul à pouvoir les capturer avant que le ring ne les évince,
-ce qui prend quelques minutes sur une flotte chargée.
+moment. perf-sentinel possède les findings d'une période et il est le
+seul à pouvoir les capturer avant que le ring ne les évince, ce qui
+prend quelques minutes sur une flotte chargée.
 
 **Corps :** l'enveloppe webhook d'Alertmanager, et elle seule. C'est la
 seule forme qu'un opérateur ne peut pas produire autrement,
@@ -1047,25 +1045,25 @@ receivers:
 
 L'authentification est l'en-tête `X-API-Key` ou `Authorization: Bearer`
 portant la même clé, l'un ou l'autre, comparé en temps constant. La clé
-d'écriture satisfait les deux verbes, `[daemon] read_api_key` satisfait
+d'écriture satisfait les deux verbes et `[daemon] read_api_key` satisfait
 le `GET` seul, donc Grafana et le Hub ne détiennent jamais la clé qui
 peut faire un `POST`. `http_headers` exige Alertmanager 0.27 ou plus
 récent. En dessous, la même configuration brute porte la clé en
 `http_config.authorization`, que cette route accepte.
 
 Le Bearer s'adresse aux appelants serveur à serveur. La couche CORS
-annonce `x-api-key` et délibérément pas `authorization`, donc un client
-navigateur d'une autre origine est refusé au préambule et continue
-d'utiliser l'en-tête.
+annonce `x-api-key` mais pas `authorization`, donc un client navigateur
+d'une autre origine est refusé au préambule et continue d'utiliser
+l'en-tête.
 
 Le Bearer existe pour les deux opérateurs Kubernetes qui génèrent un
 receiver, parce qu'aucun ne sait envoyer un en-tête libre. Le
-`AlertmanagerConfig` de prometheus-operator n'en a aucun en 0.86, et
-le `VMAlertmanagerConfig` de l'opérateur VictoriaMetrics n'en nomme aucun
+`AlertmanagerConfig` de prometheus-operator n'en a aucun en 0.86. Le
+`VMAlertmanagerConfig` de l'opérateur VictoriaMetrics n'en nomme aucun
 non plus : son `http_config` est un objet ouvert, donc le serveur d'API
 accepte ce qu'on y écrit et l'opérateur ne rend que les champs qu'il
-connaît, ce qui laisse partir un webhook sans identifiant et une livraison
-qui répond 401 sans que rien ne le dise. Les deux CRD portent en revanche un
+connaît. Un webhook part alors sans identifiant, et la livraison répond
+401 sans que rien ne dise pourquoi. Les deux CRD portent en revanche un
 jeton Bearer. Des règles et des receivers prêts à l'emploi pour les deux
 vivent dans
 [`examples/incident-alerts-prometheus-operator.yaml`](../../examples/incident-alerts-prometheus-operator.yaml)
@@ -1126,15 +1124,16 @@ faire perdre les autres, donc chacune est comptée plutôt que de faire
 refusées, ce dont Alertmanager a besoin pour cesser de réessayer.
 `startsAt` est un RFC 3339 avec n'importe quel décalage, tel que Go le
 sérialise, et tout le reste compte comme `rejected_unparsable_time`. Une
-livraison porte au plus 1000 alertes, le reste compte comme
-`rejected_overflow`. Chaque refus d'alerte est journalisé, et chaque refus
-est compté dans `perf_sentinel_incidents_rejected_total{reason}`, le 401
-compris, parce qu'Alertmanager jette ce corps et ne réessaie jamais un 4xx
-(un groupe encore actif est renvoyé au `group_interval` suivant, donc le
-401 se répète jusqu'à la correction de l'en-tête et la capture est alors
-ce que le ring détient encore). Les valeurs de libellés sont nettoyées de
-leurs espaces, donc une valeur YAML entre guillemets avec un espace final
-se joint quand même.
+livraison porte au plus 1000 alertes, et le reste compte comme
+`rejected_overflow`. Chaque refus d'alerte est journalisé. Chaque refus,
+le 401 compris, est compté dans
+`perf_sentinel_incidents_rejected_total{reason}`, parce qu'Alertmanager
+jette ce corps et ne réessaie jamais un 4xx. Un groupe encore actif est
+renvoyé au `group_interval` suivant, donc le 401 se répète jusqu'à la
+correction de l'en-tête, et la capture est alors ce que le ring détient
+encore. Les valeurs de libellés sont nettoyées de leurs espaces, donc
+une valeur YAML entre guillemets avec un espace final se joint quand
+même.
 
 **La fenêtre se ferme après l'incident, pas dessus.** Un finding est
 horodaté quand sa trace est analysée, ce qui arrive une fois la trace
@@ -1142,11 +1141,11 @@ sortie de la fenêtre vivante, un `trace_ttl_ms` après son dernier span.
 Les traces vivantes au moment du crash, celles qu'un post-mortem veut le
 plus, sont donc horodatées après `startsAt`, et la fenêtre est
 `[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`. Le premier gel a lieu
-à la réception, en général avant que ces traces soient analysées, et une
-passe de consolidation résout à nouveau la même fenêtre un TTL après sa
-fermeture, une fois que l'analyse qui horodate ces traces a rattrapé son
-retard, et fusionne le résultat par signature : des lignes peuvent
-s'ajouter et des comptes monter, jamais disparaître. La borne haute est
+à la réception, en général avant que ces traces soient analysées. Une
+passe de consolidation résout ensuite à nouveau la même fenêtre un TTL
+après sa fermeture, une fois que l'analyse qui horodate ces traces a
+rattrapé son retard, et fusionne le résultat par signature : des lignes
+peuvent s'ajouter et des comptes monter, jamais disparaître. La borne haute est
 sur l'horloge d'analyse, donc pour un `restart` ou un `oom_kill` dont le
 remplaçant sert dans les `trace_ttl_ms` qui suivent `startsAt`, ses
 premières traces se replient dans les mêmes lignes. Une signature
@@ -1159,7 +1158,7 @@ Le repostage est idempotent et ne dégrade jamais. L'id est un `sha2` sur
 donc un enregistrement sans namespace garde son id. Alertmanager qui
 répète une alerte active à chaque `repeat_interval` résout à nouveau une
 fenêtre fixe contre un ring qui ne fait qu'évincer, donc la première
-capture est conservée et une répétition ne peut qu'ajouter une fin : une
+capture est conservée et une répétition ne peut qu'ajouter une fin. Une
 livraison `resolved` pose `ended_at_ms`, à condition que `endsAt` ne
 précède pas `startsAt`.
 `perf_sentinel_incidents_total{kind}` compte des incidents, pas des
@@ -1175,10 +1174,10 @@ ou `[daemon] read_api_key`. Alimente l'onglet Incidents de
 `perf-sentinel query monitor` et la sous-commande
 `perf-sentinel query incidents`.
 
-**Paramètres de requête :** `service` et `namespace` (match exact),
-`offset` (défaut 0), `limit` (défaut 50, plafonné à 100, chaque incident
-portant jusqu'à 1000 findings). Paginez avec `offset` pour atteindre les
-incidents plus anciens.
+**Paramètres de requête :** `service` et `namespace` (correspondance
+exacte), `offset` (défaut 0), `limit` (défaut 50, plafonné à 100, chaque
+incident portant jusqu'à 1000 findings). Paginez avec `offset` pour
+atteindre les incidents plus anciens.
 `id` (depuis 0.24.0) renvoie ce seul incident dans un tableau d'un
 élément, ou `[]` quand le ring ne le détient pas, et `service`,
 `namespace`, `offset` et `limit` sont alors ignorés.
@@ -1191,20 +1190,20 @@ appelant sans elle reçoit toujours 401.
 
 **Forme de la réponse :** tableau d'objets :
 
-| Champ               | Type   | Description                                                                                                     |
-|---------------------|--------|-------------------------------------------------------------------------------------------------------------------|
-| `id`                | string | 32 caractères hexadécimaux sur `service\|kind\|at_ms`, puis `\|namespace` quand l'alerte en portait un           |
-| `service`           | string | Le service concerné                                                                                             |
-| `namespace`         | string | La valeur du `namespace_label` de l'alerte, absent quand l'alerte n'en portait pas                              |
-| `kind`              | string | L'un des cinq genres                                                                                            |
-| `at_ms`             | number | Début, en millisecondes epoch Unix                                                                              |
-| `ended_at_ms`       | number | Fin, absent tant que l'alerte est active                                                                        |
-| `detail`            | string | Le `summary` ou la `description` de l'alerte, assaini et plafonné à 512 octets, absent si aucun des deux         |
-| `window_from_ms`    | number | `at_ms` moins `[daemon.incidents] lookback_ms`                                                                  |
-| `window_to_ms`      | number | `at_ms` plus deux `trace_ttl_ms`, voir plus haut                                                                |
-| `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                                   |
-| `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre, fusionnés une fois par la consolidation                   |
-| `finding_count`     | number | Nombre de findings figés, à la place de `findings` avec `findings=false`                                        |
+| Champ               | Type   | Description                                                                                              |
+|---------------------|--------|----------------------------------------------------------------------------------------------------------|
+| `id`                | string | 32 caractères hexadécimaux sur `service\|kind\|at_ms`, puis `\|namespace` quand l'alerte en portait un   |
+| `service`           | string | Le service concerné                                                                                      |
+| `namespace`         | string | La valeur du `namespace_label` de l'alerte, absent quand l'alerte n'en portait pas                       |
+| `kind`              | string | L'un des cinq genres                                                                                     |
+| `at_ms`             | number | Début, en millisecondes epoch Unix                                                                       |
+| `ended_at_ms`       | number | Fin, absent tant que l'alerte est active                                                                 |
+| `detail`            | string | Le `summary` ou la `description` de l'alerte, assaini et plafonné à 512 octets, absent si aucun des deux |
+| `window_from_ms`    | number | `at_ms` moins `[daemon.incidents] lookback_ms`                                                           |
+| `window_to_ms`      | number | `at_ms` plus deux `trace_ttl_ms`, voir plus haut                                                         |
+| `oldest_finding_ms` | number | Plus ancien finding que le ring détenait à la capture, absent s'il était vide                            |
+| `findings`          | array  | Objets `StoredFinding`, repliés sur la seule fenêtre, fusionnés une fois par la consolidation            |
+| `finding_count`     | number | Nombre de findings figés, à la place de `findings` avec `findings=false`                                 |
 
 **Lisez `oldest_finding_ms` avant de faire confiance à un tableau
 `findings` court.** En dessous de `window_from_ms`, la capture est
@@ -1227,12 +1226,12 @@ l'enregistrement doit survivre au nœud.
 ### Interop TOML et JSONL
 
 Le daemon lit `.perf-sentinel-acknowledgments.toml` (chemin
-configurable via `[daemon.ack] toml_path`) au startup et union ses
-entrées avec le store JSONL au query time. **TOML wins on conflict** :
-quand une signature est acquittée dans les deux, la réponse porte la
-métadonnée TOML (`source: "toml"`). Cela garde la baseline CI
-immutable côté daemon, un SRE ne peut pas accidentellement override ce
-que l'équipe a validé en review PR.
+configurable via `[daemon.ack] toml_path`) au démarrage et unit ses
+entrées à celles du store JSONL au moment de la requête. **Le TOML
+l'emporte en cas de conflit** : quand une signature est acquittée dans
+les deux, la réponse porte la métadonnée TOML (`source: "toml"`). Cela
+garde la baseline CI immuable côté daemon, donc un SRE ne peut pas
+écraser par accident ce que l'équipe a validé en revue de PR.
 
 | Source | Persistance             | Audit                     | Mutable au runtime |
 |--------|-------------------------|---------------------------|--------------------|
@@ -1244,15 +1243,15 @@ que l'équipe a validé en review PR.
 `GET /api/findings` (et les filtres `?service=` / `?type=` /
 `?severity=`) omettent désormais les findings acquittés par défaut.
 Passer `?include_acked=true` pour restaurer le comportement
-pré-0.5.20. Le défaut opt-in mire la sémantique CLI 0.5.17
+pré-0.5.20. Le défaut opt-in reprend la sémantique CLI 0.5.17
 `--acknowledgments` : un opérateur regardant "qu'est-ce qui est cassé
 maintenant" ne devrait pas être noyé par des entrées que l'équipe a
 déjà triées.
 
 Les endpoints `/api/findings/{trace_id}` et `/api/export/report`
-gardent intentionnellement leur shape précédent, les vues per-trace et
-report complet sont diagnostiques et peuvent avoir besoin de
-remonter les findings acquittés même dans le chemin par défaut.
+gardent leur forme précédente parce que les vues par trace et de rapport
+complet servent au diagnostic et peuvent avoir besoin de remonter les
+findings acquittés même dans le chemin par défaut.
 
 ## Réponses d'erreur
 
@@ -1308,7 +1307,7 @@ notification.
 
 Installez le plugin Grafana JSON API datasource, pointez-le vers le
 daemon et construisez des tableaux par service. Exemple de requête de
-panel qui retourne les 20 findings les plus récents pour `order-svc` :
+panneau qui retourne les 20 findings les plus récents pour `order-svc` :
 
 ```
 URL :     http://perf-sentinel.internal:4318/api/findings
@@ -1324,7 +1323,7 @@ Champs :  $.finding.type,
 ```
 
 Couplez cela avec l'endpoint Prometheus `/metrics` déjà exposé par le
-daemon pour les tendances time-series et utilisez l'API de requêtage
+daemon pour les tendances en séries temporelles et utilisez l'API de requêtage
 pour la **liste de findings concrets** sur lesquels l'utilisateur peut
 cliquer.
 
@@ -1333,7 +1332,7 @@ cliquer.
 Si votre daemon a un scraper opt-in configuré (`[green.scaphandre]`,
 `[green.cloud]`, `[green.electricity_maps]`, `[pg_stat]`), une stagnation
 dans `active_traces` ou la croissance de `stored_findings` est un signal
-fort que l'ingestion est bloquée. Snippet bash à embarquer dans un
+fort que l'ingestion est bloquée. Extrait bash à intégrer dans un
 runbook on-call :
 
 ```bash
@@ -1353,7 +1352,7 @@ if [ "$uptime" -gt 300 ] && [ "$traces" -eq 0 ] && [ "$findings" -eq 0 ]; then
 fi
 ```
 
-Branchez ceci à PagerDuty ou OpsGenie via l'outil d'escalation on-call de
+Branchez ceci à PagerDuty ou OpsGenie via l'outil d'escalade on-call de
 votre choix.
 
 ## Contrat de stabilité
@@ -1371,7 +1370,7 @@ L'API de requêtage porte une promesse de stabilité à partir de v0.4.1.
   `finding.confidence`, `io_intensity_band`, etc.) : les variantes
   existantes restent. De nouvelles variantes peuvent être ajoutées dans
   les releases mineures. Les clients doivent tolérer les valeurs d'enum
-  inconnues sans crasher.
+  inconnues sans planter.
 - Le comportement des cinq réponses d'erreur dans
   [Réponses d'erreur](#réponses-derreur).
 
@@ -1382,14 +1381,14 @@ L'API de requêtage porte une promesse de stabilité à partir de v0.4.1.
 - De nouvelles variantes d'enum peuvent être ajoutées.
 - De nouveaux endpoints sous `/api/...` peuvent être introduits.
 - Les valeurs par défaut (ex. `limit=100`) peuvent être ajustées si le
-  profilage montre un meilleur défaut, mais le cap dur (`1000`) ne se
-  réduira pas.
+  profilage montre un meilleur défaut, mais le plafond strict (`1000`) ne
+  se réduira pas.
 
 **Ce qui requiert une release majeure :**
 
 - Retirer ou renommer un champ.
 - Retyper un champ (ex. transformer un number en string).
-- Réduire le cap dur sur `/api/findings?limit=`.
+- Réduire le plafond strict sur `/api/findings?limit=`.
 - Changer la surface d'authentification (le contrat actuel est non
   authentifié, loopback-only par défaut).
 
@@ -1397,8 +1396,8 @@ L'API de requêtage porte une promesse de stabilité à partir de v0.4.1.
 
 - Toujours tolérer les champs inconnus dans les objets JSON.
 - Ne jamais parser les variantes d'enum de manière exhaustive sans
-  branche fallback.
-- Pinner la version du daemon dans vos manifestes CI/CD et lire le
+  branche de repli.
+- Épingler la version du daemon dans vos manifestes CI/CD et lire le
   `CHANGELOG.md` avant de monter de version.
 
 ## Voir aussi
