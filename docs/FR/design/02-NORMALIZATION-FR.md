@@ -145,7 +145,7 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
 }
 ```
 
-Cela sépare l'autorité du chemin sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). Gère `http://`, `https://` et les chemins nus (`/api/foo`, qui n'ont pas d'autorité).
+Cela sépare l'autorité du chemin sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). La fonction gère `http://`, `https://` et les chemins nus (`/api/foo`, qui n'ont pas d'autorité).
 
 Le host de l'appelé est ensuite gardé dans le template pour les appels adressés par DNS (`GET user-svc/api/foo`) et retiré pour les autorités en IP littérale. `host_group_prefix` classe l'autorité. Une IPv4 en décimal pointé ou une IPv6 littérale entre crochets est une adresse de réplique derrière un répartiteur de charge et est retirée, donc les pods d'un même service continuent de se regrouper dans un seul template. Un nom d'hôte DNS est mis en minuscules, dépouillé de son userinfo RFC 3986 et de son port, puis préfixé au chemin.
 
@@ -177,7 +177,7 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 ```
 
-Le bras messaging ne normalise rien : un nom de topic ou de file est déjà un template, il n'a aucune partie variable à extraire. Le faire passer par `normalize_http` masquerait les segments numériques en `{id}` et retirerait l'identifiant de compte d'un ARN de file SQS, fusionnant deux comptes AWS dans un seul template. La seule transformation appliquée vit dans `sanitize_span_event`, pas ici. Une destination qui comporte un schéma (`amqp://user:pass@host/q`) se voit retirer ses identifiants et sa chaîne de requête, car contrairement à SQL et HTTP ce bras n'a aucun parseur entre une chaîne fournie par l'opérateur et le template du finding. Une destination sans schéma est laissée octet pour octet, puisque `@` et `#` sont légaux dans un nom de file (`ORDERS@QM1`, `logs.#`) et que les réécrire fusionnerait des destinations distinctes.
+Le bras messaging ne normalise rien : un nom de topic ou de file est déjà un template, sans partie variable à extraire. Le faire passer par `normalize_http` masquerait les segments numériques en `{id}` et retirerait l'identifiant de compte d'un ARN de file SQS, fusionnant deux comptes AWS dans un seul template. La seule transformation appliquée vit dans `sanitize_span_event`, pas ici. Une destination qui comporte un schéma (`amqp://user:pass@host/q`) se voit retirer ses identifiants et sa chaîne de requête, car contrairement à SQL et HTTP ce bras n'a aucun parseur entre une chaîne fournie par l'opérateur et le template du finding. Une destination sans schéma est laissée intacte, octet pour octet, puisque `@` et `#` sont autorisés dans un nom de file (`ORDERS@QM1`, `logs.#`) et que les réécrire fusionnerait des destinations distinctes.
 
 `normalize_all()` est un simple `events.into_iter().map(normalize).collect()`. Le `into_iter()` consomme le vecteur d'entrée et chaque `SpanEvent` est déplacé (pas cloné) dans le normaliseur.
 
