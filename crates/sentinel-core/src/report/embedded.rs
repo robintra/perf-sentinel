@@ -57,8 +57,8 @@ pub struct EmbeddedSpan {
     pub endpoint: String,
     pub event_type: EventType,
     pub operation: String,
-    /// Normalized template. The only query text that ever reaches a
-    /// report, the raw statement stays behind.
+    /// Normalized template, the only query text that ever reaches a
+    /// report. The raw statement stays behind.
     pub template: String,
     pub duration_us: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,8 +66,8 @@ pub struct EmbeddedSpan {
 }
 
 impl EmbeddedSpan {
-    /// Mask one normalized event. `event.target` is dropped on purpose:
-    /// it holds the literals the template exists to replace.
+    /// Mask one normalized event. `event.target` is dropped because it
+    /// holds the literals the template exists to replace.
     #[must_use]
     pub fn from_event(event: &NormalizedEvent) -> Self {
         Self {
@@ -120,8 +120,8 @@ impl EmbeddedSpan {
 }
 
 /// Safety ceiling on the serialized spans [`embed_finding_traces`] adds
-/// to a report. Not a size target, the HTML sink owns that at render
-/// time: this exists because every downstream reader bounds what it
+/// to a report. Not a size target (the HTML sink owns that at render
+/// time). It exists because every downstream reader bounds what it
 /// accepts, and the tightest known consumer caps the whole JSON at
 /// 256 MiB when it reads it off the producer's stdout. Sized under that
 /// with room for the findings themselves, and far above any realistic
@@ -162,10 +162,10 @@ impl std::io::Write for ByteCounter {
 ///
 /// For the backend-query subcommands, whose JSON is rendered later by
 /// `report --input` and so travels without its input. The HTML sink
-/// applies the real size target at render time, this only refuses to
-/// write a file the readers would refuse to open. When the ceiling
-/// bites, the traces kept are the ones the first findings point at, the
-/// same rule the sink uses, and the drop is logged rather than silent.
+/// applies the real size target at render time. The ceiling here only
+/// keeps the file under the size its readers accept. When the ceiling
+/// is hit, the traces kept are the ones the first findings point at
+/// (the same rule the sink uses), and the drop is logged.
 /// Sorted by trace id because `correlate` returns `HashMap` order and
 /// `--format json` must stay stable.
 pub fn embed_finding_traces(report: &mut super::Report, traces: &[Trace]) {
@@ -429,8 +429,8 @@ mod tests {
 
     #[test]
     fn the_kept_trees_are_the_ones_the_top_findings_reference() {
-        // Findings deliberately out of trace-id order: the rule follows the
-        // findings, not the ids.
+        // Findings out of trace-id order, so the test shows the rule
+        // follows the findings, not the ids.
         let mut report = report_for(&["t3", "t1", "t4", "t2", "t5"]);
         let traces: Vec<Trace> = ["t5", "t4", "t3", "t2", "t1"]
             .iter()
