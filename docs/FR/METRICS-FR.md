@@ -18,7 +18,7 @@ explicitement si vous voulez le clic vers la trace dans Grafana.
 
 ## Introduction à Prometheus et OpenMetrics
 
-Si vous n'avez jamais utilisé Prometheus, cette introduction courte est un préalable pour la suite du document. Elle suppose que vous savez ce qu'est HTTP et ce qu'est une métrique. Elle ne suppose pas de familiarité avec le langage de requête Prometheus ou l'opérateur Kubernetes. Les autres docs perf-sentinel renvoient ici pour les concepts Prometheus, voir [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité) et [docs/FR/QUERY-API-FR.md](QUERY-API-FR.md).
+Si vous n'avez jamais utilisé Prometheus, cette introduction courte est un préalable pour la suite du document. Elle suppose que vous savez ce qu'est HTTP et ce qu'est une métrique. Elle ne suppose pas de familiarité avec le langage de requête Prometheus ou l'opérateur Prometheus. Les autres docs perf-sentinel renvoient ici pour les concepts Prometheus, voir [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité) et [docs/FR/QUERY-API-FR.md](QUERY-API-FR.md).
 
 **Qu'est-ce que Prometheus.** Prometheus est un projet de la Cloud Native Computing Foundation (CNCF), le système de métriques open source le plus largement déployé dans l'écosystème cloud-native. Il fonctionne par *scraping* : toutes les 15 à 60 secondes, le serveur Prometheus fait une requête HTTP GET sur l'endpoint `/metrics` de chaque cible, parse la réponse, et stocke les valeurs sous forme de séries temporelles. perf-sentinel expose un tel endpoint `/metrics` quand il tourne en mode daemon. Les opérateurs qui font déjà tourner Prometheus ajoutent perf-sentinel à leurs `scrape_configs`, et les métriques du daemon apparaissent à côté du reste de leur infrastructure.
 
@@ -270,7 +270,7 @@ impossibles (par exemple `action=ack,reason=not_acked` ou
 
 Émis par tick du scraper Scaphandre côté daemon (la tâche qui
 récupère `scaph_process_power_consumption_microwatts` depuis
-l'endpoint `[green.scaphandre]` configuré, toutes les
+le `[green.scaphandre] endpoint` configuré, toutes les
 `scrape_interval_secs`). Enregistrés uniquement quand le daemon est
 compilé avec la feature `daemon`.
 
@@ -338,8 +338,8 @@ touché. Ils ne sont visibles que dans les logs daemon au niveau
 ## Compteurs de scrape Kepler (depuis 0.7.4)
 
 Émis par tick du scraper Kepler côté daemon (la tâche qui récupère
-les séries `kepler_*_cpu_joules_total` depuis l'endpoint
-`[green.kepler]` configuré). Enregistrés uniquement quand le daemon
+les séries `kepler_*_cpu_joules_total` configurées depuis le
+`[green.kepler] endpoint`). Enregistrés uniquement quand le daemon
 est compilé avec la feature `daemon`. Le jeu de labels reflète celui
 de Scaphandre parce que les deux sources rencontrent les six mêmes
 modes d'échec HTTP.
@@ -401,8 +401,8 @@ Deux messages de warn distincts existent, un par cause, chacun avec sa
 propre séquence warn-once : `no samples matched the configured metric`
 (`metric_name` ou `label_key` faux sur le fil) et `none of the
 configured service_mappings label values were present` (valeurs de
-mapping mal saisies, ou toutes les charges mappées absentes de
-l'exposition). Les règles d'alerte par motif de log doivent couvrir
+mapping mal saisies, ou toutes les charges mappées actuellement absentes
+de l'exposition). Les règles d'alerte par motif de log doivent couvrir
 les deux messages. Deux cas ne déclenchent aucun warn : une table de
 mappings partiellement fausse (au moins une valeur correspond, les
 autres jamais) et un label apparié dont les relevés sont en permanence
@@ -441,15 +441,15 @@ variance JSON des BMC sur la réponse `/Power`.
 | `perf_sentinel_scaphandre_last_scrape_age_seconds`     | gauge   | (aucun)               | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `perf_sentinel_cloud_energy_last_scrape_age_seconds`   | gauge   | (aucun)               | Même principe pour le scraper cloud SPECpower.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `perf_sentinel_kepler_last_scrape_age_seconds`         | gauge   | (aucun)               | Même principe pour le scraper Kepler. Voir le piège de l'obsolescence sans échantillon plus haut.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `perf_sentinel_alumet_last_scrape_age_seconds`         | gauge   | (aucun)               | Même principe pour le scraper Alumet. Voir le piège de l'obsolescence sans échantillon et la note `energy_interval_secs` plus haut.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `perf_sentinel_redfish_last_scrape_age_seconds`        | gauge   | (aucun)               | Même principe pour le scraper BMC Redfish.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `perf_sentinel_alumet_last_scrape_age_seconds`         | gauge   | (aucun)               | Même principe pour le scraper Alumet. Voir le piège de l'obsolescence sans échantillon et la note `energy_interval_secs` plus haut.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## Kinds de warning : transitoire vs collant
 
-`Report.warning_details` (depuis 0.5.19) compte cinq kinds stables,
-chacun avec un cycle de vie différent. La distinction compte pour la
-stratégie de monitoring : un warning transitoire se résout seul, un
-collant persiste jusqu'au redémarrage du daemon.
+`Report.warning_details` (depuis 0.5.19) compte aujourd'hui cinq kinds
+stables, chacun avec un cycle de vie différent. La distinction compte
+pour la stratégie de monitoring : un warning transitoire se résout seul,
+un collant persiste jusqu'au redémarrage du daemon.
 
 `warning_details` est le champ que lit un consommateur. Un tableau
 `warnings` de chaînes simples subsiste à côté, écrit par le seul chemin
@@ -460,7 +460,7 @@ warning", alors que les entrées structurées sont juste à côté.
 | Kind                       | Cycle de vie | Émis quand                                                                                                                                                                                                     | Effacé par                                                                                                                                |
 |----------------------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
 | `cold_start`               | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon                                                                                                                                    | Premier batch réussi (les deux compteurs strictement positifs)                                                                            |
-| `ingestion_drops`          | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full" ou "memory_pressure"} > 0` depuis le démarrage                                                                                                        | Redémarrage du daemon (remise à zéro du compteur)                                                                                                 |
+| `ingestion_drops`          | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full" or "memory_pressure"} > 0` depuis le démarrage                                                                                                        | Redémarrage du daemon (remise à zéro du compteur)                                                                                                 |
 | `tuning`                   | Mixte        | Un compteur cumulatif montre un réglage sous-dimensionné pour la charge, ou `sampling_rate` est sous 1.0 (voir dessous)                                                                                         | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre, un changement de config pour la règle `sampling_rate` |
 | `unmatched_acknowledgment` | Par run      | Un acquittement actif n'a rien supprimé dans cette analyse                                                                                                                                                     | Le run suivant où son finding réapparaît, ou la suppression de l'acquittement                                                             |
 | `snapshot_scope`           | Toujours     | Chaque réponse `/api/export/report` passé le démarrage à froid : les chiffres green décrivent un seul batch, et une seconde entrée apparaît quand le store contient plus de findings que l'export n'en expédie | Jamais, il décrit le payload plutôt qu'une panne. L'enveloppe de démarrage à froid et la sortie batch ne portent aucune des deux entrées  |
@@ -517,6 +517,12 @@ l'échantillon survivant n'est pas représentatif comme l'est un hachage
 uniforme. Voir
 [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#sampling-du-collector-et-ce-qui-atteint-le-daemon)
 pour la disposition de pipeline qui l'évite.
+
+Un outillage de laboratoire qui vérifie
+`warning_details[].kind == "cold_start"` devrait tenir compte du
+caractère transitoire de ce warning : tout trafic de fond, même des
+traces d'amorçage synthétiques ou des sondes de santé, peut fermer la
+fenêtre de démarrage à froid en bien moins de 60 secondes.
 
 ## Alertes
 
@@ -586,6 +592,9 @@ problème de performance plutôt que de voir que rien n'a été mesuré.
 
 ## Références croisées
 
+- Alertes livrées : la section ci-dessus, empaquetée par le chart Helm sous
+  forme de `PrometheusRule` (`prometheusRule.enabled`), voir
+  [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#règles-dalerte-prometheusrule).
 - Champ `Report.warning_details` (warnings de snapshot côté opérateur) :
   voir [RUNBOOK-FR.md](RUNBOOK-FR.md) section "Lire les warnings du Report".
 - Workflow d'acquittements (suppression de findings cross-format) :
