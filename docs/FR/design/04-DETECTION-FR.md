@@ -1,6 +1,6 @@
 # Algorithmes de détection
 
-La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier sept types d'anti-patterns : les requêtes N+1, les appels redondants, les opérations lentes, le fanout excessif, les services bavards, la saturation du pool de connexions et les appels sérialisés.
+La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier sept types d'anti-patterns : les requêtes N+1, les appels redondants, les opérations lentes, le fanout excessif, les services bavards, la saturation du pool de connexions et les appels sérialisés mais parallélisables.
 
 ## Pattern partagé : clés HashMap empruntées
 
@@ -125,7 +125,7 @@ L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétabli
 
 Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs compromis précision/rappel.
 
-Le détail HTML rend cette décision vérifiable sans la modifier. Les N+1 directs portent le libellé `direct` et les groupes récupérés le libellé `heuristic`. La vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque span incriminé exact de la trace représentative. Pour un finding inter-traces, le résumé conserve le nombre total d'occurrences et la vue précise combien d'entre elles sont prouvées par la trace représentative. Les paramètres et cibles bruts restent masqués, et les spans sans rapport restent regroupés. Les anciens rapports dépourvus de configuration de détection ne permettent pas de reconstruire les identifiants exacts : les spans correspondants restent alors regroupés au lieu d'être présentés comme des preuves individuelles.
+Le détail HTML rend cette décision vérifiable sans la modifier. Les N+1 directs portent le libellé `direct` et les groupes récupérés le libellé `heuristic`. La vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque span incriminé exact de la trace représentative. Pour un finding inter-traces, le résumé conserve le nombre total d'occurrences et la vue précise combien d'entre elles sont prouvées par la trace représentative. Les paramètres et cibles bruts restent masqués, et les spans sans rapport restent regroupés. Les anciens rapports dépourvus de configuration de détection ne permettent pas de reconstruire les identifiants de span exacts : les spans correspondants restent alors regroupés au lieu d'être présentés comme des preuves individuelles.
 
 ### Limite connue
 
@@ -176,14 +176,14 @@ La même forme apparaît dès que l'agent OpenTelemetry exécute son sanitizer d
 L'heuristique consciente du sanitizer introduite en 0.5.7 restaure la classification correcte en effectuant une seconde passe sur les mêmes groupes `(event_type, template)` que la première passe a rejetés. Elle ne s'active que lorsque chaque span du groupe a un vecteur `params` vide et un placeholder reconnu dans son template (la signature sur le fil d'un N+1 sanitisé). Depuis v0.7.7 la vérification `template_has_placeholder` reconnaît cinq styles : `?` (JDBC), `$?` (PostgreSQL natif, normalisé depuis `$1`/`$2`), `%s` (Python DB-API), `@alpha` (.NET, excluant `@@` variables système), `:alpha` (Oracle/SQLAlchemy, excluant `::` casts). Les requêtes sans aucun littéral, comme `SELECT NOW()`, n'ont aucun placeholder et n'activent pas l'heuristique. Elle évalue ensuite deux signaux indépendants :
 
 1. **Marqueur de scope d'instrumentation** (confiance élevée). Les chaînes `instrumentation_scopes` par span sont fouillées, en mode insensible à la casse, à la recherche de l'une des sous-chaînes ORM connues : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`/`activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`. Les drivers SQL sans ORM comme `sqlx` (Go/Rust), `pgx`, `asyncpg` et le client réactif Vert.x PG sont exclus : leurs patterns n+1 sont pris en charge par le signal "siblings séquentiels". Une correspondance fait basculer le verdict en `LikelyNPlusOne`.
-2. **Repli sur la variance temporelle** (confiance moyenne). En l'absence de marqueur ORM, l'heuristique calcule le coefficient de variation (`écart-type / moyenne`) des `duration_us`. Les vrais accès N+1 touchent des lignes différentes avec des états de cache différents, donc les durées s'étalent (CV typiquement 0,4 à 1,0). Les appels redondants sur du contenu en cache se regroupent (CV proche de 0). Le seuil de `0,5` est empirique et constitue le seul levier de l'heuristique. Au moins 3 spans sont nécessaires pour une estimation de variance stable.
+2. **Repli sur la variance temporelle** (confiance moyenne). En l'absence de marqueur ORM, l'heuristique calcule le coefficient de variation (`écart-type / moyenne`) des `duration_us`. Les vrais accès N+1 touchent des lignes différentes avec des états de cache différents, donc les durées s'étalent (CV typiquement 0,4 à 1,0). Les appels redondants sur du contenu en cache se regroupent (CV proche de 0). Le seuil de `0.5` est empirique et constitue le seul levier de l'heuristique. Au moins 3 spans sont nécessaires pour une estimation de variance stable.
 
 Le mode configurable `[detection] sanitizer_aware_classification` positionne l'émission sur un cadran rappel-vs-précision en quatre crans : `auto` (défaut) émet dès qu'**un** des signaux se déclenche, `strict` (0.5.8+) exige un signal primaire (scope ORM OU siblings séquentiels) plus un signal corroboratif (variance OU, sur la branche ORM, nombre d'occurrences élevé), `always` reclassifie tout groupe sanitisé sans condition, et `never` désactive entièrement la seconde passe. Les findings émis par l'heuristique portent `classification_method = SanitizerHeuristic` pour permettre aux consommateurs de les distinguer des classifications directes. Le mode choisit où se placer sur le compromis :
 
 - `auto` privilégie le rappel : il capture tous les N+1 induits par un ORM parce que le scope ORM seul déclenche le verdict. Le prix est d'absorber des findings `redundant_sql` légitimes sur les stacks Spring Data / EF Core (un `findById(sameId)` appelé en boucle et servi depuis le cache de lignes bascule en `n_plus_one_sql`).
 - `strict` privilégie la précision : il préserve les findings `redundant_sql` sur les requêtes identiques en cache, en nombre modéré (sous la barre `3 x threshold`), parce que le signal de variance temporelle reste bas. Au-dessus de la barre (par défaut 15 occurrences), tout groupe sanitisé se déclenche quel que soit le scope ORM, les siblings séquentiels ou la variance. Recommandé quand des findings `redundant_sql` exploitables ont de la valeur dans votre environnement.
 
-Limites connues : une vraie redondance à un seul paramètre dont le littéral se trouve écrasé par le sanitizer (par exemple `SELECT * FROM config WHERE key = ?` interrogé 10 fois pour la même clé) ne peut pas être distinguée d'un N+1 sans signal de scope ou de variance. En mode `auto` elle bascule en `n_plus_one_sql` dès qu'un scope ORM est présent (sens de réduction du dommage, le batch fetch est un sur-ensemble strict de "mettre une valeur en cache"). En mode `strict` elle reste `redundant_sql` parce que la variance temporelle est basse. En mode `always` elle bascule toujours. En mode `never` l'heuristique est court-circuitée.
+Limites connues : une vraie redondance à un seul paramètre dont le littéral se trouve écrasé par le sanitizer (par exemple `SELECT * FROM config WHERE key = ?` interrogé 10 fois pour la même clé) ne peut pas être distinguée d'un N+1 sans signal de scope ou de variance. En mode `auto` elle bascule en `n_plus_one_sql` dès qu'un scope ORM est présent (sens de réduction du dommage, le batch fetch est un sur-ensemble strict de "mettre une valeur en cache"). En mode `strict` elle reste `redundant_sql` parce que la variance temporelle est basse. En mode `always` elle bascule toujours. En mode `never` l'heuristique est entièrement court-circuitée.
 
 Le signal de variance temporelle (`timing_variance_suggests_n_plus_one`, coefficient de variation > 0,5) est réglé pour un dommage asymétrique. Un faux positif échange simplement `redundant_sql` contre `n_plus_one_sql` (même poids dans `avoidable_io_ops`, seul le texte de suggestion diffère), tandis qu'un faux négatif laisse un vrai N+1 silencieux. Le seuil favorise donc les faux positifs. Sous `strict`, le signal est le seul corroborateur sur la branche ORM en dessous de la barre de haute occurrence. Il a aussi un angle mort en cache chaud : un vrai N+1 induit par un ORM contre un cache de lignes entièrement chaud (par exemple 100 lectures par clé primaire avec toutes les lignes dans `shared_buffers`) peut se resserrer à environ 10 % (CV autour de 0,1) et rester silencieux. Le seuil est `[detection] sanitizer_aware_min_cv`, 0,5 par défaut pour tous les modes. Le laboratoire de simulation a fourni le cas empirique que le défaut attendait : sous `strict`, dix lectures Doctrine identiques servies depuis le cache sur un worker PHP-FPM ont mesuré un CV proche de 0,75 une fois le runner chargé. Ce CV a franchi la barre et transformé un finding `redundant_sql` en `n_plus_one_sql`. Relever le réglage à 1,0 y restaure le verdict redondant, tandis que la barre de haute occurrence garde les vrais N+1 signalés.
 
@@ -235,45 +235,113 @@ Les détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pui
 3. Pour chaque parent dépassant le seuil, émettre un finding `ExcessiveFanout`
 4. Sévérité : Warning si > `max_fanout`, Critical si > 3x `max_fanout`
 
+Le détecteur de fanout utilise un index de spans `HashMap<&str, usize>` pour retrouver le parent en O(1) et `compute_window_and_bounds` pour calculer l'étendue chronologique des horodatages des enfants en une seule passe.
+
 ### Pas dans le ratio de gaspillage
 
-Comme les findings lents, les findings de fanout ont `green_impact.estimated_extra_io_ops = 0`. Le fanout excessif est un problème structurel qui nécessite une optimisation architecturale, pas une élimination d'I/O.
+Comme les findings lents, les findings de fanout ont `green_impact.estimated_extra_io_ops = 0`. Le fanout excessif est un problème structurel (trop d'opérations enfants par parent) qui nécessite une optimisation architecturale, pas une élimination d'I/O. La boucle de déduplication et l'enrichissement green_impact utilisent tous deux `FindingType::is_avoidable_io()` pour en décider. La règle a donc une seule source de vérité.
+
+## Percentiles lents cross-trace
+
+`detect_slow_cross_trace` collecte les spans lents à travers toutes les traces d'un batch (toute l'entrée pour `analyze`, un batch d'éviction dans le daemon) et calcule les percentiles p50/p95/p99 par template normalisé. Cela complète la détection lente par trace en identifiant les templates lents de façon constante sur plusieurs requêtes.
+
+- Seuls les spans qui dépassent le seuil sont collectés (préfiltre pour la performance)
+- Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés (les cas à trace unique relèvent de la détection par trace)
+- Le calcul des percentiles utilise la méthode du rang le plus proche via `div_ceil`
+
+Le daemon compte aussi les spans lents d'un batch à l'autre, voir la section suivante.
+
+## Fenêtre lente inter-batchs (daemon)
+
+Le daemon analyse des batchs d'éviction d'environ `trace_ttl_ms / 2`, donc un template lent une fois toutes les quelques minutes ne réunit jamais `slow_query_min_occurrences` spans dans un même batch. `daemon/slow_window.rs` tient, sur le worker d'analyse, une fenêtre d'épisodes lents par clé (type d'événement, service, regroupement, template normalisé). `[detection] slow_query_window_minutes` (15 par défaut, `0` désactive, plage 0-60) fixe la fenêtre. `analyze` et les autres commandes batch ne la construisent jamais.
+
+- **Épisodes.** Les spans lents d'une clé situés à moins de max(60 s, 1.5 x `trace_ttl_ms`) du premier span d'un épisode comptent pour un seul épisode, qui garde le span le plus lent. Un span lent isolé, ou un verrou bref dont les victimes sont évincées dans ce laps de temps, reste un seul épisode et n'alimente que l'histogramme des durées.
+- **Suppression.** Un span lent dont le triplet (type, template, regroupement) a déjà produit un finding lent dans le même batch n'est pas compté. L'entrée de sa clé perd ses épisodes et entre en période de silence, comme si elle avait été rapportée.
+- **Émission.** Une clé est rapportée quand un batch ouvre un nouvel épisode et que la fenêtre contient au moins `slow_query_min_occurrences` épisodes issus d'au moins 2 traces distinctes. Le temps est celui de l'analyse, pas l'horodatage des spans.
+- **Période de silence.** Après un rapport, la clé vide ses épisodes et reste muette pendant une fenêtre. Un problème persistant est de nouveau rapporté à son premier nouvel épisode après cette période, dès que la fenêtre contient assez d'épisodes.
+- **Forme.** Le finding est construit par la même fonction qu'un finding lent cross-trace de batch : même type, même règle de sévérité, même libellé de suggestion et même signature. Il est donc fusionné avec eux dans le findings store. `pattern.occurrences` et les percentiles comptent des épisodes, un span (le plus lent) par épisode.
+- **Plafond de clés.** Au plus 1024 clés sont suivies. Les spans lents d'une nouvelle clé au-delà du plafond sont refusés et comptés dans `perf_sentinel_slow_window_keys_refused_total`, avec un avertissement journalisé une seule fois par processus.
+- **Trace représentative.** Le `trace_id` du finding est la trace du span le plus lent de l'épisode qui vient de s'ouvrir, qui appartient au batch courant et que le traces store conserve pour `/api/explain`. La signature n'en dépend pas. Les autres épisodes viennent de batchs antérieurs, dont le store peut ne plus avoir les traces.
+- **Verrous longs.** Une lenteur qui dure plus de deux épisodes, par exemple un verrou de ligne tenu plusieurs minutes sur un template peu sollicité, est quand même rapportée : les durées seules ne distinguent pas un verrou d'un problème chronique. Mettre la fenêtre à `0` désactive la fonctionnalité.
 
 ## Détection des services bavards
 
 ### Algorithme
 
-1. Pour chaque trace, compter les spans de type `http_out`
-2. Ignorer les traces avec moins de `chatty_service_min_calls` appels HTTP sortants (défaut 15)
-3. Émettre un finding `chatty_service` avec le service et le nombre total d'appels
-4. Sévérité : Warning si > seuil, Critical si > 3x seuil
+1. Filtrer les spans pour ne garder que les appels HTTP sortants (`type: http_out`)
+2. Compter le total de spans HTTP sortants dans la trace
+3. Si ce nombre est < `chatty_service_min_calls` (défaut 15), ignorer
+4. Collecter les endpoints normalisés les plus appelés pour le message de suggestion
+5. Assigner la sévérité : Warning si > seuil, Critical si > 3x seuil
 
-### Pas dans le ratio de gaspillage
+```
+Input:  trace with N spans
+Output: 0 or 1 ChattyService finding
 
-Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un problème architectural (granularité de décomposition des services) qui nécessite une refonte des API, pas une simple élimination d'I/O. Le compteur de gaspillage ne devrait refléter que les I/O qui peuvent être supprimées par refactoring local (batching, cache).
+filter spans where type == http_out
+if count(http_spans) < chatty_service_min_calls:
+    return []
+
+group http_spans by normalized template
+sort groups by count descending
+top_endpoints = first 5 groups
+
+severity = Critical if count >= 3 * threshold else Warning
+emit finding with top_endpoints in suggestion
+```
+
+**Complexité :** O(n) pour filtrer et compter, O(k log k) pour trier les groupes, où k est le nombre de templates distincts. Comme k << n en pratique, cela revient à O(n).
 
 ### Différence avec le fanout
 
 Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le service bavard détecte une **trace entière** avec trop d'appels HTTP sortants, indépendamment de la structure parent-enfant. Une trace peut déclencher les deux si un seul parent génère tous les appels ou seulement le service bavard si les appels sont répartis sur plusieurs parents.
 
+### Pas dans le ratio de gaspillage
+
+Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Le détecteur signale un problème architectural (trop d'appels inter-services par requête), pas une occasion de regroupement. Les appels peuvent tous être nécessaires. Le problème est que la frontière du service est trop fine. `FindingType::is_avoidable_io()` retourne `false` pour `ChattyService`.
+
 ## Détection de saturation du pool de connexions
 
 ### Algorithme
 
-1. Regrouper les spans SQL par service
-2. Pour chaque service, trier les spans par horodatage de début
-3. Exécuter un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[début, début + durée]`, suivre la concurrence maximale
-4. Ignorer les services où la concurrence maximale est inférieure à `pool_saturation_concurrent_threshold` (défaut 10)
-5. Émettre un finding `pool_saturation` avec le service et le pic de concurrence
-6. Sévérité : toujours Warning, quel que soit le pic. À la différence du fanout et du chatty service, ce détecteur n'a pas de palier Critical
+1. Filtrer les spans pour ne garder que le SQL (`type: sql`)
+2. Regrouper les spans SQL par nom de service
+3. Pour chaque groupe de service, calculer le pic de concurrence par balayage (sweep line)
+4. Si le pic de concurrence est < `pool_saturation_concurrent_threshold` (défaut 10), ignorer
+5. La sévérité est toujours Warning, quel que soit le pic : à la différence du fanout et du service bavard, ce détecteur n'a pas de palier Critical
 
-### Sweep line
+```
+Input:  trace with N spans, grouped by service
+Output: 0 or more PoolSaturation findings (one per service)
 
-L'algorithme de balayage crée deux événements par span : un événement d'ouverture à l'horodatage de début et un événement de fermeture à l'horodatage de fin (début + durée). Les événements sont triés chronologiquement. Un compteur est incrémenté à chaque ouverture et décrémenté à chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
+for each service in sql_spans_by_service:
+    events = []
+    for span in service_spans:
+        start = parse_timestamp(span.timestamp)
+        end = start + span.duration_us
+        events.push((start, +1))
+        events.push((end, -1))
+
+    sort events by timestamp, with -1 before +1 on ties
+    current = 0
+    peak = 0
+    for (ts, delta) in events:
+        current += delta
+        peak = max(peak, current)
+
+    if peak >= pool_saturation_concurrent_threshold:
+        emit finding
+```
+
+**Complexité :** O(n log n) pour le tri, O(n) pour le balayage. Total : O(n log n) par groupe de service.
+
+### Départage des égalités dans le balayage
+
+Quand un span se termine et qu'un autre commence exactement à la même microseconde, l'algorithme traite l'événement de fin (`-1`) avant l'événement de début (`+1`). Cela évite de gonfler le pic de concurrence quand les spans sont seulement adjacents sans se chevaucher.
 
 ### Pas dans le ratio de gaspillage
 
-Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Ils signalent un risque de contention des ressources, pas des I/O évitables.
+Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Une concurrence élevée ne relève pas des I/O évitables. Elle signale une contention possible sur le pool de connexions à la base de données, qui relève du réglage ou de l'architecture. `FindingType::is_avoidable_io()` retourne `false` pour `PoolSaturation`.
 
 ## Détection des appels sérialisés
 
@@ -287,15 +355,15 @@ Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`
 5. Sévérité : toujours Info (heuristique, risque inhérent de faux positifs)
 
 ```
-Entrée : trace avec N spans, groupés par parent_span_id
-Sortie : 0 ou plusieurs findings SerializedCalls
+Input:  trace with N spans, grouped by parent_span_id
+Output: 0 or more SerializedCalls findings
 
-pour chaque parent_id dans spans_par_parent :
-    enfants = spans avec ce parent_id
-    si len(enfants) < serialized_min_sequential :
-        passer
+for each parent_id in spans_by_parent:
+    children = spans with this parent_id
+    if len(children) < serialized_min_sequential:
+        skip
 
-    trier enfants par end_time croissant
+    sort children by end_time ascending
     
     // Calcul des prédécesseurs : pour chaque span i, recherche binaire
     // de p(i), le span j (j < i) le plus à droite dont end_time <= start_time de i.
@@ -303,15 +371,15 @@ pour chaque parent_id dans spans_par_parent :
     
     // Récurrence DP :
     //   dp[i] = max(dp[i-1], dp[p(i)] + 1)
-    // où dp[i] = plus longue sous-séquence non chevauchante dans enfants[0..=i]
+    // où dp[i] = plus longue sous-séquence non chevauchante dans children[0..=i]
     
     // Backtrack depuis dp[n-1] pour reconstruire les spans sélectionnés.
     // Garde : le prédécesseur doit être strictement inférieur à l'index courant
     // pour garantir la terminaison sur des entrées dégénérées (spans de durée zéro).
     
-    si len(sélectionnés) >= serialized_min_sequential
-       ET templates_distincts(sélectionnés) > 1 :
-        émettre finding pour la séquence sélectionnée
+    if len(selected) >= serialized_min_sequential
+       AND distinct_templates(selected) > 1:
+        emit finding for selected sequence
 ```
 
 Complexité : O(n log n) pour le tri + O(n log n) pour toutes les recherches binaires + O(n) pour le remplissage DP et le backtrack = O(n log n) total par groupe parent. C'est le même coût asymptotique que l'approche gloutonne plus simple, mais la programmation dynamique garantit de trouver la plus longue séquence non chevauchante possible. Par exemple, avec les spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], une approche gloutonne triée par temps de début sélectionnerait {A, D} (longueur 2), tandis que la DP identifie correctement {B, C, D} (longueur 3).
@@ -328,28 +396,11 @@ Le détecteur ignore les séquences où tous les spans partagent le même templa
 
 ### Estimation du gain de temps
 
-Le finding inclut le gain de temps potentiel : `durée_séquentielle_totale - durée_individuelle_max`. Si 3 appels séquentiels prennent chacun 100 ms, les paralléliser pourrait réduire la latence de 300 ms à 100 ms, soit 200 ms économisées. C'est une estimation optimale qui suppose qu'il n'y a pas de contention sur des ressources partagées.
+Le finding inclut le gain de temps potentiel : `total_sequential_duration - max_individual_duration`. Si 3 appels séquentiels prennent chacun 100 ms, les paralléliser pourrait réduire la latence de 300 ms à 100 ms, soit 200 ms économisées. C'est une estimation dans le meilleur des cas, qui suppose qu'il n'y a pas de contention sur des ressources partagées.
 
 ### Pas dans le ratio de gaspillage
 
-Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`. Paralléliser des appels séquentiels réduit la latence mais ne réduit pas le nombre total d'opérations I/O. Le ratio de gaspillage ne mesure que les I/O éliminables.
-
-## Percentiles lents cross-trace
-
-`detect_slow_cross_trace` collecte les spans lents à travers toutes les traces d'un batch (toute l'entrée pour `analyze`, un batch d'éviction dans le daemon) et calcule les percentiles p50/p95/p99 par template normalisé. Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés. Le daemon compte aussi les spans lents d'un batch à l'autre, voir la section suivante.
-
-## Fenêtre lente inter-batchs (daemon)
-
-Le daemon analyse des batchs d'éviction d'environ `trace_ttl_ms / 2`, donc un template lent une fois toutes les quelques minutes ne réunit jamais `slow_query_min_occurrences` spans dans un même batch. `daemon/slow_window.rs` tient, sur le worker d'analyse, une fenêtre d'épisodes lents par clé (type d'événement, service, regroupement, template normalisé). `[detection] slow_query_window_minutes` (15 par défaut, `0` désactive, plage 0-60) fixe la fenêtre. `analyze` et les autres commandes batch ne la construisent jamais.
-
-- **Épisodes.** Les spans lents d'une clé situés à moins de max(60 s, 1.5 x `trace_ttl_ms`) du premier span d'un épisode comptent pour un seul épisode, qui garde le span le plus lent. Un span lent isolé, ou un verrou bref dont les victimes sont évincées dans ce laps de temps, reste un seul épisode et n'alimente que l'histogramme des durées.
-- **Suppression.** Un span lent dont le triplet (type, template, regroupement) a déjà produit un finding lent dans le même batch n'est pas compté. L'entrée de sa clé perd ses épisodes et entre en période de silence, comme si elle avait été rapportée.
-- **Émission.** Une clé est rapportée quand un batch ouvre un nouvel épisode et que la fenêtre contient au moins `slow_query_min_occurrences` épisodes issus d'au moins 2 traces distinctes. Le temps est celui de l'analyse, pas l'horodatage des spans.
-- **Période de silence.** Après un rapport, la clé vide ses épisodes et reste muette pendant une fenêtre. Un problème persistant est de nouveau rapporté à son premier nouvel épisode après cette période, dès que la fenêtre contient assez d'épisodes.
-- **Forme.** Le finding est construit par la même fonction qu'un finding lent cross-trace de batch : même type, même règle de sévérité, même libellé de suggestion et même signature, il se replie donc avec eux dans le findings store. `pattern.occurrences` et les percentiles comptent des épisodes, un span (le plus lent) par épisode.
-- **Plafond de clés.** Au plus 1024 clés sont suivies. Les spans lents d'une nouvelle clé au-delà du plafond sont refusés et comptés dans `perf_sentinel_slow_window_keys_refused_total`, avec un avertissement journalisé une seule fois par processus.
-- **Trace représentative.** Le `trace_id` du finding est la trace du span le plus lent de l'épisode qui vient de s'ouvrir, qui appartient au batch courant et que le traces store conserve pour `/api/explain`. La signature n'en dépend pas. Les autres épisodes viennent de batchs antérieurs, dont le store peut ne plus avoir les traces.
-- **Verrous longs.** Une lenteur qui dure plus de deux épisodes, par exemple un verrou de ligne tenu plusieurs minutes sur un template peu sollicité, est quand même rapportée : les durées seules ne distinguent pas un verrou d'un problème chronique. Mettre la fenêtre à `0` désactive la fonctionnalité.
+Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`. Paralléliser des appels réduit la latence mais pas le nombre total d'opérations I/O. `FindingType::is_avoidable_io()` retourne `false` pour `SerializedCalls`.
 
 ## Orchestration de la détection (mise à jour)
 
@@ -373,15 +424,13 @@ Les sept détecteurs s'exécutent séquentiellement sur chaque trace. `append(&m
 
 ## Corrélation temporelle cross-trace (mode daemon)
 
-En mode `watch`, perf-sentinel observe l'ensemble des findings sur toutes les traces au fil du temps. Le module `detect/correlate_cross.rs` fournit un moteur de corrélation qui identifie les co-occurrences récurrentes entre findings de services différents : par exemple, "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
+En mode daemon (`perf-sentinel watch`), perf-sentinel voit les findings de toutes les traces au fil du temps. Le `CrossTraceCorrelator` détecte les co-occurrences temporelles récurrentes entre findings de services différents : "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
 
 ### Deux horloges
 
 Chaque finding porte deux instants. Son **temps d'événement** est `first_timestamp`, le début de son premier span fautif, lu par `time::parse_iso8601_utc_to_ms`. Une valeur absente ou non UTC se rabat sur le temps d'ingestion. Son **temps d'ingestion** est le `now_ms` du tick d'analyse qui l'a produit. L'appariement, l'orientation et le délai utilisent le temps d'événement : deux findings s'apparient quand leurs propres spans ont démarré à moins de `lag_threshold_ms` l'un de l'autre, quels que soient les ticks qui les ont analysés. La rétention, l'éviction et la fenêtre de rapport utilisent le temps d'ingestion, donc un trafic rejoué ou décalé vieillit quand même.
 
-### Structure du corrélateur
-
-`CrossTraceCorrelator` est une struct possédée par la boucle événementielle du daemon :
+### État interne
 
 ```rust
 pub struct CrossTraceCorrelator {
@@ -394,9 +443,9 @@ pub struct CrossTraceCorrelator {
 }
 ```
 
-- `occurrences` : l'horizon d'appariement, un `VecDeque` dans l'ordre d'ingestion. Chaque entrée porte l'endpoint interné, `event_ms`, `ingest_ms`, l'indice de grille à l'ingestion, un trace id plafonné et `counted_targets`, les cibles pour lesquelles cette occurrence a déjà compté comme source. Une entrée sort dès que `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. L'horizon ne dépend que du délai et du décalage, jamais de `window_ms` : une fenêtre de 24 h garde le même deque qu'une fenêtre de 10 min. Le décalage vaut `2 x trace_ttl_ms`, donc le deque et le parcours que chaque finding en fait croissent avec le TTL (environ une minute de findings avec les 30 s par défaut).
-- `endpoints` : le registre des endpoints. Chaque `CorrelationEndpoint` distinct (type de finding, service, template, regroupement) est stocké une seule fois derrière un `Arc`. Le deque, les clés de paire et `counted_targets` partagent cette allocation : un long template SQL n'est gardé qu'une fois, quel que soit le nombre de findings qui le portent. La valeur est le compteur d'occurrences de l'endpoint, dénominateur de la confiance.
-- `pair_counts` : indexé par `PairKey` (source, cible), deux `Arc` internés. Chaque `PairState` contient le compteur de co-occurrences, un réservoir borné de délais, un compteur `total_observations`, un état PRNG `SplitMix64`, `first_seen_ms`/`last_seen_ms` sur l'horloge d'ingestion et les trace ids côté source et côté cible de la dernière correspondance.
+- **`occurrences`** : l'horizon d'appariement, un `VecDeque` dans l'ordre d'ingestion. Chaque entrée porte l'endpoint interné, `event_ms`, `ingest_ms`, l'indice de grille à l'ingestion, un trace id plafonné et `counted_targets`, les cibles pour lesquelles cette occurrence a déjà compté comme source. Une entrée sort dès que `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. L'horizon ne dépend que du délai et du décalage, jamais de `window_ms` : une fenêtre de 24 h garde le même deque qu'une fenêtre de 10 min. Le décalage vaut `2 x trace_ttl_ms`, donc le deque et le parcours que chaque finding en fait croissent avec le TTL (environ une minute de findings avec les 30 s par défaut).
+- **`endpoints`** : le registre des endpoints. Chaque `CorrelationEndpoint` distinct (type de finding, service, template, regroupement) est stocké une seule fois derrière un `Arc`. Le deque, les clés de paire et `counted_targets` partagent cette allocation : un long template SQL n'est gardé qu'une fois, quel que soit le nombre de findings qui le portent. La valeur est le compteur d'occurrences de l'endpoint, dénominateur de la confiance.
+- **`pair_counts`** : indexé par `PairKey` (source, cible), deux `Arc` internés. Chaque `PairState` contient le compteur de co-occurrences, un réservoir borné de délais, un compteur `total_observations`, un état PRNG `SplitMix64`, `first_seen_ms`/`last_seen_ms` sur l'horloge d'ingestion et les trace ids côté source et côté cible de la dernière correspondance.
 
 ### Grille globale en demi-fenêtres
 
@@ -406,11 +455,11 @@ Les deux compteurs, co-occurrences de la paire et occurrences de l'endpoint, son
 
 `ingest_skew_ms` est la portée supplémentaire, en temps d'ingestion, qui permet à des findings analysés dans des ticks différents de se retrouver dans l'horizon. Ce n'est pas une clé TOML : `setup_correlator` la dérive en `2 x trace_ttl_ms`. Une trace vidée sous la pression du LRU arrive tout de suite à l'analyse, alors qu'une trace vidée par le TTL attend le TTL plus au plus un tick d'éviction (un demi-TTL). Le reste du budget couvre le batching de l'exporteur et du collecteur. La valeur par défaut de la struct (60 s) correspond au TTL par défaut de 30 s.
 
-### Algorithme d'ingestion
+### L'algorithme `ingest()`
 
-La méthode `ingest()` est appelée par `process_traces` une fois les findings produits et leur confiance posée, avec le lot et le `now_ms` du tick :
+`ingest()` est appelée par `process_traces` une fois les findings produits et leur confiance posée, avec le lot et le `now_ms` du tick :
 
-1. **Avancer la grille.** `now_idx = max(now_idx, now_ms / demi_fenetre)`.
+1. **Avancer la grille.** `now_idx = max(now_idx, now_ms / half_window)`.
 2. **Évincer l'horizon.** Retirer les occurrences en tête tant qu'elles dépassent `lag_threshold_ms + ingest_skew_ms` en temps d'ingestion. L'éviction ne touche aucun compteur.
 3. **Nettoyer les paires obsolètes.** Une passe `HashMap::retain` retire les paires dont `last_seen_ms` est plus ancien que `window_ms`.
 4. **Nettoyer le registre.** Une fois par pas de grille, retirer les endpoints dont le compteur vaut 0 et qu'aucune paire ni occurrence de l'horizon ne retient plus (`Arc::strong_count == 1`).
@@ -420,7 +469,7 @@ La méthode `ingest()` est appelée par `process_traces` une fois les findings p
 
 La valeur de retour est le nombre de paires perdues au plafond dans ce lot (refus plus évictions), qui alimente `perf_sentinel_correlator_pairs_evicted_total`.
 
-### Score de confiance
+### Le filtre `active_correlations()`
 
 Pour chaque paire, avec tous les compteurs lus à `now_idx` :
 
@@ -443,42 +492,20 @@ Le PRNG est un état `SplitMix64` par `PairState`, initialisé à la constructio
 
 La fonction utilitaire `median()` trie un clone des valeurs de délai et retourne l'élément médian (longueur impaire) ou la moyenne des deux médians (longueur paire). Le tri est borné par `MAX_LAG_SAMPLES` grâce au réservoir, donc le calcul de la médiane est O(k log k) avec k = 64 quelle que soit la fréquence de la paire.
 
-### Identifiant de chaque extrémité
-
-Chaque côté d'une paire est identifié par un `CorrelationEndpoint` :
-
-```rust
-pub struct CorrelationEndpoint {
-    pub finding_type: FindingType,
-    pub service: String,
-    pub template: String,
-    pub grouping_key: Option<String>,
-    pub grouping_value: Option<String>,
-}
-```
-
-Deux N+1 sur le même service mais avec des templates différents sont donc des endpoints distincts, et deux déploiements (valeurs de regroupement différentes) ne partagent jamais une paire.
-
-### Cap mémoire
+### Gestion de la mémoire
 
 - **Deque d'horizon** : environ `(lag_threshold_ms + ingest_skew_ms) x findings par seconde` entrées d'une centaine d'octets, quelle que soit `window_ms`.
 - **Registre des endpoints** : une entrée par endpoint distinct vu dans la fenêtre, template compris, nettoyé une fois par pas de grille. Sans plafond : il croît avec le nombre d'endpoints distincts, donc des templates mal normalisés restent pendant toute la fenêtre.
 - **Paires** : au plus `max_tracked_pairs`, chacune bien sous 1 Ko avec le réservoir de 64 échantillons.
 - **CPU** : un parcours de l'horizon par finding entrant, aucune passe par tick sur les paires.
 
-### Configuration
+### Point d'intégration
 
-```toml
-[daemon.correlation]
-enabled = true
-window_minutes = 10
-lag_threshold_ms = 5000
-min_co_occurrences = 5
-min_confidence = 0.7
-max_tracked_pairs = 10000
-```
+Le corrélateur est créé par `setup_correlator` quand `[daemon.correlation] enabled` vaut true (défaut false), avec `ingest_skew_ms` dérivé de `trace_ttl_ms`. Il est enveloppé dans un `Arc<Mutex<CrossTraceCorrelator>>` et passé à `process_traces`. Une fois les findings produits et poussés dans le `FindingsStore`, la méthode `ingest()` du corrélateur est appelée avec les findings et l'horodatage courant.
 
-L'option `enabled` (défaut false) active la corrélation. `setup_correlator` construit alors le corrélateur et dérive `ingest_skew_ms` de `trace_ttl_ms`. Les résultats sont exposés via `GET /api/correlations` et figés sous `correlations` dans `GET /api/export/report`. Le flux stdout du daemon ne les porte jamais.
+### Exclusion du mode batch
+
+Le corrélateur n'est **pas** utilisé en mode batch (`perf-sentinel analyze`). La corrélation cross-trace exige un flux de findings dans le temps pour détecter des motifs récurrents. Une exécution batch unique traite en général un ensemble fixe de traces, sans la dimension temporelle nécessaire à une corrélation pertinente.
 
 ## Corrections actionnables (suggestions framework-aware)
 
@@ -546,6 +573,8 @@ Chaque indication est de l'un de deux types. **`Substring`** correspond à un se
 | `JavaGeneric` (repli) | (tout fichier `.java` sans les indications ci-dessus)                                                                                                            |
 
 `JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit correspondre en premier à l'une des indications réactives plus spécifiques. Helidon MP doit passer avant Helidon SE parce que `io.helidon.microprofile` est un sous-package de `io.helidon`.
+
+**Note sur Helidon MP et JPA :** les entités Helidon MP sont gérées par JPA via Hibernate. Un span JDBC OTel typique sur du code Helidon MP porte `code.namespace = jakarta.persistence.*` ou `org.hibernate.*`, ce qui mène à `JavaJpa` (et non `JavaHelidonMp`). La règle `JavaHelidonMp` se déclenche quand le span vient de la plomberie Helidon MP elle-même (ressources REST, conteneurs CDI, MicroProfile Rest Client). Pour les findings base de données sur les applications Helidon MP, la recommandation `JavaJpa` s'applique.
 
 **C# (`CSHARP_RULES`) :**
 
@@ -670,9 +699,9 @@ Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déj�
 
 `acknowledgments.rs` est la moitié batch/CI du workflow d'acquittement. Il charge `.perf-sentinel-acknowledgments.toml`, calcule une signature par finding, déplace les findings acquittés dans `report.acknowledged_findings`, puis réévalue la porte qualité sur ce qui reste. Le store runtime du daemon (`daemon/ack.rs`) partage le format de signature et est fusionné avec le TOML au moment de la requête, le TOML l'emportant : c'est la référence immuable passée par revue de PR.
 
-**La signature est la pièce maîtresse**, parce que c'est à elle qu'est épinglée la décision "on n'y touche pas" d'un opérateur. Sa forme est `<finding_type>:<service>:<endpoint_assaini>:<prefixe-sha256-du-template>`.
+**La signature est la pièce maîtresse**, parce que c'est à elle qu'est épinglée la décision `won't fix` d'un opérateur. Sa forme est `<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>`.
 
-- **Pourquoi un hash uniquement sur le template.** Le triplet `(finding_type, service, source_endpoint)` est déjà dans la signature, le hash ne désambiguïse donc que les templates au sein d'un même triplet, une population minuscule. Ses 32 caractères hexadécimaux (128 bits) ne sont donc pas de la résistance aux collisions pour elle-même, mais une défense en profondeur contre un acquittement qui masquerait un *autre* finding après une refonte SQL ou un renommage de service.
+- **Pourquoi un hash uniquement sur le template.** Le triplet `(finding_type, service, sanitized_endpoint)` est déjà dans la signature, le hash ne désambiguïse donc que les templates au sein d'un même triplet, une population minuscule. Ses 32 caractères hexadécimaux (128 bits) ne sont donc pas de la résistance aux collisions pour elle-même, mais une défense en profondeur contre un acquittement qui masquerait un *autre* finding après une refonte SQL ou un renommage de service.
 - **Pourquoi `/` et l'espace deviennent `_`.** Pour que `:` reste un séparateur unique et non ambigu, qu'un opérateur peut découper au `cut -d:` dans un pipeline shell.
 - **Pourquoi les caractères BiDi et invisibles sont retirés** de `service` et `source_endpoint` (Trojan Source, CVE-2021-42574) : deux signatures qui s'affichent à l'identique ne doivent pas désigner deux entrées distinctes, sinon un acquittement devient invérifiable à la lecture.
 
@@ -680,4 +709,4 @@ Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déj�
 
 **La porte est réévaluée après filtrage.** Filtrer les findings sans relancer `quality_gate` laisserait `analyze --ci` en échec sur des findings que l'opérateur a explicitement acceptés, ce qui est toute la sémantique de "won't fix". La réévaluation tourne même quand rien n'a correspondu, pour que le champ de la porte soit toujours cohérent avec la liste finale de `findings` et non avec un instantané d'avant filtrage. `apply` vide aussi `acknowledged_findings` en premier, pour qu'un `Report` repassé dedans (un aller-retour JSON de référence) ne puisse pas accumuler de paires périmées.
 
-**L'expiration échoue en ouvert sur le finding, en fermé sur le fichier.** Un acquittement dont `expires_at` est passé est inactif et son finding revient. Une date malformée, en revanche, interrompt l'exécution : une faute de frappe ne doit pas élargir silencieusement l'ensemble acquitté.
+**L'expiration échoue en ouvert sur le finding, et bruyamment sur le fichier.** Un acquittement dont `expires_at` est passé est inactif et son finding revient. Une date malformée, en revanche, interrompt l'exécution : une faute de frappe ne doit pas élargir silencieusement l'ensemble acquitté.
