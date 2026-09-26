@@ -174,7 +174,7 @@ pub(super) struct AlumetBrokerSection {
 
 /// Raw deserialization target for `[green.alumet.database]`.
 ///
-/// `deny_unknown_fields` on purpose: a typo here (`label = ...`) would
+/// `deny_unknown_fields` because a typo here (`label = ...`) would
 /// otherwise silently disable the database waste figure.
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -256,7 +256,7 @@ pub(super) struct DaemonSection {
     max_events_per_trace: Option<usize>,
     max_payload_size: Option<usize>,
     /// `"staging"` (default) or `"production"`. Validated
-    /// in `Config::validate`; invalid values fail at load time with a
+    /// in `Config::validate`. Invalid values fail at load time with a
     /// clear error. Case-insensitive.
     pub(super) environment: Option<String>,
     tls_cert_path: Option<String>,
@@ -450,8 +450,8 @@ impl From<RawConfig> for Config {
                          since 0.9.25, the transport term is always counted and displayed"
                     );
                 }
-                // Zero is no longer a way to opt the SCI M term out of a
-                // published figure. Warned and clamped, never fatal.
+                // Zero cannot opt the SCI M term out of a published
+                // figure. Warned and clamped, never fatal.
                 if raw.green.embodied_carbon_per_request_gco2 == Some(0.0) {
                     tracing::warn!(
                         "[green] embodied_carbon_per_request_gco2 = 0.0 is no longer honoured \
@@ -480,8 +480,8 @@ impl From<RawConfig> for Config {
                 embodied_carbon_per_request_gco2: raw
                     .green
                     .embodied_carbon_per_request_gco2
-                    // Only an exact zero is swallowed: negative and NaN
-                    // must still reach validation and fail loudly.
+                    // Only an exact zero is replaced by the default: negative
+                    // and NaN must still reach validation and fail loudly.
                     .filter(|v| *v != 0.0)
                     .unwrap_or(green_defaults.embodied_carbon_per_request_gco2),
                 use_hourly_profiles: raw
@@ -580,8 +580,8 @@ impl From<RawConfig> for Config {
                     .max_payload_size
                     .unwrap_or(daemon_defaults.max_payload_size),
                 // Parse environment into the typed enum. Invalid strings are
-                // rejected by load_from_str() before reaching this conversion;
-                // direct callers (tests only) get Staging as a safe default.
+                // rejected by load_from_str() before reaching this conversion.
+                // Direct callers (tests only) get Staging as a safe default.
                 environment: match raw.daemon.environment.as_deref() {
                     None => daemon_defaults.environment,
                     Some(s) => parse_daemon_environment(s).unwrap_or(DaemonEnvironment::Staging),
@@ -857,7 +857,7 @@ pub(super) fn convert_scaphandre_section_with_env(
 
     Some(ScaphandreConfig {
         endpoint: endpoint.clone(),
-        // Default scrape interval 5s; clamped in validate_green
+        // Default scrape interval 5s, clamped in validate_green
         // to the [1, 3600] range.
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
         process_map: raw.process_map.clone(),
@@ -889,7 +889,7 @@ pub(super) fn parse_kepler_metric_kind(raw: Option<&str>) -> Result<KeplerMetric
              remove the field for the default or set it to 'container' or 'process'"
         ));
     }
-    // `eq_ignore_ascii_case` skips the `to_ascii_lowercase` alloc,
+    // `eq_ignore_ascii_case` skips the `to_ascii_lowercase` alloc and
     // matches `parse_daemon_environment` on the same TOML surface.
     if trimmed.eq_ignore_ascii_case("container") {
         return Ok(KeplerMetricKind::Container);
@@ -990,18 +990,6 @@ fn convert_broker_static_section(
     })
 }
 
-/// Validate the raw `[green.alumet]` section before the lossy
-/// `Config::from` conversion.
-///
-/// Same rationale as [`parse_kepler_metric_kind`]: the conversion would
-/// otherwise downgrade a missing `metric_name` to a log line and
-/// silently drop the whole section, so an operator who set an endpoint
-/// but forgot the metric would get no scraper and no error. There is no
-/// default for `metric_name` or `label_key` because Alumet's exporter
-/// applies an operator-chosen `prefix`/`suffix` to every name and the
-/// per-service series is named after an operator-chosen
-/// `energy-attribution` formula. Guessing would scrape nothing, or
-/// worse, the wrong series.
 /// Reject a half-declared `[green.broker_static]`: `nodes` and
 /// `instance_type` are both required and have no defensible default, so
 /// one without the other must be a loud error, not a silently inert
@@ -1024,10 +1012,22 @@ pub(super) fn validate_broker_static_raw(raw: &BrokerStaticSection) -> Result<()
     }
 }
 
+/// Validate the raw `[green.alumet]` section before the lossy
+/// `Config::from` conversion.
+///
+/// Same rationale as [`parse_kepler_metric_kind`]: the conversion would
+/// otherwise downgrade a missing `metric_name` to a log line and
+/// silently drop the whole section, so an operator who set an endpoint
+/// but forgot the metric would get no scraper and no error. There is no
+/// default for `metric_name` or `label_key` because Alumet's exporter
+/// applies an operator-chosen `prefix`/`suffix` to every name and the
+/// per-service series is named after an operator-chosen
+/// `energy-attribution` formula. Guessing would scrape nothing, or
+/// worse, the wrong series.
 pub(super) fn validate_alumet_raw(raw: &AlumetSection) -> Result<(), String> {
     if raw.endpoint.is_none() {
         // A database declaration without an endpoint would be silently
-        // inert (no scraper ever starts), reject it loudly instead.
+        // inert (no scraper ever starts). Reject it loudly instead.
         if raw.database.is_some() {
             return Err(
                 "[green.alumet.database] is set but [green.alumet] endpoint is missing; \
@@ -1109,7 +1109,7 @@ fn require_alumet_field(value: Option<&str>, field: &str) -> Result<(), String> 
 /// Convert the raw `[green.alumet]` TOML section into a typed config.
 ///
 /// Returns `None` when `endpoint` is absent. Missing mandatory fields
-/// also yield `None` as defense in depth, the authoritative rejection
+/// also yield `None` as defense in depth. The authoritative rejection
 /// happens upstream in [`validate_alumet_raw`].
 fn convert_alumet_section(raw: &AlumetSection) -> Option<AlumetConfig> {
     convert_alumet_section_with_env(raw, || {
@@ -1281,10 +1281,8 @@ pub(super) fn resolve_ack_api_key(
     config_value: Option<String>,
     env_lookup: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
-    // `PERF_SENTINEL_ACK_API_KEY` overrides the config value (same convention as
-    // `PERF_SENTINEL_EMAPS_TOKEN`), so the key can come from a Secret, not the
-    // committed config. Trimmed for trailing-newline Secrets; a set-but-empty
-    // var stays `Some("")` so validate rejects a mounted-but-empty Secret. The
-    // closure keeps the env lookup out of the global process env in tests.
+    // Same env-over-config convention as `PERF_SENTINEL_EMAPS_TOKEN`. Trimmed
+    // for trailing-newline Secrets. A set-but-empty var stays `Some("")` so
+    // validate rejects a mounted-but-empty Secret.
     env_lookup().or(config_value).map(|s| s.trim().to_string())
 }
