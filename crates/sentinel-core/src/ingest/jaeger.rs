@@ -76,7 +76,7 @@ pub enum JaegerIngestError {
 // ── Jaeger JSON structures ─────────────────────────────────────────
 //
 // These structs and the conversion helper below are shared with the
-// HTTP-mode `jaeger_query` ingestion module, which receives the exact
+// HTTP-mode `jaeger_query` ingestion module, which receives the
 // same `{"data": [...]}` payload from the Jaeger query API. Kept at
 // `pub(super)` scope so visibility stays within `crate::ingest`.
 
@@ -202,7 +202,7 @@ fn inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
 }
 
 /// Inbound endpoint carried by the event span itself. A route template is a
-/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+/// safe inbound signal on any kind. Legacy URL fallbacks require SERVER.
 fn own_inbound_http_endpoint(span: &JaegerSpan) -> Option<String> {
     http_endpoint(
         span,
@@ -393,10 +393,8 @@ fn convert_jaeger_span(
             .or_else(|| find_tag(tags, key).map(Arc::from))
     });
 
-    // Parent span ID from CHILD_OF reference
     let parent_span_id = child_of(span).map(ToString::to_string);
 
-    // Status code (HTTP only)
     let status_code = match io_kind {
         super::TagIoKind::HttpOut => http_status_code(tags),
         super::TagIoKind::Sql => None,
@@ -449,7 +447,7 @@ fn convert_jaeger_span(
         grouping,
         // Jaeger process tags do not carry cloud region. Users wanting
         // multi-region scoring with Jaeger ingestion should set
-        // [green.service_regions] in the config to map service -> region.
+        // [green.service_regions] in the config to map services to regions.
         cloud_region: None,
         event_type: io_kind.event_type(),
         operation,
@@ -463,8 +461,8 @@ fn convert_jaeger_span(
         code_lineno,
         code_namespace,
         // Jaeger does not carry OpenTelemetry instrumentation scope
-        // information. Empty list disables the scope-based framework
-        // detection path; namespace heuristics still fire.
+        // information. An empty list disables the scope-based framework
+        // detection path. Namespace heuristics still fire.
         instrumentation_scopes: Vec::new(),
     };
     crate::event::sanitize_span_event(&mut event);
@@ -598,8 +596,8 @@ mod tests {
 
     #[test]
     fn non_sql_datastore_span_is_dropped() {
-        // A Redis span carries a db.statement that is not relational SQL;
-        // it must be dropped, never tokenized as SQL.
+        // A Redis span carries a db.statement that is not relational SQL.
+        // It must be dropped, never tokenized as SQL.
         let json = r#"{
             "data": [{
                 "traceID": "t1",
@@ -1360,7 +1358,7 @@ mod tests {
     #[test]
     fn walk_accepts_http_target_on_an_ancestor() {
         // An SDK older than semconv 1.23 records http.target and no
-        // http.route. The leaf check accepted it, the walk must too.
+        // http.route. The leaf check accepts it and the walk must too.
         let json = r#"{
             "data": [{
                 "traceID": "t1",
@@ -1495,8 +1493,8 @@ mod tests {
 
     #[test]
     fn endpoint_falls_back_to_unknown_not_empty() {
-        // The empty string put an empty component in the ack signature; the
-        // documented fallback is "unknown" on every ingestion path.
+        // An empty endpoint would put an empty component in the ack signature.
+        // The documented fallback is "unknown" on every ingestion path.
         let json = r#"{
             "data": [{
                 "traceID": "t1",
@@ -1522,9 +1520,9 @@ mod tests {
 
     #[test]
     fn code_frame_endpoint_reads_stable_semconv() {
-        // An OTel 1.27+ agent emits only `code.function.name`. Reading the
-        // legacy spelling alone left the endpoint empty here while the same
-        // trace over OTLP resolved, so one ack could not cover both paths.
+        // An OTel 1.27+ agent emits only `code.function.name`. Reading only
+        // the legacy spelling would leave the endpoint empty here while the
+        // same trace over OTLP resolves, so one ack could not cover both paths.
         let json = r#"{
             "data": [{
                 "traceID": "t1",
