@@ -18,14 +18,14 @@
 # It is also the one section that reaches the network on its own, and only
 # because you put a key in it. Any scrape failure falls back to the embedded
 # profile, so a dead API or a blocked egress degrades the model tag rather than
-# the run, and nothing shouts about it. Read the model tag in the report to
-# confirm it is live.
+# the run, with no loud error. Read the model tag in the report to confirm it
+# is live.
 #
-# Two deliberate differences from the .toml:
+# Two differences from the .toml:
 #   - `api_key` is not set here. A fragment renders into a ConfigMap, readable
 #     by anyone holding `get` on the namespace. PERF_SENTINEL_EMAPS_TOKEN below
 #     takes precedence over the file anyway, and setting the field logs a
-#     warning telling you to do exactly that.
+#     warning telling you to do that.
 #   - `[green] enabled` and `default_region` are not repeated here. The base
 #     values already set them in config.toml, which is merged after this
 #     fragment and would win anyway.
@@ -40,7 +40,7 @@ config:
 
       [green.electricity_maps]
       # api_key comes from PERF_SENTINEL_EMAPS_TOKEN, see the Secret below.
-      # There is no "env:VAR" indirection, a value in that shape is used
+      # There is no "env:VAR" indirection: a value in that shape is used
       # literally.
       #
       # The free tier is about 30 requests per zone per month, so it needs

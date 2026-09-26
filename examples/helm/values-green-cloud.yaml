@@ -17,7 +17,7 @@
 # the measured backends: it is an estimate, not a measurement, and the
 # disclosure says so.
 #
-# Two deliberate differences from the .toml, both forced by the cluster:
+# Two differences from the .toml, both forced by the cluster:
 #   - `prometheus_endpoint` uses in-cluster DNS, since it resolves from the
 #     perf-sentinel pod. Name the Prometheus holding your cloud exporter
 #     series, which is often not the one scraping perf-sentinel itself.
@@ -34,8 +34,8 @@ config:
       # Fallbacks for any service below that names neither.
       #   provider: "aws", "gcp" or "azure". Any other value is rejected at startup.
       #   instance_type: looked up in the embedded SPECpower table. An unknown one
-      #     warns at startup and falls back to a provider average, the figure just
-      #     gets coarser, and that warning is how you check yours. Full list:
+      #     warns at startup and falls back to a provider average, which only makes
+      #     the figure coarser. That warning is how you check yours. Full list:
       #     https://github.com/robintra/perf-sentinel/blob/main/docs/INSTANCE-TYPES.md
       default_provider = "aws"
       default_instance_type = "c5.4xlarge"
@@ -44,13 +44,13 @@ config:
       # azure_compute_virtualmachines_percentage_cpu_average. Set it only when your
       # exporter names the series differently.
       # cpu_metric = "aws_ec2_cpuutilization_average"   # default unset
-      # Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here,
-      # it takes precedence over this file.
+      # Credentials belong in PERF_SENTINEL_CLOUD_AUTH_HEADER rather than here.
+      # It takes precedence over this file.
 
       # Per service, either an instance type looked up in the embedded SPECpower
       # table, or the two watt figures when your hardware is not in it. Use the
-      # second form for on-prem or for a machine the table does not cover, it is
-      # exact rather than approximated.
+      # second form for on-prem or for a machine the table does not cover. That
+      # form is exact rather than approximated.
       [green.cloud.services]
       "api-us" = { provider = "aws", instance_type = "m7i.4xlarge" }
       "api-asia" = { provider = "gcp", instance_type = "c4d-standard-8" }
