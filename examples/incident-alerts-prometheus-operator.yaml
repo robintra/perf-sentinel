@@ -6,9 +6,9 @@
 # WHY THIS EXISTS. perf-sentinel does not detect a crash and cannot see an
 # observed service's memory: it has no OTLP metrics path, and a service that
 # saturates usually keeps emitting spans, more slowly. Your alerting owns the
-# moment. What perf-sentinel owns is the findings of a period, and it is the
-# only thing that can capture them before the ring evicts them, which on a busy
-# fleet takes minutes. `POST /api/incidents` is that handover, opt-in through
+# moment. perf-sentinel owns the findings of a period, and it is the only thing
+# that can capture them before the ring evicts them, which on a busy fleet takes
+# minutes. `POST /api/incidents` is that handover, opt-in through
 # `[daemon.incidents]`. See docs/QUERY-API.md.
 #
 # WHAT THE DAEMON READS, and why the shipped kube-prometheus rules are not
@@ -48,22 +48,22 @@
 #      regex does, and it only fits that shape: a StatefulSet pod
 #      (`<name>-<ordinal>`), a DaemonSet pod (one suffix) or a bare pod does
 #      not match it, and a Job pod matches it wrongly. So the three pod
-#      rules drop the pods a Job owns (`kube_pod_owner{owner_kind="Job"}`):
-#      trivy-operator's scan Jobs, for one, name their container after the
-#      one they scan, and the recording rule below drops such an untraced
+#      rules drop the pods a Job owns (`kube_pod_owner{owner_kind="Job"}`).
+#      The scan Jobs of trivy-operator, for one, name their container after
+#      the one they scan. The recording rule below drops such an untraced
 #      Job only from its next evaluation, too late for a scan pod that
 #      restarts at once. The other shapes still reach the daemon without a
 #      service, which refuses them and counts them. Adapt the regex, or
 #      write `service` as a literal label when one rule covers one service.
 #
 # Each rule aggregates with `max by (namespace, pod)` BEFORE deriving the
-# service. That is not cosmetic: kube-state-metrics series carry their own
-# scrape target labels, `service="kube-state-metrics"` among them, and
-# `label_replace` leaves a label alone when the regex does not match. Without
-# the aggregation, a pod whose name does not fit assumption 2 would reach the
-# daemon carrying kube-state-metrics as its service, and be accepted. Dropping
-# every label but the two the rule needs is what makes the "refused for want of
-# a service" safety net real.
+# service, because kube-state-metrics series carry their own scrape target
+# labels, `service="kube-state-metrics"` among them, and `label_replace`
+# leaves a label alone when the regex does not match. Without the aggregation,
+# a pod whose name does not fit assumption 2 would reach the daemon carrying
+# kube-state-metrics as its service, and be accepted. Dropping every label but
+# the two the rule needs lets the daemon refuse such a pod for want of a
+# service.
 #
 # These rules need kube-state-metrics. The memory-saturation one also needs
 # cAdvisor (`container_memory_working_set_bytes`), which kubelet exposes.
@@ -111,8 +111,8 @@ spec:
     - name: perf-sentinel-incidents
       rules:
         # The crash. `increase() > 0` over five minutes is an event, so no
-        # `for:` here: a restart that already happened does not become truer by
-        # waiting, and the window the daemon freezes is anchored on `startsAt`.
+        # `for:` here: a restart that already happened needs no confirmation
+        # delay, and the window the daemon freezes is anchored on `startsAt`.
         - alert: PerfSentinelOomKill
           expr: |
             label_replace(
@@ -127,17 +127,17 @@ spec:
             unless on (service)
             perf_sentinel:untraced_services:1d
           labels:
-            # `severity: info` is what keeps these off the routes that page a
-            # human. It is not what routes them here, see the receiver below.
+            # `severity: info` keeps these off the routes that page a human.
+            # It does not route them here, see the receiver below.
             severity: info
             perf_sentinel_kind: oom_kill
           annotations:
             summary: "{{ $labels.namespace }}/{{ $labels.service }}: container OOM-killed ({{ $labels.pod }})"
-        # Any other restart. `unless` keeps an OOM from firing both rules.
-        # Usually: the restart counter and the termination reason are two
+        # Any other restart. `unless` usually keeps an OOM from firing both
+        # rules. The restart counter and the termination reason are two
         # kube-state-metrics series that need not land in the same scrape, so
-        # an OOM can briefly post a restart too. The daemon takes that calmly,
-        # two incidents on one window freeze the same findings.
+        # an OOM can briefly post a restart too. The daemon tolerates that,
+        # since two incidents on one window freeze the same findings.
         - alert: PerfSentinelRestart
           expr: |
             label_replace(
@@ -204,11 +204,11 @@ spec:
         # `kube_deployment_status_observed_generation`: the generation also
         # advances when the HPA writes `spec.replicas`, so every autoscale
         # would post a deploy incident. A rollback onto an existing ReplicaSet
-        # is not seen, which is rare and deliberate.
+        # is not seen, a rare gap this rule accepts.
         #
         # Here `service` comes from the Deployment's own name, so it is always
-        # set. The `and on` keeps the alert to services that actually run the
-        # traced container.
+        # set. The `and on` keeps the alert to services that run the traced
+        # container.
         #
         # Both sides of the `group_left` are aggregated first, for the reason
         # the saturation rule states: a second kube-state-metrics replica, or
@@ -259,14 +259,14 @@ spec:
 # 2. ROUTE ORDER. The operator APPENDS the routes it builds from an
 #    AlertmanagerConfig to the ones already in the Alertmanager configuration,
 #    so any earlier sub-route that matches these alerts wins first. A
-#    catch-all, or a route on `severity="info"`, swallows them unless it
+#    catch-all, or a route on `severity="info"`, stops them there unless it
 #    carries `continue: true`. Check the rendered configuration with
 #    `amtool config routes show` before concluding the daemon is at fault.
 #
 # THE CREDENTIAL. `AlertmanagerConfig`'s `HTTPConfig` has no field for an
 # arbitrary header, so it cannot send `X-API-Key`. It does carry
 # `authorization`, and the daemon accepts `Authorization: Bearer <key>` as an
-# equivalent on every key-gated route for exactly this reason. Raw
+# equivalent on every key-gated route for this reason. Raw
 # `alertmanager.yml` keeps `http_headers` if you prefer it, see
 # docs/QUERY-API.md.
 #

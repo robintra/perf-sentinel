@@ -12,16 +12,16 @@
 #   gRPC: otel-collector:4317
 #   HTTP: otel-collector:4318
 #
-# Note: if your IDE flags a missing `file_format` property, ignore it.
-# That field was in an older draft of the collector config schema but
-# is rejected by the actual otel/opentelemetry-collector binary (it
-# errors with "'otelcol.configSettings' has invalid keys: file_format").
+# If your IDE flags a missing `file_format` property, ignore it. That
+# field was in an older draft of the collector config schema but is
+# rejected by the otel/opentelemetry-collector binary (it errors with
+# "'otelcol.configSettings' has invalid keys: file_format").
 
 receivers:
   otlp:
     protocols:
       grpc:
-        # 0.0.0.0 is intentional for container use (collector accepts from app containers).
+        # 0.0.0.0 lets the collector accept connections from app containers.
         # For bare-metal deployments, restrict to 127.0.0.1 or use network policies.
         endpoint: 0.0.0.0:4317
       http:
