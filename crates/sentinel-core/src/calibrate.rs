@@ -81,11 +81,9 @@ pub struct EnergyReading {
 
 /// Parse an ISO 8601 UTC timestamp into milliseconds since epoch.
 ///
-/// Thin wrapper around [`crate::time::parse_iso8601_utc_to_ms`]. Kept
-/// as a module-local function for a clearer stack trace on CSV errors
-/// ("failed to parse timestamp at row 42") and because earlier versions
-/// of this module had a hand-rolled implementation that has since been
-/// centralized in `time.rs`.
+/// Thin wrapper around [`crate::time::parse_iso8601_utc_to_ms`], kept
+/// module-local for a clearer stack trace on CSV errors ("failed to parse
+/// timestamp at row 42").
 fn parse_timestamp_ms(s: &str) -> Result<u64, String> {
     crate::time::parse_iso8601_utc_to_ms(s)
 }
@@ -170,7 +168,7 @@ fn collect_csv_data_rows(
 /// Parse a single non-comment data row: `timestamp,service,value`.
 /// Validates the 3-column shape, the timestamp, and the numeric value
 /// (must be finite and non-negative). `line_num` is 0-indexed on
-/// entry; all emitted errors use 1-indexed line numbers.
+/// entry. All emitted errors use 1-indexed line numbers.
 fn parse_csv_data_row(line_num: usize, line: &str) -> Result<(u64, String, f64), CalibrationError> {
     let parts: Vec<&str> = line.splitn(3, ',').collect();
     if parts.len() != 3 {
@@ -434,7 +432,6 @@ pub fn load_calibration_file(path: &str) -> Result<CalibrationData, CalibrationE
     let content = std::fs::read_to_string(path)?;
     let data: CalibrationData = toml::from_str(&content)?;
 
-    // Validate factors
     for (service, cal) in &data.calibration.services {
         if !cal.factor.is_finite() || cal.factor < 0.0 {
             return Err(CalibrationError::Validation(format!(
@@ -947,7 +944,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
     #[test]
     fn parse_energy_csv_power_watts_empty_after_conversion_returns_empty_data() {
         // A single power reading cannot be converted (needs a pair).
-        // After conversion, the result is empty → EmptyData error.
+        // After conversion, the result is empty, so parsing returns EmptyData.
         let csv = "timestamp,service,power_watts\n\
                    2025-07-10T14:00:00Z,svc-a,12.5\n";
         let err = parse_energy_csv(csv).unwrap_err();
@@ -965,7 +962,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
 
     #[test]
     fn calibrate_skips_events_with_unparsable_timestamp() {
-        // The trace event has a garbage timestamp, calibrate() must skip
+        // The trace event has a garbage timestamp, so calibrate() must skip
         // it silently via the `let Ok(ts) = ... else continue` path and
         // still produce a valid result for the other events.
         let mut bad_event = make_event("svc-a", "2025-07-10T14:00:05Z");
