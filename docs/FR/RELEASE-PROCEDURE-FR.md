@@ -2,7 +2,7 @@
 
 Ce document décrit la procédure de release de bout en bout pour `perf-sentinel`, applicable à partir de 0.7.0. La procédure inclut un gate de validation obligatoire sur le simulation lab qui bloque le tag d'une version qui n'a pas été éprouvée de bout en bout sur un cluster k3d réel.
 
-Le gate est pre-flight et piloté par l'opérateur, pas un job CI. Il s'exécute contre un ledger append-only (`release-gate/lab-validations.txt`) qui enregistre chaque validation lab et son verdict. La CI ne peut pas reproduire un run de lab, donc automatiser le gate dans le workflow de release reviendrait à le vider de sa substance.
+Le gate est un contrôle préalable piloté par l'opérateur, pas un job CI. Il s'exécute contre un ledger append-only (`release-gate/lab-validations.txt`) qui enregistre chaque validation lab et son verdict. La CI ne peut pas reproduire un run de lab, donc automatiser le gate dans le workflow de release reviendrait à le vider de sa substance.
 
 ## Prérequis
 
@@ -31,7 +31,7 @@ Appliquer le travail de feature, fix ou refactor pour la release. Puis incrémen
 - `Cargo.toml` workspace `[workspace.package].version`
 - Chaque `crates/*/Cargo.toml` : soit `version.workspace = true` (résout vers la version du workspace), soit une version explicite qui doit correspondre au tag. Le pin intra-workspace `perf-sentinel-core = { version = "X.Y.Z", path = "..." }` dans `crates/sentinel-cli/Cargo.toml` est aussi vérifié ici.
 
-**Pris en charge par l'opérateur** (pas de gate CI, à auditer à la main avec `grep -RIn "<version_précédente>" docs/ charts/ CHANGELOG.md`) :
+**Pris en charge par l'opérateur** (pas de gate CI, à auditer à la main avec `grep -RIn "<previous_version>" docs/ charts/ CHANGELOG.md`) :
 
 - `docs/ci-templates/*` : la constante `PERF_SENTINEL_VERSION` dans `github-actions-baseline.yml`, `github-actions-report-cleanup.yml`, `github-actions.yml`, `gitlab-ci.yml`, et `jenkinsfile.groovy`.
 - `docs/CI.md` et `docs/FR/CI-FR.md` : snippets d'exemple qui affichent `perf-sentinel@vX.Y.Z`.
@@ -55,7 +55,7 @@ Les deux invocations de clippy couvrent l'ensemble des features par défaut et l
 C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` à l'étape 2). Les tests garantissent la correction, pas la fraîcheur. Le workflow `refresh-datasets` régénère les deux tables scriptées deux fois par an (ou via `workflow_dispatch`) et ouvre une PR. Cette étape vérifie que ces PR ont été fusionnées assez récemment. Avant de taguer, confirmer les millésimes déclarés dans :
 
 - `crates/sentinel-core/src/score/cloud_energy/table_data.rs` : `SPECPOWER_VINTAGE`, estampillé avec la date de l'instantané `ccf-coefficients` par `scripts/refresh-instance-power.py`. Les lignes manuelles (familles absentes des CSV CCF) restent dans `table.rs`.
-- `crates/sentinel-core/src/score/carbon_data.rs` : `CARBON_TABLE_VINTAGE` (`ember-<dernière année de données>`), estampillé par `scripts/refresh-carbon-data.py`. Les lignes subnationales (Amérique du Nord, Brésil BR-CS) restent manuelles dans `carbon.rs`.
+- `crates/sentinel-core/src/score/carbon_data.rs` : `CARBON_TABLE_VINTAGE` (`ember-<latest-data-year>`), estampillé par `scripts/refresh-carbon-data.py`. Les lignes subnationales (Amérique du Nord, Brésil BR-CS) restent manuelles dans `carbon.rs`.
 - `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement et renormalisés à la main quand un rafraîchissement scripté déplace une valeur annuelle au-delà de 5 pour cent. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, OVHcloud, Scaleway, générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. OUTSCALE ne publie aucun PUE et suit la valeur générique. OVHcloud et Scaleway publient sur un cycle annuel, respectivement en indicateurs d'exercice et en rapport d'impact. Millésime exposé via `PUE_VINTAGE`.
 
@@ -73,7 +73,7 @@ La version du chart et `appVersion` bougent avec la version applicative :
 
 ```bash
 # charts/perf-sentinel/Chart.yaml
-version: A.B.C        # à bumper à chaque changement du chart
+version: A.B.C        # à incrémenter à chaque changement du chart
 appVersion: "X.Y.Z"   # suit la release perf-sentinel
 ```
 
@@ -83,7 +83,7 @@ Trois annotations du même fichier bougent avec `appVersion`, et seule la premi�
 - `artifacthub.io/changes` : une nouvelle entrée par release, décrivant le changement du point de vue de l'opérateur.
 - `charts/perf-sentinel/CHANGELOG.md` : la section correspondante, que `scripts/check-chart-version-bumped.sh` exige.
 
-`scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans incrément de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validera le tag du chart au moment de la release.
+`scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans incrément de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` valide le tag du chart au moment de la release.
 
 Les contrôles du chart sont tous exécutables en local, et moins coûteux qu'un aller-retour CI :
 
@@ -93,7 +93,7 @@ scripts/check-chart-version-bumped.sh main
 scripts/check-helm-tag-version.sh chart-vA.B.C
 ```
 
-**Correctif chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être publié seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés en permanence.
+**Correctif chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être publié seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés d'un cran en permanence.
 
 ### 4. Valider sur le simulation lab
 
@@ -130,7 +130,7 @@ Si l'une des étapes échoue, ne pas enregistrer de PASS. Corriger le problème 
 Si tout passe, enregistrer la validation dans le ledger :
 
 ```bash
-# Depuis le repo lab, produit une ligne tab-separated sur stdout.
+# Depuis le repo lab, produit une ligne séparée par des tabulations sur stdout.
 scripts/record-validation.sh vX.Y.Z PASS
 
 # Copier la ligne et l'ajouter à release-gate/lab-validations.txt dans
@@ -157,16 +157,16 @@ une fois `main` poussé, le tag local est annulé pour ne pas laisser de
 référence orpheline sur le remote.
 
 C'est le chemin recommandé parce qu'il rend l'oubli du gate
-structurellement impossible. Utilisez `scripts/release.sh vX.Y.Z
---dry-run` pour vérifier que tous les gates passent au vert avant de
-tagger pour de vrai. Passez `--yes` pour sauter la confirmation
-interactive en contexte scripté. Passez `--skip-lab` pour contourner
-explicitement le gate de validation lab (il émet un avertissement
-d'audit bien visible et n'écrit jamais le ledger), pour une release
-validée par d'autres moyens, par exemple un changement qui ne touche
-que la CLI ou la doc, couvert par la suite E2E. Le flag ne saute que
-le gate lab, tous les autres pre-checks et le gate de version
-s'appliquent toujours.
+structurellement impossible. Utilisez
+`scripts/release.sh vX.Y.Z --dry-run` pour vérifier que tous les gates
+passent au vert avant de tagger pour de vrai. Passez `--yes` pour
+sauter la confirmation interactive en contexte scripté. Passez
+`--skip-lab` pour contourner explicitement le gate de validation lab.
+Ce flag émet un avertissement d'audit bien visible et n'écrit jamais
+le ledger. Il sert pour une release validée par d'autres moyens, par
+exemple un changement qui ne touche que la CLI ou la doc, couvert par
+la suite E2E. Le flag ne saute que le gate lab, tous les autres
+pre-checks et le gate de version s'appliquent toujours.
 
 La prose ci-dessous reste la référence de ce que le script automatise,
 et le repli quand un opérateur veut piloter les étapes à la main.
@@ -174,7 +174,7 @@ Le run de lab (étape 4) reste piloté par l'opérateur, le script
 vérifie uniquement que la ligne PASS de l'étape 4 est présente et
 fraîche dans le ledger.
 
-### 5. Pre-flight gate
+### 5. Gate préalable
 
 De retour dans le checkout `perf-sentinel` :
 
@@ -284,7 +284,7 @@ que nomme la description de son panneau.
 2. **build** (matrice) : construit `perf-sentinel` pour `linux-amd64-musl`, `linux-arm64-musl`, `macos-arm64` et `windows-amd64`. Le binaire Linux arm64 est construit nativement sur un runner `ubuntu-24.04-arm` (et non via l'outil Docker `cross`), et chaque binaire est produit avec `cargo auditable build` pour embarquer sa liste de dépendances et permettre `cargo audit bin`. Les variantes musl utilisent `mimalloc` comme allocateur global (voir `docs/design/07-CLI-CONFIG-RELEASE.md`).
 3. **sbom** : Syft lit la liste de dépendances depuis les données `cargo-auditable` embarquées dans le binaire Linux amd64, émet un SBOM SPDX, et l'atteste sous le prédicat SPDX, en miroir du job SBOM du chart.
 4. **release** : rassemble les artefacts (binaires plus le SBOM), calcule les checksums SHA-256, atteste la provenance de build via Sigstore (OIDC keyless), et crée la release GitHub avec tous les assets et les notes tirées de `CHANGELOG.md`.
-5. **publish-crate** : publie `perf-sentinel-core` puis `perf-sentinel` sur crates.io, attend que l'index se mette à jour, échoue strictement sur timeout au lieu d'émettre un simple avertissement.
+5. **publish-crate** : publie `perf-sentinel-core` puis `perf-sentinel` sur crates.io, attend que l'index se mette à jour, fait échouer le workflow en cas de dépassement du délai au lieu d'émettre un simple avertissement.
 6. **docker** : construit l'image multi-arch, la scanne avec Trivy (`exit-code: 1` sur CVE HIGH ou CRITICAL), envoie le SARIF, puis la pousse sur GHCR et Docker Hub.
 
 Le release gate n'est **jamais** invoqué depuis ce workflow. Si une PR ajoute une étape gate à `release.yml`, la rejeter. Le gate valide contre un cluster k3d réel que la CI ne peut pas reproduire, et une vérification automatisée vide dégraderait silencieusement la garantie du gate.
