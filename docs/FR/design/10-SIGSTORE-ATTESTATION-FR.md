@@ -1,6 +1,6 @@
 # Signature Sigstore et attestation SLSA
 
-Ce document décrit les primitives cryptographiques ajoutées au schéma
+Les primitives cryptographiques ci-dessous s'ajoutent au schéma
 `perf-sentinel-report/v1.0` à partir de v0.7.0. Le but est de
 permettre à un consommateur de vérifier de bout en bout une
 divulgation périodique publiée sans avoir à faire confiance à
@@ -32,9 +32,9 @@ code source -> attestation SLSA -> binaire -> rapport -> signature Sigstore
 Les deux couches sont indépendantes : un opérateur peut signer un
 rapport produit par un binaire non officiel (la signature prouve
 toujours la paternité et l'intégrité, l'attestation binaire est
-simplement absente). Ou un binaire officiel peut produire un
-rapport jamais signé (`hash-only`). Le schéma rend les deux états
-explicites via `integrity.integrity_level` :
+absente). Ou un binaire officiel peut produire un rapport jamais
+signé (`hash-only`). Le schéma rend les deux états explicites via
+`integrity.integrity_level` :
 
 | niveau                      | content_hash | signature | binary_attestation |
 |-----------------------------|--------------|-----------|--------------------|
@@ -50,30 +50,30 @@ Pour une divulgation `intent = "official"`, le workflow opérateur
 est :
 
 1. **Scoring** : le daemon écrit les archives par fenêtre en NDJSON
-   sur la période (aucune implication signature).
+   sur la période (la signature n'intervient pas).
 2. **Disclose** : `perf-sentinel disclose --intent official ...
    --output report.json --emit-attestation attestation.intoto.jsonl`
    produit deux fichiers. Le `integrity.content_hash` du rapport
    reçoit le SHA-256 canonique. L'attestation est un statement
-   in-toto v1 dont le `subject.digest.sha256` pin le SHA-256 du
-   fichier rapport sur disque (pas le hash canonique, qui blank un
+   in-toto v1 dont le `subject.digest.sha256` fixe le SHA-256 du
+   fichier rapport sur disque (pas le hash canonique, qui vide un
    champ).
 3. **Signer** : l'opérateur lance `cosign sign-blob --bundle
    bundle.sig --new-bundle-format attestation.intoto.jsonl` contre
-   Sigstore public. La signature est uploadée automatiquement dans
+   Sigstore public. La signature est envoyée automatiquement à
    Rekor (le projet refuse les bundles sans preuve d'inclusion
    Rekor au moment de la vérification). Le Statement est signé
-   tel quel, sans wrapping supplémentaire. Utiliser
-   `cosign attest-blob --predicate` ici wrapperait le Statement
+   tel quel, sans enveloppe supplémentaire. Utiliser
+   `cosign attest-blob --predicate` ici envelopperait le Statement
    déjà formé dans un nouveau predicate-of-Statement, produisant
    une entrée malformée permanente dans le journal Rekor public.
 4. **Mettre à jour le locator signature du rapport** : l'opérateur
    édite `report.json` pour ajouter `integrity.signature` avec
    les métadonnées qui permettent aux vérifieurs de localiser le
-   bundle et l'entrée Rekor, puis bump
-   `integrity_level` de `hash-only` à `signed` ou
-   `signed-with-attestation`. Cette étape est manuelle aujourd'hui,
-   une future subcommand `perf-sentinel sign` pourrait l'automatiser.
+   bundle et l'entrée Rekor, puis fait passer `integrity_level` de
+   `hash-only` à `signed` ou `signed-with-attestation`. Cette étape
+   est manuelle aujourd'hui. Une future sous-commande
+   `perf-sentinel sign` pourrait l'automatiser.
 5. **Publier** : les trois fichiers (`report.json`,
    `attestation.intoto.jsonl`, `bundle.sig`) sont publiés à l'URL
    de transparence de l'opérateur.
@@ -82,7 +82,7 @@ Un consommateur télécharge les trois fichiers et lance
 `perf-sentinel verify-hash --report report.json --attestation
 attestation.intoto.jsonl --bundle bundle.sig` ou, plus court,
 `perf-sentinel verify-hash --url https://example.fr/report.json`
-qui fetch les sidecars par convention.
+qui récupère les sidecars par convention.
 
 ## Format statement in-toto v1
 
@@ -125,31 +125,31 @@ document in-toto v1 à statement unique. Forme :
 ```
 
 `predicateType` utilise le namespace `perf-sentinel.io` par
-convention. Le domaine n'est pas formellement possédé par le
-projet aujourd'hui, c'est la pratique standard pour les predicates
-in-toto custom. Les vérifieurs identifient le predicate par
-correspondance string exacte.
+convention. Le projet ne possède pas formellement le domaine
+aujourd'hui. Cette convention est la pratique standard pour les
+predicates in-toto personnalisés. Les vérifieurs identifient le
+predicate par correspondance exacte de chaîne.
 
 Le `subject.digest.sha256` est le SHA-256 du fichier rapport tel
 qu'écrit sur disque, pas le champ `content_hash` canonique. Les
 deux servent des buts différents : le hash canonique est
-déterministe (clés triées, un champ blanké) et vit dans le
-document. Le subject digest est le hash byte-level réel du fichier
-et vit dans l'attestation.
+déterministe (clés triées, un champ vidé) et vit dans le
+document. Le subject digest est le hash des octets du fichier et
+vit dans l'attestation.
 
 Les trois champs de comptage (`core_patterns_count`,
 `enabled_patterns_count`, `disabled_patterns_count`) permettent à un
 consommateur qui ne lit que le predicate signé de détecter un
 rapport qui revendique `conformance: "core-required"` tout en ayant
-retiré un des quatre patterns core post-hoc. L'invariant
-`enabled_patterns_count >= core_patterns_count` est enforced par le
-validator côté `intent = "official"` (`validate_official` refuse
-toute divulgation où un pattern core manque du set enabled), donc
-toute divulgation officielle conforme respecte cet invariant par
-construction.
+retiré un des quatre patterns core a posteriori. L'invariant
+`enabled_patterns_count >= core_patterns_count` est imposé par le
+validateur côté `intent = "official"` (`validate_official` refuse
+toute divulgation où un pattern core est absent de l'ensemble activé),
+donc toute divulgation officielle conforme respecte cet invariant
+par construction.
 
 Le champ `core_patterns_hash` (SHA-256 sur les noms triés et joints
-par `:`) complète les counts pour détecter la substitution : un
+par `:`) complète les compteurs pour détecter la substitution : un
 attaquant qui remplace `n_plus_one_sql` par `slow_sql` garde
 `core_patterns_count = 4` mais change le hash. Le consommateur
 recalcule le hash sur la liste canonique
@@ -158,17 +158,18 @@ dans `perf_sentinel_version` (actuellement quatre :
 `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`,
 `redundant_http`) et le compare au hash signé.
 
-`verify-hash` automatise ce cross-check : il hash la liste core
-canonique embarquée dans le binaire vérifieur local, hash le
-`methodology.core_patterns_required` du rapport, et surface une
-ligne `[FAIL] Core patterns` si les deux divergent. Le check
-tourne à chaque invocation `verify-hash`, aucun flag
+`verify-hash` automatise cette vérification croisée : il hache la
+liste core canonique embarquée dans le binaire vérifieur local,
+hache le `methodology.core_patterns_required` du rapport, et affiche
+une ligne `[FAIL] Core patterns` si les deux divergent. La
+vérification tourne à chaque invocation `verify-hash`, aucun flag
 supplémentaire requis. Un consommateur qui fait tourner la même
 version perf-sentinel que le signataire détecte donc une tentative
 de substitution sans table de référence externe. Une divergence
-contre un binaire vérifieur d'une autre version est surfacée avec
-un hint ("verifying binary is a different perf-sentinel version")
-pour que le consommateur relance avec une version qui matche.
+contre un binaire vérifieur d'une autre version est signalée avec
+une indication ("verifying binary is a different perf-sentinel
+version") pour que le consommateur relance avec une version
+correspondante.
 
 ## Commande cosign
 
@@ -185,12 +186,12 @@ cosign sign-blob \
 L'issuer OIDC (flow navigateur ou token GitHub Actions) enregistre
 l'identité du signataire dans le bundle. Les opérateurs qui
 utilisent une instance Rekor privée passent
-`--rekor-url https://rekor.internal.example.fr` qui matche leur
-config `[reporting.sigstore].rekor_url`.
+`--rekor-url https://rekor.internal.example.fr` qui correspond à
+leur config `[reporting.sigstore].rekor_url`.
 
 **Piège à éviter.** Ne pas utiliser `cosign attest-blob --predicate
 attestation.intoto.jsonl ...` ici. `attest-blob --predicate` traite
-son argument comme un predicate brut et le wrappe dans un nouveau
+son argument comme un predicate brut et l'enveloppe dans un nouveau
 Statement in-toto v1 à la volée. Comme le pipeline disclose émet
 déjà un Statement complet, le résultat est un Statement-of-Statement
 que Rekor enregistre de façon permanente dans le journal public.
@@ -202,53 +203,53 @@ attend.
 cosign 2.4+ est requis pour le flag `--new-bundle-format`. Les
 versions cosign antérieures émettent un bundle legacy que
 `cosign verify-blob` refuse. Les opérateurs sur cosign <2.4
-doivent upgrader avant de signer pour la transparence.
+doivent mettre à jour cosign avant de signer pour la transparence.
 
-Le flag `--no-tlog-upload` est délibérément non supporté par
+Le flag `--no-tlog-upload` n'est pas pris en charge par
 verify-hash : un bundle sans preuve d'inclusion Rekor est refusé
 avec un message d'erreur clair. L'auditabilité publique est une
-propriété du format, pas un opt-in optionnel.
+propriété du format, pas une option.
 
 ## Flow de vérification
 
 `perf-sentinel verify-hash` chaîne jusqu'à trois vérifications :
 
-1. **Content hash** (Rust pur, toujours lancé). Recompute le
+1. **Content hash** (Rust pur, toujours lancé). Recalcule le
    SHA-256 canonique du rapport et compare à
    `integrity.content_hash`.
 2. **Signature** (déléguée à `cosign verify-blob`). Lancée
    quand `integrity.signature` est présent dans le rapport et que
    l'opérateur passe `--attestation` et `--bundle` (ou que le mode
-   `--url` les fetch automatiquement).
+   `--url` les récupère automatiquement).
 3. **Attestation binaire** (déléguée à `gh attestation verify` à
    partir de 0.7.1, `slsa-verifier verify-artifact` sur la 0.7.0
-   legacy). La sortie verify-hash imprime un résumé métadonnée et
-   la commande de vérification exacte à lancer contre le binaire
+   legacy). La sortie verify-hash affiche un résumé des métadonnées
+   et la commande de vérification exacte à lancer contre le binaire
    téléchargé depuis `integrity.binary_verification_url`. La
    migration 0.7.1 a déplacé le stockage de l'attestation d'un
    asset de release (`multiple.intoto.jsonl`) vers l'API
-   attestations GitHub via `actions/attest-build-provenance`. Le
-   fetch binaire + verify en une seule commande est un travail
-   futur.
+   attestations GitHub via `actions/attest-build-provenance`.
+   Récupérer et vérifier le binaire en une seule commande est un
+   travail futur.
 
 Codes de sortie :
 
-| Code | Signification                                                        |
-|------|----------------------------------------------------------------------|
-| `0`  | TRUSTED                                                              |
-| `1`  | UNTRUSTED (un check a retourné un échec dur)                         |
-| `2`  | PARTIAL (pas d'échec dur, au moins un check n'a pas pu se compléter) |
-| `3`  | INPUT_ERROR                                                          |
-| `4`  | NETWORK_ERROR (mode `--url` uniquement)                              |
+| Code | Signification                                                           |
+|------|-------------------------------------------------------------------------|
+| `0`  | TRUSTED                                                                 |
+| `1`  | UNTRUSTED (une vérification a retourné un échec dur)                    |
+| `2`  | PARTIAL (pas d'échec dur, au moins une vérification n'a pas pu aboutir) |
+| `3`  | INPUT_ERROR                                                             |
+| `4`  | NETWORK_ERROR (mode `--url` uniquement)                                 |
 
-La séparation entre UNTRUSTED (1) et PARTIAL (2) permet à une
-enveloppe de scripts de différencier une tentative de tamper d'un
-outil manquant. Un gate naïf `verify-hash && deploy` rejette
-toujours PARTIAL parce que le code de sortie est non-zéro.
+La séparation entre UNTRUSTED (1) et PARTIAL (2) permet à un
+script d'encapsulation de différencier une tentative de falsification
+d'un outil manquant. Un gate naïf `verify-hash && deploy` rejette
+toujours PARTIAL parce que le code de sortie est non nul.
 
 ## Privacy sur Rekor public
 
-Chaque signature uploadée dans Rekor Sigstore public produit une
+Chaque signature envoyée à Rekor Sigstore public produit une
 entrée permanente, lisible par tous dans le journal de
 transparence. L'entrée contient :
 
@@ -256,46 +257,46 @@ transparence. L'entrée contient :
   un email Google, une URL de workflow GitHub Actions avec
   org/repo).
 - Le hash du payload signé (le statement in-toto ici).
-- Un timestamp.
+- Un horodatage.
 
 L'entrée ne contient ni le rapport lui-même ni son contenu. Les
-opérateurs concernés par la fuite d'identité signataire peuvent
-considérer :
+opérateurs préoccupés par la fuite d'identité signataire peuvent
+envisager :
 
-- Utiliser un email service-account dédié pour la signature.
+- Utiliser l'email d'un compte de service dédié pour la signature.
 - Faire tourner une instance Rekor privée
   (`[reporting.sigstore].rekor_url`).
 - Signer avec un workflow GitHub Actions dont l'URL d'identité est
   pré-divulguée par l'organisation.
 
-Pour la plupart des usages transparence publique, faire fuiter
+Pour la plupart des usages de transparence publique, faire fuiter
 l'identité signataire est le résultat voulu : le consommateur
-veut savoir quelle identité vouche pour le rapport.
+veut savoir quelle identité se porte garante du rapport.
 
 ## Modes d'échec
 
-Ce qu'un consommateur doit conclure quand chaque check échoue :
+Ce qu'un consommateur doit conclure quand chaque vérification échoue :
 
 - **Content hash FAIL** : le fichier est corrompu ou a été
   trafiqué après publication. Untrusted.
 - **Signature FAIL** avec content_hash valide : le rapport
   lui-même est intact mais n'a plus de preuve Sigstore valide.
-  Probablement le bundle a été remplacé, l'entrée Rekor a été
-  révoquée, ou l'identité certificat ne matche pas le signataire
-  revendiqué. Untrusted.
+  Il est probable que le bundle ait été remplacé, que l'entrée
+  Rekor ait été révoquée, ou que l'identité du certificat ne
+  corresponde pas au signataire revendiqué. Untrusted.
 - **Signature SKIP** parce que `cosign` n'est pas installé :
   installer cosign et réessayer. Le rapport n'est pas
   nécessairement untrusted mais ne peut pas être vérifié dans
-  l'install courant de l'utilisateur. Content hash seul est une
-  garantie plus faible.
+  l'installation actuelle de l'utilisateur. Le content hash seul est
+  une garantie plus faible.
 - **Binary attestation NotProvided** : le rapport a été produit
   par un binaire qui ne porte pas de métadonnées de provenance
   SLSA (par exemple un build de développement local). Content
   hash + signature Sigstore tiennent toujours, mais le
   consommateur ne peut pas vérifier ce qui a produit le rapport.
 - **Binary attestation FAIL** : le binaire référencé par
-  `integrity.binary_verification_url` ne matche pas l'attestation
-  SLSA, ou le source-uri ne matche pas
+  `integrity.binary_verification_url` ne correspond pas à
+  l'attestation SLSA, ou le source-uri ne correspond pas à
   `github.com/robintra/perf-sentinel`. Traiter comme untrusted.
 
 Le verdict global apparaît comme `TRUSTED` (content hash +
@@ -304,15 +305,15 @@ NotProvided ou Skip), ou `UNTRUSTED` (un FAIL).
 
 ## Outillage : `hash-bake`
 
-La sous-commande `hash-bake` (0.7.2+) calcule le `content_hash` canonique d'un rapport et l'écrit dans `integrity.content_hash` sans passer par le pipeline `disclose` complet. Elle existe pour la génération de fixtures de test et pour le debug des rapports dont le hash a divergé du canonique après des édits manuels. Par défaut elle refuse d'opérer sur un rapport portant déjà une `integrity.signature` pour ne pas masquer une erreur de workflow. Voir `docs/FR/REPORTING-FR.md` § "Calculer un content hash canonique avec `hash-bake`" pour la référence côté opérateur.
+La sous-commande `hash-bake` (0.7.2+) calcule le `content_hash` canonique d'un rapport et l'écrit dans `integrity.content_hash` sans passer par le pipeline `disclose` complet. Elle existe pour la génération de fixtures de test et pour déboguer les rapports dont le hash a divergé du canonique après des modifications manuelles. Par défaut elle refuse d'opérer sur un rapport portant déjà une `integrity.signature` pour ne pas masquer une erreur de workflow. Voir `docs/FR/REPORTING-FR.md` § "Calculer un content hash canonique avec `hash-bake`" pour la référence côté opérateur.
 
 ## Renvois
 
-- `docs/FR/SCHEMA-FR.md` documente la forme wire de
+- `docs/FR/SCHEMA-FR.md` documente la forme sur le fil de
   `integrity.signature` et `integrity.binary_attestation`.
 - `docs/FR/REPORTING-FR.md` est le workflow signature côté
   opérateur.
 - `docs/FR/SUPPLY-CHAIN-FR.md` couvre l'intégration du générateur
   SLSA dans le workflow GitHub Actions de release.
 - `docs/schemas/perf-sentinel-report-v1.json` porte les
-  définitions JSON Schema autoritaires.
+  définitions JSON Schema de référence.
