@@ -138,7 +138,7 @@ fn inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
 }
 
 /// Inbound endpoint carried by the event span itself. A route template is a
-/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+/// safe inbound signal on any kind. Legacy URL fallbacks require SERVER.
 fn own_inbound_http_endpoint(span: &ZipkinSpan) -> Option<String> {
     http_endpoint(span, span.kind.as_deref() == Some("SERVER"))
 }
@@ -216,7 +216,7 @@ fn same_zipkin_service(leaf: &ZipkinSpan, ancestor: &ZipkinSpan) -> bool {
 }
 
 /// Whether the ancestor walk stops before `parent`. An anonymous leaf stays
-/// inside the anonymous run and stops at the first named ancestor, a named
+/// inside the anonymous run and stops at the first named ancestor. A named
 /// leaf stops at the first ancestor of another service.
 fn walk_stops_at(anonymous_service: bool, leaf: &ZipkinSpan, parent: &ZipkinSpan) -> bool {
     if anonymous_service {
@@ -387,7 +387,8 @@ fn convert_zipkin_span(
         grouping,
         // Zipkin endpoint metadata does not carry cloud region. Users
         // wanting multi-region scoring with Zipkin ingestion should set
-        // [green.service_regions] in the config to map service -> region.
+        // [green.service_regions] in the config to map each service to a
+        // region.
         cloud_region: None,
         event_type,
         operation,
@@ -401,8 +402,8 @@ fn convert_zipkin_span(
         code_lineno,
         code_namespace,
         // Zipkin does not carry OpenTelemetry instrumentation scope
-        // information. Empty list disables the scope-based framework
-        // detection path; namespace heuristics still fire.
+        // information. An empty list disables the scope-based framework
+        // detection path. Namespace heuristics still fire.
         instrumentation_scopes: Vec::new(),
     };
     crate::event::sanitize_span_event(&mut event);
@@ -534,8 +535,8 @@ mod tests {
 
     #[test]
     fn non_sql_datastore_span_is_dropped() {
-        // A Redis span carries a db.statement that is not relational SQL;
-        // it must be dropped, never tokenized as SQL.
+        // A Redis span carries a db.statement that is not relational SQL.
+        // It must be dropped, never tokenized as SQL.
         let json = r#"[
             {
                 "traceId": "t1", "id": "s1",
@@ -1290,8 +1291,8 @@ mod tests {
 
     #[test]
     fn endpoint_falls_back_to_unknown_not_empty() {
-        // The empty string put an empty component in the ack signature; the
-        // documented fallback is "unknown" on every ingestion path.
+        // An empty string would put an empty component in the ack signature.
+        // The documented fallback is "unknown" on every ingestion path.
         let json = r#"[
             {
                 "traceId": "t1",
