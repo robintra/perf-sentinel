@@ -35,9 +35,9 @@ test("2. keyboard switches tabs via g-prefix shortcut", async ({ page }) => {
 });
 
 test("3. clicking a finding row opens the inline detail pane", async ({ page }) => {
-  // The app-shell redesign folds Explain into the Findings master/detail
-  // pane: clicking a row updates the detail in place, the Findings tab
-  // stays active (there is no separate Explain tab).
+  // Explain lives in the Findings master/detail pane: clicking a row
+  // updates the detail in place and the Findings tab stays active (there
+  // is no separate Explain tab).
   await loadDashboard(page, "#findings");
   const firstRow = page.locator("#findings-list .ps-row").first();
   await firstRow.click();
@@ -190,9 +190,8 @@ test("9. Copy link button writes location.href to the clipboard", async ({ page,
 });
 
 test("11. j key moves selection and the detail pane follows it", async ({ page }) => {
-  // Master/detail: in the app-shell redesign the detail pane is always
-  // visible beside the list, so j/k must re-render the detail, not just
-  // move the highlight.
+  // Master/detail: the detail pane is always visible beside the list, so
+  // j/k must re-render the detail, not just move the highlight.
   await loadDashboard(page, "#findings");
   await page.waitForSelector("#findings-list .ps-row");
   const rowCount = await page.locator("#findings-list .ps-row").count();
@@ -208,7 +207,7 @@ test("11. j key moves selection and the detail pane follows it", async ({ page }
 test("12. density defaults to comfort and the toggle persists compact", async ({ page }) => {
   await loadDashboard(page);
   await expect(page.locator("html")).toHaveAttribute("data-density", "comfort");
-  // Density and theme now sit behind the gear, so the menu opens first.
+  // Density and theme sit behind the gear, so the menu opens first.
   await page.locator("#topbar-settings summary").click();
   await page.locator("#density-toggle").click();
   await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
@@ -225,7 +224,7 @@ test("13. clicking a pg_stat header sorts the table and re-click reverses it", a
       .map((s) => parseFloat(s.replace(/[^0-9.+-]/g, "")));
   const defaultOrder = await callsColumn();
   expect(defaultOrder.length).toBeGreaterThan(1);
-  // The rows must actually move, not just the header attribute: assert the
+  // The rows must move, not just the header attribute: assert the
   // full column ordering, or a dead applyTableSort would still pass.
   await callsHeader.click();
   await expect(callsHeader).toHaveAttribute("aria-sort", "descending");
@@ -288,7 +287,7 @@ test("23. Diff and Correlations explain themselves when a search empties them", 
 test("19. searching a finding by the type label shown on its row finds it", async ({ page }) => {
   // The findings search matches the data, not the row text, so the blob has to
   // carry the display label ("N+1 SQL") and not just the raw slug
-  // ("n_plus_one_sql"), or the query a user can actually read returns nothing.
+  // ("n_plus_one_sql"), or searching the label a user reads returns nothing.
   await loadDashboard(page, "#findings");
   const label = (await page.locator("#findings-list .ps-fin-type").first().textContent())!.trim();
   expect(label.length).toBeGreaterThan(0);
@@ -381,7 +380,7 @@ test("18. the findings search counts and reaches past the rendered page", async 
 
 test("14. the top-bar box is the only search input on every tab", async ({ page }) => {
   // Guards against reintroducing a per-panel search input beside the
-  // top-bar one, which is how the two-visible-bars duplicate first crept in.
+  // top-bar one, which would show two search bars.
   await loadDashboard(page);
   for (const tab of ["findings", "pgstat", "mysqlstat", "diff", "correlations"]) {
     // The panels are static template markup, but a tab is only registered
@@ -396,8 +395,8 @@ test("14. the top-bar box is the only search input on every tab", async ({ page 
 });
 
 test("15. search from a non-searchable tab reports matches in the nav badges", async ({ page }) => {
-  // Typing from Overview used to be swallowed silently. The badge is the
-  // feedback surface now, so the count must react without leaving the tab.
+  // Typing from Overview gets its feedback from the nav badge, so the count
+  // must react without leaving the tab.
   await loadDashboard(page, "#overview");
   const badge = page.locator("#tab-findings .ps-nav-badge");
   const total = Number(await badge.textContent());
@@ -419,7 +418,7 @@ test("16. the search survives a tab switch and marks the revealed panel", async 
     .evaluateAll((nodes) => nodes.filter((n) => (n as HTMLElement).style.display !== "none").length);
   expect(visibleOnPgstat).toBeGreaterThan(0);
 
-  // Leave and come back: the query used to be wiped on every switch.
+  // Leave and come back: the query must not be wiped by the switch.
   await page.locator("#tab-findings").click();
   await page.locator("#tab-pgstat").click();
   await expect(page.locator("#topbar-search")).toHaveValue("order_item");
@@ -433,11 +432,10 @@ test("16. the search survives a tab switch and marks the revealed panel", async 
 
 test("17. pg_stat actions stay grouped and right-aligned at every width", async ({ page }) => {
   // Layout guard without screenshots. The auto margin that pushes the actions
-  // right moved off the deleted filter box onto a wrapper around both
-  // buttons. It must sit on the wrapper, not on one button: the controls row
-  // wraps below 920px, and a margin on the export button alone left the copy
-  // link stranded on the next line, left-aligned. The narrow viewport is the
-  // point of this test, a default-width check passes either way.
+  // right must sit on a wrapper around both buttons, not on one button: the
+  // controls row wraps below 920px, and a margin on the export button alone
+  // would leave the copy link stranded on the next line, left-aligned. Only
+  // the narrow viewport catches this. A default-width check passes either way.
   for (const width of [1440, 1024, 780]) {
     await page.setViewportSize({ width, height: 900 });
     await loadDashboard(page, "#pgstat");
@@ -457,9 +455,9 @@ test("17. pg_stat actions stay grouped and right-aligned at every width", async 
 });
 
 test("24. each side of a correlation opens its own finding", async ({ page }) => {
-  // Since 0.9.25 the card is split in two click zones: the source side
-  // opens the triggering finding, the target side the triggered one. The
-  // detail must never read "undefined", and the tree must light a span.
+  // The card is split in two click zones: the source side opens the
+  // triggering finding, the target side the triggered one. The detail must
+  // never read "undefined", and the tree must light a span.
   await page.goto("/dashboard-demo.html#correlations");
   await page.waitForSelector("[role=tablist]");
   await expect(page.locator("#correlations-list")).toContainText("k8s.namespace.name=prod-eu");
@@ -469,7 +467,7 @@ test("24. each side of a correlation opens its own finding", async ({ page }) =>
   expect(zoneCount, "the demo fixture must carry clickable correlation sides")
     .toBeGreaterThan(0);
   // Per card, not in aggregate: a source side that resolves nothing is rendered
-  // inert and silent, which is how every left half went dead unnoticed.
+  // inert and silent, so a dead left half would go unnoticed.
   const cards = await page.locator("#correlations-list .ps-corr-card").count();
   expect(zoneCount, "both sides of every card must be live").toBe(cards * 2);
   await zones.first().click();
@@ -540,8 +538,8 @@ test("25b. several values in one family are OR'd, and the families AND together"
   expect(narrowed, "a service on top narrows the same set").toBeLessThanOrEqual(twoTypes);
 });
 
-/// A count of one read as "1 findings", which looks like a broken
-/// template rather than a number.
+/// "1 findings" for a count of one looks like a broken template
+/// rather than a number.
 test("25e. counters agree with their own noun at one", async ({ page }) => {
   const counter = page.locator("#findings-count");
   await loadDashboard(page, "#findings");
@@ -555,8 +553,8 @@ test("25e. counters agree with their own noun at one", async ({ page }) => {
 });
 
 test("25c. severity chips stack instead of replacing each other", async ({ page }) => {
-  // They used to be a radiogroup, so a second click moved the selection rather
-  // than widening it, and "All" was the only way back.
+  // The chips are not a radiogroup: a second click widens the selection
+  // instead of moving it, and there is no "All" chip.
   const sevChip = (key: string) => page.locator(`#findings-filters .ps-chip[data-key="sev:${key}"]`);
   const shownSeverities = async () =>
     new Set(await page.locator("#findings-list .ps-row .ps-sev").evaluateAll(
@@ -590,8 +588,8 @@ test("25c. severity chips stack instead of replacing each other", async ({ page 
 });
 
 test("25d. the clear button empties every family in one click", async ({ page }) => {
-  // Escape does this too, but with no "All" chip a pointer user was left
-  // un-pressing each pill and unticking each box one by one.
+  // Escape does this too. With no "All" chip, a pointer user would otherwise
+  // un-press each pill and untick each box one by one.
   const clear = page.locator("#findings-clear");
   await loadDashboard(page, "#findings");
   await expect(clear, "nothing to clear, so no button").toBeHidden();
@@ -614,8 +612,8 @@ test("26. type and effective grouping filters combine and expose ARIA state", as
 
   // This fixture groups some findings by k8s.namespace.name and others by
   // service.namespace, so the menu keeps its generic name and every option
-  // keeps its own key. Dropping the key here filed "finance" under a header
-  // reading "k8s.namespace.name".
+  // keeps its own key. Dropping the key here would file "finance" under a
+  // header reading "k8s.namespace.name".
   await expect(filterTrigger(page, "group")).toHaveText("Grouping · 1");
   await openFilterMenu(page, "group");
   await expect(page.locator(`#findings-filters details[data-filter-group="group"] label`)
@@ -803,10 +801,10 @@ test("35. evidence note reports occurrences omitted by the DOM cap", async ({ pa
 
 test("28. the sort control does not masquerade as an applied filter", async ({ page }) => {
   // `.active` marks an applied filter. The sort chips share `.ps-chip` for the
-  // look, so giving them `.active` too made every "which filter is on" selector
-  // ambiguous, which is how test 25 broke. Sort now also lives in the panel
-  // toolbar rather than among the filters, which is the structural half of the
-  // same guarantee.
+  // look, so giving them `.active` too would make every "which filter is on"
+  // selector ambiguous and break test 25. Sort also lives in the panel toolbar
+  // rather than among the filters, which is the structural half of the same
+  // guarantee.
   await loadDashboard(page, "#findings");
   await expect(page.locator("#findings-sort [data-sort-key]"),
     "sort belongs to the toolbar, not to the filter row").toHaveCount(2);
@@ -822,8 +820,8 @@ test("28. the sort control does not masquerade as an applied filter", async ({ p
 
 test("28b. a filter menu closes on Escape without clearing the filters", async ({ page }) => {
   // A <details> is neither a dialog nor a text field, so without its own tier in
-  // the Escape ladder the keydown fell through to "clear the filter chips" and
-  // wiped a selection the user only meant to stop editing.
+  // the Escape ladder the keydown would fall through to "clear the filter
+  // chips" and wipe a selection the user only meant to stop editing.
   await loadDashboard(page, "#findings&service=order-svc");
   await openFilterMenu(page, "svc");
   await expect(page.locator('#findings-filters details[data-filter-group="svc"]'))
@@ -846,7 +844,7 @@ test("28c. Escape in the search box clears the query, menu open or not", async (
   await expect(page.locator("#topbar-search")).toHaveValue("order");
   await page.keyboard.press("Escape");
   await expect(page.locator("#topbar-search"), "the field owns this Escape").toHaveValue("");
-  // closeSearch blurs on purpose, so the assertion is where focus did not go:
+  // closeSearch blurs the field, so the assertion is where focus did not go:
   // the menu trigger, which is where the disclosure tier would have sent it.
   await expect(page.locator('#findings-filters details[data-filter-group="svc"] summary'))
     .not.toBeFocused();
@@ -929,8 +927,7 @@ test("36. the ack modal names every grouping the acknowledgment will cover", asy
 
 test("37. report warnings render in a banner that survives a tab switch", async ({ page }) => {
   // A run-level warning ("these numbers are estimates") stays true on every
-  // tab, so the banner lives outside the panels. Before this it was embedded
-  // in the payload and never drawn at all.
+  // tab, so the banner lives outside the panels.
   await loadDashboard(page);
   await expect(page.locator("#report-warnings")).toBeHidden();
 
@@ -958,7 +955,7 @@ test("37. report warnings render in a banner that survives a tab switch", async 
   // A tuning hint reports nothing broken, so it must not borrow the warn tone.
   await expect(banner).toHaveAttribute("data-tone", "info");
 
-  // The whole point of placing it outside the panels.
+  // Switch tabs: the banner stays visible.
   await page.keyboard.press("g");
   await page.keyboard.press("p");
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
@@ -1038,8 +1035,8 @@ test("40. long SQL templates wrap instead of scrolling the pg_stat table sideway
   await loadDashboard(page, "#pgstat");
   await expect(page.locator("#pgstat-body tr").first()).toBeVisible();
 
-  // The committed CSV has no statement anywhere near the length that
-  // triggered this, so the assertion would hold with or without the fix.
+  // The committed CSV has no statement long enough to overflow, so the
+  // assertion would hold with or without the wrap rule.
   // Plant the real shape instead: a 200-char column list with no space in
   // it, which only `overflow-wrap: anywhere` can shrink below its own
   // width. `break-word` leaves the intrinsic minimum intact and overflows.
@@ -1079,8 +1076,8 @@ test("41. a long endpoint wraps in its meta card instead of ellipsizing", async 
   });
   expect(overflow).toBe(0);
 
-  // The card grows in height rather than clipping: nowrap is what used to
-  // force the ellipsis, and the parent's overflow-wrap does the breaking.
+  // The card grows in height rather than clipping: nowrap would force the
+  // ellipsis, and the parent's overflow-wrap does the breaking.
   const style = await value.evaluate((el) => {
     const cs = getComputedStyle(el as HTMLElement);
     return { whiteSpace: cs.whiteSpace, textOverflow: cs.textOverflow, overflowWrap: cs.overflowWrap };
@@ -1092,8 +1089,8 @@ test("41. a long endpoint wraps in its meta card instead of ellipsizing", async 
 
 test("42. rows that ellipsize carry their full value on the title", async ({ page }) => {
   // A dense row keeps its single line, so the tooltip is the only way back to
-  // the whole value. The findings row and the span row already did this, the
-  // gate rule and the diff row did not.
+  // the whole value. This test covers the gate rule and the diff row. The
+  // findings row and the span row carry the title too.
   await loadDashboard(page, "#overview");
   const ruleName = page.locator(".ps-hero-rule-name").first();
   await expect(ruleName).toBeVisible();
@@ -1103,7 +1100,7 @@ test("42. rows that ellipsize carry their full value on the title", async ({ pag
 
   // This fixture carries no diff payload, so the tab does not render and the
   // row cannot be asserted against. Guard rather than skip the whole test:
-  // the gate rule above is the half that is real here, and the diff half
+  // the gate rule above is the half this fixture exercises, and the diff half
   // starts covering itself the day a diff lands in the fixture.
   const diffEndpoint = page.locator(".ps-diff-endpoint").first();
   if (await diffEndpoint.count() > 0) {

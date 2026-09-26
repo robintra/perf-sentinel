@@ -4,9 +4,9 @@
 # Showcases the `perf-sentinel ack` subcommand (since 0.5.22): three
 # subactions `create`, `list`, `revoke` against a running daemon. The
 # tape spawns a daemon in the background on a non-default port to
-# avoid colliding with any locally-running instance, then types the
+# avoid colliding with any locally-running instance. It then types the
 # three create / list / revoke commands one after the other in a
-# single shell session so the viewer sees a continuous workflow
+# single shell session, so the viewer sees a continuous workflow
 # (no `clear` between commands). Each Screenshot captures the full
 # terminal at that moment, which `scripts/trim-bottom-png.py` then
 # crops to the last non-empty row.
