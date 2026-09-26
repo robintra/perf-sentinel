@@ -14,7 +14,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 - [Installation depuis un checkout local](#installation-depuis-un-checkout-local) : pour les contributeurs et le bisect.
 - [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : tâche mainteneur, renvoie vers RELEASE-PROCEDURE.
 - [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
-- [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus [fragments](#fragments-de-configuration), secrets, TLS et NetworkPolicy.
+- [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus [fragments](#fragments-de-configuration), secrets, TLS, NetworkPolicy et l'[Ingress](#ingress) optionnel.
 - [Observabilité](#observabilité) : Prometheus ServiceMonitor, les tableaux de bord Grafana (métriques et [la table des findings](#grafana-sur-lapi-de-requête-table-des-findings)), alertes et exemplars.
 - [Mise à jour](#mise-à-jour) : flux `helm upgrade`.
 - [Désinstallation](#désinstallation) : flux `helm uninstall`.
@@ -455,7 +455,7 @@ extraEnvFrom:
       name: perf-sentinel-secrets
 ```
 
-Les valeurs de config adossées à un Secret suivent un seul motif : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` et `PERF_SENTINEL_READ_API_KEY` pour les trois clés du daemon, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
+Les valeurs de config adossées à un Secret suivent un seul motif : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` et `PERF_SENTINEL_READ_API_KEY` pour les trois clés du daemon, et les en-têtes d'auth des scrapers). Voir la section "Variables d'environnement" de `docs/FR/CONFIGURATION-FR.md`.
 
 ### Fichiers de calibration et certificats TLS
 
@@ -484,15 +484,19 @@ config:
 Le daemon 0.5.20 ajoute trois endpoints d'ack runtime
 (`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils modifient l'état, donc trois décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
 
-**Authentifier les écritures quand le daemon est exposé sur le réseau du pod.** Les extraits `values.yaml` plus haut utilisent `listen_address = "0.0.0.0"` pour que le daemon soit joignable dans tout le cluster. Sans mTLS en frontal, posez une clé ack de 16+ caractères via un Secret Kubernetes dont l'entrée `PERF_SENTINEL_ACK_API_KEY` est votre clé, exposé par `extraEnvFrom`, sans quoi les verbes `POST` et `DELETE` sont exposés :
+**Qui peut acquitter des findings.** Le chart fait écouter le daemon sur `0.0.0.0` pour que le Service puisse router vers le pod, et garde le store d'acks actif pour que les acks (et les acks TOML commités que le daemon charge avec eux) fonctionnent. Par défaut, le daemon n'a aucune authentification applicative (une écoute hors loopback se contente de journaliser un avertissement au démarrage) : il s'attend à tourner dans un réseau de cluster non exposé, où le Service et la NetworkPolicy forment la frontière. Choisissez l'une des deux façons de restreindre qui peut acquitter :
+
+*Par groupe (la réponse fidèle : seuls vos architectes / SRE, avec un vrai `by` d'audit).* perf-sentinel n'embarque pas d'IAM, donc le contrôle par identité se fait dans un proxy SSO placé en frontal. Déployez la configuration oauth2-proxy + nginx décrite dans [`docs/FR/QUERY-API-FR.md`](./QUERY-API-FR.md#oauth2-proxy--nginx), qui autorise les écritures d'ack par groupe SSO, et ajoutez un sélecteur de pair `networkPolicy` pour que seul le proxy atteigne le daemon. Les lectures (`GET /api/findings`) restent ouvertes.
+
+*Clé partagée grossière (quiconque détient la clé peut acquitter).* Créez un Secret Kubernetes dont l'entrée `PERF_SENTINEL_ACK_API_KEY` est votre clé et exposez-le via `extraEnvFrom` :
 
 ```yaml
 extraEnvFrom:
   - secretRef:
-      name: perf-sentinel-secrets   # entrée PERF_SENTINEL_ACK_API_KEY
+      name: perf-sentinel-ack   # votre Secret, clé PERF_SENTINEL_ACK_API_KEY
 ```
 
-La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap. Un Secret monté vide est rejeté au chargement de la config. Le daemon rejette aussi d'office les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit). `GET /api/findings` reste non authentifié.
+La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais de la ConfigMap. Un Secret monté vide est rejeté au chargement de la config. La clé protège aussi `GET /api/acks` (la piste d'audit), pas seulement les écritures. Le plancher de 12 caractères s'applique toujours, et 16 sont recommandés.
 
 *Les lecteurs qui ne doivent jamais écrire (Grafana, le Hub).* Donnez-leur `[daemon] read_api_key` par son propre Secret, `PERF_SENTINEL_READ_API_KEY` dans la même liste `extraEnvFrom`. Elle ouvre `GET /api/acks` et `GET /api/incidents` et rien d'autre, et le daemon refuse au démarrage une clé de lecture égale à une clé d'écriture, donc une configuration de dashboard qui fuit ne peut ni acquitter un finding ni fabriquer un incident.
 
@@ -557,6 +561,101 @@ networkPolicy:
 Les deux listes de sélecteurs sont combinées en OU : une source d'ingress qui
 correspond à n'importe quelle entrée de l'une ou l'autre liste est autorisée.
 Laissez une liste vide pour ignorer cette dimension de correspondance.
+
+### Ingress
+
+Le chart peut rendre un `Ingress` devant le Service. Il est désactivé par
+défaut, et ce défaut est une décision de sécurité plutôt que
+d'empaquetage : perf-sentinel n'embarque pas d'IAM, donc le publier met
+une API non authentifiée sur le réseau. Quiconque atteint l'hôte peut
+envoyer des traces OTLP en POST, lire `/api/findings` (vos templates SQL
+et vos noms d'endpoints) et appeler les endpoints d'écriture d'ack. Le
+modèle de menace du chart est un réseau de cluster non exposé, borné par
+le Service et la NetworkPolicy optionnelle.
+
+Deux postures sont prises en charge. **Interne uniquement** est la plus
+simple : l'Ingress utilise un contrôleur lui-même injoignable depuis
+l'extérieur de votre réseau, et la NetworkPolicy autorise les pods de ce
+contrôleur. La frontière devient l'exposition du contrôleur lui-même,
+donc vérifiez cette hypothèse au lieu d'en hériter, car un contrôleur
+partagé porte souvent un écouteur public à côté de l'interne.
+**Authentifiée** est requise dès que l'hôte se résout au-delà : placez
+un proxy SSO en frontal, soit comme backend de l'Ingress, soit comme
+annotation d'auth du contrôleur, selon
+[les options proxy SSO et clé partagée](#store-dacks-runtime-du-daemon).
+Seul le chemin SSO donne un `by` d'audit par personne sur les
+acquittements. La clé partagée ne protège que les écritures d'ack et
+laisse toutes les lectures ouvertes.
+
+Avant de recourir à l'une ou l'autre, vérifiez si vous avez besoin de
+l'Ingress tout court. La demande habituelle qui le motive, "arrêtez de
+m'obliger à faire un `kubectl port-forward` pour voir les findings",
+trouve sa réponse dans le cluster avec
+[Grafana sur l'API de requête](#grafana-sur-lapi-de-requête-table-des-findings),
+qui n'expose rien. L'Ingress en vaut la peine pour le rapport HTML
+complet et le TUI opérateur depuis un poste de travail.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # Authentifiez au niveau du contrôleur. Sans un mécanisme de ce genre,
+    # l'API est ouverte à quiconque résout l'hôte.
+    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.example.com/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.example.com/oauth2/start?rd=$escaped_request_uri"
+  hosts:
+    - host: perf-sentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: perf-sentinel-tls
+      hosts:
+        - perf-sentinel.example.com
+```
+
+`servicePortName` choisit le port publié vers lequel les règles routent,
+`otlp-http` (4318 : OTLP HTTP, l'API de requête et `/metrics`) par défaut
+ou `otlp-grpc` (4317 : OTLP gRPC). Toute autre valeur fait échouer le
+rendu, puisque le Service ne publie aucun autre port et que l'erreur
+remonterait sinon en 503 au moment de la requête. Router du gRPC demande
+aussi un contrôleur configuré pour parler HTTP/2 au backend, soit
+`nginx.ingress.kubernetes.io/backend-protocol: GRPC` pour ingress-nginx.
+
+Faites la terminaison TLS au niveau du contrôleur. Le daemon parle HTTP
+en clair sauf si `[daemon.tls]` est configuré, et ce chart ne câble pas
+de certificats vers le backend de l'Ingress.
+
+Une entrée d'hôte sans clé `host` correspond à tous les hôtes qui
+atteignent le contrôleur. C'est valide et parfois voulu sur un contrôleur
+interne, mais sur un contrôleur partagé cela publie l'API bien plus
+largement que prévu.
+
+Activer un Ingress n'assouplit pas la NetworkPolicy. Si les deux sont
+actifs, les pods du contrôleur doivent être autorisés comme pair, sinon
+l'Ingress se résout et chaque requête expire, bloquée par une politique
+qui la refuse. Autorisez le namespace du contrôleur par son label automatique,
+que Kubernetes pose sur chaque namespace depuis la 1.21, plutôt que par
+un label que le chart du contrôleur applique ou non :
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceSelectors:
+      # ingress-nginx installé dans son propre namespace. Utilisez `traefik`,
+      # `kube-system`, ou ce que `kubectl get pods -A | grep ingress`
+      # indique pour votre cluster.
+      - matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+```
+
+Un moyen rapide de confirmer que c'est ce pair qui bloque : avec
+l'Ingress activé et des requêtes qui expirent, posez
+`networkPolicy.enabled=false` le temps d'une mise à jour. Si les requêtes
+se mettent à passer, c'est le sélecteur qui manque. Réactivez la NetworkPolicy
+avant de laisser les choses en l'état.
 
 ## Observabilité
 
@@ -963,7 +1062,7 @@ prometheusRule:
 
 Le groupe par défaut `perf-sentinel.rules` porte cinq règles. Chacune se
 déclenche sur une donnée que le daemon a perdue sans pouvoir la retrouver : le
-daemon qui n'est plus collecté (`up{job="<fullname> de la release"} == 0`),
+daemon qui n'est plus collecté (`up{job="<nom complet de la release>"} == 0`),
 l'ingestion abandonnée sur un canal saturé, l'ingestion refusée sous pression
 mémoire, les traces délestées avant analyse, et une fenêtre d'archive de
 divulgation perdue. La `description` de chaque alerte nomme le paramètre
@@ -978,7 +1077,7 @@ prédisait l'alerte de délestage, donc un incident produisait deux notification
 et la première ne portait aucun remède que la seconde n'avait pas.
 
 `PerfSentinelDown` lit le nom de job que l'opérateur Prometheus dérive du
-Service, c'est-à-dire le fullname de la release. Collecter avec votre propre
+Service, c'est-à-dire le nom complet de la release. Collecter avec votre propre
 `scrape_config` sous un autre `job_name` laisse cette règle muette. Dans ce cas,
 redéfinissez-la via `additionalRules`.
 
