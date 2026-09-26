@@ -170,10 +170,9 @@ fn renders_minimal_report_to_valid_html() {
 #[test]
 fn no_js_notice_is_removed_by_a_script_that_follows_it() {
     // The notice is what a viewer gets when the script cannot run, which
-    // is what a restrictive CSP does (Jenkins by default). Order is the
-    // whole point: the remover has to sit after the notice and before
-    // the shell, so a normal load drops it during parsing and never
-    // paints it.
+    // is what a restrictive CSP does (Jenkins by default). The remover
+    // has to sit after the notice and before the shell, so a normal load
+    // drops it during parsing and never paints it.
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
     let notice = html.find(r#"id="ps-no-js""#).expect("no-JS notice");
@@ -429,8 +428,7 @@ fn quality_gate_rules_scaffold_and_csv_confidence_present() {
     let report = minimal_report(vec![]);
     let (html, _) = render(&report, &[], &opts("traces.json", None));
 
-    // The app-shell redesign renders the gate rules inside the Overview
-    // hero (renderOverviewHero) instead of a standalone table host.
+    // The gate rules render inside the Overview hero (renderOverviewHero).
     assert!(
         html.contains("function renderOverviewHero"),
         "Overview hero renderer (carries the gate rules) missing"
@@ -466,7 +464,7 @@ fn escapes_closing_script_tag_in_embedded_json() {
         "user-controlled </script> leaked into the document"
     );
     // And the escaped form must appear (proof that the hostile
-    // string survived as data, not as markup).
+    // string stayed data, not markup).
     assert!(html.contains("<\\/script>"));
 
     // The JSON payload must still round-trip cleanly.
@@ -488,7 +486,7 @@ fn escapes_closing_script_tag_in_embedded_json() {
 
 #[test]
 fn embedded_span_does_not_leak_raw_sql_literals() {
-    // The raw db.statement carries secrets; only the masked template may
+    // The raw db.statement carries secrets. Only the masked template may
     // reach the HTML payload. Regression for the embedded-traces leak
     // where EmbeddedSpan.target serialized event.target verbatim.
     let masked = "SELECT * FROM t WHERE tags = ARRAY[?, ?]";
@@ -555,9 +553,9 @@ fn applies_max_traces_embedded_cap_via_top_waste_fallback() {
             trace_id: tid.clone(),
             spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
         });
-        // top_offenders no longer drives the trace ranking (the findings
-        // list does), kept populated so the GreenOps panel under test
-        // stays realistic.
+        // top_offenders does not drive the trace ranking (the findings
+        // list does). It stays populated so the GreenOps panel under test
+        // looks realistic.
         offenders.push(TopOffender {
             endpoint: ep.clone(),
             service: svc.clone(),
@@ -629,7 +627,7 @@ fn oversized_findings_are_trimmed_critical_first() {
 fn per_endpoint_io_ops_dropped_from_embed() {
     // The dashboard never reads per_endpoint_io_ops, so it must not
     // ship in the embedded payload regardless of cardinality. The
-    // JSON report (analyze --format json) keeps it; this only asserts
+    // JSON report (analyze --format json) keeps it. This only asserts
     // the HTML embed.
     use crate::report::PerEndpointIoOps;
     let mut report = minimal_report(vec![finding("t0", "svc", "/ep", "SELECT 1")]);
@@ -653,7 +651,7 @@ fn per_endpoint_io_ops_dropped_from_embed() {
 
 #[test]
 fn top_offenders_capped_in_embed_but_full_ranking_preserved() {
-    // 40 offenders (ranks 0..40); the embed cap is 25. Two candidate
+    // 40 offenders (ranks 0..40) against an embed cap of 25. Two candidate
     // traces: one whose endpoint is offender rank 30 (beyond the cap)
     // and one whose endpoint is not an offender at all (rank MAX).
     let mut offenders = Vec::new();
@@ -672,7 +670,7 @@ fn top_offenders_capped_in_embed_but_full_ranking_preserved() {
     ];
     let mut report = minimal_report(findings);
     report.green_summary.top_offenders = offenders;
-    // t-none first on purpose: if ranking wrongly used the capped
+    // t-none goes first: if ranking wrongly used the capped
     // list, both traces would rank usize::MAX and the stable sort
     // would keep input order, embedding t-none and failing the
     // assertion below. With t-beyond first, the regression would be
@@ -688,7 +686,7 @@ fn top_offenders_capped_in_embed_but_full_ranking_preserved() {
         },
     ];
 
-    // Cap embedding at 1 trace: only the better-ranked one survives.
+    // Cap embedding at 1 trace: only the better-ranked one is kept.
     let (html, _) = render(&report, &traces, &opts("-", Some(1)));
     let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
 
@@ -751,7 +749,7 @@ fn render_stats_match_total_when_no_trim() {
 fn omits_greenops_section_when_green_disabled() {
     // A GreenSummary where `co2` is None (green scoring disabled)
     // must hide the GreenOps tab on the client side. We verify by
-    // asserting the payload reflects the disabled state; the JS
+    // asserting the payload reflects the disabled state. The JS
     // bootstrap checks `report.green_summary.co2` to decide tab
     // visibility.
     let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
@@ -792,12 +790,12 @@ fn no_forbidden_apis_in_template() {
         // around the textContent-only invariant.
         "DOMParser(",
         "createContextualFragment(",
-        // We intentionally omit a bare `Function(` check: the string
-        // "function (" appears many times as IIFE / callback syntax.
-        // `new Function(` is the only constructor shape that
-        // executes a string as code, a literal `Function(` without
-        // `new` would need `window.Function(` to be callable, which
-        // is caught by the same `Function(` heuristic below.
+        // No bare `Function(` check: the string "function (" appears
+        // many times as IIFE / callback syntax. `new Function(` is the
+        // only constructor shape that executes a string as code. A
+        // literal `Function(` without `new` would need
+        // `window.Function(` to be callable, which is caught by the
+        // same `Function(` heuristic below.
     ];
     for needle in forbidden {
         assert!(
@@ -888,8 +886,8 @@ fn brand_svgs_have_no_active_content() {
 
 #[test]
 fn svg_event_handler_scan_catches_first_attribute() {
-    // The common XSS form is a handler as the first attribute of an element;
-    // the previous whitespace-stripping scan fused the tag name and missed it.
+    // The common XSS form is a handler as the first attribute of an element.
+    // A whitespace-stripping scan fuses it with the tag name and misses it.
     assert_eq!(
         svg_event_handler(r#"<svg onload="x">"#).as_deref(),
         Some("onload")
@@ -1000,7 +998,7 @@ fn template_carries_scoring_config_bandeau_and_helpers() {
     // Locks in the 0.5.12 dashboard surface for the
     // `green_summary.scoring_config` field. The chip rendering is
     // exercised manually via the browser-validation helper above
-    // (no JSDOM in the test suite), this assertion guards against
+    // (no JSDOM in the test suite). This assertion guards against
     // accidental removal of the bandeau plumbing.
     for needle in [
         "id=\"green-scoring-config\"",
@@ -1024,7 +1022,7 @@ fn template_carries_scoring_config_bandeau_and_helpers() {
 fn template_carries_estimated_column_and_helper() {
     // Locks in the 0.5.10 dashboard surface for the
     // `intensity_estimated` / `intensity_estimation_method` fields.
-    // The actual JS-rendered cell is exercised manually via
+    // The JS-rendered cell is exercised manually via
     // browser validation (no JSDOM in the test suite).
     for needle in [
         "<th>Estimated</th>",
@@ -1117,15 +1115,14 @@ fn export_button_rendered_for_listable_tabs_only() {
 
 // CSV escape correctness is verified end-to-end in
 // crates/sentinel-cli/tests/browser/tests/dashboard.spec.ts,
-// where the JS csvEscape runs in a real browser. The hand-written
-// Rust twin was removed to avoid drift between the two
-// implementations.
+// where the JS csvEscape runs in a real browser. A hand-written
+// Rust twin would drift from it, so there is none.
 
 #[test]
 fn sessionstorage_access_is_guarded_by_try_catch() {
-    // Load-bearing invariant: the two wrapper functions exist,
-    // every caller inherits their guard. A refactor that removes
-    // or renames the wrappers trips this check immediately.
+    // Every caller inherits the guard of the two wrapper functions,
+    // so both must exist. A refactor that removes or renames the
+    // wrappers trips this check immediately.
     assert!(
         TEMPLATE.contains("function sessionGet("),
         "sessionGet helper missing"
@@ -1284,7 +1281,7 @@ fn omits_mysql_stat_when_absent() {
         value.get("mysql_stat").is_none(),
         "mysql_stat must be absent when not provided (skip_serializing_if)"
     );
-    // The static panel-mysqlstat scaffolding stays in the template; the
+    // The static panel-mysqlstat scaffolding stays in the template. The
     // JS hides it at runtime based on payload presence.
     assert!(html.contains(r#"id="panel-mysqlstat""#));
 }
@@ -1342,7 +1339,7 @@ fn omits_pg_stat_when_absent() {
         value.get("pg_stat").is_none(),
         "pg_stat must be absent when not provided (skip_serializing_if)"
     );
-    // The static panel-pgstat scaffolding stays in the template; the
+    // The static panel-pgstat scaffolding stays in the template. The
     // JS hides it at runtime based on payload presence. Assert the
     // scaffolding is there so the cross-nav wiring has an anchor to
     // reach even before the tab is registered.
@@ -1386,9 +1383,9 @@ fn omits_diff_when_absent() {
 fn cross_nav_pgstat_link_added_only_when_pg_stat_present() {
     // Build a trace whose SQL span's normalized template matches a
     // pg_stat row. The ps-span-pgstat-link class is added by the JS
-    // at render time, not by the Rust sink; what we verify here is
-    // that the Rust payload carries everything the JS needs for the
-    // link to fire, i.e. a `pg_stat` section with the same
+    // at render time, not by the Rust sink. This test verifies that
+    // the Rust payload carries everything the JS needs for the link
+    // to fire, i.e. a `pg_stat` section with the same
     // `normalized_template` the span carries.
     let tpl = "SELECT * FROM order_item WHERE order_id = ?";
     let f = finding("abc", "svc", "/ep", tpl);
@@ -1449,7 +1446,7 @@ fn cross_nav_pgstat_link_added_only_when_pg_stat_present() {
 fn pg_stat_sub_switcher_exposes_all_ranking_labels() {
     // The sub-switcher is built client-side from `payload.pg_stat.rankings`,
     // so a server-side render on its own does not produce the chip
-    // <button> elements. What we assert here is the contract the JS
+    // <button> elements. This test asserts the contract the JS
     // depends on: the static template still carries the four human
     // labels, the sub-switcher sets `data-ranking-index` via
     // `setAttribute` (not as an inline HTML attribute), and the
@@ -1531,8 +1528,8 @@ fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
         TEMPLATE.contains("function currentThemeMode("),
         "currentThemeMode helper missing"
     );
-    // The `<html>` element must not hardcode `data-theme="dark"`
-    // anymore, or the OS preference is ignored until JS runs.
+    // The `<html>` element must not hardcode `data-theme="dark"`,
+    // or the OS preference is ignored until JS runs.
     assert!(
         TEMPLATE.contains("data-theme=\"\""),
         "<html> data-theme must start empty so applyTheme runs before paint"
@@ -1609,7 +1606,7 @@ fn overview_kpi_cards_carry_semantic_tones() {
         TEMPLATE.contains(".ps-metric[data-grad=\"accent\"]"),
         "accent (actionable) card CSS hook missing"
     );
-    // No gradients anywhere: the reskin replaced them with flat pastels.
+    // No gradients anywhere: the cards use flat pastels.
     assert!(
         !TEMPLATE.contains("linear-gradient"),
         "reskin must not reintroduce gradient fills"
@@ -1618,11 +1615,11 @@ fn overview_kpi_cards_carry_semantic_tones() {
 
 #[test]
 fn detail_pane_no_trace_states_present() {
-    // Two "no trace to show" states survive the master/detail redesign:
-    // the cap-reached message rendered inline in openExplain (the finding
-    // header stays, only the tree is hidden), and the resolved-diff
-    // message surfaced as a toast so clicking it does not navigate away
-    // from the Diff tab and wipe the user's active diff filter.
+    // This test pins two "no trace to show" states. The cap-reached
+    // message renders inline in openExplain (the finding header stays, only
+    // the tree is hidden). The resolved-diff message shows as a toast, so
+    // clicking it does not navigate away from the Diff tab and wipe the
+    // user's active diff filter.
     assert!(
         TEMPLATE.contains(" span trees are in this report, kept for the "),
         "trimmed-traces message missing"
@@ -1664,11 +1661,9 @@ fn tabs_and_panels_carry_aria_roles() {
         assert!(TEMPLATE.contains(&needle), "{panel} id missing");
     }
     // Each tabpanel carries `role="tabpanel"` and
-    // `aria-labelledby="tab-<name>"` with its matching tab id. The
-    // app-shell redesign (0.9.0) folded the Explain tab into the
-    // Findings master/detail pane and added the Overview landing
-    // panel; 0.9.5 added the mysql_stat panel, bringing the count
-    // to 8.
+    // `aria-labelledby="tab-<name>"` with its matching tab id. Explain
+    // lives in the Findings master/detail pane, not in a tabpanel of
+    // its own, so the count is 8, one per panel listed above.
     let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
     assert_eq!(
         tabpanel_count, 8,
@@ -1704,8 +1699,7 @@ fn chips_carry_aria_radio_and_pressed_states() {
     // pg_stat rankings and finding severity are radiogroups. The three
     // multi-value families are disclosure menus whose accessible name comes
     // from the FILTER_GROUPS table, so assert the table entries rather than a
-    // setter call: every group must keep a name, including the two that used
-    // to be untested and could have vanished in silence.
+    // setter call: every group must keep a name.
     assert!(
         TEMPLATE.contains("\"role\", \"radiogroup\""),
         "radiogroup role setter missing"
@@ -1778,12 +1772,12 @@ fn template_ships_a_strict_content_security_policy() {
     // a CSP that forbids every non-inline origin plus external
     // requests blocks accidental regressions (e.g. a future edit
     // that introduces an <img src="https://..."> via the JSON
-    // payload). Since 0.5.23 the CSP value is built per render
-    // (static vs live mode), so the assertion targets the
+    // payload). The CSP value is built per render (static vs live
+    // mode), so the assertion targets the
     // <meta http-equiv="Content-Security-Policy" content="..."/>
-    // tag specifically rather than the whole HTML, since the JS
-    // body legitimately mentions "connect-src" inside live-mode
-    // helper comments and string literals.
+    // tag rather than the whole HTML: the JS body legitimately
+    // mentions "connect-src" inside live-mode helper comments and
+    // string literals.
     let f = finding("t1", "svc", "/ep", "SELECT 1");
     let report = minimal_report(vec![f]);
     let (html, _) = render(&report, &[], &opts("normal.json", None));
@@ -1799,7 +1793,7 @@ fn template_ships_a_strict_content_security_policy() {
     assert!(csp_value.contains("default-src 'none'"));
     assert!(csp_value.contains("base-uri 'none'"));
     assert!(csp_value.contains("form-action 'none'"));
-    // The redesign embeds DM Sans/JetBrains Mono as base64 data: woff2, so
+    // The report embeds DM Sans/JetBrains Mono as base64 data: woff2, so
     // the CSP must allow `font-src data:` (and nothing wider).
     assert!(
         csp_value.contains("font-src data:"),
@@ -1883,7 +1877,7 @@ fn build_csp_live_mode_appends_connect_src() {
 #[test]
 fn build_csp_live_mode_only_whitelists_provided_url() {
     let csp = build_csp(Some("https://daemon.example.com"));
-    // Wildcard `connect-src *` would defeat the purpose; the
+    // Wildcard `connect-src *` would defeat the purpose. The
     // directive must only allow same-origin and the daemon.
     assert!(!csp.contains("connect-src *"));
     assert!(csp.contains("connect-src 'self' https://daemon.example.com"));
@@ -1903,10 +1897,10 @@ fn rendered_html_in_static_mode_does_not_carry_daemon_field() {
 #[test]
 fn rendered_html_in_live_mode_with_ipv6_literal_preserves_brackets() {
     // IPv6 authorities embed `[`/`]` brackets per RFC 3986. Verify
-    // they survive both the JSON payload (where they are not
+    // they stay intact in both the JSON payload (where they are not
     // escape-meaningful) and the CSP directive (where the brackets
     // are valid host-literal syntax). `validate_url` upstream
-    // accepts the form, the renderer must not corrupt it.
+    // accepts the form, so the renderer must not corrupt it.
     let f = finding("t1", "svc", "/ep", "SELECT 1");
     let report = minimal_report(vec![f]);
     let mut options = opts("normal.json", None);
@@ -1967,11 +1961,10 @@ fn template_propagates_api_key_header_constant() {
 fn live_mode_acks_cap_matches_daemon_constant() {
     // The HTML JS hardcodes `DAEMON_ACKS_CAP = N` as the limit before the
     // footer note kicks in. The daemon caps `/api/acks` at
-    // `MAX_ACKS_RESPONSE`. Both must stay in lockstep — drift means the JS
+    // `MAX_ACKS_RESPONSE`. Both must stay in lockstep. Drift means the JS
     // either truncates findings the daemon would have served, or claims a
     // larger window than the daemon backs. Parse N out of the template and
-    // assert equality against the daemon constant; do not check a literal
-    // here.
+    // assert equality against the daemon constant, not against a literal.
     let needle = "var DAEMON_ACKS_CAP = ";
     let start = TEMPLATE
         .find(needle)
@@ -2283,8 +2276,8 @@ fn culprit_key_of(f: &Finding) -> String {
 
 #[test]
 fn culprit_spans_name_the_serialized_chain_not_the_whole_trace() {
-    // The straddling sibling must stay out, which is what no client-side
-    // template match can work out without copying the scheduling rule.
+    // The straddling sibling must stay out, and no client-side template
+    // match can work that out without copying the scheduling rule.
     let trace = Trace {
         trace_id: "t1".into(),
         spans: serialized_chain("t1", "p1", "c", 0),
@@ -2684,7 +2677,7 @@ fn report_carried_traces_render_when_no_trace_is_handed_over() {
 #[test]
 fn report_carried_traces_of_hidden_findings_do_not_ship() {
     // An acknowledged finding is filtered out of report.findings before
-    // render; its span tree must not survive inside the payload.
+    // render, so its span tree must not ship inside the payload.
     let f = finding("t-visible", "svc", "/ep", "select 1");
     let mut report = minimal_report(vec![f]);
     report.embedded_traces = vec![
@@ -2723,13 +2716,13 @@ fn report_carried_traces_of_hidden_findings_do_not_ship() {
 
 #[test]
 fn report_carried_traces_honor_the_explicit_cap() {
-    // Findings deliberately out of alphabetical order, and the one at the
-    // top is the mildest: a selection keyed on severity would keep t2, and
-    // one keyed on position in embedded_traces would keep t2 as well. Only
-    // ranking by the findings list keeps t0, which is what makes
-    // `report --sort impact` decide the embed rather than only the reading
-    // order. Asserting the surviving id is the point, the counts alone
-    // pass under every one of those rules.
+    // Findings out of alphabetical order, and the one at the top is the
+    // mildest: a selection keyed on severity would keep t2, and one keyed
+    // on position in embedded_traces would keep t2 as well. Only ranking
+    // by the findings list keeps t0, which makes `report --sort impact`
+    // decide the embed rather than only the reading order. The test
+    // asserts the kept id because the counts alone pass under every one
+    // of those rules.
     let mut first = finding("t0", "svc", "/ep", "select 1");
     first.severity = Severity::Info;
     let mut last = finding("t2", "svc", "/ep", "select 3");
@@ -2764,7 +2757,7 @@ fn report_carried_traces_honor_the_explicit_cap() {
 
 #[test]
 fn borrowed_size_probe_matches_owned_serialization() {
-    // The trim loop measures candidates through the borrowed twin; a
+    // The trim loop measures candidates through the borrowed twin, so a
     // drifted field would skew the size budget silently.
     let trace = Trace {
         trace_id: "t1".into(),
@@ -2890,7 +2883,7 @@ fn template_carries_the_report_warnings_banner() {
 /// already drifted under 4.5 once, `--brand-text` to 4.09 on the light accent
 /// and `--text-3` to 3.50 on the dark deep surface.
 ///
-/// Sampled per theme against the grounds each colour is actually painted on,
+/// Sampled per theme against the grounds each colour is painted on,
 /// read out of the template rather than restated here, so a palette change
 /// moves the test with it instead of leaving it asserting a colour nobody uses.
 #[test]
@@ -2930,7 +2923,7 @@ fn the_template_text_colours_clear_the_aa_contrast_floor() {
 
     // Anchored on each block's own selector, not on document order: reading
     // the dark palette from offset 0 would silently read the light one twice
-    // if the blocks were ever swapped, and a wrong pass here is worse than a
+    // if the blocks were ever swapped. A wrong pass here is worse than a
     // failure, since this test replaces a comment nobody could enforce.
     let dark = TEMPLATE
         .find(":root[data-theme=\"dark\"]")
@@ -2939,8 +2932,8 @@ fn the_template_text_colours_clear_the_aa_contrast_floor() {
         .find(":root[data-theme=\"light\"]")
         .expect("the template declares a light theme block");
     // Two different needles always land on two different offsets, so comparing
-    // them proves nothing. What the anchors owe is two distinct palettes, and
-    // a template that put both selectors on one rule would give one.
+    // them proves nothing. The anchors must resolve to two distinct palettes,
+    // and a template that put both selectors on one rule would give one.
     assert_ne!(
         token(dark, "--bg"),
         token(light, "--bg"),
@@ -3029,7 +3022,7 @@ fn the_raw_trace_path_embeds_the_trees_the_top_findings_reference() {
     // of trace-id order and out of candidate order, and t2 carries no
     // finding at all, so a path back on its own ordering would keep
     // ["t1", "t2"] or ["t1", "t3"] rather than the pair the top rows point
-    // at. Asserting the ids and their order is the point, the count alone
+    // at. The test asserts the ids and their order because the count alone
     // passes under every one of those rules.
     let report = minimal_report(findings_pointing_at(&["t3", "t1", "t4"]));
     let traces = traces_named(&["t1", "t2", "t3", "t4"]);
@@ -3048,8 +3041,8 @@ fn the_raw_trace_path_embeds_the_trees_the_top_findings_reference() {
 fn the_report_carried_path_embeds_the_trees_the_top_findings_reference() {
     // `report --input <daemon snapshot>`: no trace handed over, the spans
     // travel inside the report, sorted by trace id as `embed_finding_traces`
-    // writes them. Same findings, same expected pair: both sink paths owe
-    // the reader the same trees for the same report.
+    // writes them. Same findings, same expected pair: both sink paths must
+    // give the reader the same trees for the same report.
     let mut report = minimal_report(findings_pointing_at(&["t3", "t1", "t4"]));
     report.embedded_traces = traces_named(&["t1", "t2", "t3", "t4"])
         .iter()
