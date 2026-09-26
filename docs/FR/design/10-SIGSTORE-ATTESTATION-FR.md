@@ -19,8 +19,8 @@ complémentaires :
 - **Provenance SLSA** sur le binaire perf-sentinel, produite par le
   workflow GitHub Actions de release du projet. Prouve que le
   binaire ayant calculé le rapport a été construit depuis le code
-  source officiel par un builder reconnu, pas par un build personnel
-  ou trafiqué.
+  source officiel par un builder reconnu, pas par un build
+  personnalisé ou trafiqué.
 
 Un consommateur qui vérifie les deux obtient une chaîne de
 confiance complète :
@@ -32,9 +32,9 @@ code source -> attestation SLSA -> binaire -> rapport -> signature Sigstore
 Les deux couches sont indépendantes : un opérateur peut signer un
 rapport produit par un binaire non officiel (la signature prouve
 toujours la paternité et l'intégrité, l'attestation binaire est
-absente). Ou un binaire officiel peut produire un rapport jamais
-signé (`hash-only`). Le schéma rend les deux états explicites via
-`integrity.integrity_level` :
+absente du rapport). Ou un binaire officiel peut produire un
+rapport jamais signé (`hash-only`). Le schéma rend les deux états
+explicites via `integrity.integrity_level` :
 
 | niveau                      | content_hash | signature | binary_attestation |
 |-----------------------------|--------------|-----------|--------------------|
@@ -44,7 +44,7 @@ signé (`hash-only`). Le schéma rend les deux états explicites via
 | `signed-with-attestation`   | présent      | présent   | présent            |
 | `audited` (réservé)         | n/a          | n/a       | n/a                |
 
-## Le flow d'attestation
+## Le flux d'attestation
 
 Pour une divulgation `intent = "official"`, le workflow opérateur
 est :
@@ -67,13 +67,14 @@ est :
    `cosign attest-blob --predicate` ici envelopperait le Statement
    déjà formé dans un nouveau predicate-of-Statement, produisant
    une entrée malformée permanente dans le journal Rekor public.
-4. **Mettre à jour le locator signature du rapport** : l'opérateur
-   édite `report.json` pour ajouter `integrity.signature` avec
-   les métadonnées qui permettent aux vérifieurs de localiser le
-   bundle et l'entrée Rekor, puis fait passer `integrity_level` de
-   `hash-only` à `signed` ou `signed-with-attestation`. Cette étape
-   est manuelle aujourd'hui. Une future sous-commande
-   `perf-sentinel sign` pourrait l'automatiser.
+4. **Mettre à jour le localisateur de signature du rapport** :
+   l'opérateur édite `report.json` pour ajouter
+   `integrity.signature` avec les métadonnées qui permettent aux
+   vérifieurs de localiser le bundle et l'entrée Rekor, puis fait
+   passer `integrity_level` de `hash-only` à `signed` ou
+   `signed-with-attestation`. Cette étape est manuelle aujourd'hui.
+   Une future sous-commande `perf-sentinel sign` pourrait
+   l'automatiser.
 5. **Publier** : les trois fichiers (`report.json`,
    `attestation.intoto.jsonl`, `bundle.sig`) sont publiés à l'URL
    de transparence de l'opérateur.
@@ -84,7 +85,7 @@ attestation.intoto.jsonl --bundle bundle.sig` ou, plus court,
 `perf-sentinel verify-hash --url https://example.fr/report.json`
 qui récupère les sidecars par convention.
 
-## Format statement in-toto v1
+## Format du statement in-toto v1
 
 L'attestation produite par `disclose --emit-attestation` est un
 document in-toto v1 à statement unique. Forme :
@@ -183,7 +184,7 @@ cosign sign-blob \
     attestation.intoto.jsonl
 ```
 
-L'issuer OIDC (flow navigateur ou token GitHub Actions) enregistre
+L'issuer OIDC (flux navigateur ou token GitHub Actions) enregistre
 l'identité du signataire dans le bundle. Les opérateurs qui
 utilisent une instance Rekor privée passent
 `--rekor-url https://rekor.internal.example.fr` qui correspond à
@@ -194,23 +195,23 @@ attestation.intoto.jsonl ...` ici. `attest-blob --predicate` traite
 son argument comme un predicate brut et l'enveloppe dans un nouveau
 Statement in-toto v1 à la volée. Comme le pipeline disclose émet
 déjà un Statement complet, le résultat est un Statement-of-Statement
-que Rekor enregistre de façon permanente dans le journal public.
-Utiliser `sign-blob` pour signer le Statement déjà formé tel quel,
-avec `--new-bundle-format` correspondant pour que le bundle porte
-la preuve d'inclusion Rekor dans le format que `verify-blob`
-attend.
+que Rekor enregistre de façon permanente dans le journal de
+transparence public. Utiliser `sign-blob` pour signer le Statement
+déjà formé tel quel, avec `--new-bundle-format` correspondant pour
+que le bundle porte la preuve d'inclusion Rekor dans le format que
+`verify-blob` attend.
 
 cosign 2.4+ est requis pour le flag `--new-bundle-format`. Les
-versions cosign antérieures émettent un bundle legacy que
+versions cosign antérieures émettent un bundle à l'ancien format que
 `cosign verify-blob` refuse. Les opérateurs sur cosign <2.4
-doivent mettre à jour cosign avant de signer pour la transparence.
+devraient mettre à jour cosign avant de signer pour la transparence.
 
-Le flag `--no-tlog-upload` n'est pas pris en charge par
-verify-hash : un bundle sans preuve d'inclusion Rekor est refusé
-avec un message d'erreur clair. L'auditabilité publique est une
-propriété du format, pas une option.
+Le chemin de vérification ne prend pas en charge le flag
+`--no-tlog-upload` : un bundle sans preuve d'inclusion Rekor est
+refusé avec un message d'erreur clair. L'auditabilité publique est
+une propriété du format, pas une option.
 
-## Flow de vérification
+## Flux de vérification
 
 `perf-sentinel verify-hash` chaîne jusqu'à trois vérifications :
 
@@ -222,11 +223,11 @@ propriété du format, pas une option.
    l'opérateur passe `--attestation` et `--bundle` (ou que le mode
    `--url` les récupère automatiquement).
 3. **Attestation binaire** (déléguée à `gh attestation verify` à
-   partir de 0.7.1, `slsa-verifier verify-artifact` sur la 0.7.0
-   legacy). La sortie verify-hash affiche un résumé des métadonnées
-   et la commande de vérification exacte à lancer contre le binaire
-   téléchargé depuis `integrity.binary_verification_url`. La
-   migration 0.7.1 a déplacé le stockage de l'attestation d'un
+   partir de v0.7.1, `slsa-verifier verify-artifact` sur l'ancienne
+   release v0.7.0). La sortie verify-hash affiche un résumé des
+   métadonnées et la commande de vérification exacte à lancer contre
+   le binaire téléchargé depuis `integrity.binary_verification_url`.
+   La migration 0.7.1 a déplacé le stockage de l'attestation d'un
    asset de release (`multiple.intoto.jsonl`) vers l'API
    attestations GitHub via `actions/attest-build-provenance`.
    Récupérer et vérifier le binaire en une seule commande est un
@@ -247,7 +248,7 @@ script d'encapsulation de différencier une tentative de falsification
 d'un outil manquant. Un gate naïf `verify-hash && deploy` rejette
 toujours PARTIAL parce que le code de sortie est non nul.
 
-## Privacy sur Rekor public
+## Confidentialité sur Rekor public
 
 Chaque signature envoyée à Rekor Sigstore public produit une
 entrée permanente, lisible par tous dans le journal de
@@ -260,7 +261,7 @@ transparence. L'entrée contient :
 - Un horodatage.
 
 L'entrée ne contient ni le rapport lui-même ni son contenu. Les
-opérateurs préoccupés par la fuite d'identité signataire peuvent
+opérateurs préoccupés par la fuite d'identité signataire devraient
 envisager :
 
 - Utiliser l'email d'un compte de service dédié pour la signature.
@@ -278,15 +279,15 @@ veut savoir quelle identité se porte garante du rapport.
 Ce qu'un consommateur doit conclure quand chaque vérification échoue :
 
 - **Content hash FAIL** : le fichier est corrompu ou a été
-  trafiqué après publication. Untrusted.
+  trafiqué après publication. Non fiable.
 - **Signature FAIL** avec content_hash valide : le rapport
   lui-même est intact mais n'a plus de preuve Sigstore valide.
   Il est probable que le bundle ait été remplacé, que l'entrée
   Rekor ait été révoquée, ou que l'identité du certificat ne
-  corresponde pas au signataire revendiqué. Untrusted.
+  corresponde pas au signataire revendiqué. Non fiable.
 - **Signature SKIP** parce que `cosign` n'est pas installé :
   installer cosign et réessayer. Le rapport n'est pas
-  nécessairement untrusted mais ne peut pas être vérifié dans
+  nécessairement non fiable mais ne peut pas être vérifié dans
   l'installation actuelle de l'utilisateur. Le content hash seul est
   une garantie plus faible.
 - **Binary attestation NotProvided** : le rapport a été produit
@@ -297,7 +298,7 @@ Ce qu'un consommateur doit conclure quand chaque vérification échoue :
 - **Binary attestation FAIL** : le binaire référencé par
   `integrity.binary_verification_url` ne correspond pas à
   l'attestation SLSA, ou le source-uri ne correspond pas à
-  `github.com/robintra/perf-sentinel`. Traiter comme untrusted.
+  `github.com/robintra/perf-sentinel`. Traiter comme non fiable.
 
 Le verdict global apparaît comme `TRUSTED` (content hash +
 signature OK), `PARTIAL` (content hash OK mais signature
@@ -311,7 +312,7 @@ La sous-commande `hash-bake` (0.7.2+) calcule le `content_hash` canonique d'un r
 
 - `docs/FR/SCHEMA-FR.md` documente la forme sur le fil de
   `integrity.signature` et `integrity.binary_attestation`.
-- `docs/FR/REPORTING-FR.md` est le workflow signature côté
+- `docs/FR/REPORTING-FR.md` est le workflow de signature côté
   opérateur.
 - `docs/FR/SUPPLY-CHAIN-FR.md` couvre l'intégration du générateur
   SLSA dans le workflow GitHub Actions de release.
