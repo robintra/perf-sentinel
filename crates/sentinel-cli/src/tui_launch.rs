@@ -36,7 +36,7 @@ fn exit_with_error(err: &dyn std::fmt::Display) -> ! {
 /// `explain --tui` and `inspect` all funnel here, differing only by the
 /// initial view (and, for explain, the focused trace). Stubs per-trace
 /// placeholders from findings when the input carried no raw spans (a
-/// pre-computed Report), exactly like the Detail panel's fallback. Callers
+/// pre-computed Report), like the Detail panel's fallback. Callers
 /// must invoke `require_terminal_or_exit` before reading input.
 pub(crate) fn launch_unified_tui(
     report: sentinel_core::report::Report,
@@ -78,9 +78,9 @@ pub(crate) fn launch_unified_tui(
     }
 
     // `report` is fully consumed below, so move the summary fields out
-    // rather than clone them (the findings and correlations are moved into
-    // the App separately, disjoint-field moves the borrow checker allows).
-    // Read before the disjoint-field moves below, which end the borrow.
+    // rather than clone them. The findings and correlations move into the
+    // App separately, as disjoint-field moves the borrow checker allows.
+    // `warnings` is read first because those moves end the borrow.
     let warnings = crate::render::effective_warnings(&report);
     let summary = tui::AnalyzeSummary {
         green_summary: report.green_summary,
@@ -171,7 +171,7 @@ pub(crate) fn cmd_explain_tui(
     let known = traces.iter().any(|t| t.trace_id == trace_id)
         || report.findings.iter().any(|f| f.trace_id == trace_id);
     if !known {
-        // With raw events `traces` holds every id; with a pre-computed
+        // With raw events `traces` holds every id. With a pre-computed
         // Report `traces` is empty and the ids live on the findings.
         let available: Vec<&str> = if traces.is_empty() {
             report
@@ -221,7 +221,7 @@ pub(crate) fn cmd_disclose_tui(
         chrono::Utc::now().date_naive(),
     );
 
-    // The Disclose tab reads only `app.disclose`, empty inputs suffice.
+    // The Disclose tab reads only `app.disclose`, so empty inputs suffice.
     let mut app = tui::App::new(Vec::new(), Vec::new())
         .with_disclose(state)
         .with_initial_view(tui::View::Disclose);
