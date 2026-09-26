@@ -43,7 +43,7 @@ pub(crate) const TRACE_OVERRUN_REMEDY: &str =
 /// Give route templates the canonical path shape used by findings.
 ///
 /// Some instrumentations emit `http.route` without its leading slash. Keep
-/// legacy method-prefixed routes and full URLs intact; URL-like fallback
+/// legacy method-prefixed routes and full URLs intact. URL-like fallback
 /// attributes are handled separately by each ingest adapter.
 pub(crate) fn canonical_http_route(route: &str) -> String {
     if route.is_empty()
@@ -79,10 +79,10 @@ pub(crate) fn http_route_endpoint(
 /// relational SQL and would be mangled by the SQL tokenizer (cache,
 /// document, wide-column, graph, search, time-series stores).
 ///
-/// Denylist by design: only values we are confident are non-SQL are
-/// listed, so an unknown or absent `db.system` always stays SQL and no
-/// SQL engine (postgresql, mysql, mssql, oracle, clickhouse, ...) is
-/// ever dropped by mistake.
+/// A denylist: only values we are confident are non-SQL are listed, so an
+/// unknown or absent `db.system` always stays SQL and no SQL engine
+/// (postgresql, mysql, mssql, oracle, clickhouse, ...) is ever dropped by
+/// mistake.
 const NON_SQL_DB_SYSTEMS: &[&str] = &[
     "redis",
     "memcached",
@@ -101,11 +101,11 @@ const NON_SQL_DB_SYSTEMS: &[&str] = &[
 
 /// What the tag-based gates (Jaeger, Zipkin) can classify a span as.
 ///
-/// Deliberately narrower than [`EventType`]: those gates admit a span on
-/// `db.statement` or on an HTTP target, never on `messaging.system`.
-/// Matching on this instead of `EventType` makes adding a third case a
-/// compile error in every downstream match, rather than a publish
-/// silently inheriting the HTTP arm and being labelled `GET`.
+/// Narrower than [`EventType`]: those gates admit a span on `db.statement`
+/// or on an HTTP target, never on `messaging.system`. Matching on this
+/// instead of `EventType` makes adding a third case a compile error in every
+/// downstream match, rather than a publish silently inheriting the HTTP arm
+/// and being labelled `GET`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TagIoKind {
     Sql,
@@ -229,7 +229,7 @@ fn usable_code_frame_part(s: &str) -> Option<&str> {
 
 /// Framework namespaces that never name an origin: on PHP the outermost
 /// `code.*` frame is the framework's HTTP kernel, which collides in the ack
-/// signature exactly as `"unknown"` did while looking resolved. Prefix match.
+/// signature as `"unknown"` does while looking resolved. Prefix match.
 const FRAMEWORK_FRAME_PREFIXES: &[&str] = &[
     // PHP (lab-observed on symfony-svc, laravel-svc and the OTel demo)
     "Symfony\\",
@@ -318,10 +318,9 @@ fn frame_separator(namespace: &str) -> &'static str {
     }
 }
 
-/// Trait for event ingestion sources.
 /// Resolve the configured grouping attributes against one span, in config
 /// order, skipping the absent ones. `keys` empty means the caller never
-/// configured any and the built-in default applies, an explicitly empty
+/// configured any and the built-in default applies. An explicitly empty
 /// `[detection] grouping_attributes` turns grouping off instead.
 ///
 /// `lookup` is the per-format attribute reader (OTLP resource + span
@@ -356,6 +355,7 @@ pub(crate) fn collect_grouping(
     out
 }
 
+/// Trait for event ingestion sources.
 pub trait IngestSource {
     /// Error type for this source.
     type Error: std::error::Error;
@@ -672,8 +672,8 @@ mod tests {
 
     #[test]
     fn code_frame_endpoint_rejects_unusable_input() {
-        // Each of these used to yield a misleading endpoint that collided in
-        // the ack signature exactly as `"unknown"` did, or a malformed one.
+        // Each of these would yield a misleading endpoint that collides in
+        // the ack signature as `"unknown"` does, or a malformed one.
         let cases = [
             (None, None, "nothing at all"),
             (Some(""), None, "blank namespace"),
