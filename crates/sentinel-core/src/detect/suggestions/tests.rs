@@ -168,8 +168,8 @@ fn detects_java_quarkus_non_reactive_via_panache_common() {
 #[test]
 fn detects_java_quarkus_non_reactive_via_generic_quarkus_namespace() {
     // A general `io.quarkus.scheduler` (or any non-reactive Quarkus
-    // sub-package) routes to the non-reactive variant. Reactive's
-    // catch-all was removed precisely so this case lands here.
+    // sub-package) routes to the non-reactive variant. Reactive has no
+    // `io.quarkus` catch-all, so this case lands here.
     let f = finding_with_location(
         FindingType::NPlusOneSql,
         Some(loc(
@@ -182,7 +182,7 @@ fn detects_java_quarkus_non_reactive_via_generic_quarkus_namespace() {
 
 #[test]
 fn quarkus_reactive_wins_over_non_reactive_on_overlap() {
-    // Both rules could plausibly match `io.quarkus.hibernate.reactive...`
+    // Both rules could match `io.quarkus.hibernate.reactive...`
     // (it contains both "io.quarkus.hibernate.reactive" and "io.quarkus").
     // Reactive comes first in JAVA_RULES, so it must win.
     let f = finding_with_location(
@@ -356,9 +356,8 @@ fn falls_back_to_rust_generic_without_orm_hint() {
 
 #[test]
 fn java_hint_requires_trailing_segment_boundary() {
-    // Regression: `io.helidon` must not match `io.helidongrpc.Foo`,
-    // `org.hibernate` must not match `org.hibernatefoo.Bar`. Prior
-    // impl only checked the leading boundary.
+    // Regression: `io.helidon` must not match `io.helidongrpc.Foo`, and
+    // `org.hibernate` must not match `org.hibernatefoo.Bar`.
     let f = finding_with_location(
         FindingType::NPlusOneSql,
         Some(loc("src/main/java/Foo.java", Some("io.helidongrpc.Foo"))),
@@ -513,7 +512,7 @@ fn scope_unknown_falls_back_to_namespace() {
 fn scope_third_party_tracer_named_after_framework_does_not_match() {
     // A third-party tracer like `com.acme.quarkus-monitoring` contains
     // the substring `quarkus` but is not under the `io.opentelemetry.`
-    // prefix, so the boundary-aware matcher refuses it. Without this
+    // prefix, so the boundary-aware matcher rejects it. Without this
     // guard we would fire JavaQuarkus on any user library that happens
     // to embed a framework name.
     let f = finding_with_scopes(FindingType::NPlusOneSql, &["com.acme.quarkus-monitoring"]);
@@ -523,7 +522,7 @@ fn scope_third_party_tracer_named_after_framework_does_not_match() {
 #[test]
 fn scope_partial_segment_does_not_match() {
     // `quarkus` must end at a segment boundary (end of string or `-`).
-    // `quarkusextension-1.0` misses the `quarkus` rule, the prefix still
+    // `quarkusextension-1.0` misses the `quarkus` rule. The prefix still
     // says Java.
     let f = finding_with_scopes(
         FindingType::NPlusOneSql,
@@ -839,9 +838,7 @@ fn returns_none_when_filepath_absent_and_namespace_unrecognized() {
 #[test]
 fn returns_none_for_unsupported_extension() {
     // A language outside the taxonomy (Kotlin) with a namespace that
-    // matches no rule must not be enriched. Guards the invariant
-    // "unknown extension -> no false enrichment" now that `.php` is
-    // supported and no longer serves as the unsupported example.
+    // matches no rule must not be enriched.
     let f = finding_with_location(
         FindingType::NPlusOneSql,
         Some(loc("Order.kt", Some("com.example.OrderService"))),
@@ -1322,14 +1319,13 @@ fn node_generic_from_mjs_filepath() {
 
 #[test]
 fn fix_table_cardinality_is_pinned() {
-    // Snapshot of the (FindingType, Framework) table size. Bumping
-    // this number is fine when an entry is intentionally added or
-    // removed; reading the diff makes the change explicit instead
-    // of silently growing the public `suggested_fix` surface.
+    // Snapshot of the (FindingType, Framework) table size. Bump this
+    // number when adding or removing an entry, so the diff shows the
+    // change instead of the public `suggested_fix` surface growing
+    // silently.
     assert_eq!(FIXES.len(), 133);
-    // Anchor a handful of load-bearing combinations so a swap that
-    // preserves the count (drop one entry, add another) still trips
-    // the test instead of sliding through silently.
+    // Anchor a handful of key combinations so a swap that preserves the
+    // count (drop one entry, add another) still fails the test.
     for anchor in [
         (FindingType::NPlusOneSql, Framework::JavaJpa),
         (FindingType::NPlusOneSql, Framework::CsharpEfCore),
@@ -1354,7 +1350,7 @@ fn fix_table_cardinality_is_pinned() {
 
 #[test]
 fn messaging_fix_table_cardinality_is_pinned() {
-    // Same contract as the FIXES pin: bump deliberately, never silently.
+    // Same contract as the FIXES pin above.
     assert_eq!(MESSAGING_FIXES.len(), 12);
     for system in [
         MessagingSystem::Kafka,
@@ -1409,8 +1405,9 @@ fn messaging_system_aliases_resolve() {
 
 #[test]
 fn every_table_entry_is_reachable_from_a_real_semconv_value() {
-    // Pinning the table key is not enough: the SQS entries shipped
-    // unreachable because emitters spell it `aws.sqs`.
+    // Pinning the table key is not enough: an entry is reachable only
+    // when the value that emitters send resolves to it (SQS emitters
+    // write `aws.sqs`).
     for value in [
         "kafka",
         "rabbitmq",
@@ -1431,7 +1428,7 @@ fn every_table_entry_is_reachable_from_a_real_semconv_value() {
             "no messaging fix routes from messaging.system {value:?}"
         );
     }
-    // So a future entry cannot ship dead either.
+    // Every system in the table, future ones included, must be reachable.
     let reachable: std::collections::HashSet<_> = [
         "kafka", "rabbitmq", "aws_sqs", "aws.sqs", "pulsar", "nats", "jms",
     ]
@@ -1517,10 +1514,9 @@ fn unknown_language_stays_unenriched() {
 
 #[test]
 fn lookup_table_misses_for_unmapped_rust_generic_n_plus_one_sql() {
-    // Rust generic (no ORM) intentionally has no fix for SQL N+1: we
-    // cannot give a sensible cross-cutting recommendation without a
-    // specific ORM, and most Rust HTTP handlers go through one of
-    // Diesel or SeaORM anyway.
+    // Rust generic (no ORM) has no fix for SQL N+1: we cannot give a
+    // sensible cross-cutting recommendation without a specific ORM, and
+    // most Rust HTTP handlers go through one of Diesel or SeaORM anyway.
     let f = finding_with_location(
         FindingType::NPlusOneSql,
         Some(loc("src/repo.rs", Some("orders::repo"))),
@@ -1642,8 +1638,8 @@ fn detects_php_doctrine_via_scope() {
 
 #[test]
 fn detects_php_laravel_eloquent_via_scope() {
-    // The Laravel SQL leaf span is PDO-scoped, but the app-wide laravel
-    // scope rides the finding's parent chain.
+    // The Laravel SQL leaf span is PDO-scoped, but the finding's parent
+    // chain carries the app-wide laravel scope.
     let f = finding_with_scopes(
         FindingType::NPlusOneSql,
         &[
@@ -1752,7 +1748,7 @@ fn namespace_matcher_backslash_boundaries() {
 
 #[test]
 fn namespace_matcher_other_separators_unchanged() {
-    // Adding the `\` arm must not change `.`/`::` matching.
+    // The `\` arm must not change `.`/`::` matching.
     assert!(namespace_contains_segment(
         "org.hibernate.SessionImpl",
         "org.hibernate"
@@ -1839,7 +1835,7 @@ fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
         "docs.aws.amazon.com",
         "pulsar.apache.org",
     ];
-    // `github.com` is broad — pin to explicit `<org>/<repo>` paths so a
+    // `github.com` is broad. Pin it to explicit `<org>/<repo>` paths so a
     // future PR pointing at a typo-squat repo trips the guard.
     const ALLOWED_GITHUB_PREFIXES: &[&str] = &[
         "github.com/ben-manes/caffeine",

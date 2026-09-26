@@ -130,7 +130,7 @@ impl Framework {
 }
 
 /// Broker technology tag for the messaging fixes table, private like
-/// [`Framework`]. The axis differs on purpose: a publish anti-pattern is
+/// [`Framework`]. The axis differs because a publish anti-pattern is
 /// fixed in the broker client's batching API, which the framework does
 /// not name. Rationale in `docs/design/04-DETECTION.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -188,7 +188,7 @@ enum Hint {
 
 /// Per-language detection tables: `(framework, namespace hints)`.
 /// Order matters within a language: more-specific frameworks first,
-/// user-code conventions and generic last; the first match wins.
+/// user-code conventions and generic last. The first match wins.
 /// `Substring` hints embed enough of the package path to keep false
 /// positives rare (Rust hints anchor on `::` so `diesel::` does not
 /// match user crates containing `diesel` in a name).
@@ -235,7 +235,7 @@ const JAVA_RULES: &[(Framework, &[Hint])] = &[
     // JPA framework packages first, then user-code conventions. The
     // OTel Java agent often attaches `code.namespace` to the user's
     // Spring Data repository (e.g. `com.example.OrderRepository`)
-    // where the framework name never appears; the suffix patterns
+    // where the framework name never appears. The suffix patterns
     // catch those cases without matching `org.hibernate` style spans
     // (handled by the substrings above) more aggressively.
     (
@@ -278,7 +278,7 @@ const GO_RULES: &[(Framework, &[Hint])] = &[(Framework::GoGorm, &[Hint::Substrin
 const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Substring("prisma")])];
 
 // Ruby has no reliable namespace convention (no `*Repository` suffix, no
-// package path in `code.namespace`); detection relies on the ActiveRecord
+// package path in `code.namespace`). Detection relies on the ActiveRecord
 // scope and the `.rb` filepath, so there are no namespace rules.
 const RUBY_RULES: &[(Framework, &[Hint])] = &[];
 
@@ -328,14 +328,14 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaQuarkus, &["quarkus"]),
     (Framework::JavaWebFlux, &["spring-webflux", "r2dbc"]),
     (Framework::JavaJpa, &["spring-data", "hibernate"]),
-    // One `helidon` scope covers both SE and MP; JAVA_RULES namespace
+    // One `helidon` scope covers both SE and MP. JAVA_RULES namespace
     // hints disambiguate when code_location is available.
     (Framework::JavaHelidonSe, &["helidon"]),
     (Framework::PythonDjango, &["django"]),
     (Framework::PythonSqlAlchemy, &["sqlalchemy"]),
     // Go and Node use ecosystem-native scope names (`gorm.io/...`,
     // `@prisma/instrumentation`) that the `scope_matches` prefixes never
-    // match; they fall through to namespace hints (GO_RULES, JS_RULES)
+    // match. They fall through to namespace hints (GO_RULES, JS_RULES)
     // and the language-from-scope-prefix fallback.
 ];
 
@@ -378,9 +378,9 @@ const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
     // PHP native OTel instrumentations (opentelemetry-php-contrib). The
     // Doctrine scope is DB-specific (only on DBAL ops), so it tags only DB
     // findings. The Laravel scope is app-wide (it hooks HTTP Kernel, Console,
-    // Queue and Eloquent Model), so it rides every Laravel finding, which is
-    // why PhpLaravelEloquent carries fixes for all ten anti-patterns while
-    // PhpDoctrine only carries the SQL ones.
+    // Queue and Eloquent Model), so it appears on every Laravel finding.
+    // PhpLaravelEloquent therefore carries fixes for all ten anti-patterns
+    // while PhpDoctrine only carries the SQL ones.
     (
         Framework::PhpDoctrine,
         &["io.opentelemetry.contrib.php.doctrine"],
@@ -454,8 +454,8 @@ fn scope_matches(scope: &str, needle: &str) -> bool {
     };
     // The needle must end at a segment boundary (end of string or `-`),
     // rejecting partial-segment matches. The `-` boundary would
-    // false-positive on Node package names (`pg` vs `...-pg-pool`),
-    // which is why Go/Node are excluded from SCOPE_RULES.
+    // false-positive on Node package names (`pg` vs `...-pg-pool`), so
+    // Go/Node are excluded from SCOPE_RULES.
     after.is_empty() || after.starts_with('-')
 }
 
@@ -533,7 +533,7 @@ fn language_from_filepath(fp: &str) -> Option<Language> {
 /// Static mapping of `(finding_type, framework)` to a fix template.
 ///
 /// A lookup missing from the table retries with the framework's
-/// language generic; when that misses too, the finding's
+/// language generic. When that misses too, the finding's
 /// `suggested_fix` field stays `None`. This is the extension point for
 /// future framework support: add entries here, no other wiring required.
 static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLock::new(|| {
@@ -1718,7 +1718,7 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
 /// The broker behind a messaging finding, from the first token of the
 /// template (`normalize` builds it as `{operation} {target}`).
 ///
-/// Only the OTLP path puts `messaging.system` in `operation`; a
+/// Only the OTLP path puts `messaging.system` in `operation`. A
 /// hand-written JSON input can put anything there, so an unknown token
 /// degrades to the generic suggestion.
 fn messaging_system_of(finding: &Finding) -> Option<MessagingSystem> {
@@ -1806,7 +1806,7 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// `io.opentelemetry.contrib.php.` (PHP), then any other
 /// `io.opentelemetry.` scope (Java agent). Lower confidence than
 /// `SCOPE_RULES`, fires only on prefixes that unambiguously identify the
-/// language. Python's `opentelemetry.instrumentation.` is not claimed;
+/// language. Python's `opentelemetry.instrumentation.` is not claimed.
 /// Rust tracer names have no usable prefix.
 fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
     for scope in scopes {
@@ -1819,7 +1819,7 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
         {
             return Some(Language::JavaScript);
         }
-        // VENDOR_SCOPE_RULES catches these for CsharpEfCore; this arm
+        // VENDOR_SCOPE_RULES catches these for CsharpEfCore. This arm
         // is the fallback that routes other .NET scopes to CsharpGeneric.
         if scope == "Microsoft.EntityFrameworkCore"
             || scope.starts_with("Microsoft.EntityFrameworkCore.")
@@ -1828,13 +1828,13 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
             return Some(Language::Csharp);
         }
         // Ruby gems emit `OpenTelemetry::Instrumentation::<Lib>` (`::`).
-        // ActiveRecord is caught earlier by VENDOR_SCOPE_RULES; this routes
+        // ActiveRecord is caught earlier by VENDOR_SCOPE_RULES. This routes
         // the other Ruby scopes (pg/mysql2 drivers, Rack) to RubyGeneric.
         if scope.starts_with("OpenTelemetry::Instrumentation::") {
             return Some(Language::Ruby);
         }
         // PHP native OTel scopes are `io.opentelemetry.contrib.php.<lib>`.
-        // Laravel/Doctrine are caught earlier by VENDOR_SCOPE_RULES, this
+        // Laravel/Doctrine are caught earlier by VENDOR_SCOPE_RULES. This
         // routes the rest (pdo, mongodb, curl, guzzle, ...) to PhpGeneric.
         if scope.starts_with("io.opentelemetry.contrib.php.") {
             return Some(Language::Php);
@@ -1868,7 +1868,7 @@ fn hint_matches(ns: &str, hint: Hint) -> bool {
 }
 
 /// Last segment of a `.` or `::` separated namespace. Empty for an
-/// empty input; returns the whole string when no separator is present.
+/// empty input, the whole string when no separator is present.
 fn last_segment(ns: &str) -> &str {
     let last_dot = ns.rfind('.').map(|i| i + 1);
     let last_colon = ns.rfind("::").map(|i| i + 2);
