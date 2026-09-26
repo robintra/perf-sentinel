@@ -15,7 +15,7 @@ plutôt qu'approchée :
 
 ```toml
 [green.cloud.services]
-"mon-service" = { idle_watts = 45.0, max_watts = 120.0 }
+"my-service" = { idle_watts = 45.0, max_watts = 120.0 }
 ```
 
 **Les lignes Scaleway sont dérivées, pas publiées.** Cloud Carbon
@@ -59,7 +59,7 @@ directement et priment sur toute valeur modélisée.
 D'où viennent ces chiffres, et pourquoi une famille correspond à un
 coefficient plutôt qu'à une machine mesurée :
 [`METHODOLOGY-FR.md`](./METHODOLOGY-FR.md) et
-`docs/design/05-GREENOPS-AND-CARBON.md`. Configurer le scraper :
+`docs/FR/design/05-GREENOPS-AND-CARBON-FR.md`. Configurer le scraper :
 [`CONFIGURATION-FR.md`](./CONFIGURATION-FR.md).
 
 Cette page est générée depuis la table embarquée par
