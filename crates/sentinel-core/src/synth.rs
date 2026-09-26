@@ -2,7 +2,7 @@
 //!
 //! Deterministic: the same [`SynthSpec`] always yields the same events, so
 //! criterion baselines and `bench --synthetic` runs are reproducible.
-//! Hidden from the public API surface, the shapes mirror the demo dataset
+//! Hidden from the public API surface. The shapes mirror the demo dataset
 //! and the detector fixtures (one anti-pattern per trace plus clean noise).
 
 use std::sync::Arc;
@@ -178,7 +178,7 @@ pub fn generate_target_events(
     seed: u64,
 ) -> Vec<SpanEvent> {
     // Under-ask first, then top up using the measured mean events per
-    // trace: a fixed low divisor over-asked by ~37% under the default
+    // trace. A fixed low divisor would over-ask by ~37% under the default
     // mix (~8.2 events per trace), building events only to truncate.
     let mut spec = SynthSpec {
         services,

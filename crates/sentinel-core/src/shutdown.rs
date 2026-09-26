@@ -2,7 +2,7 @@
 //! loop and the one-shot Tempo fetch loop.
 
 /// Resolves when the process receives a shutdown signal. SIGINT (Ctrl+C) is
-/// handled on every platform; SIGTERM is also handled on Unix, which is what
+/// handled on every platform. SIGTERM is also handled on Unix, which is what
 /// Kubernetes sends on pod termination (rolling update, scale-down), what
 /// `kill` sends by default, and what systemd uses to stop a unit. Callers
 /// run the same graceful cleanup for either signal. On Windows only Ctrl+C
@@ -18,7 +18,7 @@
 /// the rest of the process lifetime, even after the future is dropped. For a
 /// one-shot caller this means the process stops terminating by default on
 /// SIGTERM after the first await (SIGKILL still applies). Harmless for the
-/// long-running daemon, which wants exactly that for its whole lifetime.
+/// long-running daemon, which wants that for its whole lifetime.
 pub(crate) async fn shutdown_signal() {
     #[cfg(unix)]
     {

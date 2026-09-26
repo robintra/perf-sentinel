@@ -66,8 +66,8 @@ pub fn sanitize_for_terminal(input: &str) -> Cow<'_, str> {
 
 /// Strip markdown inline-code backticks from a recommendation string for
 /// plain-text sinks (terminal, SARIF). The HTML report keeps the backticks
-/// and renders the delimited tokens as code chips, everywhere else they are
-/// noise. Returns the input untouched when it carries no backticks.
+/// and renders the delimited tokens as code chips. Everywhere else they
+/// are noise. Returns the input untouched when it carries no backticks.
 #[must_use]
 pub fn strip_code_ticks(input: &str) -> Cow<'_, str> {
     if input.contains('`') {
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn sanitize_replaces_c1_control_range() {
-        // U+0080..=U+009F encodes as `0xC2 0x80..0x9F` in UTF-8 and survives
+        // U+0080..=U+009F encodes as `0xC2 0x80..0x9F` in UTF-8 and passes
         // a byte-level filter that only checks `< 0x20`. xterm with 8-bit
         // controls enabled honours U+009B (CSI), U+009C (ST), U+009D (OSC).
         let dirty = "a\u{009b}[31mb\u{009d}OSC\u{009c}c";
