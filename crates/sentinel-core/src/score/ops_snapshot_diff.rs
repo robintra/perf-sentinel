@@ -4,7 +4,7 @@
 //! compute the per-service I/O op count over a single scrape window so the
 //! energy-per-op coefficient stays bounded as load changes. The daemon
 //! exposes a monotonic counter per service via
-//! `MetricsState::service_io_ops_total`, each scraper holds an
+//! `MetricsState::service_io_ops_total`. Each scraper holds an
 //! [`OpsSnapshotDiff`] to compute `delta = current - last_snapshot` without
 //! resetting the upstream counter (which would race with the intake path
 //! and break operator dashboards).
@@ -46,7 +46,7 @@ impl OpsSnapshotDiff {
     /// via a zero-copy `Arc` promotion.
     ///
     /// Services that went backwards (counter reset, restart) produce
-    /// a delta of 0, this is safer than a huge wraparound number.
+    /// a delta of 0 instead of a huge wraparound number.
     ///
     /// The returned map only contains services with a strictly
     /// positive delta, so idle services are omitted and callers can
@@ -61,9 +61,6 @@ impl OpsSnapshotDiff {
                 out.insert(service.clone(), delta);
             }
         }
-        // Promote `current` into an Arc and replace the previous
-        // snapshot. No deep clone of the keys, the `Arc` just bumps
-        // the refcount of the already-allocated HashMap.
         self.last = Some(Arc::new(current));
         out
     }
