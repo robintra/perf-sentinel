@@ -47,10 +47,9 @@ fn compute_energy_per_op_basic() {
 
 #[test]
 fn energy_interval_scales_the_result_inversely() {
-    // The whole point of energy_interval_secs: the same raw joules
-    // reading means half the power when it covers twice the interval.
-    // A config drift here rescales energy and carbon linearly, which is
-    // exactly the silent failure mode documented in LIMITATIONS.
+    // The same raw joules reading means half the power when it covers
+    // twice the interval. A drift in energy_interval_secs rescales energy
+    // and carbon linearly, the silent failure mode documented in LIMITATIONS.
     let at_1s = compute_energy_per_op_kwh(10.0, 1.0, 5.0, 100).unwrap();
     let at_2s = compute_energy_per_op_kwh(10.0, 2.0, 5.0, 100).unwrap();
     assert!(
@@ -85,7 +84,7 @@ fn compute_energy_per_op_nan_returns_none() {
 
 #[test]
 fn compute_energy_per_op_zero_interval_returns_none() {
-    // Config validation rejects this, the math must not divide by zero
+    // Config validation rejects this. The math must not divide by zero
     // into an infinite coefficient if it ever gets through.
     assert!(compute_energy_per_op_kwh(10.0, 0.0, 5.0, 5).is_none());
     assert!(compute_energy_per_op_kwh(10.0, -1.0, 5.0, 5).is_none());
@@ -394,7 +393,7 @@ fn no_samples_streak_warns_once_then_latches() {
     assert!(!a.has_warned(), "must not warn before the 3-tick threshold");
     one_tick(0, 0, 1, &mut a, &mut b);
     // Pins WHICH latch armed: an empty exposition is a metric_name
-    // problem, blaming the mappings would send the operator down the
+    // problem. Blaming the mappings would send the operator down the
     // wrong debugging path.
     assert!(
         a.has_warned(),
@@ -439,7 +438,7 @@ fn no_match_streak_arms_when_samples_parse_but_no_service_matches() {
 
 #[test]
 fn no_match_streak_never_arms_on_empty_mappings() {
-    // An empty service_mappings table trivially matches nothing, that
+    // An empty service_mappings table trivially matches nothing. That
     // is a staged config, not a typo. It gets a startup warning, not a
     // recurring streak warn.
     let (mut a, mut b) = streaks();
@@ -475,7 +474,7 @@ fn no_samples_ticks_do_not_advance_the_no_match_streak() {
 fn a_latched_no_samples_warn_does_not_suppress_the_no_match_warn() {
     // Exporter warms up empty (latch A fires), then the metric appears
     // but the mappings are mistyped. The second cause must still get
-    // its own warn, a single shared latch would silence it forever.
+    // its own warn. A single shared latch would silence it forever.
     let (mut a, mut b) = streaks();
     for _ in 0..3 {
         one_tick(0, 0, 1, &mut a, &mut b);
@@ -746,7 +745,7 @@ fn mark_alive_preserves_banked_energy_through_idle_and_label_loss() {
         1_000,
     );
     // Long idle or label rename: scrapes keep succeeding without the
-    // label, the scraper marks liveness on every one of them.
+    // label, and the scraper marks liveness on every one of them.
     db.mark_alive(100_000);
     // Banked energy is still deliverable.
     let kwh = db.take_window_kwh(101_000, 15_000).unwrap();

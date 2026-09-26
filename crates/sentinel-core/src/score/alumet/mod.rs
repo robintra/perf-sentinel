@@ -4,7 +4,7 @@
 //! plugin and provides measured per-service energy-per-op coefficients
 //! to the scoring stage.
 //!
-//! Alumet's reading is a third shape, distinct from both existing
+//! Alumet's reading is a third shape, distinct from the other two
 //! Prometheus backends: Scaphandre exports an instantaneous microwatt
 //! gauge, Kepler a cumulative joules counter, while Alumet exports the
 //! joules consumed during one source `poll_interval`, published as a
