@@ -1,10 +1,8 @@
 # Acquittements (acknowledgments)
 
-Une façon de dire à perf-sentinel "oui, ce finding est réel, et nous avons décidé de ne pas le corriger (pour l'instant)". Les findings acquittés sont retirés de la sortie CLI et exclus de la quality gate. Les décisions vivent dans `.perf-sentinel-acknowledgments.toml` à la racine du repo, donc chaque modification passe par la review PR habituelle et `git log` est la trace d'audit.
+Une façon de dire à perf-sentinel "oui, ce finding est réel, et nous avons décidé de ne pas le corriger (pour l'instant)". Les findings acquittés sont retirés de la sortie CLI et exclus de la quality gate. Les décisions vivent dans `.perf-sentinel-acknowledgments.toml` à la racine du repo, donc chaque modification passe par la revue de PR habituelle et `git log` est la trace d'audit.
 
-Ce document couvre le format, le workflow, les flags CLI et la FAQ.
-
-Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus, la sous-commande CLI `perf-sentinel ack`, le dashboard HTML live (`perf-sentinel report --daemon-url ...`) et la TUI (`perf-sentinel query inspect`, touche `a` pour acquitter un finding, `u` pour révoquer).
+Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus : la sous-commande CLI `perf-sentinel ack`, le dashboard HTML live (`perf-sentinel report --daemon-url ...`) et la TUI (`perf-sentinel query inspect`, touche `a` pour acquitter un finding, `u` pour révoquer).
 
 <details>
 <summary>Référence visuelle</summary>
@@ -13,9 +11,9 @@ Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus, la sous-command
 
 ![ack CLI : create, list et revoke contre le daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/cli.gif)
 
-**Footer du fallback TOML CI** (sortie `analyze` par défaut, les criticals sont supprimés et la quality gate passe à PASSED) :
+**Pied de page du repli TOML CI** (sortie `analyze` par défaut, les criticals sont supprimés et la quality gate passe à PASSED) :
 
-![analyze avec deux findings acquittés via TOML, hint en pied et gate PASSED](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
+![analyze avec deux findings acquittés via TOML, indication en pied et gate PASSED](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
 
 **TUI mode live** (`perf-sentinel query inspect`, depuis 0.5.24) : la touche `a` ouvre une modale ack sur le finding sélectionné, `u` révoque :
 
@@ -38,14 +36,14 @@ Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus, la sous-command
 ## Quand l'utiliser
 
 - L'équipe a décidé qu'un finding est intentionnel (pattern d'invalidation de cache, batch volontaire, script jetable avec O(N) appels).
-- Un workaround long terme tracé ailleurs (Jira, ADR) que vous ne voulez plus voir flaggé sur chaque CI tant que la cause racine n'est pas résolue.
-- Un finding qui flappait sous une charge bruyante, et que l'équipe a décidé de revisiter quand le problème upstream sera résolu.
+- Un contournement long terme tracé ailleurs (Jira, ADR) que vous ne voulez plus voir signalé sur chaque CI tant que la cause racine n'est pas résolue.
+- Un finding qui oscillait sous une charge bruyante, et que l'équipe a décidé de revisiter quand le problème en amont sera résolu.
 
 Si vous hésitez, ne l'acquittez **PAS**. Chaque ack masque un signal réel. Le seuil doit être : "on en a discuté, on a décidé".
 
 ## Le fichier
 
-Chemin : `./.perf-sentinel-acknowledgments.toml` à la racine du repo où vous lancez `perf-sentinel`. Override avec `--acknowledgments <chemin>`.
+Chemin : `./.perf-sentinel-acknowledgments.toml` à la racine du repo où vous lancez `perf-sentinel`. Remplaçable avec `--acknowledgments <chemin>`.
 
 ```toml
 # .perf-sentinel-acknowledgments.toml
@@ -82,15 +80,15 @@ reason = "Agrégation longue, accepté par le produit."
 
 ### Référence des champs
 
-| Champ             | Requis | Notes                                                                              |
-|-------------------|--------|------------------------------------------------------------------------------------|
-| `signature`       | oui    | Signature canonique du finding (voir plus bas).                                    |
-| `acknowledged_by` | oui    | Email ou identifiant. Texte libre.                                                 |
-| `acknowledged_at` | oui    | Date ISO 8601 `YYYY-MM-DD`. Texte libre, non validé.                               |
-| `reason`          | oui    | Texte libre. Court, avec lien vers ADR / Jira / thread Slack.                      |
-| `expires_at`      | non    | Date ISO 8601 `YYYY-MM-DD`. Validée au chargement. Omettre pour un ack permanent.  |
+| Champ             | Requis | Notes                                                                                                                      |
+|-------------------|--------|----------------------------------------------------------------------------------------------------------------------------|
+| `signature`       | oui    | Signature canonique du finding (voir plus bas).                                                                            |
+| `acknowledged_by` | oui    | Email ou identifiant. Texte libre.                                                                                         |
+| `acknowledged_at` | oui    | Date ISO 8601 `YYYY-MM-DD`. Texte libre, non validé.                                                                       |
+| `reason`          | oui    | Texte libre. Court, avec lien vers ADR / Jira / thread Slack.                                                              |
+| `expires_at`      | non    | Date ISO 8601 `YYYY-MM-DD`. Validée au chargement. Omettre pour un ack permanent.                                          |
 | `service`         | non    | Le `service` du finding, tel quel. Avec `source_endpoint`, permet au warning unmatched de dire si l'endpoint a été exercé. |
-| `source_endpoint` | non    | Le `source_endpoint` du finding, tel quel (ex. `GET /api/orders`).                 |
+| `source_endpoint` | non    | Le `source_endpoint` du finding, tel quel (ex. `GET /api/orders`).                                                         |
 
 Un champ requis manquant fait échouer le run avec une erreur claire, donc une coquille n'élargit pas silencieusement l'ensemble acquitté.
 
@@ -101,15 +99,15 @@ Un champ requis manquant fait échouer le run avec une erreur claire, donc une c
 ```
 
 - `finding_type` est l'enum snake_case : `n_plus_one_sql`, `redundant_sql`, `slow_http`, `chatty_service`, etc.
-- `service` est le nom de service OpenTelemetry tel que capturé dans la trace (e.g. `order-service`).
-- `sanitized_endpoint` est `source_endpoint` avec `/` et espaces remplacés par `_` pour que le résultat se split proprement sur `:`.
-  Note de migration (0.9.15) : `source_endpoint` est désormais débarrassé de toute query string, fragment et userinfo d'URL à l'ingestion (il pouvait auparavant porter des secrets sur le chemin de repli vers l'URL brute). Cela change la signature des findings dont l'endpoint contenait un `?query`, un `#fragment` ou un `user:pass@`, donc un ack existant sur un tel endpoint ne matche plus et doit être re-capturé. Les endpoints qui utilisent un template de route (`/api/orders/{id}`), le cas courant, sont inchangés.
-  Note de migration (0.9.22) : tout finding dont l'endpoint valait `unknown` change de signature, donc un ack existant sur l'un d'eux doit être re-capturé. Deux causes. La route HTTP entrante est maintenant résolue en remontant la chaîne de parents et non plus le seul parent direct, ce qui couvre le cas courant d'une pile en couches où la route se trouve deux niveaux ou plus au-dessus du span feuille. Et les points d'entrée sans aucun attribut HTTP (jobs planifiés, consumers de messages) rapportent désormais le cadre de code (`com.foo.PurgeJob.execute`). Le second point sépare aussi deux jobs d'un même service qui émettaient la même requête : ils partageaient une seule signature auparavant, donc acquitter l'un masquait silencieusement l'autre. Les findings dont l'endpoint était déjà une route sont inchangés. À noter que les baselines de `diff` sont également indexées sur l'endpoint et doivent être re-capturées pour la même raison.
-  Note de migration (0.11.2) : l'attribution d'endpoint change de trois façons, aussi bien sur OTLP que sur Jaeger et Zipkin, donc un finding peut changer de signature sans aucun changement applicatif derrière. Elle sélectionne la route la plus externe d'une chaîne contiguë du même service au lieu de la plus proche, et le daemon conserve un contexte parent borné entre les requêtes d'export, ce qui déplace les findings qui utilisaient auparavant une route interne ou `unknown`. Une route de framework ne contenant aucun `/` cède désormais devant un `url.path` exploitable, mais du côté entrant seulement, un span SERVER pour son propre endpoint ou un ancêtre non-CLIENT de la chaîne, ce qui déplace les findings dont le framework émettait un nom de route symbolique comme le `app_fault_nplusonesql` de Symfony et laisse une instrumentation sans kind sur le nom de route. Enfin, un `http.route` dépourvu de slash initial en gagne un, ce qui déplace des findings déjà rattachés à la bonne route, le `api/orders/{id}` de Django devenant `/api/orders/{id}`. Re-capturez les acquittements et baselines de rapports persistés concernés avec 0.11.2. Les corpus de traces ré-analysés des deux côtés par le même binaire ne churnent pas. Par ailleurs, un span SERVER ne produit plus d'appel HTTP sortant, donc sur une flotte instrumentée en conventions sémantiques legacy certains findings HTTP disparaissent au lieu de se déplacer. Une analyse batch fraîche signale en `unmatched_acknowledgment` tout acquittement qui n'a rien supprimé, et quand l'endpoint a quand même émis des I/O le message indique que le problème semble corrigé et que l'entrée peut être supprimée, ce qui est la mauvaise conclusion pour un acquittement dont le finding a seulement disparu avec la montée de version. Le daemon n'émet jamais cet avertissement.
-  Note de migration (0.18.0) : un span sans `service.name`, ou dont le nom ne contient que des espaces, se résout en `unknown` au lieu de rester vide, donc tout finding qu'un export Zipkin ou Jaeger laissait anonyme change de signature. L'avertissement `unmatched_acknowledgment` nomme désormais le successeur dans ce cas : quand exactement un finding courant partage le détecteur et le hash de template sous un service ou un endpoint différent, il indique que c'est l'attribution qui a bougé, pas la requête, l'indice qui manquait aux déplacements d'endpoint 0.9.22 et 0.11.2 ci-dessus. Les baselines de rapport persistées (`diff`, `report --before`) issues de tels spans sont à recapturer aussi, l'identité du diff est indexée sur le service.
-- `sha256-prefix-of-template` correspond aux 32 premiers chars hex (16 octets) de `sha256(pattern.template)`. ~128 bits de résistance aux collisions. Comme le triplet `(finding_type, service, sanitized_endpoint)` fait déjà partie de la signature, le hash n'a besoin de désambiguer que les templates au sein du même triplet, ce qui est une population très réduite en pratique. Le préfixe 32-char est une défense en profondeur contre le masquage accidentel d'un ack après un refacto SQL ou un renommage de service. Passé de 16 à 32 chars en 0.5.28, voir le CHANGELOG pour la migration (les acks 16-hex existants ne matchent plus).
+- `service` est le nom de service OpenTelemetry tel que capturé dans la trace (ex. `order-service`).
+- `sanitized_endpoint` est `source_endpoint` avec `/` et espaces remplacés par `_` pour que le résultat se découpe proprement sur `:`.
+  Note de migration (0.9.15) : `source_endpoint` est désormais débarrassé de toute query string, fragment et userinfo d'URL à l'ingestion (il pouvait auparavant porter des secrets sur le chemin de repli vers l'URL brute). Cela change la signature des findings dont l'endpoint contenait un `?query`, un `#fragment` ou un `user:pass@`, donc un ack existant sur un tel endpoint ne correspond plus et doit être re-capturé. Les endpoints qui utilisent un template de route (`/api/orders/{id}`), le cas courant, sont inchangés.
+  Note de migration (0.9.22) : tout finding dont l'endpoint valait `unknown` change de signature, donc un ack existant sur l'un d'eux doit être re-capturé. Deux causes. La route HTTP entrante est maintenant résolue en remontant la chaîne de parents et non plus le seul parent direct, ce qui couvre le cas courant d'une pile en couches où la route se trouve deux niveaux ou plus au-dessus du span feuille. Et les points d'entrée sans aucun attribut HTTP (jobs planifiés, consommateurs de messages) rapportent désormais le cadre de code (`com.foo.PurgeJob.execute`). Le second point sépare aussi deux jobs d'un même service qui émettaient la même requête : ils partageaient une seule signature auparavant, donc acquitter l'un masquait silencieusement l'autre. Les findings dont l'endpoint était déjà une route sont inchangés. Les baselines de `diff` sont également indexées sur l'endpoint et doivent être re-capturées pour la même raison.
+  Note de migration (0.11.2) : l'attribution d'endpoint change de trois façons, aussi bien sur OTLP que sur Jaeger et Zipkin, donc un finding peut changer de signature sans aucun changement applicatif derrière. Elle sélectionne la route la plus externe d'une chaîne contiguë du même service au lieu de la plus proche, et le daemon conserve un contexte parent borné entre les requêtes d'export, ce qui déplace les findings qui utilisaient auparavant une route interne ou `unknown`. Une route de framework ne contenant aucun `/` cède désormais devant un `url.path` exploitable, mais du côté entrant seulement (un span SERVER pour son propre endpoint ou un ancêtre non-CLIENT de la chaîne). Cela déplace les findings dont le framework émettait un nom de route symbolique comme le `app_fault_nplusonesql` de Symfony, et laisse une instrumentation sans kind sur le nom de route. Enfin, un `http.route` dépourvu de slash initial en gagne un (le `api/orders/{id}` de Django devient `/api/orders/{id}`), ce qui déplace des findings déjà rattachés à la bonne route. Re-capturez les acquittements et baselines de rapports persistés concernés avec 0.11.2. Les baselines de corpus de traces ré-analysées des deux côtés par le même binaire restent stables. Par ailleurs, un span SERVER ne produit plus d'appel HTTP sortant, donc sur une flotte instrumentée en conventions sémantiques legacy certains findings HTTP disparaissent au lieu de se déplacer. Une analyse batch fraîche signale en `unmatched_acknowledgment` tout acquittement qui n'a rien supprimé. Quand l'endpoint a quand même émis des I/O, le message indique que le problème semble corrigé et que l'entrée peut être supprimée, ce qui est la mauvaise conclusion pour un acquittement dont le finding a seulement disparu avec la montée de version. Le daemon n'émet jamais cet avertissement.
+  Note de migration (0.18.0) : un span sans `service.name`, ou dont le nom ne contient que des espaces, se résout en `unknown` au lieu de rester vide, donc tout finding qu'un export Zipkin ou Jaeger laissait anonyme change de signature. L'avertissement `unmatched_acknowledgment` nomme désormais le successeur dans ce cas. Quand exactement un finding courant partage le détecteur et le hash de template sous un service ou un endpoint différent, il indique que c'est l'attribution qui a bougé, pas la requête. Les déplacements d'endpoint 0.9.22 et 0.11.2 ci-dessus n'avaient pas cette indication. Les baselines de rapport persistées (`diff`, `report --before`) issues de tels spans sont à recapturer aussi, car l'identité du diff est indexée sur le service.
+- `sha256-prefix-of-template` correspond aux 32 premiers caractères hex (16 octets) de `sha256(pattern.template)`. ~128 bits de résistance aux collisions. Comme le triplet `(finding_type, service, sanitized_endpoint)` fait déjà partie de la signature, le hash n'a besoin de désambiguïser que les templates au sein du même triplet, ce qui est une population très réduite en pratique. Le préfixe de 32 caractères est une défense en profondeur contre le masquage accidentel d'un ack après un refacto SQL ou un renommage de service. Passé de 16 à 32 caractères en 0.5.28, voir le CHANGELOG pour la migration (les acks 16-hex existants ne correspondent plus).
 
-Trois findings produisent trois signatures différentes. Deux findings produits par le même template sur le même couple `(service, source_endpoint)` collapsent à la même signature, ce qui est la bonne sémantique : on ack une fois, on supprime chaque récurrence.
+Trois findings produisent trois signatures différentes. Deux findings produits par le même template sur le même couple `(service, source_endpoint)` se ramènent à la même signature, donc un seul ack supprime chaque récurrence.
 
 ## Workflow
 
@@ -119,8 +117,8 @@ Trois findings produisent trois signatures différentes. Deux findings produits 
    perf-sentinel analyze --input traces.json --format json \
      | jq -r '.findings[] | select(.service == "order-service") | .signature'
    ```
-3. Ouvrez une PR qui ajoute un bloc `[[acknowledged]]` à `.perf-sentinel-acknowledgments.toml`. Discutez le `reason` en review PR.
-4. Mergez. Le run CI suivant lit le fichier mis à jour et le finding cesse d'apparaître.
+3. Ouvrez une PR qui ajoute un bloc `[[acknowledged]]` à `.perf-sentinel-acknowledgments.toml`. Discutez le `reason` en revue de PR.
+4. Fusionnez. Le run CI suivant lit le fichier mis à jour et le finding cesse d'apparaître.
 
 `git log .perf-sentinel-acknowledgments.toml` donne l'historique d'audit complet.
 
@@ -138,7 +136,7 @@ Ce que dit le message dépend des champs optionnels `service` et `source_endpoin
 
 Remplissez les deux champs tels quels, depuis le même JSON que la signature (`.findings[].service`, `.findings[].source_endpoint`).
 
-Deux limites. Le warning ne vient que d'une analyse fraîche de traces : rejouer un rapport sauvegardé ou un snapshot du daemon ne l'émet jamais, ce rapport peut déjà être filtré et ses comptes d'I/O décrivent un autre run. Et une entrée expirée n'est jamais rapportée : elle est inactive, son finding est déjà revenu dans la gate.
+Deux limites. L'avertissement ne vient que d'une analyse fraîche de traces : rejouer un rapport sauvegardé ou un snapshot du daemon ne l'émet jamais, car ce rapport peut déjà être filtré et ses compteurs d'I/O décrivent un autre run. Et une entrée expirée n'est jamais rapportée : elle est inactive, son finding est déjà revenu dans la gate.
 
 ## Flags CLI
 
@@ -147,32 +145,32 @@ Les flags fonctionnent uniformément sur `analyze`, `report`, `inspect`, `diff`.
 | Flag                          | Effet                                                                                                                            |
 |-------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | (par défaut, sans flag)       | Charge `./.perf-sentinel-acknowledgments.toml` s'il existe, l'applique. Pas de fichier = no-op, comportement actuel préservé.    |
-| `--acknowledgments <chemin>`  | Override le chemin par défaut. Utile en monorepo avec un fichier d'acks par dossier de service.                                  |
+| `--acknowledgments <chemin>`  | Remplace le chemin par défaut. Utile en monorepo avec un fichier d'acks par dossier de service.                                  |
 | `--no-acknowledgments`        | Désactive le filtrage complètement. Pour les vues d'audit ("montre-moi tout, y compris ce que j'ai acquitté").                   |
-| `--show-acknowledged`         | Applique le filtrage, mais inclut les findings acquittés dans la sortie avec leur metadata d'ack. Pour la review périodique.     |
+| `--show-acknowledged`         | Applique le filtrage, mais inclut les findings acquittés dans la sortie avec leurs métadonnées d'ack. Pour la revue périodique.  |
 
 ## Comportement de la quality gate
 
-Les findings acquittés sont exclus du calcul de la quality gate. Autrement dit : un finding qui aurait fait échouer `n_plus_one_sql_critical_max = 0` devient un PASS une fois acquitté.
+Les findings acquittés sont exclus du calcul de la quality gate. Un finding qui aurait fait échouer `n_plus_one_sql_critical_max = 0` devient un PASS une fois acquitté.
 
-C'est tout l'intérêt de la sémantique "won't fix / accepté". Si vous ne voulez pas ce comportement, n'acquittez pas le finding, abaissez le seuil, ou utilisez `--no-acknowledgments` en CI.
+C'est ce que signifie "won't fix / accepté". Si vous ne voulez pas ce comportement, n'acquittez pas le finding, abaissez le seuil, ou utilisez `--no-acknowledgments` en CI.
 
 ## Et la règle `io_waste_ratio_max` ?
 
 La règle `io_waste_ratio_max` lit `green_summary.io_waste_ratio`, calculé depuis les spans bruts, pas depuis la liste de findings. Acquitter un finding N+1 ne baisse **pas** le waste ratio, parce que les opérations I/O sous-jacentes sont toujours réelles et toujours exécutées.
 
-Décision : c'est le bon comportement. Un ack signifie "l'équipe a accepté ce finding, ne le flagge pas". Il ne signifie pas "fais comme si l'I/O n'avait pas lieu". Les chiffres carbone et waste sont une comptabilité honnête, l'ack contrôle le routing d'alerte.
+C'est le comportement attendu. Un ack signifie "l'équipe a accepté ce finding, ne le signale pas". Il ne signifie pas "fais comme si l'I/O n'avait pas lieu". Les chiffres de carbone et de gaspillage comptent toujours les I/O des findings acquittés. L'ack contrôle le routage des alertes.
 
 ## FAQ
 
 **Q : Comment faire passer un ack temporaire en permanent ?**
-Retirez la ligne `expires_at` et recommittez. La review PR capture la décision.
+Retirez la ligne `expires_at` et recommittez. La revue de PR capture la décision.
 
-**Q : Comment debug un ack qui ne match pas ?**
+**Q : Comment déboguer un ack qui ne correspond pas ?**
 Lancez `perf-sentinel analyze --no-acknowledgments --format json | jq '.findings[].signature'`, comparez la valeur à celle du fichier TOML. Causes courantes : le template s'est normalisé différemment après un changement de code, le nom de service a changé, la route endpoint a été renommée.
 
 **Q : Puis-je acquitter un finding par service ou par type, avec des wildcards ?**
-Non, le matching par signature exacte est intentionnel en 0.5.17. Les wildcards rendent trop facile le silence accidentel de catégories entières de findings. Si vous voulez acquitter 10 findings N+1 sur un service, ouvrez 10 PRs (ou une PR avec 10 entries), une signature chacune.
+Non, la correspondance se fait uniquement par signature exacte en 0.5.17, parce que les wildcards rendent trop facile le silence accidentel de catégories entières de findings. Si vous voulez acquitter 10 findings N+1 sur un service, ouvrez 10 PRs (ou une PR avec 10 entrées), une signature chacune.
 
 **Q : Et si je commit un ack qui s'avère incorrect ?**
 Revertez le commit. Le run CI suivant fera réapparaître le finding.
@@ -183,22 +181,22 @@ Oui, depuis 0.5.20. `POST /api/findings/{sig}/ack` crée, `DELETE /api/findings/
 **Q : `inspect` (TUI) honore-t-il les acknowledgments ?**
 Oui, les flags CI TOML s'appliquent. Depuis 0.5.24, `perf-sentinel query inspect` (mode daemon live) expose aussi `a` pour acquitter le finding sélectionné via l'API daemon et `u` pour révoquer, avec une modale qui demande reason / expires / by.
 
-**Q : Le dashboard HTML surface-t-il la metadata d'ack ?**
-Oui. Le report statique expose `acknowledged_findings` dans le payload JSON embarqué (`--show-acknowledged` pour les garder dans la liste visible). Depuis 0.5.23, `perf-sentinel report --daemon-url <url>` bascule le dashboard en mode live, boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, et toggle `Show acknowledged` dans le panneau Findings. Voir la [Référence visuelle](#référence-visuelle) ci-dessus.
+**Q : Le dashboard HTML affiche-t-il les métadonnées d'ack ?**
+Oui. Le rapport statique expose `acknowledged_findings` dans le payload JSON embarqué (`--show-acknowledged` pour les garder dans la liste visible). Depuis 0.5.23, `perf-sentinel report --daemon-url <url>` bascule le dashboard en mode live : boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, et interrupteur `Show acknowledged` dans le panneau Findings. Voir la [Référence visuelle](#référence-visuelle) ci-dessus.
 
 ## Intégration SARIF
 
-Depuis 0.5.18, l'emitter SARIF expose la signature du finding à deux endroits, pour que les outils CI qui consomment du SARIF (GitHub Code Scanning, GitLab SAST, Sonar) puissent matcher les findings contre `.perf-sentinel-acknowledgments.toml` sans avoir à parser séparément le JSON.
+Depuis 0.5.18, l'émetteur SARIF expose la signature du finding à deux endroits, pour que les outils CI qui consomment du SARIF (GitHub Code Scanning, GitLab SAST, Sonar) puissent faire correspondre les findings avec `.perf-sentinel-acknowledgments.toml` sans avoir à parser séparément le JSON.
 
 - `runs[].results[].properties.signature` porte la chaîne de signature canonique, cohérent avec les autres champs ack déjà présents dans `properties` (`acknowledged`, `acknowledgmentReason`, ...).
-- `runs[].results[].fingerprints["perfsentinel/v1"]` expose la même valeur via le mécanisme natif `fingerprints` de SARIF v2.1.0 (section 3.27.17), utilisé par GitHub Code Scanning et GitLab SAST pour la déduplication cross-run.
+- `runs[].results[].fingerprints["perfsentinel/v1"]` expose la même valeur via le mécanisme natif `fingerprints` de SARIF v2.1.0 (section 3.27.17), utilisé par GitHub Code Scanning et GitLab SAST pour la déduplication entre runs.
 
-Les deux champs portent la même valeur, à choisir selon le modèle d'ingestion de l'outil. Les findings désérialisés à partir de baselines produites avant 0.5.17 ont une signature vide, et l'emitter SARIF omet les deux champs dans ce cas (graceful degradation).
+Les deux champs portent la même valeur, à choisir selon le modèle d'ingestion de l'outil. Les findings désérialisés à partir de baselines produites avant 0.5.17 ont une signature vide, et l'émetteur SARIF omet les deux champs dans ce cas (dégradation gracieuse).
 
-Voir [`SARIF-FR.md`](SARIF-FR.md) pour la référence complète des champs émis par result.
+Voir [`SARIF-FR.md`](SARIF-FR.md) pour la référence complète des champs émis par résultat.
 
 ## Références croisées
 
-- [`README-FR.md`](../../README-FR.md) section "Acquitter les findings connus" pour le pitch rapide.
+- [`README-FR.md`](../../README-FR.md) section "Acquitter les findings connus" pour la présentation rapide.
 - [`CONFIGURATION-FR.md`](CONFIGURATION-FR.md) pour l'interaction entre `.perf-sentinel.toml` et `.perf-sentinel-acknowledgments.toml`.
 - [`RUNBOOK-FR.md`](RUNBOOK-FR.md) section "Investigation d'un acknowledgment inattendu" pour la recette d'astreinte.
