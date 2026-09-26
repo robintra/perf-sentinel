@@ -6,22 +6,23 @@
 #   scripts/test/release-test.sh
 #
 # Each scenario builds a throwaway git sandbox under $(mktemp -d) with
-# a bare `origin` remote, a work tree that mirrors the perf-sentinel
-# layout (Cargo.toml workspace + crates/foo + release-gate/ + scripts/
-# release.sh copied in so it resolves REPO_ROOT to the sandbox), then
-# invokes the sandbox copy of the script with scenario-specific args
-# and asserts the expected exit code. Some scenarios additionally
-# assert that a tag exists or does not exist locally or on the remote.
+# a bare `origin` remote and a work tree that mirrors the perf-sentinel
+# layout (Cargo.toml workspace + crates/foo + release-gate/ +
+# scripts/release.sh copied in so it resolves REPO_ROOT to the
+# sandbox). It then invokes the sandbox copy of the script with
+# scenario-specific args and asserts the expected exit code. Some
+# scenarios additionally assert that a tag exists or does not exist
+# locally or on the remote.
 
 set -u
 
 # Every sandbox sets the identity it needs locally, so the operator's
-# global and system git config must not reach it: scenario 05 unsets
+# global and system git config must not reach it. Scenario 05 unsets
 # `user.signingkey` in the sandbox, and a maintainer with a global
 # signing key (that is, anyone able to sign a release) would otherwise
 # see the script find one anyway and pass a check the test expects to
-# fail. Same class of leak the `core.hooksPath` overrides below already
-# fight one symptom at a time.
+# fail. The `core.hooksPath` overrides below handle the same class of
+# leak, one symptom at a time.
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
@@ -122,10 +123,10 @@ run_scenario() {
 
   local tmpdir
   tmpdir=$(mktemp -d) || { echo "harness error: mktemp -d failed" >&2; exit 1; }
-  # Interrupt-safe cleanup: survives Ctrl-C mid-scenario and the
+  # Interrupt-safe cleanup: runs on Ctrl-C mid-scenario and on the
   # `exit 99` path from a setup_func that lost its `cd`. The
-  # `${tmpdir}` is expanded now (not at signal time) on purpose:
-  # the variable is function-local and gone by the time the trap fires.
+  # `${tmpdir}` is expanded now (not at signal time) because the
+  # variable is function-local and gone by the time the trap fires.
   # shellcheck disable=SC2064
   trap "rm -rf '${tmpdir}'" EXIT INT TERM
 

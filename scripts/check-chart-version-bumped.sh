@@ -50,7 +50,8 @@ emit_notice() {
 }
 
 # Extract the top-level `version:` field from a Chart.yaml content
-# received on stdin. Awk independently, to keep the script standalone.
+# received on stdin. Same awk as scripts/check-helm-tag-version.sh,
+# duplicated to keep the script standalone.
 parse_version_from_stdin() {
   awk '
     /^version:[[:space:]]/ {

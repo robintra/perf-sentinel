@@ -62,8 +62,8 @@ def azure(pattern: str, sizes: "list[int]") -> "list[tuple[str, int]]":
 
 # One entry per family: (label, csv provider, CSV architecture, dram
 # premium, instances, extra note lines). Adding a family means adding a
-# line here, by hand. The Turin families deliberately map to the Genoa
-# architecture, see docs/LIMITATIONS.md.
+# line here, by hand. The Turin families map to the Genoa architecture
+# pending an upstream CCF correction, see docs/LIMITATIONS.md.
 FAMILIES = [
     ("t3 (Nitro, Cascade Lake, burstable)", "aws", "Cascade Lake", False, aws("t3", T_SIZES),
      ["Burst credit is not modeled by CCF, sizes below xlarge count as 2 vCPU."]),
@@ -162,17 +162,17 @@ SCALEWAY_CPU_ARCH = {
     "AMD EPYC 9334 (2.7 GHz)": ("aws", "EPYC 4th Gen"),
     "Intel Xeon Gold 6148 (2.4 GHz)": ("aws", "Skylake"),
     "Intel Xeon Platinum 8452Y (2.0 GHz)": ("aws", "Sapphire Rapids"),
-    # AMD EPYC 9555P (Turin, EPYC 9005) is deliberately absent: the CCF
-    # EPYC 5th Gen row reads 3.68 idle / 8.96 max W/vCPU, five times the
-    # neighbouring generations, which is the upstream error the m8a rows
-    # already work around. Those offers ride the same SPECpower-direct
+    # AMD EPYC 9555P (Turin, EPYC 9005) is absent because the CCF EPYC
+    # 5th Gen row reads 3.68 idle / 8.96 max W/vCPU, five times the
+    # neighbouring generations. That is the upstream error the m8a rows
+    # already work around. Those offers use the same SPECpower-direct
     # figure as GCP c4d, in `MANUAL_INSTANCE_ROWS` (table.rs).
 }
 
 # 8 GiB per vCPU is where the AWS/GCP/Azure memory-optimized families
 # sit, and the premium was measured on that ratio, so the same threshold
-# decides per offer here rather than per family: Scaleway mixes ratios
-# inside one range (POP2 spans 2, 4 and 8 GiB/vCPU).
+# applies here. It decides per offer rather than per family, because
+# Scaleway mixes ratios inside one range (POP2 spans 2, 4 and 8 GiB/vCPU).
 SCALEWAY_DRAM_GIB_PER_VCPU = 8.0
 
 PROVIDER_BANNERS = {
@@ -228,7 +228,7 @@ pub(super) static GENERATED_INSTANCE_ROWS: &[(&str, f64, f64)] = &[
 def request(url: str) -> urllib.request.Request:
     headers = {"User-Agent": "perf-sentinel-refresh"}
     # Unauthenticated api.github.com calls from CI runner IPs hit the
-    # shared 60/hr rate limit; use the workflow token when present.
+    # shared 60/hr rate limit. Use the workflow token when present.
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"

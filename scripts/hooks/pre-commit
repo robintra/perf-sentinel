@@ -37,8 +37,8 @@ gitleaks git --staged --redact --no-banner --verbose
 # cognitive-complexity and other lint regressions before they land.
 # Skipped when no `.rs` files are staged (docs/CI/config changes
 # would otherwise pay the compile cost for no benefit). The lint
-# `cognitive_complexity` is gated at threshold 60 via clippy.toml,
-# SonarCloud cloud scan remains the canonical gate at 15. Override
+# `cognitive_complexity` is gated at threshold 60 via clippy.toml. The
+# SonarCloud scan remains the canonical gate at 15. Override
 # via `SKIP_CLIPPY=1 git commit ...` if you must bypass.
 if [ "${SKIP_CLIPPY:-0}" = "1" ]; then
   echo "SKIP_CLIPPY=1, skipping cargo clippy pre-commit check."
