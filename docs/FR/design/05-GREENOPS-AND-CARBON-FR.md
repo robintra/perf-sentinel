@@ -129,7 +129,7 @@ top_offenders.sort_by(|a, b| {
 ## Ratio de gaspillage I/O
 
 ```
-ratio_gaspillage = avoidable_io_ops / total_io_ops
+waste_ratio = avoidable_io_ops / total_io_ops
 ```
 
 Quand `total_io_ops == 0`, le ratio est `0.0` (pas NaN). C'est la fraction d'opérations I/O qui pourraient être éliminées en corrigeant les anti-patterns détectés. Cela s'aligne sur le composant **Énergie** du [modèle SCI (ISO/IEC 21031:2024)](https://sci-guide.greensoftware.foundation/) de la [Green Software Foundation](https://greensoftware.foundation/) : réduire les calculs inutiles réduit la consommation d'énergie.
@@ -159,7 +159,7 @@ Où :
 
 **Quelle révision du SCI, et pourquoi cela ne change pas le modèle.** Il existe deux révisions. La **v1.0** est le texte adopté sous ISO/IEC 21031:2024, et c'est celle sur laquelle ce document s'aligne. La **v1.1** est une révision éditoriale GSF postérieure. D'après ses notes de version, elle renomme "location-based marginal carbon intensity" en "region-specific carbon intensity" et ajoute une définition de "carbon" comme terme générique pour toutes les émissions qui contribuent au réchauffement. Toujours d'après ces notes, elle reformule aussi les émissions opérationnelles en "multiply the electricity consumption of the hardware the software is running on by the region-specific carbon intensity". La formule `((E x I) + M) per R` est inchangée, donc rien dans le scoring de perf-sentinel ne dépend de ce choix.
 
-Une clarification de la v1.1 étend l'intensité carbone région-spécifique pour distinguer le réseau électrique du hors-réseau, et souligne que c'est l'information géographique qui compte pour éliminer les émissions, à l'exclusion des mécanismes market-based. C'est déjà la position de perf-sentinel, qui ne score qu'en géographique, ce qui explique aussi pourquoi [SCHEMA-FR.md](../SCHEMA-FR.md) avertit que le chiffre publié n'est pas la valeur Scope 2 market-based qu'ESRS exige par ailleurs.
+Une clarification de la v1.1 étend l'intensité carbone région-spécifique pour distinguer le réseau électrique du hors-réseau, et souligne que c'est l'information géographique qui compte pour éliminer les émissions, à l'exclusion des mécanismes market-based. C'est déjà la position de perf-sentinel, qui ne score qu'en géographique, ce qui explique aussi pourquoi `docs/FR/SCHEMA-FR.md` avertit que le chiffre publié n'est pas la valeur Scope 2 market-based qu'ESRS exige par ailleurs.
 
 Plus loin, ce document cite le texte GSF en **v1.1.0** sur les données modélisées que la spécification autorise. La citation porte sur cette version parce qu'elle est vérifiée contre le texte GSF librement lisible, alors que la publication ISO est payante et n'a pas été consultée. Les affirmations issues de cette source sont attribuées au texte GSF, jamais à ISO/IEC 21031:2024.
 
@@ -175,23 +175,23 @@ Dans perf-sentinel :
 pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0,1 uWh par opération I/O
 ```
 
-C'est une approximation d'ordre de grandeur, pas une valeur mesurée. Elle tient compte d'une requête de base de données ou d'un aller-retour HTTP typique sur une infrastructure cloud. Le [projet Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/) utilise une approche similaire d'estimation de l'énergie à partir de l'utilisation des ressources plutôt que d'une mesure directe.
+C'est une approximation grossière d'ordre de grandeur, pas une valeur mesurée. Elle tient compte d'une requête de base de données ou d'un aller-retour HTTP typique sur une infrastructure cloud. Le [projet Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/) utilise une approche similaire d'estimation de l'énergie à partir de l'utilisation des ressources plutôt que d'une mesure directe.
 
 La valeur doit être divulguée comme méthodologie selon les exigences SCI. Elle est documentée dans le code, dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) et ici.
 
-### Carbone embodié (terme `M`)
+### Carbone embarqué (terme `M`)
 
 ```rust
 pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 ```
 
-Le défaut de `0,001 gCO₂/requête` est dérivé d'hypothèses typiques sur le cycle de vie d'un serveur :
+Le défaut de `0.001 gCO₂/request` est dérivé d'hypothèses typiques sur le cycle de vie d'un serveur :
 
-- Un serveur x86 moderne a une empreinte carbone embarquée de **~1000 kgCO₂eq** sur un cycle de vie de 4 ans (sources : [API Boavizta](https://doc.api.boavizta.org/) lifecycle assessments, [méthodologie Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/)).
+- Un serveur x86 moderne a une empreinte carbone embarquée de **~1000 kgCO₂eq** sur un cycle de vie de 4 ans (sources : analyses de cycle de vie de l'[API Boavizta](https://doc.api.boavizta.org/), [méthodologie Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/)).
 - 4 ans × 365 jours × 86400 secondes × 1 requête/sec ≈ 126 millions de requêtes amorties par serveur.
-- 1000 g par serveur / 126e6 requêtes ≈ **0,000008 gCO₂/req** (8e-6 g) à 1 req/sec, montant à ~0,001 à des taux de requêtes plus bas ou pour du matériel moins amorti.
+- 1000 g par serveur / 126e6 requêtes ≈ **0,000008 gCO₂/req** (8e-6 g) à 1 req/sec, montant à ~0,001 à des taux de requêtes plus bas ou pour du matériel plus gros ou moins amorti.
 
-Le défaut `0,001 g/req` est une **borne supérieure conservatrice pour des serveurs microservices peu chargés**. La méthodologie AWS Customer Carbon Footprint (2025) rapporte ~320 kgCO2eq/an pour un Dell R640, ce qui à des taux d'utilisation typiques donne 10-50 ugCO2/req, soit 10-20x en dessous de notre défaut. Les utilisateurs avec des données d'infrastructure mesurées devraient abaisser cette valeur via `[green] embodied_carbon_per_request_gco2`.
+Le défaut `0.001 g/req` est une **borne supérieure conservatrice pour des serveurs microservices peu chargés**. La méthodologie AWS Customer Carbon Footprint (2025) rapporte ~320 kgCO2eq/an pour un Dell R640, ce qui à des taux d'utilisation typiques donne 10-50 ugCO2/req, soit 10-20x en dessous de notre défaut. Les utilisateurs avec des données d'infrastructure mesurées devraient abaisser cette valeur via `[green] embodied_carbon_per_request_gco2`.
 
 **L'embarqué est indépendant de la région.** Les émissions de fabrication matérielle ne varient pas selon le lieu de déploiement. perf-sentinel émet le carbone embarqué inconditionnellement quand le scoring vert est activé, même quand aucune région ne se résout, pour que les utilisateurs voient au moins une estimation plancher.
 
@@ -212,7 +212,7 @@ Embarqué :
 embodied_gco2 = traces.len() × embodied_per_request_gco2
 ```
 
-Mid-point CO₂ total :
+Point médian du CO₂ total :
 ```
 total.mid = operational_gco2 + embodied_gco2
 ```
@@ -227,12 +227,16 @@ Le dénominateur `accounted_io_ops` exclut le bucket synthétique `unknown` pour
 
 Intervalle d'incertitude (multiplicatif 2×, pas arithmétique ±50%) :
 ```
-total.low  = total.mid × 0,5    // mid divisé par 2
-total.high = total.mid × 2,0    // mid multiplié par 2
+total.low  = total.mid × 0.5    // mid divisé par 2
+total.high = total.mid × 2.0    // mid multiplié par 2
 (idem pour avoidable.low / avoidable.high)
 ```
 
 C'est un **intervalle log-symétrique** : la moyenne géométrique de `low` et `high` vaut `mid`. Le cadrage 2× correspond mieux à l'incertitude d'ordre de grandeur du modèle proxy I/O qu'une fenêtre symétrique ±50%. Voir "Cadrage de l'incertitude" ci-dessous.
+
+Où :
+- `carbon_intensity` = gCO₂eq/kWh pour le réseau électrique de la région
+- `PUE` = Power Usage Effectiveness (facteur de surcoût du datacenter)
 
 ### Sémantique SCI v1.0 : numérateur vs intensité
 
@@ -266,9 +270,9 @@ Calculer le CO₂ évitable de manière précise par région nécessiterait de p
 avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
 ```
 
-Cela préserve l'**échelle relative** (une réduction de 50% du gaspillage donne une chute de 50% du CO₂ évitable) sans nécessiter d'attribution par finding. En contrepartie, quand les ops évitables sont concentrées dans une région à haute intensité, ce ratio sous-attribue légèrement les économies. La simplification est documentée comme limitation connue et étiquetée au niveau des données via `methodology: "sci_v1_operational_ratio"`.
+Cela préserve l'**échelle relative** (une réduction de 50% du gaspillage donne une chute de 50% du CO₂ évitable) sans nécessiter d'attribution de région par finding. En contrepartie, quand les ops évitables sont concentrées dans une région à haute intensité, ce ratio sous-attribue légèrement les économies. La simplification est documentée comme limitation connue et étiquetée au niveau des données via `methodology: "sci_v1_operational_ratio"`.
 
-**Le carbone embarqué est exclu de l'évitable.** Vous ne pouvez pas optimiser le silicium fabriqué en corrigeant des requêtes N+1 : les émissions embarquées sont fixes par requête peu importe l'efficacité de l'application. L'estimation évitable ne considère que le terme opérationnel.
+**Le carbone embarqué est exclu de l'évitable.** Vous ne pouvez pas faire disparaître le silicium fabriqué en corrigeant des requêtes N+1 : les émissions embarquées sont fixes par requête peu importe l'efficacité de l'application. L'estimation évitable ne considère que le terme opérationnel.
 
 ### Résolution multi-région
 
@@ -298,16 +302,16 @@ pub struct CarbonEstimate {
 }
 ```
 
-Les facteurs `0,5` et `2,0` encodent un **intervalle d'incertitude multiplicative 2×** autour du midpoint :
+Les facteurs `0.5` et `2.0` encodent un **intervalle d'incertitude multiplicative 2×** autour du point médian :
 
 ```
-moyenne_géométrique(low, high) = sqrt(low × high) = sqrt(mid² × 0,5 × 2,0) = mid
+geometric_mean(low, high) = sqrt(low × high) = sqrt(mid² × 0.5 × 2.0) = mid
 ```
 
 C'est un **intervalle log-symétrique** : le mid est le centre géométrique, pas le centre arithmétique. L'écart entre `low` et `high` est un facteur 4 (high/low = 4), plus large qu'une fenêtre symétrique ±50% (qui donnerait high/low = 3).
 
 **Pourquoi 2× et pas ±50% ?** Le modèle proxy I/O a une incertitude d'ordre de grandeur à chaque étape :
-- `ENERGY_PER_IO_OP_KWH = 0,1 µWh/op` est une approximation d'ordre de grandeur.
+- `ENERGY_PER_IO_OP_KWH = 0.1 µWh/op` est une approximation d'ordre de grandeur.
 - Les valeurs d'intensité réseau de CCF/Electricity Maps sont des moyennes annuelles, alors que l'intensité en temps réel varie 2-3× sur une journée.
 - Les PUE sont des moyennes par fournisseur, alors que les datacenters individuels varient.
 - Le carbone embarqué suppose une valeur conservatrice de cycle de vie serveur qui peut être décalée d'un ordre de grandeur pour du matériel spécifique.
@@ -343,7 +347,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 | OVHcloud    | 1,24  | [OVHcloud KPIs FY25](https://www.ovhcloud.com/sites/default/files/external_files/kpis_fy25.pdf) (moyenne groupe, septembre 2024 à août 2025). Mesuré sur douze mois et audité par Apave selon l'ISO 30134-2, sur 88% de la flotte détenue et exploitée. Les valeurs par datacenter vont de 1,19 (Strasbourg, Erith, Limburg) à 1,36 (Vint Hill). La table porte le chiffre groupe comme pour les trois hyperscalers                                                                                       |
 | Scaleway    | 1,375 | [Scaleway Impact Report 2025](https://www-uploads.scaleway.com/Impact_Report2025_22ee3a8232.pdf) (moyenne 2024 sur dix datacenters : quatre en France, trois aux Pays-Bas, trois en Pologne). Les valeurs par datacenter vont de 1,24 (WAW2) à 1,50 (WAW1, WAW3)                                                                                                                                                                                                                                          |
 | OUTSCALE    | 1,5   | **Aucun PUE publié.** 3DS OUTSCALE loue de la capacité au lieu d'exploiter ses propres datacenters, il n'existe donc aucun chiffre de flotte à citer et ses régions retombent sur l'a priori générique. Son partenaire Thésée annonce un PUE de conception de 1,2, qui n'est ni une valeur mesurée ni la flotte d'OUTSCALE, et le chiffre de 1,64 qui circule remonte à une infographie de 2021 qui ne l'énonce pas                                                                                       |
-| Générique   | 1,5   | [Uptime Institute Global Data Center Survey 2025](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025) (moyenne annuelle pondérée 1,54, stable depuis six années consécutives : 1,58 en 2023, 1,56 en 2024). Le seau générique couvre l'auto-hébergement, la colocation et les régions hors hyperscalers, la moyenne de l'enquête sectorielle est donc l'a priori défendable. Les régions hyperscalers portent leur propre PUE fournisseur |
+| Générique   | 1,5   | [Uptime Institute Global Data Center Survey 2025](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025) (PUE annuel moyen pondéré de 1,54, stable depuis six années consécutives : 1,58 en 2023, 1,56 en 2024). Le seau générique couvre l'auto-hébergement, la colocation et les régions hors hyperscalers, la moyenne de l'enquête sectorielle est donc l'a priori défendable. Les régions hyperscalers portent leur propre PUE fournisseur |
 
 Le PUE (Power Usage Effectiveness) mesure le ratio entre l'énergie totale du datacenter et l'énergie de l'équipement IT. Un PUE de 1,15 signifie 15% de surcoût pour le refroidissement, l'éclairage et l'infrastructure. La moyenne de l'industrie est ~1,58 (Uptime Institute), et les fournisseurs cloud hyperscale atteignent des valeurs significativement plus basses, le 1,09 de GCP passant sous le plancher symbolique des 10% de surcoût.
 
@@ -359,7 +363,7 @@ Quand la région configurée n'est pas trouvée dans la table, les champs CO2 so
 
 ## Profils horaires d'intensité carbone
 
-La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque des profils UTC horaires pour 22 régions. Quatre régions phares aux formes diurnes bien documentées portent un profil mensuel x horaire complet. Les 18 autres portent chacune leur propre profil représentatif 24 heures unique (voir plus bas) :
+La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque des profils horaires UTC du réseau électrique pour 22 régions. Quatre régions phares aux formes diurnes bien documentées portent un profil mensuel x horaire complet. Les 18 autres portent chacune leur propre profil représentatif 24 heures unique (voir plus bas) :
 
 - **France (`eu-west-3`)** : baseload nucléaire, forme plate-avec-pic-soir.
 - **Allemagne (`eu-central-1`)** : charbon + gaz + renouvelables variables, pics matin/soir prononcés.
@@ -368,7 +372,7 @@ La valeur annuelle plate par région écarte la variance diurne qui peut être i
 
 La moyenne arithmétique de chaque profil approxime la valeur annuelle plate correspondante dans les ±5%, préservant la continuité méthodologique : activer les profils horaires ne devrait pas provoquer de saut brutal du CO₂ rapporté pour un run sur une journée représentative. Le profil Allemagne (`eu-central-1`) violait historiquement cet invariant (moyenne ~431 gCO₂/kWh, figée au niveau de la crise charbon 2022, contre 338 en annuel). Depuis 0.8.7 il est recalibré sur le niveau Electricity Maps 2024 (~341) et l'invariant tient pour toutes les régions sans exception. Les utilisateurs qui ont besoin d'une calibration exacte peuvent désactiver les profils horaires avec `use_hourly_profiles = false`.
 
-Sources : rapports open-data annuels Electricity Maps (2023-2024), ENTSO-E Transparency Platform, RTE eco2mix (France), Fraunhofer ISE Energy-Charts (Allemagne), NGESO carbonintensity.org.uk (Royaume-Uni), EIA hourly generation data (US-East).
+Sources : rapports open-data annuels Electricity Maps (formes diurnes typiques 2023-2024 par zone), ENTSO-E Transparency Platform (composition du réseau européen et courbes de demande), données quotidiennes RTE eco2mix (France), Fraunhofer ISE Energy-Charts (Allemagne), NGESO carbonintensity.org.uk (Royaume-Uni), EIA hourly generation data (US-East).
 
 Quatre régions (`eu-west-3`, `eu-central-1`, `eu-west-2`, `us-east-1`) embarquent des profils mensuels x horaires complets (12x24, `MONTHLY_PROFILES`), rapportés sous le tag de modèle `io_proxy_v3`. Les autres régions profilées utilisent un seul profil représentatif de 24 heures (`FLAT_YEAR_PROFILES`) : pour elles, les données saisonnières additionnelles apporteraient un gain de précision marginal par rapport au coût de maintenance. Le tag `IntensitySource` distingue annuel, horaire et mensuel par région, promouvoir une région plate vers le mensuel reste donc rétrocompatible.
 
@@ -391,20 +395,20 @@ Quand l'aiguillage sélectionne le chemin horaire pour une région, la ligne `Re
 
 **Les horodatages doivent être en UTC.** `parse_utc_hour` rejette les formes d'offset non-UTC (`+02:00`, `-05:00`) plutôt que de les décaler silencieusement, parce que le profil embarqué est ancré en UTC. Les spans dont l'horodatage ne peut pas être parsé se rabattent sur l'intensité annuelle plate pour la région.
 
-**Invariant somme-puis-divise (défense contre la dérive dedup).** Un helper unique `compute_operational_gco2(io_ops, intensity, pue)` empêche la formule d'être réimplémentée de façon incohérente entre chemins, étendu avec un helper de plus bas niveau `per_op_gco2(energy_kwh, intensity, pue)` qui est la source unique de vérité pour la multiplication `energy × intensity × pue`. Les trois chemins (proxy, horaire, Scaphandre) passent par ce helper.
+**Invariant somme-puis-divise (défense contre la dérive dedup).** Un helper unique `compute_operational_gco2(io_ops, intensity, pue)` empêche la formule d'être réimplémentée de façon incohérente entre chemins, étendu avec un helper de plus bas niveau `per_op_gco2(energy_kwh, intensity, pue)` qui est la source unique de vérité pour la multiplication `energy × intensity × pue`. Les trois chemins (proxy, horaire, Scaphandre) passent par ce helper. Le helper global est implémenté comme `io_ops × per_op_gco2(ENERGY_PER_IO_OP_KWH, intensity, pue)`.
 
 ## Intégration énergétique par processus Scaphandre
 
-Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 µWh par op). C'est une approximation à deux ordres de grandeur près. perf-sentinel offre une prise en charge opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
+Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 µWh par op). C'est une approximation à deux ordres de grandeur près, et elle traite tous les services et toutes les formes de charge de la même façon. perf-sentinel offre une prise en charge opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
 
-**Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. perf-sentinel NE bundle PAS et NE fork PAS Scaphandre : il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre.rs` possède :
+**Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. perf-sentinel NE bundle PAS et NE fork PAS Scaphandre : il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre/` possède :
 
 - `ScaphandreConfig` : parsé depuis `[green.scaphandre]` dans `.perf-sentinel.toml`.
-- `ScaphandreState` : adossé à `ArcSwap<HashMap<String, ServiceEnergy>>` pour des lectures sans verrou depuis le chemin de scoring. Le scraper construit un nouveau `Arc<HashMap>` à chaque scrape réussi et le substitue atomiquement. Les lecteurs font un seul `load_full()` sans contention de verrou.
-- `spawn_scraper()` : une tâche tokio qui s'exécute toutes les `scrape_interval_secs`.
-- `parse_scaphandre_metrics()` : parser Prometheus sensible aux échappements. Itère par `.chars()` pour la sécurité UTF-8. Fast path sans allocation quand aucun backslash n'est présent dans les valeurs de labels. Gère les séquences `\"` et `\\`.
-- `OpsSnapshotDiff` : un helper de snapshot-diff qui lit les compteurs d'ops par service depuis `MetricsState::service_io_ops_total`.
-- `apply_scrape()` : applique les lectures de puissance parsées + les deltas d'ops à l'état.
+- `ScaphandreState` : adossé à `ArcSwap<HashMap<String, ServiceEnergy>>` pour des lectures sans verrou depuis le chemin de scoring. Le scraper construit un nouveau `Arc<HashMap>` à chaque scrape réussi et le substitue atomiquement. Les lecteurs font un seul `load_full()` pour obtenir leur propre référence `Arc` sans contention de verrou.
+- `spawn_scraper()` : une tâche tokio qui s'exécute toutes les `scrape_interval_secs` et met à jour l'état.
+- `parse_scaphandre_metrics()` : parseur de texte Prometheus sensible aux échappements. Itère par `.chars()` pour la sécurité UTF-8. Un chemin rapide évite toute allocation quand aucun échappement par backslash n'est présent dans les valeurs de labels. Gère les séquences `\"` et `\\` à l'intérieur des blocs de labels.
+- `OpsSnapshotDiff` : un helper de snapshot-diff qui lit les compteurs d'ops par service depuis `MetricsState::service_io_ops_total` et calcule le delta depuis le scrape précédent.
+- `apply_scrape()` : applique les lectures de puissance parsées + les deltas d'ops à l'état selon la formule ci-dessous.
 
 **La formule.** Pour chaque service mappé dans une fenêtre de scrape :
 
@@ -415,7 +419,7 @@ kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_observed_in_window
 ```
 
-Quand `ops_observed_in_window == 0`, l'entrée d'état existante est **conservée** inchangée plutôt qu'effacée, ce qui évite l'oscillation du tag de modèle pour les services inactifs.
+Quand `ops_observed_in_window == 0`, l'entrée d'état existante est **conservée** inchangée plutôt qu'effacée, ce qui évite l'oscillation du tag de modèle pour les services inactifs. Le seuil de péremption (3× l'intervalle de scrape) protège contre les scrapers bloqués.
 
 **Où le coefficient se branche.** Le daemon prend un snapshot synchrone de toutes les sources d'énergie au début de chaque tick `process_traces` via `build_tick_ctx`. Cette map fusionnée est attachée à `CarbonContext.energy_snapshot` pour la durée du tick. Chaque `EnergyEntry` porte le coefficient et un tag de modèle (`"scaphandre_rapl"` ou `"cloud_specpower"`). Dans la boucle de spans de `compute_carbon_report`, l'énergie par op est résolue comme suit :
 
@@ -430,9 +434,9 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-L'étape de scoring suit des flags par région (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs, `+cal` est ajouté. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
+L'étape de scoring suit des flags par région (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
 
-**Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus) via `snapshot_service_io_ops()`. Le chemin d'ingestion d'événements du daemon incrémente ce compteur à chaque événement normalisé.
+**Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus étiqueté par `service` et, depuis 0.19.0, par `grouping`) via `snapshot_service_io_ops()`, qui replie l'axe de regroupement en un seul total par service. Le chemin d'ingestion d'événements du daemon incrémente ce compteur à chaque événement normalisé. Utiliser directement le compteur Prometheus, plutôt qu'un compteur parallèle qu'il faudrait remettre à zéro à chaque fenêtre de scrape, évite les situations de concurrence lors de la remise à zéro et donne gratuitement aux utilisateurs Grafana un graphe de débit d'ops par service.
 
 **Arrêt propre.** Le daemon capture le `JoinHandle` du scraper et appelle `.abort()` sur lui avant le drain `process_traces` final dans la branche Ctrl-C. Cela empêche les lignes de log "scrape failed" d'apparaître après le message "Shutting down daemon".
 
@@ -446,7 +450,7 @@ Pour les VMs cloud (AWS, GCP, Azure) qui n'exposent pas Intel RAPL aux guests, p
 
 - `config/mod.rs` : `CloudEnergyConfig` et `ServiceCloudConfig` par service (provider, région, instance_type, surcharges optionnelles des watts idle/max).
 - `table.rs` : table de correspondance embarquée avec les valeurs idle et max watts pour ~390 types d'instances après la mise à jour CCF du 2026-04-24. Toutes les entrées suivent une méthodologie unique homogène : `idle_watts = vCPU * idle_per_vCPU` et `max_watts = vCPU * max_per_vCPU`, avec les coefficients tirés par fournisseur de `ccf-coefficients` 2026-04-24 (`coefficients-{aws,gcp,azure}-use.csv`). Aucun surcoût de carte mère n'est reconstruit : la colonne baseboard AWS a été abandonnée par CCF en 2026-04-24 et n'est pas réajoutée. La règle des 5 pour cent répartit les entrées modernes en deux groupes. Les entrées sont ré-alignées sur CCF quand le calcul SPECpower direct divergeait (Sapphire Rapids sur AWS `m7i`/`c7i`/`r7i` et GCP `c3`, EPYC Genoa sur AWS `m7a`/`c7a` et GCP `c3d`/`n2d`, Graviton 2/3/3E/4 mappés sur le proxy CCF EPYC 2nd Gen, EPYC Turin sur AWS `m8a`/`c8a`, Emerald Rapids sur GCP `c4`). Elles restent sur le calcul `SPECpower_ssj 2008` direct 2024 Q1 - 2026 Q2 quand elles sont dans les 5 pour cent ou absentes du CSV du fournisseur (AWS Milan `m6a`/`c6a`, Turin GCP `c4d`, Ampere Altra GCP `t2a`, Sapphire Rapids Azure, Emerald Rapids Azure, Genoa Azure, Cobalt 100 Azure, Sierra Forest). Nouvelles familles AWS ajoutées par cette mise à jour : `m8a` / `c8a` (Turin), `m8i` / `c8i` (Emerald Rapids), `r7a` (Genoa memory-optimized). Nouvelle famille GCP : `c4a` (Axion ARM Neoverse V2, proxié sur AWS Graviton 4). Voir `docs/FR/LIMITATIONS-FR.md`.
-- `scraper.rs` : scraper API JSON Prometheus. Interroge `avg(rate(cpu_metric[interval]))` par service.
+- `scraper.rs` : scraper API JSON Prometheus. Interroge `avg(rate(cpu_metric[interval]))` par service, récupère le JSON depuis l'endpoint Prometheus.
 - `state.rs` : `CloudEnergyState` adossé à `ArcSwap` pour des lectures sans verrou depuis le chemin de scoring.
 - `mod.rs` : ré-exports et documentation du module.
 
@@ -458,6 +462,29 @@ watts             = idle_watts + (max_watts - idle_watts) * (cpu_percent / 100)
 joules            = watts * scrape_interval_secs
 kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_in_window
+```
+
+`idle_watts` et `max_watts` viennent de la recherche dans la table SPECpower par type d'instance ou des surcharges fournies par l'utilisateur dans la configuration. Le nombre d'ops vient du même compteur `MetricsState::service_io_ops_total` que celui utilisé par Scaphandre.
+
+**Exemple de configuration.**
+
+```toml
+[green.cloud]
+prometheus_endpoint = "http://prometheus:9090"
+scrape_interval_secs = 15
+default_provider = "aws"
+default_instance_type = "c5.xlarge"
+cpu_metric = "node_cpu_seconds_total"
+
+[green.cloud.services.api-us]
+provider = "aws"
+region = "us-east-1"
+instance_type = "m7i.4xlarge"  # Sapphire Rapids, entrée moderne
+
+[green.cloud.services.api-eu]
+provider = "gcp"
+region = "europe-west1"
+instance_type = "c4d-standard-8"  # AMD Turin (Zen 5), entrée moderne
 ```
 
 **Tag de modèle et précédence.** Le coefficient porte le tag `"cloud_specpower"`. Dans `build_tick_ctx`, les sources de plus haute fidélité priment : Alumet écrase Scaphandre, qui écrase Kepler, qui écrase Redfish, qui écrase cloud SPECpower pour un même service. Le tag de modèle de niveau supérieur reflète la source la plus précise : `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
@@ -473,9 +500,9 @@ L'intégration `[green.alumet]` scrape le plugin de sortie `prometheus-exporter`
 **Une troisième forme de relevé.** Scaphandre exporte une jauge de microwatts instantanée, Kepler un compteur cumulatif monotone en joules, Alumet ni l'un ni l'autre. Son exporteur publie chaque mesure comme une jauge Prometheus contenant la dernière valeur flushée, et `rapl_consumed_energy` est déclarée `CounterDiff` : les joules consommés pendant un `poll_interval` de la source (défaut amont 1s, flush toutes les 5s). La valeur est donc un delta d'intervalle republié tel quel entre deux flushes. Ni sommer entre les scrapes (double comptage à l'intérieur d'une fenêtre de flush, intervalles perdus d'une fenêtre à l'autre) ni faire un delta contre le scrape précédent (la valeur est déjà un delta) n'est correct. Le scraper divise par l'`energy_interval_secs` déclaré par l'opérateur pour retrouver des watts moyens, puis intègre sur sa propre fenêtre de scrape :
 
 ```
-watts             = joules_par_intervalle / energy_interval_secs
-joules_fenetre    = watts × scrape_interval_secs
-energy_per_op_kwh = joules_fenetre / (ops × 3_600_000)
+watts             = joules_per_interval / energy_interval_secs
+window_joules     = watts × scrape_interval_secs
+energy_per_op_kwh = window_joules / (ops × 3_600_000)
 ```
 
 Passée la division, c'est la formule de Scaphandre mot pour mot, et elle hérite de la même hypothèse de stationnarité. Cela veut aussi dire qu'`alumet/apply.rs` ne porte aucun état entre les ticks : chaque scrape se suffit, et un redémarrage de l'exporteur n'a besoin d'aucune protection contre la remise à zéro d'un compteur.
@@ -490,7 +517,7 @@ Passée la division, c'est la formule de Scaphandre mot pour mot, et elle hérit
 
 ## Attribution de l'énergie du broker
 
-Un broker pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent de mesure. perf-sentinel reprend la forme de `database_waste` avec le ratio messaging seul, `énergie du broker × (ops de publication évitables / ops de publication totales)`, rapportée en `green_summary.messaging_waste`.
+Un broker pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent de mesure. perf-sentinel reprend la forme de `database_waste` avec le ratio messaging seul, `broker energy × (avoidable publish ops / total publish ops)`, rapportée en `green_summary.messaging_waste`.
 
 **Pourquoi pas un coefficient par publication.** Traité plus haut sous "Pourquoi aucun coefficient par publication ne peut être une mesure". La puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, l'énergie marginale n'est donc pas une constante, et les trois éléments qui la détermineraient (taux d'utilisation, facteur de réplication, topologie) sont invisibles depuis un span producteur. Le chiffre est une mesure au niveau du workload répartie par un ratio de comptage, jamais un coefficient.
 
@@ -511,31 +538,31 @@ Ce que borne ce chiffre déclaré est plus étroit qu'il n'y paraît. `SPECpower
 
 ## Notes d'attribution Kepler et Redfish
 
-Les intégrations Kepler et Redfish suivent le même schéma d'état partagé que Scaphandre et cloud SPECpower (`AgedEnergyMap` adossé à `ArcSwap`, fenêtre de fraîcheur `3 × scrape_interval`, `OpsSnapshotDiff` partagé par service) mais chacune porte des compromis méthodologiques qui méritent une note dédiée.
+Les intégrations Kepler et Redfish suivent le même schéma d'état partagé que Scaphandre et cloud SPECpower (`AgedEnergyMap` adossé à `ArcSwap`, seuil de fraîcheur à `3 × scrape_interval`, `OpsSnapshotDiff` par service) mais chacune porte des compromis méthodologiques qui méritent une note dédiée.
 
 **Sémantique du delta de compteur Kepler.** Kepler expose un compteur de joules cumulés monotone par conteneur ou processus, contrairement à la jauge de microwatts instantanée de Scaphandre. La tâche de scrape tient une `HashMap<service, last_raw_joules>` et calcule à chaque tick `delta = current - previous`, où `current` est la SOMME de tous les compteurs partageant la valeur de label mappée. Un nom de conteneur répété entre pods produit plusieurs séries, et une lecture dernier-écrit-gagne basculerait entre les compteurs au gré de l'ordre d'exposition. L'entrée n'est émise que si `delta > 0.0 && delta.is_finite()`. Ce filtre couvre les redémarrages de l'exporteur Kepler : le compteur se réinitialise à zéro, `current < previous` produit un delta négatif, et la garde le rejette. Les lectures non finies (`NaN`, `±Inf`) sont également rejetées. Le scrape suivant produit le prochain delta significatif à partir de la nouvelle référence. La première observation par service (pas de `previous`) n'émet pas de delta. Le compteur brut est enregistré pour le scrape suivant.
 
-**Mode de scrape Kepler (direct vs Prometheus-médié).** Kepler s'exécute en général comme `DaemonSet` Kubernetes (un pod par nœud). L'intégration `[green.kepler]` actuelle effectue un GET direct et requiert donc un endpoint qui expose les séries Kepler elles-mêmes, soit un exporteur local par perf-sentinel, soit un endpoint de fédération/proxy exposant les séries agrégées. L'endpoint `/metrics` d'un serveur Prometheus ne convient pas. Un futur mode `source = "prometheus"` émettra des requêtes PromQL vers un Prometheus amont. L'enum `metric_kind` distingue déjà les séries Kepler à lire.
+**Mode de scrape Kepler (direct vs Prometheus-médié).** Kepler s'exécute en général comme `DaemonSet` Kubernetes (un pod par nœud). L'intégration `[green.kepler]` actuelle effectue un GET direct et requiert donc un endpoint qui expose les séries Kepler elles-mêmes, soit un exporteur local au nœud par perf-sentinel, soit un endpoint de fédération/proxy exposant les séries agrégées. L'endpoint `/metrics` d'un serveur Prometheus ne convient pas. Un futur mode `source = "prometheus"` émettra des requêtes PromQL vers un Prometheus amont. L'enum `metric_kind` distingue déjà les séries Kepler à lire.
 
 **Formule d'attribution au niveau du nœud pour Redfish.** Redfish expose une lecture de puissance murale par châssis, pas par service. Le scraper transforme cette lecture en coefficient énergie-par-opération par service via :
 
 ```
 chassis_joules = chassis_watts × scrape_interval_secs
-total_ops      = Σ ops_delta(service) pour service ∈ mappé(châssis)
+total_ops      = Σ ops_delta(service) for service ∈ mapped(chassis)
 energy_per_op  = (chassis_joules / 3_600_000) / total_ops    (en kWh par opération)
 ```
 
 Chaque service mappé au châssis reçoit la **même** valeur `energy_per_op` pour cette fenêtre de scrape. C'est l'interprétation correcte d'une puissance au niveau du nœud tant qu'aucun signal plus fin n'est disponible, et c'est documenté comme une granularité connue dans `docs/FR/LIMITATIONS-FR.md` "Limites de précision Redfish BMC". Les châssis inactifs (aucune opération mappée cette fenêtre) laissent l'entrée précédente de chaque service intacte, sans division par zéro et sans oscillation. Les lectures de wattage non finies, nulles, à zéro ou négatives sont rejetées comme états transitoires du BMC, et le coefficient précédent est préservé.
 
-**Limitation TLS Redfish.** La plupart des BMCs présentent un certificat auto-signé par défaut. Le `http_client::build_client` partagé de perf-sentinel s'appuie sur `hyper-rustls` avec le magasin de racines webpki publiques, qui rejette les certificats auto-signés. Le champ `RedfishConfig::ca_bundle_path` anticipe les bundles CA fournis par l'opérateur, mais le chargement PEM effectif est **reporté à une version ultérieure**. Définir `ca_bundle_path` aujourd'hui amène le scraper à émettre une erreur explicite et à refuser de démarrer. Cet échec explicite permet aux opérateurs avec un BMC auto-signé de voir la limite immédiatement plutôt qu'au milieu d'un handshake TLS loin de la configuration concernée. Contournements dans la version courante : placer le BMC derrière un reverse proxy qui présente un certificat signé publiquement, ou utiliser HTTP sur un segment réseau de confiance.
+**Limitation TLS Redfish.** La plupart des BMCs présentent un certificat auto-signé par défaut. Le `http_client::build_client` partagé de perf-sentinel s'appuie sur `hyper-rustls` avec le magasin de racines webpki publiques, qui rejette les certificats auto-signés. Le champ `RedfishConfig::ca_bundle_path` anticipe les bundles CA fournis par l'opérateur, mais le chargement PEM effectif est **reporté à une version ultérieure**. Définir `ca_bundle_path` aujourd'hui amène le scraper à journaliser un `ERROR` et à refuser de démarrer. Cet échec explicite permet aux opérateurs avec un BMC auto-signé de voir la limite immédiatement plutôt qu'au milieu d'un handshake TLS loin de la configuration concernée. Contournements dans la version courante : placer le BMC derrière un reverse proxy qui présente un certificat signé publiquement, ou utiliser HTTP sur un segment réseau de confiance.
 
 **Variance JSON entre fournisseurs pour Redfish.** Les différents fournisseurs de BMC renvoient des formes légèrement différentes sous `/redfish/v1/Chassis/{id}/Power`. Le pointeur JSON par défaut `/PowerControl/0/PowerConsumedWatts` résout correctement chez Dell iDRAC, HPE iLO, Lenovo XCC, Supermicro X11+ et la référence OpenBMC, mais les formes spécifiques au fournisseur (ex. `Oem.Hpe.PowerSummary.Watts` chez HPE) sont surchargeables via le champ de configuration `power_path`. Le parseur rejette `null`, `0`, les valeurs négatives et `NaN` comme invalides pour que les états transitoires du BMC (démarrage, rampe de ventilateurs) ne polluent pas le coefficient.
 
 **Protection contre la limitation de débit Redfish.** `scrape_interval_secs` est écrêté à `[15, 3600]` pour Redfish (contre `[1, 3600]` pour Scaphandre et Kepler). Plusieurs BMCs (notamment HPE iLO 4/5) limitent les requêtes Redfish en dessous de 30 secondes. De nombreux fournisseurs maintiennent de toute façon la valeur en cache interne sur un cycle de mise à jour de 30 s, donc un intervalle plus rapide n'apporte aucune information tout en s'exposant à des erreurs 429. Valeur par défaut : 60 s.
 
-**Surface SSRF assumée.** Les scrapers Kepler, Redfish, Scaphandre et cloud-energy acceptent tous de joindre une URL loopback ou RFC 1918 (`http://127.0.0.1:9102/metrics`, `https://10.0.0.5/redfish/v1/...`). Ces cibles sont attendues : Kepler s'exécute typiquement en `DaemonSet` sur le même nœud, les BMCs sont sur des réseaux d'administration, Scaphandre expose un endpoint Prometheus local. La validation à la lecture de la configuration refuse les URLs avec des identifiants embarqués (`@`) ou des caractères de contrôle, et le plafond de taille du corps dans `http_client::fetch_get` (8 Mio) borne la mémoire par requête. Le client `hyper-util` partagé est construit sans suivi de redirections, donc un endpoint malveillant ne peut pas faire un 302 vers `http://169.254.169.254/`. La garantie au déploiement est que chaque URL que joint le daemon vient d'une configuration `.perf-sentinel.toml` fournie par l'opérateur, jamais dérivée d'une entrée externe (spans, réponses BMC, résultats de requêtes Prometheus).
+**Surface SSRF assumée.** Les scrapers Kepler, Redfish, Scaphandre et cloud-energy acceptent tous de joindre une URL loopback ou RFC 1918 (`http://127.0.0.1:9102/metrics`, `https://10.0.0.5/redfish/v1/...`). Ces cibles sont attendues : Kepler s'exécute typiquement en `DaemonSet` sur le même nœud, les BMCs sont sur des réseaux d'administration, Scaphandre expose un endpoint Prometheus local. La validation à la lecture de la configuration refuse les URLs avec des identifiants embarqués (`@`) ou des caractères de contrôle, et le plafond de taille du corps dans `http_client::fetch_get` (8 Mio) borne la mémoire par requête. Le client legacy partagé de `hyper-util` est construit sans suivi de redirections, donc un endpoint malveillant ne peut pas rediriger le scraper (302) vers `http://169.254.169.254/`. La garantie au déploiement est que chaque URL que joint le daemon vient d'une configuration `.perf-sentinel.toml` fournie par l'opérateur, jamais dérivée d'une entrée externe (spans, réponses BMC, résultats de requêtes Prometheus).
 
-**Tags carbone à deux axes.** La fidélité de l'énergie (`E`, classée par [`carbon_compute::higher_fidelity_measured`]) et la fidélité de l'intensité réseau (`I`, exposée par [`region_breakdown::select_co2_model_tag`]) sont des axes indépendants. Une même fenêtre peut porter `co2.model = "electricity_maps_api"` (l'intensité temps réel est la source `I` la plus précise) tout en reportant `per_service_energy_model` à `"scaphandre_rapl"` pour le même service (RAPL est la source `E` la plus précise). Étiqueter le rapport selon la source `I` la plus précise pendant que la ventilation par service suit `E` permet aux auditeurs de voir les deux dimensions sans les fusionner dans un seul tag.
+**Tags carbone à deux axes.** La fidélité de l'énergie (`E`, classée par [`carbon_compute::higher_fidelity_measured`]) et la fidélité de l'intensité réseau (`I`, exposée par [`region_breakdown::select_co2_model_tag`]) sont des axes indépendants. Une même fenêtre peut porter `co2.model = "electricity_maps_api"` (l'intensité temps réel est la source `I` la plus précise) tandis que `per_service_energy_model` indique `"scaphandre_rapl"` pour le même service (RAPL est la source `E` la plus précise). Étiqueter le rapport selon la source `I` la plus précise pendant que la ventilation par service suit `E` permet aux auditeurs de voir les deux dimensions sans les fusionner dans un seul tag.
 
 ## Intégration intensité temps réel Electricity Maps
 
@@ -578,7 +605,7 @@ C'est le signal qu'un reporting Scope 2 attend pour distinguer les émissions me
 
 Les deux champs sont affichés dans les deux couches de rendu visibles par l'opérateur, qui voit la distinction d'un seul coup d'œil.
 
-**Dashboard.** Le tableau Regions de l'onglet GreenOps gagne une 6e colonne `Estimated`. Trois états visuels : un badge orange `Estimated` quand `intensity_estimated == true` (le survol affiche une infobulle avec la `intensity_estimation_method`), un badge vert `Measured` quand `intensity_estimated == false`, et un tiret neutre pour les lignes dont `intensity_source` n'est pas `real_time`. Les profils annuels, horaires et mensuels-horaires ne portent pas de métadonnées d'estimation, donc le champ reste `None` de bout en bout. Les deux badges réutilisent les variables CSS de la palette existante (`--color-background-warning`, `--color-text-warning`, `--color-background-success`, `--color-text-success`) pour que les thèmes sombre et clair s'adaptent automatiquement.
+**Dashboard.** Le tableau Regions de l'onglet GreenOps gagne une sixième colonne `Estimated`. Trois états visuels : un badge orange `Estimated` quand `intensity_estimated == true` (le survol affiche une infobulle avec la `intensity_estimation_method`), un badge vert `Measured` quand `intensity_estimated == false`, et un tiret neutre pour les lignes dont `intensity_source` n'est pas `real_time`. Les profils annuels, horaires et mensuels-horaires ne portent pas de métadonnées d'estimation, donc le champ reste `None` de bout en bout. Les deux badges réutilisent les variables CSS de la palette existante (`--color-background-warning`, `--color-text-warning`, `--color-background-success`, `--color-text-success`) pour que les thèmes sombre et clair s'adaptent automatiquement.
 
 **Terminal.** La ligne par-région de `print_green_summary` gagne un suffixe après le champ `source: real_time`. Format :
 
@@ -600,7 +627,7 @@ Rétro-compatibilité : les configs `.perf-sentinel.toml` existantes qui épingl
 
 ### Transparence de la config de scoring (0.5.12)
 
-L'objet `green_summary.scoring_config` expose la configuration runtime de l'intégration Electricity Maps pour qu'un auditeur ou un reporter Scope 2 puisse voir quel modèle carbone a produit les chiffres sans lire la TOML de l'opérateur. Trois champs, tous dérivés d'`ElectricityMapsConfig` au chargement de la config via `ScoringConfig::from_electricity_maps` :
+L'objet `green_summary.scoring_config` expose la configuration runtime de l'intégration Electricity Maps pour qu'un auditeur ou l'auteur d'un rapport Scope 2 puisse voir quel modèle carbone a produit les chiffres sans lire la TOML de l'opérateur. Trois champs, tous dérivés d'`ElectricityMapsConfig` au chargement de la config via `ScoringConfig::from_electricity_maps` :
 
 - `api_version` : détecté à partir d'`api_endpoint` via `ApiVersion::from_endpoint`. Une de `v3` (legacy), `v4` (défaut), `custom` (proxy ou mock sans suffixe `/vN`).
 - `emission_factor_type` : miroir du réglage TOML, une de `lifecycle` (défaut) ou `direct`.
@@ -618,13 +645,13 @@ L'objet `green_summary.scoring_config` expose la configuration runtime de l'int�
 
 ## Coefficients énergétiques par opération
 
-Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
+Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` gourmand en disque écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
 
-**Multiplicateurs SQL.** Le verbe est extrait du premier mot du champ `target` (la requête SQL brute), pas du champ `operation`. C'est nécessaire car les spans ingérées via OTLP stockent `db.system` (ex. "postgresql") dans `operation`, pas le verbe SQL.
+**Multiplicateurs SQL.** Le verbe est extrait du premier mot du champ `target` (la requête SQL brute), pas du champ `operation`. C'est nécessaire car les spans ingérés via OTLP stockent `db.system` (ex. "postgresql") dans `operation`, pas le verbe SQL. Le premier token délimité par des espaces donne le verbe SQL de façon fiable dans tous les formats d'ingestion (JSON natif, OTLP, Jaeger, Zipkin).
 
 | Verbe SQL | Multiplicateur | Justification                     |
 |-----------|----------------|-----------------------------------|
-| SELECT    | 0.5x           | Lecture seule, pas d'écriture WAL |
+| SELECT    | 0.5x           | Recherche d'index en lecture seule, pas d'écriture WAL |
 | INSERT    | 1.5x           | Écriture WAL + page de données    |
 | UPDATE    | 1.5x           | Lecture + écriture                |
 | DELETE    | 1.2x           | Marquage + WAL                    |
@@ -641,19 +668,29 @@ Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) p
 
 **Les spans messaging sont non pondérés (1.0x).** Une publication ne reçoit pas les paliers HTTP, même si `messaging.message.body.size` est ingéré dans le même champ `response_size_bytes`. Les bornes des paliers encodent une distribution de charges utiles web : 1 Mo est le `max.message.bytes` par défaut de Kafka, un plafond protocolaire plutôt qu'un gros message, donc sous une configuration de broker par défaut la quasi-totalité des messages tomberait dans le palier 0.8x. Le résultat serait une remise quasi constante de 20 % plutôt qu'un modèle sensible à la taille. Aucune des trois sources ci-dessous n'a mesuré de broker, donc emprunter leurs ratios étendrait leur autorité à un domaine qu'elles n'ont jamais couvert. L'attribut de taille est ingéré pour qu'un coefficient mesuré puisse être calibré plus tard via `calibrate` contre un run Alumet sur un banc broker, le chemin qui a produit les ratios SQL.
 
-**Pourquoi aucun coefficient par publication ne peut être une mesure.** La raison la plus forte n'est pas l'absence de chiffre publié, c'est que la puissance d'un broker ne suit pas son débit de messages. Une étude ICPE 2026 (ACM/SPEC) a mesuré Kafka et Redpanda avec Scaphandre sur RAPL (3 brokers, facteur de réplication 3, messages de 4 Kio, 60 partitions par broker, sur clusters NVMe, SSD et HDD). Elle rapporte que "Kafka exhibits a linear increase in power consumption up to about 20% of maximum throughput, after which it remains relatively stable regardless of additional load", en l'attribuant à des pools de threads fixes, contre environ 50 % pour Redpanda. L'énergie marginale d'une publication tend donc vers zéro au-delà de ce coude, et tout coefficient par opération est une allocation amortie d'une puissance essentiellement fixe, pas une mesure du travail marginal. Une étude au wattmètre bien plus ancienne pointe dans le même sens côté stockage : sur la charge Web de Filebench, XFS soutient beaucoup plus d'opérations qu'Ext2 pour seulement 29 % de puissance en plus, soit environ 6,75 fois moins d'énergie par opération à travail applicatif identique (Sehgal, Tarasov, Zadok, "Evaluating Performance and Energy in File System Server Workloads", USENIX FAST 2010). L'énergie par opération est dominée par la puissance fixe et par la pile logicielle, pas par le contenu de l'opération. Cela borne ce que le modèle proxy peut affirmer dans son ensemble, coefficients SQL et HTTP compris, et c'est pourquoi le coefficient messaging n'affirme rien.
+**Pourquoi aucun coefficient par publication ne peut être une mesure.** La raison la plus forte n'est pas l'absence de chiffre publié, c'est que la puissance d'un broker ne suit pas son débit de messages. Une étude ICPE 2026 (ACM/SPEC) a mesuré Kafka et Redpanda avec Scaphandre sur RAPL (3 brokers, facteur de réplication 3, messages de 4 Kio, 60 partitions par broker, sur clusters NVMe, SSD et HDD). Elle rapporte que "Kafka exhibits a linear increase in power consumption up to about 20% of maximum throughput, after which it remains relatively stable regardless of additional load", en l'attribuant à des pools de threads fixes, contre environ 50 % pour Redpanda. L'énergie marginale d'une publication tend donc vers zéro au-delà de ce coude, et tout coefficient par opération est une allocation amortie d'une puissance essentiellement fixe, pas une mesure du travail marginal. Une étude au wattmètre plus ancienne pointe dans le même sens côté stockage : sur la charge Web de Filebench, XFS soutient beaucoup plus d'opérations qu'Ext2 pour seulement 29 % de puissance en plus, soit environ 6,75 fois moins d'énergie par opération à travail applicatif identique (Sehgal, Tarasov, Zadok, "Evaluating Performance and Energy in File System Server Workloads", USENIX FAST 2010). L'énergie par opération est dominée par la puissance fixe et par la pile logicielle, pas par le contenu de l'opération. Cela borne ce que le modèle proxy peut affirmer dans son ensemble, coefficients SQL et HTTP compris, et c'est pourquoi le coefficient messaging n'affirme rien.
 
 Deux défauts de Kafka cassent aussi la lecture naïve "une publication égale une écriture durable", dans les deux sens. `flush.messages` vaut `Long.MAX_VALUE` par défaut et le projet lui-même déconseille de le régler ("we recommend you not set this and use replication for durability and allow the operating system's background flush capabilities as it is more efficient"), donc facturer un fsync par publication est faux. À l'inverse, la configuration durable typique (facteur de réplication 3, `min.insync.replicas=2`, `acks=all`) donne environ un append par réplique, et ce fan-out est piloté par `replication.factor`, pas par `acks`.
 
 **Assise normative.** La spécification SCI de la Green Software Foundation (texte v1.1.0, et non la publication payante ISO/IEC 21031:2024, qui n'a pas été consultée) autorise une valeur modélisée : "In situations where there is a lack of access, capability, or rights to the necessary real-world data, the SCI allows for data generated through modeling, using best estimates instead." C'est un repli conditionné à l'inaccessibilité de la donnée, pas un choix libre, et aucune sous-spécification GSF ne couvre les charges de type broker ou messaging.
 
-**Sources.** Les ratios relatifs proviennent de benchmarks académiques d'énergie SGBD (Z. Xu, Y.-C. Tu, X. Wang, "Exploring Power-Performance Tradeoffs in Database Systems", IEEE ICDE 2010, p. 485-496, Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010, p. 231-242, Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961, 2023) et de la méthodologie Cloud Carbon Footprint.
+**Sources.** Les ratios relatifs proviennent de benchmarks académiques d'énergie SGBD (Z. Xu, Y.-C. Tu, X. Wang, "Exploring Power-Performance Tradeoffs in Database Systems", IEEE ICDE 2010, p. 485-496, Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010, p. 231-242, Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961, 2023) et de la méthodologie Cloud Carbon Footprint. Les valeurs absolues sont des estimations d'ordre de grandeur. L'ordre relatif (SELECT < DELETE < INSERT/UPDATE) est plus robuste d'une génération de matériel à l'autre.
 
-**Où cela s'intègre.** Dans la boucle de spans de `compute_carbon_report`, le chemin proxy applique le coefficient. Quand de l'énergie mesurée est disponible (Scaphandre ou cloud SPECpower), le coefficient n'est PAS appliqué.
+**Où cela s'intègre.** Dans la boucle de spans de `compute_carbon_report`, le chemin proxy de repli applique le coefficient :
 
-**Détail hot path.** La fonction `energy_coefficient()` est `#[inline]` et n'alloue pas : elle utilise `split_ascii_whitespace().next()` (lazy, s'arrête au premier espace) pour l'extraction du verbe et `eq_ignore_ascii_case` pour la comparaison au lieu de `to_ascii_lowercase()`. Le verbe le plus courant (SELECT) correspond dès la première comparaison.
+```rust
+let proxy_energy_kwh = if ctx.per_operation_coefficients {
+    ENERGY_PER_IO_OP_KWH * energy_coefficient(&span.event)
+} else {
+    ENERGY_PER_IO_OP_KWH
+};
+```
 
-**Config.** `[green] per_operation_coefficients = true` (défaut). Le tag de modèle reste `io_proxy_v1` ou `io_proxy_v2`. Les coefficients par opération sont un raffinement du modèle proxy, pas une nouvelle classe de modèle.
+Quand de l'énergie mesurée est disponible (Scaphandre ou cloud SPECpower), le coefficient n'est PAS appliqué. Les données mesurées sont toujours plus précises que des multiplicateurs heuristiques.
+
+**Détail hot path.** La fonction `energy_coefficient()` est `#[inline]` et n'alloue pas : elle utilise `split_ascii_whitespace().next()` (lazy, s'arrête au premier espace) pour l'extraction du verbe et `eq_ignore_ascii_case` pour la comparaison au lieu d'une conversion en minuscules. Le verbe le plus courant (SELECT) correspond dès la première comparaison.
+
+**Interrupteur de configuration.** `[green] per_operation_coefficients = true` (défaut). Passer à `false` pour utiliser la constante plate. Le tag de modèle reste `io_proxy_v1` ou `io_proxy_v2` quelle que soit la valeur de ce réglage. Les coefficients par opération sont un raffinement du modèle proxy, pas une nouvelle classe de modèle.
 
 ## Énergie de transport réseau
 
@@ -662,29 +699,36 @@ Pour les appels HTTP inter-régions, le coût énergétique du transfert d'octet
 **La formule.**
 
 ```
-energy_transport_kwh = bytes_transférés * ENERGY_PER_BYTE_KWH
-transport_co2        = energy_transport_kwh * intensité_région_source * pue_source
+energy_transport_kwh = bytes_transferred * ENERGY_PER_BYTE_KWH
+transport_co2        = energy_transport_kwh * source_region_intensity * source_pue
 ```
 
-Le coefficient par défaut est `4e-11 kWh/octet` (0.04 kWh/Go), un défaut prudent sous les moyennes réseau récentes. Le Sustainable Web Design Model v4 (2024) utilise 0.059 kWh/Go opérationnel (plus 0.013 incorporé) pour les réseaux, un chiffre qui inclut les réseaux d'accès que le trafic serveur inter-régions ne traverse pas. Les coefficients inter-datacenters descendent à 0.001 kWh/Go (coefficient réseau de Cloud Carbon Footprint, appliqué à des gigaoctets dans leur estimateur). Mytton, Lunden et Malmodin (2024, "Network energy use not directly proportional to data volume", Journal of Industrial Ecology 28(4):966-980, doi:10.1111/jiec.13512) démontrent que le modèle kWh/Go n'est valide que pour l'allocation rétrospective : les équipements réseau ont une puissance de base fixe significative, l'énergie n'augmente donc pas linéairement avec le volume (leur table 2 situe le modèle réseau fixe du Shift Project 2019 à 0.31-0.53 kWh/Go contre 0.07 mesuré chez Telefonica en 2020). Le défaut est donc une borne haute pour le trafic serveur inter-régions. Depuis la 0.9.25 le coefficient est fixe et non configurable, chaque divulgation met donc le transport à la même échelle, et la divulgation publie aussi le terme sous la fourchette sourcée : 0.001 kWh/Go en bas (Cloud Carbon Footprint) et 0.059 kWh/Go en haut (segment réseau du SWDM v4), via `transport_kgco2eq_low` / `transport_kgco2eq_high`.
+Le coefficient par défaut est `4e-11 kWh/byte` (0.04 kWh/Go), un défaut prudent sous les moyennes réseau récentes. Le Sustainable Web Design Model v4 (2024) utilise 0.059 kWh/Go opérationnel (plus 0.013 incorporé) pour les réseaux, un chiffre qui inclut les réseaux d'accès que le trafic serveur inter-régions ne traverse pas. Les coefficients inter-datacenters descendent à 0.001 kWh/Go (coefficient réseau de Cloud Carbon Footprint, appliqué à des gigaoctets dans leur estimateur). Mytton, Lunden et Malmodin (2024, "Network energy use not directly proportional to data volume", Journal of Industrial Ecology 28(4):966-980, doi:10.1111/jiec.13512) démontrent que le modèle kWh/Go n'est valide que pour l'allocation rétrospective : les équipements réseau ont une puissance de base fixe significative, l'énergie n'augmente donc pas linéairement avec le volume (leur table 2 situe le modèle réseau fixe du Shift Project 2019 à 0.31-0.53 kWh/Go contre 0.07 mesuré chez Telefonica en 2020). Le défaut est donc une borne haute pour le trafic serveur inter-régions. Depuis la 0.9.25 le coefficient est fixe et non configurable, chaque divulgation met donc le transport à la même échelle, et la divulgation publie aussi le terme sous la fourchette sourcée : 0.001 kWh/Go en bas (Cloud Carbon Footprint) et 0.059 kWh/Go en haut (segment réseau du SWDM v4), via `transport_kgco2eq_low` / `transport_kgco2eq_high`.
 
-**Détection inter-région.** L'énergie de transport n'est calculée que quand les régions de l'appelant et de l'appelé diffèrent :
+L'intensité carbone et le PUE de la région **source** (celle d'où partent les données) sont utilisés, puisque l'infrastructure réseau qui sert la requête est co-localisée avec la source.
+
+**Détection inter-région.** L'énergie de transport n'est calculée que quand l'appelant et l'appelé sont dans des régions différentes. Le mécanisme :
 
 1. **Région appelant** : résolue via la chaîne standard (`span.cloud_region` > `service_regions[service]` > `default_region`).
-2. **Région appelé** : le hostname est extrait de l'URL cible HTTP puis cherché dans `ctx.service_regions`. Si non mappé, perf-sentinel suppose conservativement la même région.
-3. Si les deux régions sont résolues et diffèrent (comparaison insensible à la casse), l'énergie de transport est calculée.
+2. **Région appelé** : le hostname est extrait de l'URL cible HTTP (ex. `order-api` depuis `http://order-api:8080/api/orders`), puis cherché dans `ctx.service_regions`. Si le hostname n'est pas mappé, perf-sentinel suppose prudemment la même région (pas de terme de transport).
+3. Si les deux régions sont résolues et diffèrent (comparaison insensible à la casse), l'énergie de transport est calculée et cumulée.
 
-**Sortie rapport.** Le CO₂ transport apparaît comme `transport_gco2` dans `CarbonReport` et `GreenSummary`. Il est inclus dans le total SCI : `total_mid = opérationnel + embodié + transport`. Le champ est omis du JSON quand il vaut zéro, ce qui est le cas dès qu'aucun appel inter-région ne portait de taille de réponse.
+**Ce qui le déclenche.** Deux conditions doivent être vraies à la fois pour qu'un span contribue à l'énergie de transport :
+
+- Le span est un appel HTTP sortant (`event_type == HttpOut`)
+- Le span a une valeur `response_size_bytes` (depuis l'attribut OTel `http.response.body.size`)
+
+**Sortie rapport.** Le CO₂ transport apparaît comme `transport_gco2` dans `CarbonReport` et `GreenSummary`. Il est inclus dans le total SCI : `total_mid = operational + embodied + transport`. Le champ est omis du JSON quand il vaut zéro, ce qui est le cas dès qu'aucun appel inter-région ne portait de taille de réponse.
 
 **Config.** Plus aucune clé `[green]` ne conditionne le terme de transport. `include_network_transport` et `network_energy_per_byte_kwh` sont toutes deux dépréciées et ignorées depuis la 0.9.25, parsées seulement pour avertir : conditionner le calcul rendait deux rapports non comparables, un coefficient configurable laissait deux divulgations mettre le même trafic à des échelles différentes, un zéro effaçait le terme en silence, et un interrupteur d'affichage sur un chiffre toujours publié n'avait plus de justification.
 
 **Optimisations hot path.** Le chemin transport s'exécute dans la boucle de scoring par span. Deux micro-optimisations évitent les allocations dans le cas courant :
 - Le hostname extrait de l'URL est comparé à `service_regions` avec un pattern probe-before-allocate : `to_ascii_lowercase()` n'est appelé que si le hostname contient des majuscules (rare pour les noms de service Kubernetes/Docker).
-- La région de l'appelant réutilise `region_ref` déjà résolu plus tôt dans la même itération.
+- La région de l'appelant réutilise `region_ref` déjà résolu plus tôt dans la même itération de boucle au lieu d'appeler `resolve_region` une seconde fois.
 
-**Scalaire `co2_grams` des top offenders.** Le `co2_grams` par offender utilise la constante plate `ENERGY_PER_IO_OP_KWH`. Quand `per_operation_coefficients` est actif (le défaut), `co2_grams` est mis à `None` pour éviter une incohérence avec la ventilation par région. Le classement (par IIS) n'est pas affecté.
+**Scalaire `co2_grams` des top offenders.** Le `co2_grams` par offender utilise la constante plate `ENERGY_PER_IO_OP_KWH`, pas les coefficients par opération. Quand `per_operation_coefficients` est actif (le défaut), `co2_grams` est mis à `None` pour éviter une incohérence avec la ventilation par région. Le classement des top offenders (par IIS) n'est pas affecté puisque l'IIS compte des opérations, pas du CO2.
 
-**Limitations.** Voir `docs/FR/LIMITATIONS-FR.md` "Énergie de transport réseau" pour la discussion complète.
+**Limitations.** Voir `docs/FR/LIMITATIONS-FR.md` "Énergie de transport réseau" pour la discussion complète : large fourchette d'estimation, aucun effet CDN, aucune modélisation de la compression, détection de région par configuration uniquement, aucune modélisation du dernier kilomètre.
 
 ## Cohérence du cache d'état énergétique
 
@@ -716,14 +760,14 @@ Le champ apparaît dans :
 - **SARIF v2.1.0** : entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
 - **Sortie terminal CLI** : NON affiché (le terminal reste propre pour l'usage interactif).
 
-Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil tiers qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` "Champ de confiance sur les findings" pour l'exemple d'intégration.
+Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil personnalisé qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` "Champ de confiance sur les findings" pour l'exemple d'intégration.
 
 ## Calibrer le proxy contre un vrai wattmètre
 
 `calibrate.rs` sert la sous-commande `calibrate`, qui transforme un CSV de puissance mesurée en multiplicateurs par service pour le proxy I/O. Elle comble l'écart entre "un coefficient directionnel" et "un coefficient directionnel ancré sur votre matériel", sans exiger d'agent de mesure au runtime.
 
-L'arithmétique est simple : pour chaque service présent **à la fois** dans les traces et dans les relevés, `énergie_par_op = énergie_totale / ops_totales`, et le facteur émis est ce rapport divisé par le coefficient proxy par défaut. Un service à zéro op sur la fenêtre d'observation est ignoré plutôt que doté d'un facteur, puisque diviser par lui fabriquerait un nombre à partir d'aucune preuve.
+L'arithmétique est simple : pour chaque service présent **à la fois** dans les traces et dans les relevés, `energy_per_op = total_energy / total_ops`, et le facteur émis est ce rapport divisé par le coefficient proxy par défaut. Un service à zéro op sur la fenêtre d'observation est ignoré plutôt que doté d'un facteur, puisque diviser par lui fabriquerait un nombre à partir d'aucune preuve.
 
-Deux formes d'entrée sont acceptées et détectées depuis l'en-tête CSV. `timestamp,service,power_watts` est intégré en énergie via l'intervalle entre relevés consécutifs **par service**, pour que des services entrelacés ne corrompent pas mutuellement leurs intervalles. `timestamp,service,energy_kwh` est pris tel quel. Les lignes commençant par `#` sont ignorées, car les exports de wattmètre portent couramment un préambule.
+Deux formes d'entrée sont acceptées et détectées automatiquement depuis l'en-tête CSV. `timestamp,service,power_watts` est intégré en énergie via l'intervalle entre relevés consécutifs **par service**, pour que des services entrelacés ne corrompent pas mutuellement leurs intervalles. `timestamp,service,energy_kwh` est pris tel quel. Les lignes de commentaire commençant par `#` sont ignorées, car les exports de wattmètre portent couramment un préambule.
 
 Cela ne transforme pas le chiffre en mesure. Le résultat dépend toujours du ratio de comptage et garde une étiquette de modèle (`io_proxy_*+cal`) disant que c'est un modèle calibré et non une lecture. Une calibration dérivée sur un profil de charge et appliquée à un autre hérite des hypothèses du premier, raison pour laquelle le facteur est par service et non global.
