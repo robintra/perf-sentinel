@@ -6,10 +6,10 @@ Thank you for taking the time to improve perf-sentinel's security. This document
 
 perf-sentinel follows semantic versioning. Security fixes are backported as follows:
 
-| Version | Supported |
-|---------|-----------|
-| 0.9.x   | ✅        |
-| < 0.9   | ❌        |
+| Version               | Supported |
+|-----------------------|-----------|
+| Latest minor release  | ✅        |
+| Older minor releases  | ❌        |
 
 Only the latest minor release receives security fixes. Users on older versions are encouraged to upgrade.
 
