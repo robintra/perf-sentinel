@@ -6,7 +6,7 @@
 //! archives the avoidable at a fixed canonical threshold
 //! ([`DISCLOSURE_N_PLUS_ONE_THRESHOLD`]) alongside the
 //! operator-threshold one. Daemon-only (the `disclose` subcommand reads
-//! pre-computed tiers); the anti-gaming invariant tests run under the
+//! pre-computed tiers). The anti-gaming invariant tests run under the
 //! `daemon` feature (`cargo test -p perf-sentinel-core --features daemon`).
 
 use crate::correlate::Trace;
@@ -19,7 +19,7 @@ use super::region_breakdown::avoidable_share;
 
 /// Re-run N+1 at [`DISCLOSURE_N_PLUS_ONE_THRESHOLD`] (then redundant against
 /// that set) over every trace, and dedup the avoidable I/O ops (total and
-/// SQL-only). Only the N+1 threshold is overridden, the window, the
+/// SQL-only). Only the N+1 threshold is overridden. The window, the
 /// sanitizer mode and its variance threshold stay as configured.
 #[must_use]
 pub(crate) fn compute_canonical_avoidable(
@@ -44,7 +44,7 @@ pub(crate) fn compute_canonical_avoidable(
 
 /// Build both avoidable tiers from the scored operational [`GreenSummary`]
 /// plus a canonical detection pass. Operational carbon reuses the summary's
-/// `co2.avoidable`; canonical carbon is rescaled from `operational_gco2` via
+/// `co2.avoidable`. Canonical carbon is rescaled from `operational_gco2` via
 /// [`avoidable_share`] (same denominator). No second carbon pass.
 #[must_use]
 pub(crate) fn compute_disclosure_waste(
@@ -88,8 +88,8 @@ struct WasteTierInput<'a> {
 }
 
 /// Both tiers from one window figure. The canonical tier reuses the same
-/// energy with the ratio recomputed at the canonical threshold, and its
-/// gCO₂ scales the ratio-independent `energy_gco2` base, so an operator
+/// energy with the ratio recomputed at the canonical threshold. Its gCO₂
+/// scales the ratio-independent `energy_gco2` base, so an operator
 /// threshold that zeroes the operational figure cannot zero the canonical
 /// carbon leg.
 fn build_waste_tiers(
@@ -236,7 +236,7 @@ mod tests {
             waste_kwh: 0.0,
             waste_gco2: None,
             // gCO2 of the whole energy: the base the canonical carbon
-            // leg scales, immune to the zeroed operational ratio.
+            // leg scales, unaffected by the zeroed operational ratio.
             energy_gco2: Some(6.0),
             region: None,
             sql_waste_ratio: 0.0,
@@ -252,7 +252,7 @@ mod tests {
         assert!(db.operational_waste_kwh.abs() < 1e-12);
         // Canonical: 5 avoidable SQL of 6 total SQL against 1.2 kWh.
         assert!((db.canonical_waste_kwh - 1.2 * 5.0 / 6.0).abs() < 1e-9);
-        // The canonical carbon leg survives the zeroed operator ratio:
+        // The canonical carbon leg is unaffected by the zeroed operator ratio:
         // 6.0 gCO2 of energy × the canonical 5/6 ratio.
         assert!((db.canonical_waste_gco2.expect("carbon leg") - 5.0).abs() < 1e-9);
     }
