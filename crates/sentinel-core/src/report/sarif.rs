@@ -66,13 +66,13 @@ pub struct SarifResult {
     pub level: String,
     pub message: SarifMessage,
     pub logical_locations: Vec<SarifLogicalLocation>,
-    /// SARIF v2.1.0 property bag. uses it to expose the
-    /// tool-specific `confidence` field for editor-side interop.
-    /// Empty-by-default so pre-5b consumers are unaffected.
+    /// SARIF v2.1.0 property bag that exposes the tool-specific
+    /// `confidence` field for editor-side interop. Optional, so consumers
+    /// that predate it are unaffected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<SarifProperties>,
-    /// SARIF v2.1.0 `rank` field (0-100). populates this from
-    /// the finding's [`Confidence`] so SARIF consumers that don't read
+    /// SARIF v2.1.0 `rank` field (0-100), populated from the
+    /// finding's [`Confidence`] so SARIF consumers that don't read
     /// the custom `properties` bag still get a useful ordering signal.
     /// Mapping: `local_batch = 15`, `ci_batch = 30`, `daemon_staging = 60`,
     /// `daemon_production = 90`.
@@ -85,8 +85,8 @@ pub struct SarifResult {
     pub locations: Vec<SarifLocation>,
     /// SARIF v2.1.0 `fixes` array. Populated from the finding's
     /// `suggested_fix` field when a framework was inferred and a
-    /// recommendation exists. Empty otherwise so pre-7.3 consumers are
-    /// unaffected.
+    /// recommendation exists. Empty otherwise, so consumers that predate
+    /// the field are unaffected.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fixes: Vec<SarifFix>,
     /// SARIF v2.1.0 section 3.27.17 `fingerprints`. Single-entry map keyed
@@ -246,9 +246,8 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
     // that flows into the SARIF message and logical locations. A hostile
     // span can set `service.name` or `http.url` to a value containing the
     // RLO override (U+202E) which would render mirrored in GitHub/GitLab
-    // code scanning UIs. The signature/ack metadata path already passes
-    // through this sanitizer, this extends the same discipline to the
-    // main result body.
+    // code scanning UIs. The signature/ack metadata path uses the same
+    // sanitizer.
     let safe_service = strip_bidi_and_invisible(&finding.service);
     let safe_endpoint = strip_bidi_and_invisible(&finding.source_endpoint);
     let safe_template = strip_bidi_and_invisible(&finding.pattern.template);
@@ -287,7 +286,6 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
                 kind: "function".to_string(),
             },
         ],
-        // expose the confidence for editor-side interop.
         properties: Some(SarifProperties {
             confidence: finding.confidence.as_str(),
             acknowledged: None,
@@ -344,11 +342,10 @@ fn sanitize_sarif_filepath(fp: &str) -> Option<String> {
         return None;
     }
 
-    // Reject ANY colon. This is stricter than the previous drive-letter
-    // exception: legitimate source paths in instrumented apps do not
-    // contain colons, and accepting them opens subtle bypasses
-    // (`A:B:C://...`, `javascript:`, `data:`, etc.). If a user genuinely
-    // has a colon in their source path (extremely rare), they can strip
+    // Reject ANY colon, Windows drive letters included: legitimate source
+    // paths in instrumented apps do not contain colons, and accepting them
+    // opens subtle bypasses (`A:B:C://...`, `javascript:`, `data:`, etc.).
+    // A user with a colon in their source path (extremely rare) can strip
     // it in their instrumentation layer.
     if fp.contains(':') {
         return None;
@@ -471,8 +468,8 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
     // (GitHub Code Scanning, GitLab) escape JSON values for HTML, so XSS
     // is closed at the consumer, but BiDi / invisible-format characters
     // can still spoof the displayed identity (`alice<RLO>@evil.com`).
-    // Strip them defensively at emission, matching the existing
-    // `code.filepath` discipline in `sanitize_sarif_filepath`.
+    // Strip them at emission, matching the BiDi check that
+    // `sanitize_sarif_filepath` applies to `code.filepath`.
     if let Some(props) = result.properties.as_mut() {
         props.acknowledged = Some(true);
         props.acknowledgment_reason =
@@ -646,7 +643,6 @@ mod tests {
         finding.service = "svc-with-\"quotes\"".to_string();
         finding.source_endpoint = "POST /api/items?a=1&b=<2>".to_string();
         let result = finding_to_result(&finding);
-        // Should serialize without error
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains(r#"svc-with-\"quotes\""#));
         assert!(json.contains("POST /api/items?a=1&b=<2>"));
@@ -702,7 +698,7 @@ mod tests {
 
     #[test]
     fn sarif_log_round_trip_with_mixed_confidence() {
-        // Full report → SARIF serialization should expose all three
+        // Serializing a full report to SARIF should expose all three
         // confidence values across a mixed batch of findings.
         let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
         f1.confidence = Confidence::CiBatch;
@@ -889,9 +885,8 @@ mod tests {
 
     #[test]
     fn sanitize_rejects_any_colon() {
-        // Previous implementation had a drive-letter exception; new
-        // implementation rejects any colon unconditionally. Legitimate
-        // source paths do not contain colons.
+        // Any colon is rejected unconditionally, drive letters included.
+        // Legitimate source paths do not contain colons.
         assert_eq!(sanitize_sarif_filepath("a:b"), None);
         assert_eq!(sanitize_sarif_filepath("src:Order.java"), None);
         assert_eq!(sanitize_sarif_filepath("data:text/html,x"), None);
@@ -930,7 +925,7 @@ mod tests {
         );
     }
 
-    // --- 0.5.18: signature exposed in properties + fingerprints ---
+    // --- signature exposed in properties + fingerprints ---
 
     const SAMPLE_SIGNATURE: &str =
         "n_plus_one_sql:order-svc:POST_/api/orders:abc12345abc12345abc12345abc12345";
