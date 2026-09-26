@@ -1,10 +1,11 @@
 # Référence CLI
 
 Cette page documente les sous-commandes utilisateur du binaire
-`perf-sentinel`. Pour les notes d'architecture et de design, voir
-[`ARCHITECTURE-FR.md`](./ARCHITECTURE-FR.md). Pour les hooks d'exécution
-(quality gates CI, codes de sortie, variables d'environnement), voir
-[`CI-FR.md`](./CI-FR.md) et [`RUNBOOK-FR.md`](./RUNBOOK-FR.md).
+`perf-sentinel`. Pour des notes d'architecture et de design plus
+approfondies, voir [`ARCHITECTURE-FR.md`](./ARCHITECTURE-FR.md). Pour
+les hooks d'exécution (quality gates CI, codes de sortie, variables
+d'environnement), voir [`CI-FR.md`](./CI-FR.md) et
+[`RUNBOOK-FR.md`](./RUNBOOK-FR.md).
 
 L'inventaire complet des options est aussi accessible via `--help` sur
 chaque sous-commande :
@@ -91,7 +92,7 @@ perf-sentinel capture --output traces.json --listen-address 0.0.0.0 -- docker co
 ```
 
 **Écouter à côté d'une étape de test existante**, quand votre pipeline
-génère la commande de test et qu'elle ne peut pas être préfixée :
+contrôle la commande de test et qu'elle ne peut pas être préfixée :
 
 ```bash
 perf-sentinel capture --output traces.json &
@@ -155,8 +156,8 @@ Trois sous-actions : `create`, `revoke`, `list`.
 Le CLI consomme les endpoints HTTP du daemon
 (`POST/DELETE /api/findings/{sig}/ack` et `GET /api/acks`). Il ne
 modifie pas la baseline TOML CI
-(`.perf-sentinel-acknowledgments.toml`) qui est faite pour être éditée
-à la main et livrée via revue de PR. Voir
+(`.perf-sentinel-acknowledgments.toml`). Ce fichier est fait pour être
+édité à la main et livré via revue de PR. Voir
 [`ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md) pour choisir entre les
 deux mécanismes.
 
@@ -178,7 +179,7 @@ Créer un nouvel acquittement.
 ```bash
 perf-sentinel ack create \
   --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
-  --reason "reporté au prochain sprint" \
+  --reason "deferred to next sprint" \
   --expires 7d
 ```
 
@@ -189,14 +190,14 @@ Options :
   n'est pas un TTY). La lecture stdin est plafonnée à 1 KiB, un pipe
   `cat /dev/urandom` ne peut donc pas saturer la mémoire avant que le
   validateur côté daemon rejette l'entrée.
-- `--reason <TEXTE>` (ou `-r`) : requis, description libre de la
+- `--reason <TEXT>` (ou `-r`) : requis, description libre de la
   raison de l'acquittement.
 - `--expires <ISO8601_OR_DURATION>` : expiration de l'ack. Accepte un
   datetime ISO8601 (`2026-05-11T00:00:00Z`) ou une durée relative
   (`7d`, `24h`, `30m`). Omettre pour un ack permanent.
-- `--by <NOM>` : identité de la personne qui acquitte. Se rabat sur
+- `--by <NAME>` : identité de la personne qui acquitte. Se rabat sur
   `$USER`, puis `"anonymous"`.
-- `--api-key-file <CHEMIN>` : voir "Authentification" plus bas.
+- `--api-key-file <PATH>` : voir "Authentification" plus bas.
 
 ### `ack revoke`
 
@@ -224,17 +225,17 @@ locale, `--output json` reste en UTC.
 
 ### Authentification
 
-Quand le daemon impose une clé API (`[daemon.ack] api_key` côté
-config), le CLI la résout dans cet ordre :
+Quand le daemon impose une clé API (`[daemon.ack] api_key` dans la
+configuration du daemon), le CLI la résout dans cet ordre :
 
 1. Variable d'environnement `PERF_SENTINEL_DAEMON_API_KEY`.
-2. `--api-key-file <CHEMIN>`. Le contenu du fichier est lu et tout
+2. `--api-key-file <PATH>`. Le contenu du fichier est lu et tout
    saut de ligne final est supprimé.
 3. Invite interactive `rpassword` (sans écho) si le daemon retourne
    401 et stdin est un TTY. La valeur collée est plafonnée à 1 KiB.
 
 `query inspect`, `query monitor` et `query incidents` prennent le même
-`--api-key-file <CHEMIN>` et le résolvent de la même façon (étapes 1 et
+`--api-key-file <PATH>` et le résolvent de la même façon (étapes 1 et
 2, pas d'invite). La clé de lecture `[daemon] read_api_key` suffit pour
 `query monitor` et `query incidents`. `ack` et `query inspect` ont
 besoin de la clé d'ack.
@@ -266,8 +267,8 @@ qui écoute sur le port standard OTLP/HTTP.
 - `1` : erreur générique (échec réseau, erreur d'analyse syntaxique,
   signature absente sur stdin).
 - `2` : erreur client (HTTP 4xx). Inclut 401 (non autorisé), 409
-  (déjà acquitté), 404 (non acquitté sur revoke), 400 (signature
-  invalide).
+  (déjà acquitté), 404 (non acquitté sur revoke), 400 (format de
+  signature invalide).
 - `3` : erreur serveur (HTTP 5xx). Inclut 503 (store ack désactivé),
   500 (échec d'écriture) et 507 (store ack plein).
 
@@ -276,8 +277,8 @@ une indication exploitable le cas échéant.
 
 ## Autres sous-commandes
 
-`perf-sentinel query incidents [--service <NOM>] [--namespace <NOM>]
-[--offset N] [--limit N] [--format text|json] [--api-key-file <CHEMIN>]`
+`perf-sentinel query incidents [--service <NAME>] [--namespace <NAME>]
+[--offset N] [--limit N] [--format text|json] [--api-key-file <PATH>]`
 liste les incidents que l'alerting a postés au daemon (0.20.0+,
 `[daemon.incidents]`), du plus récent au plus ancien. Chaque incident a
 un bloc d'en-tête (genre, service en `ns/service` quand l'alerte portait
@@ -290,7 +291,7 @@ une valeur chacun. `--limit` vaut 50 par défaut et le daemon le plafonne
 à 100. `--offset` pagine au-delà des plus récents. Un 401 (passez la
 clé), un 503 (`[daemon.incidents] enabled = false`) et un 404 (daemon
 antérieur à 0.20.0) sortent chacun en 1 avec leur cause nommée.
-`query monitor --api-key-file <CHEMIN>` remet la même clé à l'onglet
+`query monitor --api-key-file <PATH>` remet la même clé à l'onglet
 Incidents du moniteur, voir [`INSPECT-FR.md`](./INSPECT-FR.md).
 
 Pour l'instant, voir `perf-sentinel <subcommand> --help` pour la
