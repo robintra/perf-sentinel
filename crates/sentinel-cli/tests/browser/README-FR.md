@@ -1,9 +1,9 @@
 # Tests navigateur du tableau de bord perf-sentinel
 
-Suite Playwright ciblée sur le tableau de bord HTML mono-fichier
-émis par `perf-sentinel report`. Couvre les interactions que les
-tests Rust ne peuvent pas atteindre : état DOM en direct, presse-papiers,
-clavier, contenu du blob CSV.
+Suite de tests de fumée Playwright pour le tableau de bord HTML
+mono-fichier émis par `perf-sentinel report`. Couvre les interactions
+que les tests Rust ne peuvent pas atteindre : état DOM en direct,
+presse-papiers, clavier, contenu du blob CSV.
 
 ## Démarrage rapide
 
@@ -22,7 +22,7 @@ L'étape `global-setup.ts` de la suite :
    un binaire périmé la ferait passer sur du code qui n'existe plus.
    Quand rien n'a changé, Cargo rend la main en quelques secondes.
 2. Rend un tableau de bord HTML à partir de
-   `tests/fixtures/report_realistic.json` et du fichier pg_stat CSV
+   `tests/fixtures/report_realistic.json` et de la fixture CSV pg_stat
    vers `fixtures/dashboard.html`.
 3. Lance `http-server` sur un port libre de 127.0.0.1 avec ce
    répertoire comme racine. Le protocole `http://` est exigé par
@@ -34,7 +34,7 @@ Le test `9. Copy link button` lit `navigator.clipboard` après un
 geste utilisateur. Chromium désactive silencieusement l'API
 Clipboard sur les pages `file://` même lorsque la permission est
 accordée. `http-server` fournit une petite origine HTTP locale qui
-satisfait l'API sans embarquer un framework lourd.
+satisfait l'API sans embarquer un framework de test lourd.
 
 ## CI
 
@@ -72,6 +72,6 @@ scénario des GIFs, `demo/stills.spec.ts` pour les captures, et
 Chaque exécution écrase toutes les images versionnées (~5 Mo au total :
 2 GIFs + 12 PNGs), donc chaque invocation crée de nouveaux blobs git.
 Régénérer uniquement quand la surface du dashboard change
-significativement (nouvel onglet, refonte de la mise en page,
+significativement (nouvel onglet, changement de mise en page,
 réaffectation de raccourcis) plutôt qu'à chaque retouche de doc, sinon
 le dépôt accumule des objets volumineux périmés.
