@@ -7,7 +7,7 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur
 ## Sommaire
 
 - [Choisissez votre topologie](#choisissez-votre-topologie) : tableau comparatif des quatre modes de déploiement pris en charge.
-- [Démarrage rapide : CI batch](#démarrage-rapide--ci-batch) : exécuter perf-sentinel depuis un pipeline CI contre un fixture de traces.
+- [Démarrage rapide : CI batch](#démarrage-rapide--ci-batch) : exécuter perf-sentinel depuis un pipeline CI contre une fixture de traces.
 - [Démarrage rapide : collector central](#démarrage-rapide--collector-central) : déploiement production via OpenTelemetry Collector.
 - [Vous venez de Datadog](#vous-venez-de-datadog-dd-trace-sans-opentelemetry) : faire le pont avec le trafic dd-trace via un OpenTelemetry Collector quand vous n'avez pas d'instrumentation OTel.
 - [Démarrage rapide : sidecar](#démarrage-rapide--sidecar) : débogage d'un seul service en dev ou staging.
@@ -21,7 +21,7 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur
 - [Configuration avancée du scoring carbone](#configuration-avancée-du-scoring-carbone) : scoring multi-région, Scaphandre, énergie cloud-native, Electricity Maps, calibration.
 - [Intégration Tempo](#intégration-tempo) : interroger un backend Grafana Tempo directement avec `perf-sentinel tempo`.
 - [Intégration API Jaeger query](#intégration-api-jaeger-query-jaeger-et-victoria-traces) : Jaeger upstream et Victoria Traces via une seule sous-commande.
-- [Troubleshooting](#troubleshooting) : problèmes d'ingestion et de détection courants.
+- [Dépannage](#dépannage) : problèmes d'ingestion et de détection courants.
 
 ## Choisissez votre topologie
 
@@ -30,15 +30,15 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur
 | **[CI batch](#démarrage-rapide--ci-batch)**                   | Pipelines CI, vérifications de PR  | Le plus faible | Aucune (fichiers de traces)     |
 | **[Collector central](#démarrage-rapide--collector-central)** | Production, multi-services         | Faible         | Aucune (config YAML uniquement) |
 | **[Sidecar](#démarrage-rapide--sidecar)**                     | Dev/staging, débogage d'un service | Faible         | Aucune (Docker uniquement)      |
-| **[Daemon direct](#démarrage-rapide--daemon-direct)**         | Dev local, expérimentations        | Moyen          | Variables d'env par langage     |
+| **[Daemon direct](#démarrage-rapide--daemon-direct)**         | Dev local, essais rapides          | Moyen          | Variables d'env par langage     |
 
 ---
 
 ## Démarrage rapide : CI batch
 
-**Cas d'usage :** exécuter perf-sentinel dans votre pipeline CI pour détecter les requêtes N+1 avant la production. Pas de daemon, pas de Docker, un binaire qui lit un fichier de traces et retourne le code 1 si le quality gate échoue.
+Exécutez perf-sentinel dans votre pipeline CI pour détecter les requêtes N+1 avant qu'elles n'atteignent la production. Pas de daemon, pas de Docker, juste un binaire qui lit un fichier de traces et retourne le code 1 quand le quality gate échoue.
 
-### Étape 1 : Installation
+### Installation
 
 ```bash
 curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
@@ -46,7 +46,7 @@ chmod +x perf-sentinel-linux-amd64
 sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
 ```
 
-### Étape 2 : Configurer les seuils
+### Configurer les seuils
 
 Créez `.perf-sentinel.toml` à la racine de votre projet :
 
@@ -62,19 +62,19 @@ slow_query_threshold_ms = 500
 [green]
 enabled = true
 default_region = "eu-west-3"       # optionnel : active les estimations gCO2eq
-# : surcharges par service pour les déploiements multi-région
+# surcharges par service pour les déploiements multi-région
 # [green.service_regions]
 # "api-us"   = "us-east-1"
 # "api-asia" = "ap-southeast-1"
 ```
 
-> La sortie CO₂ est structurée : `green_summary.co2.total.{low,mid,high}` plus un tag de méthodologie SCI v1.0, avec un intervalle d'incertitude multiplicative 2× (`low = mid/2`, `high = mid×2`). Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. Voir `docs/FR/CONFIGURATION-FR.md` et [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#précision-des-estimations-carbone) pour les détails.
+La sortie CO₂ est structurée (`green_summary.co2.total.{low,mid,high}` plus un tag de méthodologie SCI v1.0, incertitude multiplicative 2×). Le scoring multi-région s'active automatiquement quand les spans portent l'attribut `cloud.region`. Voir `docs/FR/CONFIGURATION-FR.md` et [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#précision-des-estimations-carbone).
 
-### Étape 3 : Collecter les traces
+### Collecter les traces
 
-Exportez les traces depuis vos tests d'intégration. Si vos tests tournent avec l'instrumentation OTel, sauvegardez la sortie dans un fichier JSON. Vous pouvez aussi exporter depuis l'UI Jaeger ou Zipkin : perf-sentinel détecte automatiquement le format.
+Exportez les traces depuis vos tests d'intégration. perf-sentinel détecte automatiquement les formats JSON natif, OTLP JSON, Jaeger et Zipkin v2.
 
-### Étape 4 : Analyser
+### Analyser
 
 ```bash
 perf-sentinel analyze --ci --input traces.json --config .perf-sentinel.toml
@@ -94,7 +94,7 @@ perf:sentinel:
   allow_failure: true   # commencez en warning, retirez une fois les seuils calibrés
 ```
 
-### Étape 5 : Investiguer les findings
+### Investiguer les findings
 
 ```bash
 # Rapport coloré en terminal
@@ -113,78 +113,15 @@ perf-sentinel analyze --input traces.json --format sarif > results.sarif
 perf-sentinel report --input traces.json --output report.html
 ```
 
----
-
-### Dashboard HTML
-
-`perf-sentinel report --input traces.json --output report.html` produit un dashboard HTML single-file. Double-clic pour l'ouvrir dans n'importe quel navigateur, fonctionne hors ligne, sans ressource externe. Public visé : les devs qui explorent un artefact CI et préfèrent cliquer plutôt que taper. Le dashboard affiche les findings, les arbres de traces et les métriques `GreenOps` avec navigation croisée entre sections (clic sur un finding pour voir son arbre de trace, la span responsable est surlignée en rouge).
-
-Flags :
-- `--input <FICHIER>` ou `--input -` : fichier de traces ou stdin (même auto-détection de format que `analyze` : JSON natif, OTLP JSON, Jaeger, Zipkin v2).
-- `--output <FICHIER>` : requis, écrasé s'il existe déjà.
-- `--config <CHEMIN>` : `.perf-sentinel.toml` optionnel, mêmes sémantiques que `analyze --config`.
-- `--max-traces-embedded <N>` : plafond sur les traces embarquées pour l'onglet Explain. Sans valeur, la sortie est ajustée automatiquement pour viser une taille HTML d'environ 5 Mo en gardant le préfixe des traces classées par leur premier finding. Un bandeau dans l'onglet Findings remonte le ratio tronqué quand la coupe s'applique, et la CLI écrit une ligne `info!` sur stderr pour que les logs de build CI portent le même signal, en nommant le plafond explicite quand c'est lui qui a coupé. Les arbres gardés sont ceux des findings de tête sur toute entrée, donc `--sort` ci-dessous choisit lesquels.
-- `--sort <CLE>` : `impact` (le défaut) ou `severity`, mêmes clés que `analyze --sort`. Réordonne les findings et, avec `--max-traces-embedded`, décide quels arbres de spans sont conservés sous le plafond.
-- `--pg-stat <FICHIER>` : établit une référence croisée avec un export `pg_stat_statements` CSV ou JSON. Active l'onglet pg_stat et la navigation croisée Explain vers pg_stat sur les spans SQL dont le template normalisé correspond à une ligne pg_stat.
-- `--pg-stat-prometheus <URL>` : scrape ponctuel d'un `postgres_exporter`, même effet que `--pg-stat` sans le fichier intermédiaire. Mutuellement exclusif avec `--pg-stat`.
-- `--pg-stat-auth-header "Nom: Valeur"` : en-tête d'authentification optionnel attaché à la requête `--pg-stat-prometheus` (même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`). La variable d'environnement `PERF_SENTINEL_PGSTAT_AUTH_HEADER` est prioritaire sur le flag. Préférez la variable d'environnement en production pour éviter d'exposer le secret dans la liste des arguments de processus ou l'historique shell. Quand la valeur est fournie via le flag et que la variable d'environnement est absente, un avertissement au démarrage oriente vers la variable d'environnement. Requis pour Grafana Cloud, Grafana Mimir ou tout ingress Prometheus appliquant une auth basic ou bearer. La valeur est marquée `sensitive` pour que hyper la masque dans les logs debug et les tables HPACK. L'envoyer en clair via `http://` déclenche un `tracing::warn!`. Préférez `https://` en production.
-- `--mysql-stat <FICHIER>` : embarque un export `events_statements_summary_by_digest` (MySQL Performance Schema) CSV ou JSON. Active l'onglet mysql_stat avec le même sous-sélecteur de classements que pg_stat (quatrième classement : lignes examinées). `--mysql-stat-top <N>` ajuste la taille des classements (défaut 10).
-- `--before <FICHIER>` : rapport baseline JSON (la sortie de `analyze --format json`). Active un onglet Diff qui affiche les nouveaux findings, les findings résolus, les changements de sévérité et les deltas d'I/O par endpoint par rapport à la baseline.
-
-Les codes de sortie diffèrent de `analyze --ci` : `report` sort toujours 0, même quand la quality gate échoue. Le statut de la gate est rendu comme un badge dans la barre supérieure du HTML. Utilisez `analyze --ci` quand vous avez besoin du code de sortie en CI.
-
-Exemples d'invocation :
-
-```bash
-# Rapport post-mortem de base
-perf-sentinel report --input traces.json --output report.html
-
-# Avec cross-référence hotspots SQL
-perf-sentinel report --input traces.json \
-    --pg-stat pg_stat_statements.csv \
-    --output report.html
-
-# Avec scrape Prometheus à la place du fichier
-perf-sentinel report --input traces.json \
-    --pg-stat-prometheus http://prometheus:9090 \
-    --output report.html
-
-# Vue régression PR : diff contre une baseline
-perf-sentinel report --input after.json \
-    --before before.json \
-    --output report.html
-
-# Tout à la fois
-perf-sentinel report --input traces.json \
-    --pg-stat pg_stat_statements.csv \
-    --before baseline.json \
-    --output report.html
-```
-
-Le dashboard HTML est documenté dans [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md), avec la liste complète des options, les raccourcis clavier, la recherche, l'export CSV et le pipeline d'instantané `/api/export/report` du démon en mode live. Dans le dashboard, `?` ouvre l'aide-mémoire qui liste tous les raccourcis.
-
-Partage et export : chaque onglet listable (Findings, pg_stat, Diff, Correlations) expose un bouton **Export CSV** qui télécharge la vue filtrée active au format CSV RFC 4180. Les templates contenant virgules ou guillemets sont échappés correctement, et une protection OWASP contre l'injection de formules préfixe une apostrophe sur les cellules commençant par `=`, `+`, `-`, `@` ou une tabulation. Le fragment d'URL reflète l'onglet actif plus la recherche et les puces de filtre, donc partager un lien comme `report.html#pgstat&ranking=mean_time&search=payment` restaure exactement la même vue chez le destinataire. Le thème et le dernier classement pg_stat sélectionné persistent dans `sessionStorage`, limité à l'onglet de navigateur courant.
-
-C'est une vue post-mortem d'un jeu de traces terminé. Pour une inspection live d'un daemon qui tourne, utilisez `perf-sentinel query inspect` (TUI) ou directement les endpoints `/api/*`. Pour un workflow Tempo, composez via le shell : `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
-
-#### Snapshot depuis un daemon live
-
-Quand un daemon tourne, `GET /api/export/report` émet son état courant sous forme de JSON `Report`, avec la même forme que `analyze --format json`. Passez-le directement au dashboard par un pipe pour un snapshot quasi-live (toujours post-mortem au sens sémantique, juste à courte durée de vie) :
-
-```bash
-curl -s http://daemon.internal:4318/api/export/report \
-    | perf-sentinel report --input - --output report.html
-```
-
-`report --input` auto-détecte la forme JSON : un tableau de premier niveau est traité comme des événements de trace et passe par normalize/detect/score, un objet est traité comme un Report pré-calculé et embarqué tel quel. Seuls les Reports produits par le daemon portent des `correlations`, donc l'onglet Correlations du dashboard s'active automatiquement quand ce chemin est emprunté. Les daemons au démarrage à froid retournent `503` avec `{"error": "daemon has not yet processed any events"}` jusqu'à ce que le premier batch OTLP arrive.
+Le dashboard HTML est documenté dans [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md), avec la liste complète des options, les raccourcis clavier, l'export CSV et le pipeline d'instantané `/api/export/report` du daemon live.
 
 ---
 
 ## Démarrage rapide : collector central
 
-**Cas d'usage :** déploiement production où les services envoient déjà des traces à un OpenTelemetry Collector (ou vous souhaitez en ajouter un). Zéro modification de code, uniquement de la configuration YAML.
+Déploiement production où les services envoient les traces à un OpenTelemetry Collector. Zéro modification de code, uniquement de la configuration YAML.
 
-### Étape 1 : Démarrer perf-sentinel + collector
+### Démarrer perf-sentinel + collector
 
 ```bash
 # Récupérer le fichier compose d'exemple (sans cloner le dépôt), puis le démarrer
@@ -192,22 +129,18 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-senti
 docker compose up -d
 ```
 
-L'URL suit `main`. Remplacez `main` par un tag de release (par exemple `v0.8.13`) pour figer une version précise.
+L'URL brute suit `main`. Remplacez `main` par un tag de release (par exemple `v0.8.13`) pour figer une version précise.
 
-Cela démarre :
-- Un **OTel Collector** qui écoute sur les ports 4317 (gRPC) et 4318 (HTTP)
-- **perf-sentinel** en mode watch, recevant les traces du collector
+Cela démarre un OTel Collector sur 4317 (gRPC) + 4318 (HTTP) et perf-sentinel en mode watch derrière lui.
 
-### Étape 2 : Pointer vos services vers le collector
-
-Définissez ces variables d'environnement dans vos conteneurs applicatifs :
+### Pointer vos services vers le collector
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
-Si vos services exportent déjà vers un collector, ajoutez perf-sentinel comme exporteur supplémentaire dans votre `otel-collector-config.yaml` existant :
+Si vos services exportent déjà vers un collector existant, ajoutez perf-sentinel comme second exporter :
 
 ```yaml
 exporters:
@@ -219,26 +152,20 @@ exporters:
 service:
   pipelines:
     traces:
-      exporters: [otlp/perf-sentinel, otlp/votre-backend-existant]
+      exporters: [otlp/perf-sentinel, otlp/your-existing-backend]
 ```
 
-### Étape 3 : Générer du trafic
-
-Utilisez votre application normalement. Après l'expiration du TTL des traces (30 secondes par défaut), perf-sentinel émet les findings en NDJSON sur stdout :
+### Générer du trafic et voir les findings
 
 ```bash
 docker compose logs -f perf-sentinel
 ```
 
-### Étape 4 : Monitoring avec Prometheus + Grafana
+Les findings sont émis en NDJSON sur stdout une fois le TTL des traces expiré (30s par défaut).
 
-perf-sentinel expose des métriques Prometheus à `http://localhost:14318/metrics` avec des exemplars OpenMetrics (clic direct depuis Grafana vers votre backend de traces) :
+### Surveiller avec Prometheus + Grafana
 
-```bash
-curl -s http://localhost:14318/metrics | grep perf_sentinel
-```
-
-Ajoutez-le comme cible de scrape Prometheus :
+Les métriques sont exposées à `http://localhost:14318/metrics` avec des exemplars OpenMetrics (clic direct vers votre backend de traces) :
 
 ```yaml
 # prometheus.yml
@@ -248,14 +175,7 @@ scrape_configs:
       - targets: ['perf-sentinel:4318']
 ```
 
-Métriques clés :
-- `perf_sentinel_findings_total{type, severity, service, grouping}` : findings avec exemplar `trace_id` pour le clic direct
-- `perf_sentinel_io_waste_ratio` : ratio de gaspillage I/O avec exemplar `trace_id`
-- `perf_sentinel_events_processed_total` : total de spans ingérés
-- `perf_sentinel_traces_analyzed_total` : total de traces complétées
-- `perf_sentinel_slow_duration_seconds{type, service, grouping}` : histogramme des durées de spans lents (utiliser `histogram_quantile()` pour des percentiles globaux sur des instances shardées)
-
-Voir [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
+Métriques clés : `perf_sentinel_findings_total{type, severity, service, grouping}`, `perf_sentinel_io_waste_ratio`, `perf_sentinel_events_processed_total`, `perf_sentinel_traces_analyzed_total`, `perf_sentinel_slow_duration_seconds{type, service, grouping}`. Voir [`METRICS-FR.md`](./METRICS-FR.md) pour le schéma complet et [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) pour la config du collector.
 
 ---
 
@@ -270,7 +190,7 @@ perf-sentinel ingère de l'OTLP, pas le format APM natif de Datadog, et n'embarq
 
 perf-sentinel lit nativement la ressource Datadog (`dd.span.Resource`, où dd-trace laisse le SQL obfusqué). La détection SQL fonctionne donc tant que chaque span conserve un signal base de données : la clé stable `db.system.name` (ce qu'émettent les versions récentes du receiver), l'ancienne `db.system`, ou le tag dd-trace `db.type`. Aucun remappage d'attributs dans le Collector n'est nécessaire. Si une version du Collector les retire toutes, ajoutez un processor `transform` qui en restaure une pour que le garde-fou se déclenche.
 
-**Réserve sur N+1 contre requêtes redondantes.** dd-trace pré-obfusque le SQL (les littéraux sont déjà `?`), donc les paramètres par requête qui distinguent un N+1 d'une requête légitimement répétée ont disparu avant que perf-sentinel ne les voie. En mode de détection `auto` par défaut, un vrai N+1 à timing uniforme peut apparaître comme `redundant_sql` plutôt que `n_plus_one_sql`. Réglez `[detection] sanitizer_aware_classification = "strict"` pour récupérer les cas à forte occurrence (3 fois le `n_plus_one_threshold` configuré, soit 15 ou plus à la valeur par défaut de 5). Le scoring de gaspillage et de carbone est identique pour les deux types de finding.
+**Réserve sur N+1 contre requêtes redondantes.** dd-trace pré-obfusque le SQL (les littéraux sont déjà `?`), donc les paramètres par requête qui distinguent un N+1 d'une requête légitimement répétée ont disparu avant que perf-sentinel ne les voie. En mode de détection `auto` par défaut, un vrai N+1 aux durées de requête uniformes peut apparaître comme `redundant_sql` plutôt que `n_plus_one_sql`. Réglez `[detection] sanitizer_aware_classification = "strict"` pour récupérer les cas à forte occurrence (3 fois le `n_plus_one_threshold` configuré, soit 15 requêtes identiques ou plus à la valeur par défaut de 5). Le scoring de gaspillage et de carbone est identique pour les deux types de finding.
 
 **PHP (Laravel, Symfony) via dd-trace-php.** La même réserve d'obfuscation s'applique : un vrai N+1 Laravel ou Symfony peut apparaître comme `redundant_sql` en mode `auto`, utilisez donc `sanitizer_aware_classification = "strict"`. Le pont perd aussi le signal de framework : le `datadogreceiver` pose un scope d'instrumentation `Datadog` fixe et ne mappe aucun attribut `code.*`, donc les findings dd-trace-php n'ont pas de `suggested_fix` adapté au framework (ils retombent sur `php_generic` ou restent non enrichis). Les corrections spécifiques Laravel/Eloquent et Symfony/Doctrine exigent l'instrumentation OpenTelemetry PHP native (scopes `io.opentelemetry.contrib.php.*`), voir [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md).
 
@@ -320,9 +240,7 @@ Une trace exportée au format JSON Jaeger depuis l'UI Jaeger (bouton "Download J
 
 ## Démarrage rapide : sidecar
 
-**Cas d'usage :** débogage d'un service unique en dev/staging. perf-sentinel tourne à côté du service, partageant son namespace réseau.
-
-### Étape 1 : Démarrer le sidecar
+Déboguez un service unique en dev/staging. perf-sentinel tourne à côté du service, en partageant son namespace réseau.
 
 ```bash
 # Récupérer le fichier compose d'exemple (sans cloner le dépôt), puis le démarrer
@@ -330,58 +248,40 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-senti
 docker compose up -d
 ```
 
-### Étape 2 : Configurer votre app
-
-Votre app envoie les traces à `localhost:4318` (HTTP), pas de saut réseau puisque perf-sentinel partage le même namespace réseau :
+Config de l'app (pas de saut réseau, même namespace) :
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
-### Étape 3 : Voir les findings
-
 ```bash
 docker compose logs -f perf-sentinel
 ```
 
-Voir [`examples/docker-compose-sidecar.yml`](../../examples/docker-compose-sidecar.yml) pour la configuration complète.
+Voir [`examples/docker-compose-sidecar.yml`](../../examples/docker-compose-sidecar.yml).
 
 ---
 
 ## Démarrage rapide : daemon direct
 
-**Cas d'usage :** développement local. Exécutez perf-sentinel sur votre machine et pointez vos services vers lui.
-
-### Étape 1 : Démarrer le daemon
+Développement local sur votre machine hôte.
 
 ```bash
 perf-sentinel watch
 ```
 
-Par défaut, il écoute sur `127.0.0.1:4317` (gRPC) et `127.0.0.1:4318` (HTTP). Pour que les conteneurs Docker puissent atteindre l'hôte, utilisez :
+L'adresse d'écoute par défaut est `127.0.0.1` sur 4317 (gRPC) et 4318 (HTTP). Pour que les conteneurs Docker puissent atteindre l'hôte, posez `[daemon] listen_address = "0.0.0.0"` dans `.perf-sentinel.toml`. Une adresse d'écoute autre que loopback émet un avertissement au démarrage : les endpoints n'ont pas d'auth applicative, mettez donc un reverse-proxy ou une network policy en frontal, ou posez `[daemon.ack] api_key` pour garder les écritures d'ack (voir `docs/FR/CONFIGURATION-FR.md`).
 
-```toml
-# .perf-sentinel.toml
-[daemon]
-listen_address = "0.0.0.0"
-```
-
-Un bind non-loopback émet un avertissement au démarrage : les endpoints n'ont pas d'auth applicative, mettez donc un reverse-proxy ou une network policy en frontal, ou posez `[daemon.ack] api_key` pour garder les écritures d'ack (voir `docs/FR/CONFIGURATION-FR.md`).
-
-### Étape 2 : Instrumenter votre service
-
-Définissez l'endpoint OTLP dans votre service (voir les [guides par langage](./INSTRUMENTATION-FR.md#devstaging--instrumentation-par-langage) ci-dessous) :
+Config de l'app :
 
 ```bash
 # Pour les services sur l'hôte
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
 
-# Pour les services dans Docker
+# Pour les services conteneurisés sur Docker Desktop
 OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
 ```
-
-### Étape 3 : Voir les findings
 
 Les findings sont émis sur stdout en NDJSON. Les métriques Prometheus sont disponibles à `http://localhost:4318/metrics`.
 
@@ -389,12 +289,8 @@ Les findings sont émis sur stdout en NDJSON. Les métriques Prometheus sont dis
 
 ## Pour aller plus loin
 
-Les quatre démarrages rapides ci-dessus mènent à une installation fonctionnelle. Deux guides compagnons couvrent la suite :
-
-- **[INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md)** : comment envoyer des données à perf-sentinel. Instrumentation par langage (Java, Quarkus, .NET, Rust), chemin OTel Collector production avec des conseils de sampling, intégrations cloud, manifests Kubernetes.
-- **[CI-FR.md](./CI-FR.md)** : comment câbler perf-sentinel dans la CI. Invocation en mode batch, recettes copier-coller pour GitHub Actions / GitLab CI / Jenkins, philosophie du quality gate, chemin de déploiement du rapport HTML interactif par fournisseur, et la sous-commande `diff` pour la détection de régressions sur PR.
-
-Les sections de référence ci-dessous restent dans ce document parce qu'elles s'appliquent à toutes les topologies (formats d'entrée et de sortie, API HTTP du daemon, scoring carbone avancé, ingestion Tempo et Jaeger, troubleshooting).
+- [`INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md) pour la configuration par langage (Java, Quarkus, .NET, Rust) et le chemin OTel Collector en production.
+- [`CI-FR.md`](./CI-FR.md) pour le câblage CI (GitHub Actions, GitLab CI, Jenkins), la philosophie du quality gate et la sous-commande `diff` pour les régressions de PR.
 
 ## Formats d'ingestion
 
@@ -445,7 +341,7 @@ Envoyez le fichier SARIF vers votre tableau de bord code scanning. Chaque findin
 
 ## Champ de confiance sur les findings
 
-Chaque finding émis en JSON ou SARIF porte un champ `confidence` qui indique le contexte source de la détection. Le champ est conçu pour les consommateurs en aval comme perf-lint, une intégration IDE compagnon planifiée qui ajustera la sévérité affichée dans l'IDE selon le niveau de confiance à accorder au finding. Tout outil tiers qui consomme les sorties JSON ou SARIF de perf-sentinel peut utiliser ce champ de la même manière.
+Chaque finding émis en JSON ou SARIF porte un champ `confidence` qui indique le contexte source de la détection. Le champ est conçu pour les consommateurs en aval comme perf-lint, une intégration IDE compagnon planifiée qui ajustera la sévérité affichée dans l'IDE selon le niveau de confiance à accorder au finding. Tout outil personnalisé qui consomme les sorties JSON ou SARIF de perf-sentinel peut utiliser ce champ de la même manière.
 
 Valeurs :
 
@@ -472,7 +368,7 @@ Valeurs :
 }
 ```
 
-**Fragment de résultat SARIF :**
+**Exemple de fragment de résultat SARIF :**
 
 ```json
 {
@@ -519,7 +415,7 @@ Voir [`docs/FR/QUERY-API-FR.md`](./QUERY-API-FR.md) pour la référence complèt
 
 ### Scoring multi-région
 
-Si vos services couvrent plusieurs régions cloud, perf-sentinel peut appliquer des coefficients d'intensité carbone par région. Le mécanisme principal est l'attribut OTel `cloud.region`, que la plupart des SDKs OTel cloud émettent automatiquement. Quand cet attribut est absent (ex. ingestion Jaeger/Zipkin), utilisez la table `[green.service_regions]` :
+Si vos services couvrent plusieurs régions cloud, perf-sentinel peut appliquer des coefficients d'intensité carbone par région. Le mécanisme principal est l'attribut de ressource OTel `cloud.region`, que la plupart des SDKs OTel cloud émettent automatiquement. Quand cet attribut est absent (ex. ingestion Jaeger/Zipkin), utilisez la table `[green.service_regions]` pour associer les services à des régions :
 
 ```toml
 [green]
@@ -531,14 +427,14 @@ default_region = "eu-west-3"
 "auth-svc"  = "eu-west-3"
 ```
 
-La chaîne de résolution est : attribut `cloud.region` du span > `service_regions[service]` > `default_region` > bucket synthétique `"unknown"`. Le rapport JSON inclut un tableau `regions[]` trié par CO₂ décroissant.
+La chaîne de résolution de la région est : attribut `cloud.region` du span > `service_regions[service]` > `default_region` > bucket synthétique `"unknown"`. Le rapport JSON inclut un tableau `regions[]` trié par CO₂ décroissant, chaque ligne indiquant le nom de la région, l'intensité carbone du réseau, le PUE, le nombre d'opérations I/O et le CO₂ opérationnel.
 
 ### Intégration Scaphandre (on-premise / bare metal)
 
-Pour les serveurs on-premise ou bare metal avec prise en charge d'Intel RAPL, perf-sentinel peut scraper les métriques de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre) pour remplacer le modèle proxy par des données d'énergie mesurées.
+Pour les serveurs on-premise ou bare metal avec prise en charge d'Intel RAPL, perf-sentinel peut scraper les métriques de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre) pour remplacer le modèle proxy I/O par des données d'énergie mesurées.
 
 **Prérequis :**
-- Scaphandre installé et en cours d'exécution, exposant un endpoint Prometheus `/metrics`.
+- Scaphandre installé et en cours d'exécution sur chaque hôte, exposant un endpoint Prometheus `/metrics`.
 - Accès RAPL disponible (bare metal ou VM avec RAPL passthrough).
 
 **Configuration :**
@@ -550,7 +446,9 @@ scrape_interval_secs = 5
 process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
 ```
 
-Le `process_map` mappe les noms de service perf-sentinel au label `exe` dans la métrique `scaph_process_power_consumption_microwatts` de Scaphandre. Le daemon scrape cet endpoint toutes les `scrape_interval_secs` secondes et calcule un coefficient énergie-par-op par service avec la formule `energy_kwh = (power_watts * interval) / ops / 3_600_000`. Les services absents du `process_map`, et tous les services quand l'endpoint est injoignable, se rabattent de manière transparente sur le modèle proxy. Le tag de modèle passe à `"scaphandre_rapl"` pour les services qui utilisent l'énergie mesurée. Seul le mode daemon `watch` utilise Scaphandre. La commande batch `analyze` utilise toujours le modèle proxy.
+Le `process_map` mappe les noms de service perf-sentinel au label `exe` dans la métrique `scaph_process_power_consumption_microwatts` de Scaphandre. Le daemon scrape cet endpoint toutes les `scrape_interval_secs` secondes et calcule un coefficient énergie-par-op par service avec la formule `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
+
+Les services absents du `process_map`, et tous les services quand l'endpoint est injoignable, se rabattent de manière transparente sur le modèle proxy. Le tag de modèle passe à `"scaphandre_rapl"` pour les services qui utilisent l'énergie mesurée. Seul le mode daemon `watch` utilise Scaphandre. La commande batch `analyze` utilise toujours le modèle proxy.
 
 #### Endpoint Scaphandre authentifié
 
@@ -558,23 +456,23 @@ Si l'exporter Scaphandre est placé derrière un reverse proxy avec auth basic o
 
 ```toml
 [green.scaphandre]
-endpoint = "https://scaphandre.mon-cluster.example/metrics"
+endpoint = "https://scaphandre.my-cluster.example/metrics"
 scrape_interval_secs = 5
 auth_header = "Authorization: Basic <base64>"
 ```
 
-La valeur suit le même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
+La valeur suit le même format `"Name: Value"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
 
 La variable d'environnement `PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER` est prioritaire sur le fichier de config. Préférez la variable d'environnement en production pour éviter de versionner des secrets. Quand la valeur est définie dans le fichier de config et que la variable d'environnement est absente, un avertissement au démarrage oriente vers la variable d'environnement.
 
-Envoyer un en-tête d'authentification en clair via `http://` déclenche un `tracing::warn!` une fois au démarrage du scraper. Préférez `https://` en production. Un en-tête mal formé désactive le sous-système avec un `tracing::error!` plutôt que de réessayer en silence.
+Envoyer un en-tête d'authentification en clair via `http://` déclenche un `tracing::warn!` une fois au démarrage du scraper. Préférez `https://` en production. Un en-tête mal formé désactive le sous-système du scraper avec un `tracing::error!` plutôt que de réessayer en silence.
 
 ### Estimation d'énergie cloud (AWS / GCP / Azure)
 
-Pour les VMs cloud sans accès RAPL, perf-sentinel peut estimer l'énergie par service via les métriques d'utilisation CPU depuis un endpoint Prometheus et le modèle SPECpower.
+Pour les VMs cloud qui n'exposent pas RAPL (la plupart des instances hors bare metal), perf-sentinel peut estimer l'énergie par service via les métriques d'utilisation CPU depuis un endpoint Prometheus et le modèle SPECpower.
 
 **Prérequis :**
-- Un endpoint Prometheus avec des métriques d'utilisation CPU (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter ou node_exporter).
+- Un endpoint compatible Prometheus avec des métriques d'utilisation CPU (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter ou node_exporter).
 - perf-sentinel n'interroge PAS les APIs des fournisseurs cloud directement.
 
 **Configuration :**
@@ -598,13 +496,13 @@ region = "westeurope"
 instance_type = "Standard_D8s_v6"  # Emerald Rapids
 ```
 
-Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` en utilisant les coefficients CCF 2026-04-24 par vCPU embarqués (~390 types d'instances couvrant AWS, GCP, Azure, y compris les architectures modernes Sapphire Rapids, Emerald Rapids, Genoa, Turin, Graviton 3/4 et Cobalt 100). Le tag de modèle est `"cloud_specpower"`. Fonctionnalité daemon uniquement.
+Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` en utilisant les coefficients CCF 2026-04-24 par vCPU embarqués dans le binaire (~390 types d'instances couvrant AWS, GCP, Azure, y compris les architectures modernes Sapphire Rapids, Emerald Rapids, Genoa, Turin, Graviton 3/4 et Cobalt 100). Le tag de modèle est `"cloud_specpower"`. Comme Scaphandre, c'est une fonctionnalité réservée au daemon.
 
 **Précédence des sources d'énergie.** Quand plusieurs sources mesurées sont configurées pour le même service, la plus précise gagne. La chaîne complète : `electricity_maps_api` > `alumet_rapl` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Voir `docs/FR/LIMITATIONS-FR.md` pour la discussion sur les limites de précision de chaque source mesurée.
 
 #### Endpoint Prometheus authentifié
 
-Si votre Prometheus est derrière une auth basic, un proxy bearer-token, ou un service managé comme Grafana Cloud ou Grafana Mimir, ajoutez une entrée `auth_header` :
+Si votre Prometheus est derrière une auth basic, un proxy bearer-token, ou un service hébergé comme Grafana Cloud ou Grafana Mimir, ajoutez une entrée `auth_header` :
 
 ```toml
 [green.cloud]
@@ -612,32 +510,32 @@ prometheus_endpoint = "https://prometheus.grafana-cloud.example/api/prom"
 auth_header = "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}"
 ```
 
-La valeur suit le même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
+La valeur suit le même format `"Name: Value"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
 
 La variable d'environnement `PERF_SENTINEL_CLOUD_AUTH_HEADER` est prioritaire sur le fichier de config. Préférez la variable d'environnement en production pour éviter de versionner des secrets. Quand la valeur est définie dans le fichier de config et que la variable d'environnement est absente, un avertissement au démarrage oriente vers la variable d'environnement.
 
-Envoyer un en-tête d'authentification en clair via `http://` déclenche un `tracing::warn!` une fois au démarrage du scraper. Préférez `https://` en production. Un en-tête mal formé désactive le sous-système avec un `tracing::error!` plutôt que de réessayer en silence.
+Envoyer un en-tête d'authentification en clair via `http://` déclenche un `tracing::warn!` une fois au démarrage du scraper. Préférez `https://` en production. Un en-tête mal formé désactive le sous-système du scraper avec un `tracing::error!` plutôt que de réessayer en silence.
 
 ### Calibration du modèle proxy avec des mesures terrain
 
-Quand ni Scaphandre ni l'estimation cloud ne sont disponibles mais que vous avez des mesures d'énergie de référence (wattmètre, export RAPL, monitoring datacenter), la sous-commande `perf-sentinel calibrate` ajuste les coefficients I/O vers énergie du modèle proxy par service. Le workflow en trois étapes :
+Quand ni Scaphandre ni l'estimation cloud ne sont disponibles mais que vous avez des mesures d'énergie de référence issues d'une source externe (wattmètre, export RAPL, monitoring datacenter), la sous-commande `perf-sentinel calibrate` ajuste les coefficients I/O vers énergie du modèle proxy par service. Le workflow en trois étapes :
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/calibration-workflow_dark.svg">
   <img alt="Workflow de calibration" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/calibration-workflow.svg">
 </picture>
 
-**1. Mesurer.** Exécuter une charge de référence et collecter à la fois les traces (format JSON perf-sentinel) et les mesures d'énergie (CSV avec colonnes `timestamp,service,power_watts` ou `timestamp,service,energy_kwh`, auto-détecté depuis l'en-tête).
+**1. Mesurer.** Exécuter une charge de référence et collecter à la fois les traces (format JSON perf-sentinel standard) et les mesures d'énergie (CSV avec colonnes `timestamp,service,power_watts` ou `timestamp,service,energy_kwh`, auto-détecté depuis l'en-tête).
 
-**2. Calibrer.** Exécuter `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. La sous-commande corrèle les ops I/O avec les lectures d'énergie par service et fenêtre temporelle, calcule `factor = mesuré_par_op / proxy_par_défaut` et écrit un fichier TOML. Les facteurs > 10x ou < 0.1x émettent des avertissements (probable erreur de mesure).
+**2. Calibrer.** Exécuter `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. La sous-commande corrèle les ops I/O avec les lectures d'énergie par service et fenêtre temporelle, calcule `factor = measured_per_op / default_proxy` et écrit un fichier TOML. Les facteurs > 10x ou < 0.1x émettent des avertissements (probable erreur de mesure).
 
-**3. Utiliser.** Charger le fichier de calibration au démarrage via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. La boucle de scoring multiplie l'énergie proxy par le facteur du service et le tag de modèle reçoit un suffixe `+cal` (par exemple `io_proxy_v2+cal`). La calibration ne s'applique qu'au modèle proxy : l'énergie mesurée Scaphandre/cloud reste prioritaire.
+**3. Utiliser.** Charger le fichier de calibration à la lecture de la config via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. La boucle de scoring multiplie l'énergie proxy par le facteur du service et le tag de modèle reçoit un suffixe `+cal` (par exemple `io_proxy_v2+cal`). La calibration ne s'applique qu'au modèle proxy : l'énergie mesurée Scaphandre/cloud reste prioritaire.
 
 ---
 
 ## Intégration Tempo
 
-Si votre infrastructure utilise Grafana Tempo comme backend de traces, vous pouvez l'interroger directement avec `perf-sentinel tempo`.
+Si votre infrastructure utilise Grafana Tempo comme backend de traces, vous pouvez l'interroger directement avec `perf-sentinel tempo` au lieu d'exporter les traces dans des fichiers.
 
 > **Workflow post-mortem.** Quand une trace est plus ancienne que la fenêtre live de 30 secondes du daemon, Tempo devient la source de rejeu pour `perf-sentinel tempo --trace-id …`. Le workflow complet d'incident, de l'alerte Grafana à l'exemplar, puis au trace_id et au rejeu, est documenté dans [RUNBOOK-FR.md](RUNBOOK-FR.md).
 
@@ -661,7 +559,7 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 
 - Tempo doit exposer son API HTTP (port 3200 par défaut).
 - Le flag `--endpoint` pointe vers l'URL de base de l'API Tempo.
-- Les traces sont récupérées en protobuf OTLP et passent par le pipeline d'analyse standard.
+- Les traces sont récupérées en protobuf OTLP et passent par le pipeline d'analyse standard. La sortie est identique à `perf-sentinel analyze`.
 
 ### Tempo en mode microservices (`tempo-distributed`)
 
@@ -711,35 +609,34 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 - `--from` et `--to` remplacent `--lookback` par une fenêtre absolue en ISO 8601 UTC (`2026-08-20T15:00:00Z`). Les deux vont ensemble et ne se combinent pas avec `--lookback`. Ils servent à relire la fenêtre exacte d'un incident : une lookback est résolue au moment où la requête part, elle se décale donc à chaque exécution.
 - `--max-traces` correspond au paramètre `limit` de la requête backend, qui plafonne le nombre de traces retournées par recherche.
 
-### Caveats
+### Réserves
 
 - La recherche côté backend est bornée par la rétention configurée (Jaeger a 48h par défaut, Victoria Traces est configurable). Un `--lookback` ou une fenêtre `--from`/`--to` plus large que la rétention est silencieusement tronqué à la fenêtre conservée. perf-sentinel ne connaît pas la rétention d'un backend, il ne peut donc pas vous prévenir avant la requête.
 - Une recherche `limit=N` retourne jusqu'à N traces complètes dans un seul corps HTTP. perf-sentinel plafonne la réponse à 256 MiB, ce qui couvre les charges de production typiques mais peut nécessiter un ajustement si vous recherchez régulièrement des centaines de grosses traces d'un coup. Baissez `--max-traces` si vous atteignez la limite de taille du corps. `--max-traces` est lui-même borné à 10 000 côté CLI.
-- **En-tête d'authentification via `--auth-header`.** Passez une ligne d'en-tête au format curl (`"Name: Value"`) pour l'attacher à chaque requête backend. Couvre Bearer tokens, Basic Auth et en-têtes de clé d'API personnalisés. La valeur parsée est marquée `sensitive` et n'apparaît donc jamais dans les logs. Voir `docs/FR/LIMITATIONS-FR.md` pour les notes complètes d'usage (un seul en-tête max par invocation, valeur visible dans `ps`). Depuis 0.5.27, choisir la forme flag émet un événement de niveau `WARN` au démarrage qui oriente vers `--auth-header-env <NOM>` (même pattern que `pg-stat`). La forme variable d'environnement garde la valeur en dehors de la liste des arguments de processus et de l'historique shell.
+- **En-tête d'authentification via `--auth-header`.** Passez une ligne d'en-tête au format curl (`"Name: Value"`) pour l'attacher à chaque requête backend. Couvre Bearer tokens, Basic Auth et en-têtes de clé d'API personnalisés. La valeur parsée est marquée `sensitive` et n'apparaît donc jamais dans les logs. Voir `docs/FR/LIMITATIONS-FR.md` pour les notes complètes d'usage (un seul en-tête max par invocation, valeur visible dans `ps`). Depuis 0.5.27, choisir la forme flag émet un événement de niveau `WARN` au démarrage qui oriente vers `--auth-header-env <NAME>` (même pattern que `pg-stat`). La forme variable d'environnement garde la valeur en dehors de la liste des arguments de processus et de l'historique shell.
 - **`--endpoint` est une entrée de confiance.** Le validateur rejette les schémas non-http et les URLs avec credentials, mais accepte loopback, RFC 1918 et link-local. Dans un contexte CI où la valeur de l'endpoint pourrait venir d'une PR externe, assainissez-la en amont avant d'invoquer la sous-commande.
 
 ---
 
-## Troubleshooting
+## Dépannage
 
 ### Aucun event reçu (`events_processed_total = 0`)
 
-1. **Vérifiez la connectivité.** Depuis le conteneur : `curl http://host.docker.internal:4318/metrics`.
+1. **Vérifiez la connectivité.** Depuis le conteneur : `curl http://host.docker.internal:4318/metrics`. S'il échoue, perf-sentinel n'est pas joignable.
 2. **Vérifiez l'adresse d'écoute.** perf-sentinel écoute sur `127.0.0.1` par défaut. Pour l'accès Docker, configurez `listen_address = "0.0.0.0"` dans `.perf-sentinel.toml` ou lancez-le nativement sur l'hôte.
-3. **Vérifiez le protocole.** Le Java Agent utilise gRPC par défaut (port 4317).
+3. **Vérifiez le protocole.** Le Java Agent utilise gRPC par défaut (port 4317). Assurez-vous que `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` correspond au port que vous ciblez.
 
 ### Events reçus mais aucun finding
 
-1. **Vérifiez les attributs de span.** perf-sentinel ne traite que les spans avec `db.statement`/`db.query.text` (SQL) ou `http.url`/`url.full` (HTTP).
+1. **Vérifiez les attributs de span.** perf-sentinel ne traite que les spans avec `db.statement`/`db.query.text` (SQL) ou `http.url`/`url.full` (HTTP). Les autres spans sont ignorés.
 2. **Vérifiez le kind du span.** Depuis 0.11.2, un span `SERVER` portant une URL HTTP est un traitement entrant et non un appel sortant, il ne produit donc aucun finding HTTP même si l'attribut est présent. Les flottes sur les anciennes conventions sémantiques, qui posent aussi `http.url` sur le span de traitement, perdent ainsi les appels qu'elles voyaient auparavant. Un appel sortant se présente comme un span `CLIENT` du côté de l'appelant.
-3. **Vérifiez les seuils de détection.** Le seuil N+1 par défaut est 5 occurrences du même template normalisé dans la même trace.
-4. **Vérifiez la normalisation des URLs.** perf-sentinel remplace les segments numériques par `{id}` et les UUIDs par `{uuid}`. Les identifiants texte ne sont pas normalisés.
+3. **Vérifiez les seuils de détection.** Le seuil N+1 par défaut est 5 occurrences du même template normalisé dans la même trace. Si votre trace compte moins de 5 appels répétés, aucun finding n'est généré.
+4. **Vérifiez la normalisation des URLs.** perf-sentinel remplace les segments de chemin numériques par `{id}` et les UUIDs par `{uuid}`. Si vos URLs répétées ne diffèrent que par un identifiant texte (par exemple `/account/alice`, `/account/bob`), elles ne seront pas regroupées dans le même template.
 
 ### Erreur AOT cache avec le Java Agent
 
-Le Java Agent (`-javaagent:`) est incompatible avec les AOT caches JEP 483. Désactivez le cache AOT quand l'agent est actif (voir la section Java ci-dessus).
+Le Java Agent (`-javaagent:`) est incompatible avec les caches AOT de la JEP 483. Si vous voyez `Unable to map shared spaces` ou `Mismatched values for property jdk.module.addmods`, contournez le cache AOT quand l'agent est actif (voir la section Java ci-dessus).
 
 ### Le starter Spring Boot ne capture pas les appels HTTP sortants
 
-Le `spring-boot-starter-opentelemetry` (Spring Boot 4) fait le pont Micrometer vers OTel mais n'instrumente pas complètement les appels sortants. Utilisez le Java Agent.
-
+Le `spring-boot-starter-opentelemetry` (Spring Boot 4) fait le pont entre les métriques Micrometer et OTel mais n'instrumente pas complètement les appels sortants `WebClient` ou `RestTemplate` avec la propagation du contexte de trace. Utilisez le Java Agent pour une instrumentation complète.
