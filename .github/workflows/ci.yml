@@ -16,16 +16,16 @@ on:
   # reports it at all, which leaves a prose-only pull request pending for
   # ever. So the workflow always starts and the `changes` job below applies
   # the same filter, skipping the build jobs instead of the whole run. A
-  # skipped job reports as successful to branch protection, the same way
-  # fork pull requests already rely on.
+  # skipped job reports as successful to branch protection, which fork pull
+  # requests already rely on.
   pull_request:
     branches: [main]
   # Manual trigger so CI can be rerun against an arbitrary ref (tag,
   # commit, branch). Useful for re-validating an old release after a
   # toolchain update or recovering an audit trace on a past tag.
   # The dispatch itself must run on a ref that contains this trigger
-  # block (typically main); the optional `ref` input then drives which
-  # source the checkout step actually builds.
+  # block (typically main). The optional `ref` input then drives which
+  # source the checkout step builds.
   workflow_dispatch:
     inputs:
       ref:
@@ -44,11 +44,11 @@ env:
 
 jobs:
   # Path filter for pull requests, mirroring the `paths-ignore` on the push
-  # trigger above (and the one in codeql.yml, the three lists must stay in
-  # sync). Fail-safe twice over, because a skipped job satisfies the branch
-  # protection: an empty or failed listing answers `true`, and the jobs
-  # below only stand down on an explicit `false`, so a job that never
-  # reported cannot wave a change through untested.
+  # trigger above (and the one in codeql.yml: the three lists must stay in
+  # sync). A skipped job satisfies branch protection, so the filter fails
+  # safe twice. An empty or failed listing answers `true`, and the jobs below
+  # skip only on an explicit `false`, so a job that never reported cannot let
+  # a change through untested.
   changes:
     name: Detect code changes
     runs-on: ubuntu-latest
@@ -123,9 +123,9 @@ jobs:
           components: clippy, rustfmt
           rustflags: ""
           build-warnings: ""
-          # Both restore the pre-migration behavior: this action defaults
-          # cache-on-failure to true and installs a problem matcher that would
-          # double-report the lints already uploaded as SARIF below.
+          # This action defaults cache-on-failure to true and installs a
+          # problem matcher that would double-report the lints already
+          # uploaded as SARIF below. Both are turned off here.
           cache-on-failure: false
           matcher: false
 
@@ -138,8 +138,8 @@ jobs:
       # Mirrors what `cargo publish -p perf-sentinel-core` does: builds
       # the crate with no features enabled. Catches refs from unconditional
       # code paths (e.g. `impl Config`) into feature-gated modules that
-      # the full-feature Clippy run above happily resolves but a bare
-      # crates.io publish rejects.
+      # the full-feature Clippy run above resolves but a bare crates.io
+      # publish rejects.
       - name: Check perf-sentinel-core with no features (crates.io parity)
         run: cargo check -p perf-sentinel-core --no-default-features --all-targets
 
@@ -182,9 +182,9 @@ jobs:
         run: cargo audit
 
       # Without a version, SonarCloud keeps the last one it ever saw and the
-      # "previous version" new-code period stops moving: on 2026-09-11 it still
-      # reached back to March, so a newly activated rule reddened the gate over
-      # six months of untouched code.
+      # "previous version" new-code period stops moving. On 2026-09-11 it still
+      # reached back to March, so a newly activated rule failed the gate on six
+      # months of untouched code.
       - name: Read the workspace version
         id: workspace_version
         run: |
@@ -252,7 +252,7 @@ jobs:
       # Fail loudly if a future change accidentally reintroduces a dynamic
       # link against glibc. Rust's musl target produces a Position Independent
       # Executable that is fully statically linked, which modern `file` on
-      # Ubuntu 24.04 reports as "static-pie linked"; older `file` (e.g. on
+      # Ubuntu 24.04 reports as "static-pie linked". Older `file` (e.g. on
       # Debian bookworm) reports it as "statically linked". Both are fully
       # static. The negative we want to catch is "dynamically linked", which
       # would indicate a glibc dependency leaking back in.
@@ -279,9 +279,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     # Run inside the official Playwright image so chromium + the headless
-    # shell + ffmpeg are pre-baked: no flaky CDN download (the previous
-    # `playwright install` step regularly stalled after the 100% chromium
-    # fetch). The tag MUST match @playwright/test in package-lock.json (1.59.1).
+    # shell + ffmpeg are pre-baked: no flaky CDN download (`playwright install`
+    # regularly stalled after the 100% chromium fetch). The tag MUST match
+    # @playwright/test in package-lock.json (1.59.1).
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 25
@@ -298,7 +298,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      # The Playwright image ships node + browsers but not a C toolchain;
+      # The Playwright image ships node + browsers but not a C toolchain.
       # `cargo build` (ring's build.rs) needs cc and perl.
       - name: Install build toolchain
         run: apt-get update && apt-get install -y --no-install-recommends build-essential perl
@@ -336,13 +336,13 @@ jobs:
   # the Gitleaks CLI directly instead of gitleaks/gitleaks-action so
   # every event scans the full git tree, not just the push/PR diff.
   # The bundled default ruleset (AWS keys, GitHub tokens, JWT, private
-  # keys, etc.) is used; a project-level .gitleaks.toml is added only
+  # keys, etc.) is used. A project-level .gitleaks.toml is added only
   # if a documented false positive justifies it. The container is
   # pinned by digest to prevent tag-rewrite supply-chain drift.
   gitleaks:
     name: Secret scan
     runs-on: ubuntu-latest
-    # Deliberately outside the `changes` filter the other jobs use. A leaked
+    # This job sits outside the `changes` filter the other jobs use. A leaked
     # key lands in prose as easily as in code, an example config pasted into
     # a doc being the obvious way, so this one runs on every pull request.
     if: >-

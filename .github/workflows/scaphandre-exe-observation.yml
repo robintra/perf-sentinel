@@ -3,20 +3,19 @@
 # This workflow does NOT validate, it OBSERVES. It runs real Scaphandre
 # v1.0.2 in --vm mode against a representative process zoo (3 Java jars,
 # 3 .NET assemblies, 1 native Rust binary) and reports what labels the
-# upstream exporter actually emits per process. The output drives the
-# follow-up matcher design.
+# upstream exporter emits per process. The output feeds the matcher design.
 #
 # Why: perf-sentinel's apply_scrape (crates/sentinel-core/src/score/
 # scaphandre/ops.rs) currently does strict `&p.exe == exe_name`. Two
 # established but unverified problems:
 #  - the config example shows basenames ("java", "dotnet") but real
-#    Scaphandre likely emits absolute paths;
+#    Scaphandre likely emits absolute paths.
 #  - multiple Java services co-located on a host share the same JVM
-#    `exe`, idem for .NET. Strict `exe` equality cannot distinguish
+#    `exe`, likewise for .NET. Strict `exe` equality cannot distinguish
 #    them and would mis-attribute silently.
 #
-# This job answers, empirically, which label(s) actually discriminate.
-# It produces NO assertion, the matcher design is a follow-up commit.
+# This job answers empirically which label(s) discriminate. It produces
+# NO assertion: the matcher design lives in a separate commit.
 #
 # Triggered ONLY manually via workflow_dispatch. Not gated, not blocking.
 
@@ -84,8 +83,8 @@ jobs:
         # container because the sensor must see the runner's own toy
         # processes and the fake powercap tree. /usr/bin is where the
         # old .deb installed it, which keeps it on sudo's secure_path.
-        # `scaphandre --version` prints 1.0.2 from this 1.0.3 image,
-        # upstream never bumped Cargo.toml. Trust the digest.
+        # `scaphandre --version` prints 1.0.2 from this 1.0.3 image
+        # because upstream never bumped Cargo.toml. Trust the digest.
         run: |
           for attempt in 1 2 3; do
             docker pull "${SCAPHANDRE_IMAGE}" && break
@@ -99,7 +98,7 @@ jobs:
           scaphandre --version
 
       - name: Generate fake powercap tree
-        # Minimal arborescence that Scaphandre's powercap_rapl sensor
+        # Minimal directory tree that Scaphandre's powercap_rapl sensor
         # walks in --vm mode (upstream src/sensors/powercap_rapl.rs):
         # one socket directory and one domain subdirectory, each with
         # `name` + `energy_uj`. Same trick as the wire-conformance job.
@@ -211,9 +210,8 @@ jobs:
           /tmp/toy-native-svc/target/release/toy-native-svc &
           echo $! > /tmp/toy-native-svc.pid
 
-          # Give the runtimes a moment to actually start before
-          # Scaphandre walks /proc. JVM warmup on shared GitHub runners
-          # routinely exceeds 5s.
+          # Give the runtimes a moment to start before Scaphandre walks
+          # /proc. JVM warmup on shared GitHub runners routinely exceeds 5s.
           sleep 10
 
           echo "--- toy process PIDs"
@@ -258,8 +256,8 @@ jobs:
       - name: Observation report
         # Pure observation step. For each known toy PID, dump the full
         # scaph_process_power_consumption_microwatts line so the labels
-        # come out raw, then answer the 5 questions from the user
-        # prompt by comparing exe / cmdline strings between siblings.
+        # come out raw, then answer the 5 questions below by comparing
+        # exe / cmdline strings between siblings.
         run: |
           metrics=/tmp/scaph-metrics.txt
           declare -A PIDS=(
@@ -370,7 +368,7 @@ jobs:
           echo "== Q5. Observation conclusion                            =="
           echo "==========================================================="
           # Templated factual conclusion. Verdict is taken over the
-          # full triplet a/b/c per techno: exe_collide=1 only if all
+          # full triplet a/b/c per technology: exe_collide=1 only if all
           # three siblings share the same exe, cmdline_ok=1 only if
           # the three cmdlines are pairwise distinct. A single mismatch
           # demotes the verdict, which is the conservative answer for
@@ -453,8 +451,8 @@ jobs:
           if [ -f /tmp/scaph-daemon.pid ]; then
             sudo kill "$(cat /tmp/scaph-daemon.pid)" 2>/dev/null || true
           fi
-          # Belt-and-braces fallbacks in case a pid file is missing or
-          # raced with the launcher.
+          # Fallbacks in case a pid file is missing or raced with the
+          # launcher.
           sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
           pkill -f 'java -jar /tmp/svc-' 2>/dev/null || true
           pkill -f 'dotnet /tmp/dotnet-' 2>/dev/null || true

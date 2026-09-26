@@ -2,13 +2,13 @@
 # Scaphandre and Alumet scrapers.
 #
 # This workflow exists to catch upstream renames or schema changes BEFORE
-# they ship a dead-on-arrival perf-sentinel release, the v0.7.4 trap. It
-# is NOT the release gate (`docs/RELEASE-PROCEDURE.md` forbids invoking
-# the lab gate from CI), and it is NOT a measure of energy precision.
-# Each job runs against a real upstream backend in fake-meter / mockup /
-# fake-powercap mode: the metric NAMES and LABELS come from real upstream
-# code so parser conformance is asserted for real, but the watt and
-# energy values are synthetic and have no physical meaning.
+# they ship a dead-on-arrival perf-sentinel release, as happened with
+# v0.7.4. It is NOT the release gate (`docs/RELEASE-PROCEDURE.md` forbids
+# invoking the lab gate from CI), and it is NOT a measure of energy
+# precision. Each job runs against a real upstream backend in fake-meter /
+# mockup / fake-powercap mode. The metric NAMES and LABELS come from real
+# upstream code, so parser conformance is asserted against the real wire.
+# The watt and energy values are synthetic and have no physical meaning.
 #
 # Four independent jobs. No `needs:` chain, so an upstream rename in
 # one source does not mask a regression in another.
@@ -85,7 +85,7 @@ jobs:
 
       - name: Create kind cluster
         # Container-mode Kepler metrics require Kubernetes pod
-        # discovery; the kubelet podInformer needs node RBAC k3d/kind
+        # discovery. The kubelet podInformer needs node RBAC k3d/kind
         # cannot give us cleanly, so we fall back to apiserver mode in
         # the Kepler config below.
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2  # v1.15.0
@@ -137,7 +137,7 @@ jobs:
             name: kepler
             namespace: kepler
           data:
-            # The actual fake-meter knob is `dev.fake-cpu-meter.enabled`,
+            # The fake-meter knob is `dev.fake-cpu-meter.enabled`,
             # not `cpu.meters: ["fake"]` (the latter appears in some
             # v0.11 release notes but is not in the parsed schema).
             # Kepler emits synthetic readings without RAPL but the
@@ -255,7 +255,7 @@ jobs:
           curl -fsS http://localhost:28282/metrics >/dev/null
 
       - name: Wire assertion - Kepler /metrics conforms to parser contract
-        # The point of truth: assert the EXACT names and labels that
+        # Assert the EXACT names and labels that
         # crates/sentinel-core/src/score/kepler/config.rs:35-49 expects.
         # If upstream renames a metric or a label, this step fails with
         # the offending line printed, before any parser-side test runs.
@@ -293,7 +293,7 @@ jobs:
         # AND no samples is unreachable since the threshold is 3 ticks).
         run: |
           # service_mappings keys are arbitrary perf-sentinel service
-          # names; the values must match container_name labels Kepler
+          # names. The values must match container_name labels Kepler
           # emits. The kind cluster has one workload pod whose
           # container is named `sample`, plus Kepler's own daemonset
           # container `kepler`. We map both to test pattern matching.
@@ -419,8 +419,8 @@ jobs:
           echo "::notice::First chassis odata id: ${first_chassis}"
 
       - name: Wire assertion - legacy Power path conforms to parser contract
-        # The point of truth: assert the JSON pointer the parser uses
-        # for the `legacy_power` schema (canonical
+        # Assert that the JSON pointer the parser uses for the
+        # `legacy_power` schema (canonical
         # `/PowerControl/0/PowerConsumedWatts`, defined in
         # crates/sentinel-core/src/score/redfish/config.rs) resolves to
         # a finite positive number on the upstream-canonical mockup. If
@@ -449,10 +449,10 @@ jobs:
       - name: Dead-on-arrival probe - PowerSubsystem presence (informational)
         # The /Power resource was deprecated by DMTF Release 2020.4 in
         # favour of PowerSubsystem + EnvironmentMetrics. The perf-sentinel
-        # parser now supports the modern EnvironmentMetrics endpoint
+        # parser supports the modern EnvironmentMetrics endpoint
         # (v0.7.6, see `environment_metrics` schema below). The
         # PowerSubsystem resource itself does NOT carry instantaneous
-        # wattage per DMTF schema, it describes infrastructure
+        # wattage per DMTF schema. It describes infrastructure
         # (CapacityWatts, PowerSupplies, Batteries), so this probe stays
         # informational: we track its presence on the mockup as a hint
         # that the BMC has migrated infrastructure surfaces, without
@@ -493,9 +493,9 @@ jobs:
 
       - name: End-to-end assertion - perf-sentinel scrapes Redfish cleanly
         # The wire assertion above already proves the parser would
-        # match. Here we confirm the daemon side actually wires the
-        # scrape AND that both schemas (legacy_power + environment_metrics)
-        # parse without error from a single config. Two chassis-ids on
+        # match. Here we confirm the daemon side wires the scrape AND
+        # that both schemas (legacy_power + environment_metrics) parse
+        # without error from a single config. Two chassis-ids on
         # the same mockup, one per schema, exercise the per-endpoint
         # schema dispatch added in v0.7.6.
         run: |
@@ -607,9 +607,8 @@ jobs:
       - name: Install Scaphandre from the upstream container image
         # The container image is the only channel upstream still
         # publishes: v1.0.3 (2026-07-17) ships no release asset at all,
-        # v1.0.2 was the last tag carrying a .deb. Pinned by digest,
-        # which replaces the old .deb SHA256 pin, a retagged image
-        # cannot slip in unnoticed.
+        # and v1.0.2 was the last tag carrying a .deb. Pinned by digest,
+        # so a retagged image cannot slip in unnoticed.
         # We extract the binary instead of running the container: the
         # sensor must see the runner's own processes and the fake
         # powercap tree under /tmp, which a container would only reach
@@ -617,8 +616,8 @@ jobs:
         # and OpenSSL 3, both on ubuntu-latest. /usr/bin is where the
         # .deb installed it, which keeps it on sudo's secure_path.
         # Expect `scaphandre --version` to print 1.0.2: upstream tagged
-        # v1.0.3 without bumping Cargo.toml. The code does differ, the
-        # edition moved from 2021 to 2024, so trust the digest, not the
+        # v1.0.3 without bumping Cargo.toml. The code does differ (the
+        # edition moved from 2021 to 2024), so trust the digest, not the
         # version string.
         run: |
           for attempt in 1 2 3; do
@@ -633,7 +632,7 @@ jobs:
           scaphandre --version
 
       - name: Generate fake powercap tree
-        # Scaphandre in `--vm` mode reads its powercap arborescence
+        # Scaphandre in `--vm` mode reads its powercap tree
         # from SCAPHANDRE_POWERCAP_PATH (upstream
         # src/sensors/powercap_rapl.rs:31-35) instead of
         # /sys/class/powercap, which is absent on GitHub shared
@@ -675,13 +674,13 @@ jobs:
         # Scaphandre still reads /proc/PID/stat in --vm mode to
         # attribute power to processes. A long-running shell busy-loop
         # gives the parser at least one `exe="bash"` entry to emit. The
-        # loop is a fixture, not a workload, not a performance signal.
+        # loop is a fixture, not a workload or a performance signal.
         run: |
           ( while true; do :; done ) &
           echo $! > /tmp/scaph-target.pid
 
       - name: Install JDK 25 (Temurin) for cmdline matcher assertion
-        # Two co-located JVMs share /usr/lib/jvm/.../bin/java in `exe`,
+        # Two co-located JVMs share /usr/lib/jvm/.../bin/java in `exe`, so
         # only `cmdline` discriminates them. The assertion below runs
         # perf-sentinel against the real Scaphandre with a cmdline-aware
         # process_map and verifies no ambiguity warning fires.
@@ -722,9 +721,9 @@ jobs:
         # Port 8080 matches the perf-sentinel scaphandre/config.rs
         # default endpoint.
         # The redirect lives inside `sh -c` so it is performed by the
-        # privileged shell (SC2024-clean); the log file ends up owned
-        # by root but world-readable in /tmp, fine for subsequent
-        # inspection by the runner user.
+        # privileged shell (SC2024-clean). The log file ends up owned
+        # by root but world-readable in /tmp, which is fine for
+        # subsequent inspection by the runner user.
         run: |
           sudo -E sh -c 'nohup scaphandre --vm -s powercap_rapl prometheus --address 127.0.0.1 --port 8080 > /tmp/scaphandre.log 2>&1 & echo $! > /tmp/scaph-daemon.pid'
           sleep 2
@@ -741,14 +740,14 @@ jobs:
           curl -fsS http://localhost:8080/metrics >/dev/null
 
       - name: Wire assertion - Scaphandre /metrics conforms to parser contract
-        # The point of truth: assert the EXACT metric name and label
+        # Assert the EXACT metric name and label
         # crates/sentinel-core/src/score/scaphandre/parser.rs:39,144
         # expects. If upstream Scaphandre renames the metric or the
         # `exe` label, this step fails with the offending lines printed
         # before any parser-side test runs.
         #
         # This validates wire conformance ONLY, NOT energy precision.
-        # The energy_uj values are synthetic; only the metric names and
+        # The energy_uj values are synthetic. Only the metric names and
         # labels come from the real upstream binary.
         #
         # Scaphandre emits `scaph_process_power_consumption_microwatts`
@@ -792,13 +791,6 @@ jobs:
         # disambiguates the two co-located JVMs without firing the
         # ambiguity warning. The bash busy-loop is also mapped to
         # exercise the legacy single-runtime path side-by-side.
-        #
-        # Caveat: Scaphandre's scraper has no zero-sample warn-once
-        # equivalent to Kepler (kepler/scraper.rs
-        # track_zero_sample_streak). A silent upstream rename of the
-        # metric or label would not be caught at runtime today, this
-        # job is the only line of defence. Hardening tracked for
-        # v0.7.6.
         run: |
           cat > /tmp/perf-sentinel.toml <<'EOF'
           [daemon]
@@ -900,8 +892,8 @@ jobs:
           if [ -f /tmp/scaph-daemon.pid ]; then
             sudo kill "$(cat /tmp/scaph-daemon.pid)" 2>/dev/null || true
           fi
-          # Belt-and-braces fallback: catch any straggler if the pid
-          # file is missing or the kill above raced with the launcher.
+          # Fallback: catch any straggler if the pid file is missing or
+          # the kill above raced with the launcher.
           sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
           pkill -f 'java -jar /tmp/svc-' 2>/dev/null || true
           # Hygiene: root-owned log + powercap tree need sudo to remove.
@@ -951,7 +943,7 @@ jobs:
       - name: Install Alumet from upstream .deb
         # Pinned by SHA256, same rationale as the Scaphandre job: if
         # upstream republishes the tag with a different artifact, this
-        # step fails loudly and the pin is refreshed deliberately.
+        # step fails loudly and the pin has to be refreshed by hand.
         # RAPL is unavailable on shared runners (no powercap tree), so
         # the agent runs the procfs source: the metric NAMES, the
         # `_alumet` suffix shaping, and the resource label set come
@@ -975,7 +967,7 @@ jobs:
         # /usr/bin/alumet-agent wrapper would otherwise use, and which
         # carries csv/perf/... sections). Both paths start fine. An absent
         # prometheus-exporter section is filled from the plugin's defaults
-        # (prefix "", suffix "_alumet", port 9091). We just want a controlled
+        # (prefix "", suffix "_alumet", port 9091). We want a controlled
         # config for the conformance capture, validated against a live v0.9.5
         # agent in the simulation lab (scenario alumet-conformance).
         run: |
@@ -1004,8 +996,8 @@ jobs:
         # and attaches four fixed resource labels to every sample. The
         # exact per-metric name also depends on upstream unit-suffix
         # handling, so the e2e leg DISCOVERS a metric name from the
-        # wire instead of hardcoding one: what this job pins is the
-        # suffix shaping, the label set, and that the discovered name
+        # wire instead of hardcoding one. This job pins the suffix
+        # shaping, the label set, and that the discovered name
         # round-trips through the perf-sentinel parser.
         id: wire
         run: |
@@ -1052,7 +1044,7 @@ jobs:
         # NOT fire (the parser found matching samples on the real
         # wire), and the no-match warn did NOT fire (the mapping on
         # resource_consumer_kind="process" matched). energy_interval_secs
-        # is irrelevant to wire conformance, any valid value works.
+        # is irrelevant to wire conformance: any valid value works.
         run: |
           cat > /tmp/perf-sentinel.toml <<EOF
           [daemon]

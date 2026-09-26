@@ -1,7 +1,7 @@
 # Semiannual refresh of the embedded datasets: carbon intensity from
 # Ember, instance power from the CCF coefficients. Human in the loop:
 # the scripts regenerate the *_data.rs files and this workflow opens a
-# PR for review, it never pushes to main. PRs created with GITHUB_TOKEN
+# PR for review. It never pushes to main. PRs created with GITHUB_TOKEN
 # do not trigger `on: pull_request` workflows, so CI is dispatched on
 # the branch explicitly. Plain git + gh (preinstalled) instead of a
 # third-party PR action keeps the supply-chain surface unchanged.
@@ -59,7 +59,7 @@ jobs:
           build-warnings: ""
           cache-on-failure: false
 
-      # The generators emit plain rows; rustfmt owns the final layout
+      # The generators emit plain rows and rustfmt owns the final layout
       # (it aligns trailing comments). Must run before change detection
       # so a data-free run stays a no-op.
       - name: Format generated files

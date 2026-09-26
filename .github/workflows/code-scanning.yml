@@ -6,7 +6,7 @@ name: Code Scanning (weekly drift)
 # updates between pushes, e.g. a new lint added in a stable release that
 # flags existing code without any code change on our side.
 #
-# This workflow does NOT fail on warnings; `ci.yml` remains the authoritative
+# This workflow does NOT fail on warnings. `ci.yml` remains the authoritative
 # quality gate. `workflow_dispatch` is kept for manual re-scans.
 
 on:
@@ -35,9 +35,9 @@ jobs:
           components: clippy
           rustflags: ""
           build-warnings: ""
-          # Both restore the pre-migration behavior: this action defaults
-          # cache-on-failure to true and installs a problem matcher that would
-          # double-report the lints already uploaded as SARIF below.
+          # This action defaults cache-on-failure to true and installs a
+          # problem matcher that would double-report the lints already
+          # uploaded as SARIF below. Both are turned off here.
           cache-on-failure: false
           matcher: false
 

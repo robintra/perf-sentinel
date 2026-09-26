@@ -74,7 +74,7 @@ jobs:
 
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
-      # kubeconform is a Go binary, direct download from the upstream
+      # kubeconform is a Go binary. Direct download from the upstream
       # release is more reliable than taiki-e/install-action which
       # falls back to cargo-install on x86_64 and exits 101 since
       # kubeconform is not a Rust crate.
@@ -92,10 +92,10 @@ jobs:
             | kubeconform -strict -summary -ignore-missing-schemas
 
   # Ensures the chart-side example values file stays compatible with
-  # the chart's schema. The OTel Collector values file is deliberately
-  # skipped here: it targets the upstream opentelemetry-collector chart,
-  # not this one, so templating our chart against it would fail on keys
-  # our schema rejects.
+  # the chart's schema. The OTel Collector values file is skipped here:
+  # it targets the upstream opentelemetry-collector chart, not this one,
+  # so templating our chart against it would fail on keys our schema
+  # rejects.
   example-values:
     name: Render example values
     runs-on: ubuntu-latest
@@ -151,8 +151,9 @@ jobs:
       - name: Assert Chart.yaml:version bumped when chart changes
         # Pass the base ref as arg 1 via a non-reserved var. GITHUB_BASE_REF is
         # a built-in (empty outside pull_request), so an env: override is
-        # ignored at runtime and the script saw no base ref on workflow_dispatch.
-        # arg 1 takes priority in the script and works on both event types.
+        # ignored at runtime and the script would see no base ref on
+        # workflow_dispatch. arg 1 takes priority in the script and works on
+        # both event types.
         run: scripts/check-chart-version-bumped.sh "${BASE_REF}"
         env:
           BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
@@ -241,11 +242,12 @@ jobs:
         run: scripts/test/examples-helm-load-test.sh
 
   # Misconfiguration scan of the rendered manifests. helm lint and kubeconform
-  # above cover style and schema, this covers Kubernetes security posture
+  # above cover style and schema. This one covers Kubernetes security posture
   # (privilege, capabilities, securityContext, resources). Soft-fail for now so
-  # it reports without blocking: the chart has only low, by-design findings today
-  # (tag-pinned image, the ephemeral helm-test hook). Drop --soft-fail once those
-  # are addressed or skip-listed to turn this into a hard gate.
+  # it reports without blocking: the chart has only low findings today, and
+  # they all flag intended choices (tag-pinned image, the ephemeral helm-test
+  # hook). Drop --soft-fail once those are addressed or skip-listed to turn
+  # this into a hard gate.
   checkov:
     name: Checkov (rendered manifests)
     runs-on: ubuntu-latest
@@ -276,7 +278,7 @@ jobs:
             --soft-fail
 
   # Live smoke test: spin up a kind cluster, `helm install --wait`, then
-  # `helm test`. Every job above only renders and schema-checks, nothing
+  # `helm test`. Every job above only renders and schema-checks. None
   # installs the chart against a real API server. This is the only leg
   # that catches an admission rejection, a pod that never goes ready, or a
   # rendered config the daemon refuses to parse. It also runs the
