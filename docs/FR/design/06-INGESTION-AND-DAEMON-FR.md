@@ -28,9 +28,9 @@ for resource_spans in &request.resource_spans {
 
 **Pourquoi deux passes ?** Dans OTLP, un span parent peut apparaître après son enfant dans le message protobuf. La première passe construit une table de recherche pour que la seconde passe puisse résoudre `source.endpoint` en remontant la chaîne d'ancêtres. Une approche en une seule passe manquerait les spans parents définis plus loin dans le message.
 
-`source.endpoint` se résout en quatre étapes, chacune servant de repli à la précédente : la route HTTP entrante la plus externe dans la chaîne contiguë d'un service explicitement nommé (`http.route`, puis les fallbacks URL réservés aux spans SERVER), ensuite le cadre de code `code.*` le plus externe pour les points d'entrée sans attribut HTTP (jobs planifiés, consumers de messages), puis la destination du span CONSUMER le plus proche (`<messaging.system> <destination>`), enfin le littéral `"unknown"`. Quand `http.route` est un nom symbolique de framework sans `/` et que le même span possède un `url.path` exploitable, ce chemin représente l'endpoint ; les routes contenant `/` restent prioritaires. Une ressource anonyme se limite à la route prouvée la plus proche, car un nom de service absent ne permet pas d'établir une frontière sûre entre blocs. Toute remontée s'arrête après exactement huit sauts.
+`source.endpoint` se résout en quatre étapes, chacune servant de repli à la précédente : la route HTTP entrante la plus externe dans la chaîne contiguë d'un service explicitement nommé (`http.route`, puis les replis URL réservés aux spans SERVER), ensuite le cadre de code `code.*` le plus externe pour les points d'entrée sans attribut HTTP (jobs planifiés, consumers de messages), puis la destination du span CONSUMER le plus proche (`<messaging.system> <destination>`), enfin le littéral `"unknown"`. Quand `http.route` est un nom symbolique de framework sans `/` et que le même span possède un `url.path` exploitable, ce chemin représente l'endpoint. Les routes contenant `/` restent prioritaires. Une ressource anonyme se limite à la route prouvée la plus proche, car un nom de service absent ne permet pas d'établir une frontière sûre entre blocs. Toute remontée s'arrête après exactement huit sauts.
 
-L'index utilise les paires d'octets bruts `(trace_id, span_id)`, évite l'encodage hexadécimal et empêche deux ids de span égaux dans deux traces de collisionner. Un index est construit par `service.name` explicite et couvre tous les blocs `ResourceSpans` de ce service. Les blocs anonymes reçoivent chacun un index local distinct. L'index de chaque service est plafonné à 100 000 spans pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques, si bien qu'un service bruyant ne prive pas les autres de résolution de parent. Un `tracing::warn!` est émis quand un cap est atteint pour aider les opérateurs à diagnostiquer une résolution de parent dégradée.
+L'index utilise les paires d'octets bruts `(trace_id, span_id)`, évite l'encodage hexadécimal et empêche deux ids de span égaux dans deux traces d'entrer en collision. Un index est construit par `service.name` explicite et couvre tous les blocs `ResourceSpans` de ce service. Les blocs anonymes reçoivent chacun un index local distinct. L'index de chaque service est plafonné à 100 000 spans pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques, si bien qu'un service bruyant ne prive pas les autres de résolution de parent. Un `tracing::warn!` est émis quand un plafond est atteint pour aider les opérateurs à diagnostiquer une résolution de parent dégradée.
 
 Pour les services explicitement nommés, le daemon exporte en plus les ids de trace valides de 16 octets, les ids de span valides de 8 octets, les arêtes parent et les routes entrantes facultatives comme contexte source. La `TraceWindow` conserve ce contexte sous ses plafonds LRU, TTL et par trace existants : les spans INTERNAL intermédiaires et les routes d'entrée peuvent ainsi arriver dans des exports OTLP ultérieurs sans créer d'événement I/O synthétique. Le contexte anonyme reste local à la conversion et n'est pas retenu entre exports. Les ids invalides sont ignorés avant la création de clés hexadécimales. L'échantillonnage réutilise la même décision déterministe par id de trace que les événements I/O.
 
@@ -68,11 +68,11 @@ Cela évite le crate [chrono](https://docs.rs/chrono/) (~150 Ko de surcoût bina
 
 ### Priorité du type d'événement
 
-Quand un span possède à la fois un attribut SQL (`db.statement` ou `db.query.text`) et un attribut HTTP (`http.url` ou `url.full`), SQL prend la priorité. C'est intentionnel : l'instrumentation de base de données est plus spécifique que l'instrumentation client HTTP. L'attribut SQL contient le texte réel de la requête nécessaire à la normalisation, tandis que l'attribut HTTP pourrait représenter la même opération au niveau transport.
+Quand un span possède à la fois un attribut SQL (`db.statement` ou `db.query.text`) et un attribut HTTP (`http.url` ou `url.full`), SQL prend la priorité, car l'instrumentation de base de données est plus spécifique que l'instrumentation client HTTP. L'attribut SQL contient le texte réel de la requête nécessaire à la normalisation, tandis que l'attribut HTTP pourrait représenter la même opération au niveau transport.
 
-La branche HTTP admet tout sauf `SpanKind::Server`. Les conventions sémantiques stables ne posent `url.full` que sur les spans CLIENT, mais les instrumentations legacy posent aussi `http.url` sur le span de traitement entrant, si bien qu'admettre un span SERVER compterait chaque saut deux fois et inventerait des arêtes auto-dirigées, exactement la raison pour laquelle la branche RPC ci-dessous est réservée aux spans CLIENT. La porte se trouve dans la branche HTTP, après le SQL, donc un span SERVER portant `db.statement` est toujours analysé comme SQL, et un span dont le kind n'est pas renseigné reste éligible au HTTP. Jaeger lit le tag `span.kind` (`server`) et Zipkin le champ `kind` (`SERVER`). Un span SERVER rejeté ici reste lu comme contexte entrant par la résolution d'endpoint ci-dessus, et il compte comme `not_io` plutôt que `missing_http_url`, puisqu'un traitement entrant n'est pas un appel sortant amputé.
+La branche HTTP admet tout sauf `SpanKind::Server`. Les conventions sémantiques stables ne posent `url.full` que sur les spans CLIENT, mais les instrumentations legacy posent aussi `http.url` sur le span de traitement entrant, si bien qu'admettre un span SERVER compterait chaque saut deux fois et inventerait des arêtes auto-dirigées. La branche RPC ci-dessous est réservée aux spans CLIENT pour la même raison. La porte se trouve dans la branche HTTP, après le SQL, donc un span SERVER portant `db.statement` est toujours analysé comme SQL, et un span dont le kind n'est pas renseigné reste éligible au HTTP. Jaeger lit le tag `span.kind` (`server`) et Zipkin le champ `kind` (`SERVER`). Un span SERVER rejeté ici reste lu comme contexte entrant par la résolution d'endpoint ci-dessus, et il compte comme `not_io` plutôt que `missing_http_url`, puisqu'un traitement entrant n'est pas un appel sortant amputé.
 
-Les spans RPC (`rpc.system`, par ex. gRPC ou Dubbo) sont examinés après SQL et HTTP : ils ne portent ni statement ni URL, leur cible est donc `rpc.service/rpc.method` (avec repli sur le nom du span), et ils entrent dans le pipeline comme `EventType::HttpOut` pour que les détecteurs topologiques et d'occurrence les traitent comme des appels sortants. Seul `SpanKind::Client` est admis : les clés `rpc.*` sont posées aussi sur le span SERVER entrant (le handler), et admettre ceux-ci doublerait chaque hop et inventerait des arêtes vers soi-même. Cette réutilisation au seul niveau de l'admission laisse inchangé le chemin de normalisation/sanitisation HTTP.
+Les spans RPC (`rpc.system`, par ex. gRPC ou Dubbo) sont examinés après SQL et HTTP. Ils ne portent ni statement ni URL, leur cible est donc `rpc.service/rpc.method` (avec repli sur le nom du span). Ils entrent dans le pipeline comme `EventType::HttpOut` pour que les détecteurs topologiques et d'occurrence les traitent comme des appels sortants. Seul `SpanKind::Client` est admis : les clés `rpc.*` sont posées aussi sur le span SERVER entrant (le handler), et admettre ceux-ci compterait chaque saut deux fois et inventerait des arêtes vers soi-même. Cette réutilisation au seul niveau de l'admission laisse inchangé le chemin de normalisation/sanitisation HTTP.
 
 Les spans messaging (`messaging.system`, une seule convention pour Kafka, RabbitMQ, Pulsar, SQS, NATS et JMS) sont examinés en dernier, avec `messaging.destination.name` comme cible et le nom du span en repli. Contrairement au RPC, ils ont leur propre `EventType::Messaging`, pour deux raisons : la destination ne doit pas passer par le normaliseur de chemins HTTP, qui masquerait un identifiant de compte SQS en `{id}`, et une publication mérite ses propres types de findings plutôt qu'une étiquette teintée HTTP. Seul `SpanKind::Producer` est admis, sur la même logique de double comptage que le RPC, à quoi s'ajoute qu'un consommateur qui fait du polling noierait les détecteurs d'occurrences.
 
@@ -86,11 +86,11 @@ order-consumed        INTERNAL   parent=""     links=[]
 └─ postgresql         CLIENT     parent=root   links=[]        <- le span analysable
 ```
 
-La chaîne d'ancêtres du span SQL est `postgresql -> order-consumed`, le `CONSUMER` porteur du lien n'y figure donc jamais. Une remontée d'ancêtres seule a manqué **100 %** des liens sur deux corpus capturés pendant que tous les tests unitaires restaient verts, justement parce qu'ils construisaient la forme ancêtre que le code attendait. La résolution essaie donc les frères d'abord, via un index des spans `CONSUMER` porteurs de lien indexés par parent, puis retombe sur la chaîne d'ancêtres.
+La chaîne d'ancêtres du span SQL est `postgresql -> order-consumed`, le `CONSUMER` porteur du lien n'y figure donc jamais. Une remontée d'ancêtres seule a manqué **100 %** des liens sur deux corpus capturés pendant que tous les tests unitaires restaient verts, parce que les tests construisaient la forme ancêtre que le code attendait. La résolution essaie donc les frères d'abord, via un index des spans `CONSUMER` porteurs de lien indexés par parent, puis se rabat sur la chaîne d'ancêtres.
 
 Cet index n'est construit que si la requête porte un span `CONSUMER` lié, et il sert aussi de garde par service : un service sans un tel span saute les deux recherches. L'indexation par parent impose une décision que la remontée d'ancêtres n'avait jamais eu à prendre, car plusieurs spans `receive` frères peuvent partager un parent. Le premier dans l'ordre du lot l'emporte, ce qui est déterministe mais arbitraire : rien dans les spans ne dit quel message a causé quelle requête.
 
-Les conventions sémantiques OTel legacy (pré-1.21) et stables (1.21+) sont toutes deux supportées : `db.statement` et `db.query.text` pour le SQL, `http.url` et `url.full` pour le HTTP, `http.method` et `http.request.method` pour le verbe, `http.status_code` et `http.response.status_code` pour le statut. Cela assure la compatibilité avec les anciens SDKs OTel comme avec les agents Java modernes (v2.x). Sur un span HTTP sortant, les tags Micrometer Observation `method` et `status` (RestClient, RestTemplate et WebClient de Spring Boot) sont lus en dernier, après les deux conventions.
+Les conventions sémantiques OTel legacy (pré-1.21) et stables (1.21+) sont toutes deux prises en charge : `db.statement` et `db.query.text` pour le SQL, `http.url` et `url.full` pour le HTTP, `http.method` et `http.request.method` pour le verbe, `http.status_code` et `http.response.status_code` pour le statut. Cela assure la compatibilité avec les anciens SDKs OTel comme avec les agents Java modernes (v2.x). Sur un span HTTP sortant, les tags Micrometer Observation `method` et `status` (RestClient, RestTemplate et WebClient de Spring Boot) sont lus en dernier, après les deux conventions.
 
 ### Protection contre la dérive d'horloge
 
@@ -105,7 +105,7 @@ let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
 ### Le trait `MetricsSink` (`ingest/otlp/mod.rs`)
 
-`ingest::otlp` produit de la télémétrie sur chaque chemin de rejet (type de média non supporté, échec de décodage, canal plein). Avant la 0.6.0, ces appels atteignaient directement `report::metrics::MetricsState`, ce qui faisait fuir l'implémentation des métriques aval vers l'amont et rendait `ingest` inutilisable sans payer le registre Prometheus. Le trait `MetricsSink` est l'abstraction : `MetricsState` l'implémente (dans `report::metrics`) pour que les appelants du daemon gardent le même câblage, et les builds alternatifs (un fork à métriques OpenTelemetry, des tests avec un faux compteur) branchent leur propre implémentation sans toucher `ingest`. Les bornes `Send + Sync` existent parce que les chemins gRPC et HTTP partagent le sink entre tâches tokio via `Arc<dyn MetricsSink>`. L'`impl` sur `MetricsState` conserve le même dispatch sans branche du chemin chaud que les méthodes inhérentes pré-trait : les deux points d'entrée atteignent les compteurs `IntCounter` mis en cache, sans lookup de hashmap de labels.
+`ingest::otlp` produit de la télémétrie sur chaque chemin de rejet (type de média non pris en charge, échec de décodage, canal plein). Avant la 0.6.0, ces appels atteignaient directement `report::metrics::MetricsState`, ce qui faisait fuir l'implémentation des métriques aval vers l'amont et rendait `ingest` inutilisable sans payer le registre Prometheus. Le trait `MetricsSink` est l'abstraction : `MetricsState` l'implémente (dans `report::metrics`) pour que les appelants du daemon gardent le même câblage, et les builds alternatifs (un fork à métriques OpenTelemetry, des tests avec un faux compteur) branchent leur propre implémentation sans toucher `ingest`. Les bornes `Send + Sync` existent parce que les chemins gRPC et HTTP partagent le sink entre tâches tokio via `Arc<dyn MetricsSink>`. L'`impl` sur `MetricsState` conserve le même dispatch sans branche du chemin chaud que les méthodes inhérentes pré-trait : les deux points d'entrée atteignent les compteurs `IntCounter` mis en cache, sans recherche dans une hashmap de labels.
 
 ## Ingestion JSON
 
@@ -150,13 +150,13 @@ Socket unix JSON        ─┘     (boucle select!)                      └─�
 ```
 
 La boucle événementielle utilise `tokio::select!` pour multiplexer :
-- **Réception d'événements** depuis le canal -> normaliser -> pousser dans la fenêtre -> enfiler les évictions
-- **Ticker** toutes les TTL/2 ms -> évincer les traces expirées -> enfiler
-- **Ctrl+C** -> vider toutes les traces -> remettre au worker -> joindre -> arrêt
+- **Réception d'événements** depuis le canal : normaliser, pousser dans la fenêtre, puis enfiler les évictions
+- **Ticker** toutes les TTL/2 ms : évincer les traces expirées, puis les enfiler
+- **Ctrl+C** : vider toutes les traces, les remettre au worker, le joindre, puis arrêter
 
 detect+score ne tournent **pas** sur la boucle select!. Ils s'exécutent sur un unique
 worker d'analyse dédié alimenté par un canal borné (voir [Worker d'analyse](#worker-danalyse)),
-de sorte qu'une passe d'analyse longue ne peut plus bloquer l'ingestion ni l'éviction.
+de sorte qu'une passe d'analyse longue ne peut pas bloquer l'ingestion ni l'éviction.
 
 ### Normalisation en dehors du verrou
 
@@ -201,9 +201,9 @@ Le [canal borné](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.channel.html) 
 
 ### Worker d'analyse
 
-detect+score sont CPU-bound. Les exécuter en ligne sur la tâche `select!` faisait
-qu'une passe d'analyse longue bloquait la boucle, l'empêchant de poller `rx.recv()` et
-le ticker d'éviction : la liveness d'ingestion et d'éviction dépendait alors de la
+detect+score sont liés au CPU. Les exécuter en ligne sur la tâche `select!` faisait
+qu'une passe d'analyse longue bloquait la boucle, l'empêchant d'interroger `rx.recv()`
+et le ticker d'éviction : la liveness d'ingestion et d'éviction dépendait alors de la
 latence d'analyse. À la place, les lots évincés (LRU), expirés (TTL) et vidés
 (shutdown) sont remis à un **unique** worker d'analyse via un second canal borné :
 
@@ -218,37 +218,41 @@ let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
   `spawn_blocking` par lot.
 - **Enfilement non bloquant avec délestage compté.** La boucle enfile en `try_reserve`
   (synchrone, n'attend jamais l'analyse), construisant le `CarbonContext` possédé
-  seulement une fois un slot réservé, pour qu'un délestage ne paie jamais un clone jeté.
-  File pleine (ou worker arrêté) → le lot entier est délesté et
-  compté via `perf_sentinel_analysis_shed_batches_total` et
-  `perf_sentinel_analysis_shed_traces_total` ; `perf_sentinel_analysis_queue_depth`
-  suit le backlog. La surcharge est explicite et observable, jamais un drop silencieux.
-  Compromis assumé : sous surcharge soutenue on perd des lots entiers plutôt que de
-  bloquer l'ingestion (choix de liveness/contre-pression, pas de débit).
+  seulement une fois un emplacement réservé, pour qu'un délestage ne paie jamais un
+  clone jeté. Quand la file est pleine (ou le worker arrêté), le lot entier est délesté
+  et compté via `perf_sentinel_analysis_shed_batches_total` et
+  `perf_sentinel_analysis_shed_traces_total`. `perf_sentinel_analysis_queue_depth`
+  suit le backlog. La surcharge est explicite et observable, jamais une perte
+  silencieuse. Sous surcharge soutenue, on perd des lots entiers plutôt que de bloquer
+  l'ingestion (un compromis de liveness/contre-pression, et non de débit).
 - **Contrôle d'admission par pression mémoire (opt-in).** Le délestage par profondeur de
-  queue est un proxy de la mémoire : quand l'analyse suit, la queue reste vide alors que
-  la `TraceWindow` (bornée par un *compte* de traces et un TTL, pas par des octets) peut
-  quand même faire croître la RSS au-delà de la limite cgroup et faire OOMKiller le pod
-  avant tout délestage. Quand `[daemon] memory_high_water_pct > 0`, un watcher à 1 Hz
-  (`daemon/mem_pressure.rs`) lit `memory.current / memory.max` du cgroup v2 et bascule un
-  flag partagé (avec hystérésis) dès que l'usage franchit le seuil. Les handlers OTLP
-  lisent ce flag et rejettent l'ingest avec un statut retryable
-  (`perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`), stoppant la croissance
-  à la source pour que l'éviction TTL draine la window et que la RSS reflue. cgroup v2 /
-  Linux uniquement, inerte et sans surcoût quand désactivé ou non supporté.
+  file est un proxy de la mémoire. Quand l'analyse suit, la file reste vide alors que
+  la `TraceWindow` (bornée par un *nombre* de traces et un TTL, pas par des octets) peut
+  quand même faire croître la RSS au-delà de la limite cgroup et faire tuer le pod par
+  l'OOM killer avant tout délestage. Quand `[daemon] memory_high_water_pct > 0`, un
+  watcher à 1 Hz (`daemon/mem_pressure.rs`) lit `memory.current / memory.max` du cgroup
+  v2 et bascule un flag partagé (avec hystérésis) dès que l'usage franchit le seuil. Les
+  handlers OTLP lisent ce flag et rejettent l'ingestion avec un statut qui invite à
+  réessayer (`perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`), stoppant la
+  croissance à la source pour que l'éviction TTL vide la fenêtre et que la RSS reflue.
+  Les trois portes d'ingestion respectent ce flag (OTLP gRPC via un intercepteur avant
+  décodage, OTLP HTTP via un middleware avant mise en tampon, le socket JSON Unix en
+  abandonnant les lots). cgroup v2 / Linux uniquement, inerte et sans surcoût quand
+  désactivé ou non pris en charge.
 - **CarbonContext échantillonné à l'éviction.** Le `CarbonContext` par lot (snapshots
   des scrapers d'énergie + intensité réseau) est construit côté boucle au moment de
   l'éviction et voyage avec le lot, ce qui préserve l'instant d'échantillonnage
   précédent.
-- **Shutdown : drain puis join.** Sur Ctrl+C / SIGTERM la boucle vide la fenêtre,
-  remet le reste au worker via un `send` bloquant (livraison garantie, sans délestage),
-  ferme le canal et attend le worker afin que chaque lot bufferisé et en vol soit
-  entièrement analysé avant le retour.
+- **Shutdown : drain puis join.** Sur Ctrl+C / SIGTERM la boucle vide la fenêtre et
+  remet le reste au worker via un `send` bloquant (livraison garantie, sans délestage).
+  Elle ferme ensuite le canal et attend le worker, afin que chaque lot en tampon ou en
+  cours soit entièrement analysé avant le retour.
 - **Fail-loud si le worker meurt.** Une quatrième branche `select!` surveille le
   `JoinHandle` du worker. S'il s'arrête avant le shutdown (un détecteur panique),
-  `run_event_loop` retourne `DaemonError::AnalysisWorkerStopped` : le process sort et un
-  superviseur le redémarre, plutôt que de rester debout à n'analyser plus rien. Cela
-  restaure la sémantique fail-loud de la détection en ligne (une panique crashait le daemon).
+  `run_event_loop` retourne `DaemonError::AnalysisWorkerStopped` : le processus se
+  termine et un superviseur le redémarre, plutôt que de rester en vie à ne plus rien
+  analyser en silence. Cela restaure la sémantique fail-loud de la détection en ligne
+  (une panique faisait planter le daemon).
 
 ### Renforcement de la sécurité
 
@@ -312,7 +316,7 @@ C'est une moyenne sur toute la durée, pas une métrique fenêtrée. Les utilisa
 
 ### Exemplars Grafana
 
-Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetrics. Plutôt que d'ajouter une dépendance, les annotations exemplars sont injectées par post-traitement du texte Prometheus rendu.
+Le crate `prometheus` 0.14.0 ne prend pas en charge nativement les exemplars OpenMetrics. Plutôt que d'ajouter une dépendance, les annotations exemplars sont injectées par post-traitement du texte Prometheus rendu.
 
 **Suivi des trace_id worst-case :**
 
@@ -320,9 +324,9 @@ Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetric
 - `worst_finding_trace: HashMap<(&'static str, &'static str, String, String), ExemplarData>` : indexé par (finding_type, severity, label service effectif, label grouping effectif), dernier écrivain par clé, mis à jour à chaque lot analysé par le daemon (`record_exemplars_labeled`) et à chaque appel `record_batch()` sur le chemin bibliothèque
 - `worst_waste_trace: Option<ExemplarData>` : le trace_id du finding avec le plus d'I/O évitables
 
-Les deux expirent 15 minutes après le batch qui les a enregistrés (`EXEMPLAR_TTL`). La map est bornée par le nombre de séries de findings, 12 types × 3 sévérités × (le plafond de paires d'analyse plus deux regroupements, `_other` et la valeur vide, par service admis), soit près de 28k entrées, la mémoire n'est donc pas le sujet : un service devenu silencieux annoterait sinon sa série indéfiniment avec un `trace_id` déjà sorti de la rétention du backend de traces, et le clic depuis Grafana tomberait sur un 404. Le chemin de scrape ignore les entrées périmées sous son verrou de lecture, le chemin d'écriture les purge sous celui qu'il détient déjà.
+Les deux expirent 15 minutes après le batch qui les a enregistrés (`EXEMPLAR_TTL`). La map est bornée par le nombre de séries de findings, 12 types × 3 sévérités × (le plafond de paires d'analyse plus deux regroupements, `_other` et la valeur vide, par service admis), soit près de 28k entrées. L'expiration ne répond donc pas à un problème de mémoire : sans elle, un service devenu silencieux annoterait sa série indéfiniment avec un `trace_id` déjà sorti de la rétention du backend de traces, et le clic depuis Grafana tomberait sur un 404. Le chemin de scrape ignore les entrées périmées sous son verrou de lecture, et le chemin d'écriture les purge sous celui qu'il détient déjà.
 
-`RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent. L'empoisonnement de lock est géré gracieusement via `unwrap_or_else(PoisonError::into_inner)`, de sorte qu'un panic dans un thread ne cascade pas en crashs sur les acquisitions de lock suivantes.
+`RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent. Plusieurs scrapes concurrents ne doivent pas se bloquer entre eux. L'empoisonnement de verrou est géré proprement via `unwrap_or_else(PoisonError::into_inner)`, de sorte qu'une panique dans un thread ne provoque pas de plantages en cascade sur les acquisitions de verrou suivantes.
 
 **Injection d'exemplars :**
 
@@ -333,13 +337,13 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 
 ## Ingestion pg_stat_statements
 
-`ingest/pg_stat.rs` fournit un chemin d'analyse autonome pour les exports `pg_stat_statements` de PostgreSQL. Contrairement à l'ingestion basée sur les traces, ces données n'ont pas de `trace_id` ni de `span_id`, elles ne peuvent pas alimenter le pipeline de détection N+1/redondant. Elles fournissent un classement de hotspots et une référence croisée avec les findings de traces.
+`ingest/pg_stat.rs` fournit un chemin d'analyse autonome pour les exports `pg_stat_statements` de PostgreSQL. Contrairement à l'ingestion basée sur les traces, ces données n'ont pas de `trace_id` ni de `span_id`, elles ne peuvent donc pas alimenter le pipeline de détection N+1/redondant. Elles fournissent un classement de hotspots et une référence croisée avec les findings de traces.
 
 ### Décisions de conception
 
-**Séparé de `IngestSource` :** le trait `IngestSource` retourne `Vec<SpanEvent>`, mais les données `pg_stat_statements` ne correspondent pas à `SpanEvent` (pas de trace_id, span_id, ni timestamp). Elles produisent leur propre type `PgStatReport` avec des classements.
+**Séparé de `IngestSource` :** le trait `IngestSource` retourne `Vec<SpanEvent>`, mais les données `pg_stat_statements` ne correspondent pas à `SpanEvent` (pas de trace_id, span_id, ni horodatage). Elles produisent leur propre type `PgStatReport` avec des classements.
 
-**Auto-détection du format :** suit le même pattern d'heuristique byte-level que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON ; sinon, parse en CSV. Pas de crate csv externe, le parseur CSV gère le quoting RFC 4180 manuellement (champs entre guillemets doubles, `""` échappé).
+**Auto-détection du format :** suit le même principe d'heuristique au niveau des octets que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON, sinon en CSV. Pas de crate csv externe, le parseur CSV gère manuellement les guillemets RFC 4180 (champs entre guillemets doubles, `""` échappé).
 
 **Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces.
 
@@ -350,9 +354,9 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 - **by_total_time** : `total_exec_time_ms` décroissant. Requêtes qui dominent le temps DB wall-clock. Signal hotspot principal.
 - **by_calls** : `calls` décroissant. Requêtes à fort volume, candidates N+1 typiques.
 - **by_mean_time** : `mean_exec_time_ms` décroissant. Requêtes individuellement lentes indépendamment du volume.
-- **by_io_blocks** : `shared_blks_hit + shared_blks_read` décroissant. Signal de pression cache : requêtes qui touchent le plus de pages du buffer partagé, peu importe si elles étaient chaudes ou froides. Complémentaire de `by_total_time` quand le CPU est idle mais que le cache s'agite.
+- **by_io_blocks** : `shared_blks_hit + shared_blks_read` décroissant. Signal de pression cache : requêtes qui touchent le plus de pages du buffer partagé, peu importe si elles étaient chaudes ou froides. Complémentaire de `by_total_time` quand le CPU est inactif mais que le cache s'agite.
 
-Le sub-switcher du dashboard HTML onglet `pg_stat` consomme ces quatre classements par position, donc les nouveaux classements s'ajoutent en fin de liste (jamais réordonnés, jamais insérés au milieu) pour préserver la stabilité des indices côté consommateurs.
+Le sélecteur secondaire de l'onglet `pg_stat` du dashboard HTML consomme ces quatre classements par position, donc les nouveaux classements s'ajoutent en fin de liste (jamais réordonnés, jamais insérés au milieu) pour préserver la stabilité des indices côté consommateurs.
 
 ### Référence croisée
 
@@ -365,7 +369,7 @@ La fonction `fetch_from_prometheus(endpoint, top_n)` dans `ingest/pg_stat.rs` pe
 ### Fonctionnement
 
 1. Construire une requête PromQL `topk(N, pg_stat_statements_seconds_total)` pour obtenir les N requêtes les plus consommatrices.
-2. Envoyer une requête `GET /api/v1/query?query=...` au endpoint Prometheus configuré via le client HTTP partagé (`http_client::build_client`).
+2. Envoyer une requête `GET /api/v1/query?query=...` à l'endpoint Prometheus configuré via le client HTTP partagé (`http_client::build_client`).
 3. Parser la réponse JSON au format standard Prometheus (`data.result[]`).
 4. Extraire les labels `query` ou `queryid` du champ `metric` pour chaque résultat.
 5. Convertir la valeur en millisecondes (la métrique est en secondes), normaliser le SQL via `normalize_sql()` et produire des `PgStatEntry`.
@@ -380,29 +384,29 @@ perf-sentinel pg-stat --prometheus http://prometheus:9090
 
 Le flag `--prometheus` est mutuellement exclusif avec `--input`. Le `--traces` pour la référence croisée fonctionne de la même manière qu'avec un fichier local.
 
-La sous-commande `report` expose la même capacité via `--pg-stat-prometheus URL`, mutuellement exclusif avec le flag fichier `--pg-stat FILE` (enforced au niveau clap via `conflicts_with`). Quand l'un des deux est passé, le `PgStatReport` résultant est embarqué dans l'onglet `pg_stat` du dashboard HTML avec les quatre classements décrits ci-dessus. Le chemin de scrape est partagé avec `pg-stat --prometheus`, aucun code de fetch dupliqué.
+La sous-commande `report` expose la même capacité via `--pg-stat-prometheus URL`, mutuellement exclusif avec le flag fichier `--pg-stat FILE` (imposé au niveau clap via `conflicts_with`). Quand l'un des deux est passé, le `PgStatReport` résultant est embarqué dans l'onglet `pg_stat` du dashboard HTML avec les quatre classements décrits ci-dessus. Le chemin de scrape est partagé avec `pg-stat --prometheus`, donc aucun code de récupération n'est dupliqué.
 
 ## Ingestion Tempo
 
-`ingest/tempo.rs` fournit le chemin de replay post-mortem : la sous-commande interroge l'API HTTP d'un Grafana Tempo en cours d'exécution, récupère les corps de traces en protobuf OTLP, les décode via le helper existant `convert_otlp_request` et renvoie un `Vec<SpanEvent>` au pipeline d'analyse standard. Deux modes : trace unique par ID (`--trace-id`, un seul `GET /api/traces/{id}`) ou search-then-fetch (`--service --lookback`, un `GET /api/search` suivi de fetches trace par trace). Gatée derrière la cargo feature `tempo`.
+`ingest/tempo.rs` fournit le chemin de replay post-mortem : la sous-commande interroge l'API HTTP d'un Grafana Tempo en cours d'exécution, récupère les corps de traces en protobuf OTLP, les décode via le helper existant `convert_otlp_request` et renvoie un `Vec<SpanEvent>` au pipeline d'analyse standard. Deux modes : trace unique par ID (`--trace-id`, un seul `GET /api/traces/{id}`) ou recherche puis récupération (`--service --lookback`, un `GET /api/search` suivi d'une récupération trace par trace). Gardée derrière la feature cargo `tempo`.
 
 ### Fetch parallèle avec cap de concurrence
 
-La boucle de fetch par trace est parallélisée via `tokio::task::JoinSet`, protégée par un `Arc<Semaphore>` capé à `FETCH_CONCURRENCY = 16` permits. Chaque task spawnée acquiert un permit via `acquire_owned` avant l'appel HTTP et le libère au drop (RAII). Le cap a été choisi empiriquement pour saturer une connexion Tempo distante sur lien WAN (observé ~10-20s pour 100 traces vs. ~2m30s avec la boucle séquentielle précédente) sans mettre à genoux une seule replica de query-frontend. Il est hardcodé aujourd'hui, pas exposé en configuration utilisateur. Le pattern reprend celui de `score::cloud_energy::scraper`, qui parallélise de la même façon les requêtes CPU Prometheus par service.
+La boucle de récupération par trace est parallélisée via `tokio::task::JoinSet`, protégée par un `Arc<Semaphore>` plafonné à `FETCH_CONCURRENCY = 16` jetons. Chaque tâche lancée acquiert un jeton via `acquire_owned` avant l'appel HTTP et le libère à sa destruction (RAII). Le plafond a été choisi empiriquement pour saturer une connexion Tempo distante sur lien WAN (observé ~10-20s pour 100 traces contre ~2m30s avec la boucle séquentielle précédente) sans mettre à genoux une seule réplique de query-frontend. Il est codé en dur aujourd'hui, pas exposé en configuration utilisateur. Ce procédé reprend celui de `score::cloud_energy::scraper`, qui parallélise de la même façon les requêtes CPU Prometheus par service.
 
 ### Séparation des timeouts
 
-Deux constantes dédiées plutôt qu'une valeur unique : `SEARCH_TIMEOUT = 5s` pour `/api/search` (la réponse est une petite liste de trace IDs, un timeout serré fait échouer vite sur un endpoint cassé) et `FETCH_TRACE_TIMEOUT = 30s` pour `/api/traces/{id}` (les corps de traces peuvent légitimement faire plusieurs MiB sur une requête à fanout large et la query-frontend doit assembler les spans depuis les ingesters + le stockage long terme). Un cap unique à 5 s droppait empiriquement des dizaines de traces par batch de 100 sur les fenêtres longues ; 30 s correspond au défaut de la datasource Tempo côté Grafana. Les deux timeouts sont passés en paramètre au helper partagé `fetch_raw` plutôt que stockés dans une constante unique au niveau module, pour que les chemins search et fetch-trace ne puissent pas diverger silencieusement.
+La recherche et la récupération de trace utilisent deux constantes dédiées plutôt qu'une valeur unique. `SEARCH_TIMEOUT = 5s` s'applique à `/api/search` : la réponse est une petite liste de trace IDs, et un timeout serré fait échouer vite la requête sur un endpoint cassé. `FETCH_TRACE_TIMEOUT = 30s` s'applique à `/api/traces/{id}` : les corps de traces peuvent légitimement faire plusieurs MiB sur une requête à fanout large, et la query-frontend doit assembler les spans depuis les ingesters + le stockage long terme. Un plafond unique à 5 s faisait empiriquement perdre des dizaines de traces par lot de 100 sur les fenêtres longues. La valeur de 30 s correspond au défaut de la source de données Tempo côté Grafana. Les deux timeouts sont passés en paramètre au helper partagé `fetch_raw` plutôt que stockés dans une constante unique au niveau module, pour que les chemins de recherche et de récupération de trace ne puissent pas diverger silencieusement.
 
 ### Ctrl-C et agrégation d'erreurs
 
-La drain loop est conduite par un `tokio::select!` avec ordre `biased` : `tokio::signal::ctrl_c()` est polled avant `set.join_next()` pour qu'une interruption en attente ne soit pas starvée par une rafale de completions. Sur signal, `set.abort_all()` flague toutes les tasks in-flight pour cancellation ; les traces déjà complétées sont conservées, les tasks aborted résolvent en `JoinError::is_cancelled()` et sont silencieusement skippées. La variante dédiée `TempoError::Interrupted` est renvoyée uniquement si zéro trace n'a eu le temps de se compléter avant le signal, pour que les quality gates CI puissent distinguer un abort opérateur d'un résultat vide authentique (`NoTracesFound`).
+La boucle de vidage est pilotée par un `tokio::select!` avec ordre `biased` : `tokio::signal::ctrl_c()` est interrogé avant `set.join_next()` pour qu'une interruption en attente ne soit pas mise en famine par une rafale de tâches terminées. Sur signal, `set.abort_all()` marque toutes les tâches en cours pour annulation. Les traces déjà terminées sont conservées. Les tâches annulées se résolvent en `JoinError::is_cancelled()` et sont ignorées silencieusement. La variante dédiée `TempoError::Interrupted` n'est renvoyée que si aucune trace n'a eu le temps de se terminer avant le signal, pour que les quality gates CI puissent faire la différence entre une interruption par l'opérateur et une exécution qui n'a trouvé aucune trace (`NoTracesFound`).
 
-Les failures par trace loguent au niveau `debug`, pas `error`. Une seule ligne de summary classifiée (`emit_fetch_summary`) est émise à la fin de la boucle, bucketée par type d'erreur (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`) pour que l'outillage downstream (Loki, CloudWatch) puisse alerter sur le bon signal sans parser 50 lignes `ERROR` individuelles sur un Tempo dégradé. La sévérité du summary suit la pire classe observée : `warn` si uniquement des skips `TraceNotFound` ont eu lieu (condition occasionnelle attendue, ex. une trace sortie de rétention entre le search et le fetch), `error` sinon. Un test unitaire (`classify_fetch_error_buckets_every_hard_failure_variant`) sert de garde-fou contre la dérive : si une nouvelle variante est ajoutée à `TempoError` plus tard, elle ne tombe pas silencieusement dans `"other"`.
+Les échecs par trace sont journalisés au niveau `debug`, pas `error`. Une seule ligne de résumé classifiée (`emit_fetch_summary`) est émise à la fin de la boucle, regroupée par type d'erreur (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`). L'outillage en aval (Loki, CloudWatch) peut ainsi alerter sur le bon signal sans parser 50 lignes `ERROR` individuelles sur un Tempo dégradé. La sévérité du résumé suit la pire classe observée : `warn` si seules des traces `TraceNotFound` ont été ignorées (condition occasionnelle attendue, par ex. une trace sortie de rétention entre la recherche et la récupération), `error` sinon. Un test unitaire (`classify_fetch_error_buckets_every_hard_failure_variant`) sert de garde-fou contre la dérive : une variante ajoutée plus tard à `TempoError` ne tombe pas silencieusement dans `"other"`.
 
 ## Ingestion Jaeger Query API
 
-`ingest/jaeger_query.rs` est l'autre source de replay en mode pull, gardée derrière la feature cargo `jaeger-query`. Elle interroge n'importe quel backend qui parle l'API HTTP de requête Jaeger (Jaeger upstream et Victoria Traces, qui implémente la même surface). Contrairement au search-puis-fetch en deux étapes de Tempo, le `/api/traces` de Jaeger retourne les traces complètes dans la réponse de search, donc un seul aller-retour HTTP couvre toute l'ingestion. Le payload décodé réutilise le parser `jaeger` du mode fichier (`convert_jaeger_export`), donc une trace Jaeger-Query et un fichier JSON Jaeger passent par une normalisation identique. Elle partage l'unique `http_client.rs` et le helper `auth_header.rs` avec le chemin Tempo. Le validateur d'endpoint accepte toute URL `http(s)` et ne bloque pas les cibles RFC 1918 ou link-local, donc la sous-commande ne doit être invoquée qu'avec des valeurs d'endpoint de confiance (voir `docs/FR/LIMITATIONS-FR.md`).
+`ingest/jaeger_query.rs` est l'autre source de replay en mode pull, gardée derrière la feature cargo `jaeger-query`. Elle interroge n'importe quel backend qui parle l'API HTTP de requête Jaeger (Jaeger upstream et Victoria Traces, qui implémente la même surface). Contrairement au parcours en deux étapes de Tempo (recherche puis récupération), le `/api/traces` de Jaeger retourne les traces complètes dans la réponse de recherche, donc un seul aller-retour HTTP couvre toute l'ingestion. Le payload décodé réutilise le parser `jaeger` du mode fichier (`convert_jaeger_export`), donc une trace Jaeger-Query et un fichier JSON Jaeger passent par une normalisation identique. Elle partage l'unique `http_client.rs` et le helper `auth_header.rs` avec le chemin Tempo. Le validateur d'endpoint accepte toute URL `http(s)` et ne bloque pas les cibles RFC 1918 ou link-local, donc la sous-commande ne doit être invoquée qu'avec des valeurs d'endpoint de confiance (voir `docs/FR/LIMITATIONS-FR.md`).
 
 ## API de requête du daemon
 
@@ -428,15 +432,15 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 
 **Court-circuit `max_size == 0` :** quand `max_retained_findings = 0`, `push_batch` retourne immédiatement sans allouer. Cela permet aux opérateurs qui désactivent l'API (`api_enabled = false`) de récupérer la mémoire du store en mettant aussi `max_retained_findings = 0`.
 
-**Clones hors lock :** `push_batch` construit les nouvelles entrées `StoredFinding` AVANT d'acquérir le write lock, puis fait un `extend + drain` rapide sous lock. Les lecteurs API ne sont pas bloqués par les allocations `Finding::clone()`.
+**Clones hors verrou :** `push_batch` construit les nouvelles entrées `StoredFinding` AVANT d'acquérir le verrou d'écriture, puis fait un `extend + drain` rapide sous verrou. Les lecteurs API ne sont pas bloqués par les allocations `Finding::clone()`.
 
-**Eviction :** quand le buffer atteint sa capacité maximale (défaut 10 000), chaque nouvel ajout via `push_batch` évince les plus anciens via `drain(..excess)`. Cela maintient un coût mémoire borné.
+**Éviction :** quand le buffer atteint sa capacité maximale (défaut 10 000), chaque nouvel ajout via `push_batch` évince les plus anciens via `drain(..excess)`. Cela maintient un coût mémoire borné.
 
 **Filtrage :** `query()` parcourt le buffer en ordre inverse (plus récent d'abord) et applique des filtres optionnels par service, type de finding et sévérité. La limite par défaut est de 100 résultats, plafonnée à `MAX_FINDINGS_LIMIT = 1000`.
 
 ### Endpoints HTTP
 
-`daemon/query_api/` définit dix routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP, `/metrics` et `/health`.
+`daemon/query_api/` définit dix routes axum montées dans le routeur existant du daemon. Le routeur n'est fusionné dans la pile HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP, `/metrics` et `/health`.
 
 | Endpoint                        | Méthode     | Plafond                                                                     | Description                                                                        |
 |---------------------------------|-------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
@@ -453,15 +457,15 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 
 ### Sémantique du snapshot `/api/export/report`
 
-L'endpoint retourne un `Report` de forme identique à la sortie de `analyze --format json`, donc la réponse peut être pipée directement dans `perf-sentinel report --input -` pour matérialiser un dashboard HTML depuis un daemon vivant. Les champs sont remplis depuis l'état live du daemon : `findings` depuis `FindingsStore::query`, `correlations` depuis `CrossTraceCorrelator::active_correlations`, `analysis.events_processed` et `traces_analyzed` depuis les compteurs metrics (valeurs cumulées sur la vie du daemon, pour le contexte).
+L'endpoint retourne un `Report` de forme identique à la sortie de `analyze --format json`, donc la réponse peut être redirigée directement vers `perf-sentinel report --input -` pour matérialiser un dashboard HTML depuis un daemon vivant. Les champs sont remplis depuis l'état live du daemon : `findings` depuis `FindingsStore::query`, `correlations` depuis `CrossTraceCorrelator::active_correlations`, `analysis.events_processed` et `traces_analyzed` depuis les compteurs metrics (valeurs cumulées sur la vie du daemon, pour le contexte).
 
-`green_summary` est rafraîchi par l'event loop après chaque batch terminé. **Vue par batch :** chaque champ numérique en dessous (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`, `regions`, `top_offenders`, `transport_gco2`) reflète uniquement le batch le plus récent, pas un agrégat sur la vie du daemon. Les opérateurs qui veulent des nombres GreenOps cumulés doivent scraper les compteurs Prometheus de `/metrics` à la place. L'onglet GreenOps du dashboard HTML ne s'affiche que quand `green_summary.co2` est non nul, donc un daemon configuré avec Electricity Maps fait apparaître naturellement la bannière une fois le premier batch traité. `analysis.duration_ms` vaut `0`, pas l'uptime du daemon : la valeur du pipeline batch chronomètre une seule analyse, et un snapshot de daemon n'a pas de telle exécution.
+`green_summary` est rafraîchi par la boucle événementielle après chaque batch terminé. **Vue par batch :** chaque champ numérique en dessous (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`, `regions`, `top_offenders`, `transport_gco2`) reflète uniquement le batch le plus récent, pas un agrégat sur la vie du daemon. Les opérateurs qui veulent des nombres GreenOps cumulés doivent scraper les compteurs Prometheus de `/metrics` à la place. L'onglet GreenOps du dashboard HTML ne s'affiche que quand `green_summary.co2` est non nul, donc un daemon configuré avec Electricity Maps fait apparaître la bannière une fois le premier batch traité. `analysis.duration_ms` vaut `0`, pas l'uptime du daemon : la valeur du pipeline batch chronomètre une seule analyse, et un snapshot de daemon n'a pas de telle exécution.
 
-Gestion du cold-start : l'endpoint retourne `200 OK` avec une enveloppe `Report` vide (`findings: []`, `green_summary: GreenSummary::disabled(0)`, `warnings: ["daemon has not yet processed any events"]`). Avant la 0.5.16, ce chemin retournait `503 Service Unavailable`, ce qui déclenchait les probes Kubernetes et perturbait les scripts CI traitant les 5xx comme un problème de santé du daemon ; l'enveloppe vide permet aux clients de détecter le cold-start sans incohérence de code de statut. La vérification du cold-start s'appuie sur un double compteur (`events_processed_total > 0` ET `traces_analyzed_total > 0`) : des événements peuvent être ingérés quelques secondes avant le premier tick d'éviction (`trace_ttl_ms / 2`, 15 s par défaut), donc se contenter de `events_processed > 0` exposerait une fenêtre où la cellule est encore `disabled(0)`. Le compteur `export_report_requests_total` est incrémenté avant la vérification de cold-start, donc les réponses de cold-start sont comptées aussi, conformément aux conventions des access logs HTTP.
+Gestion du cold-start : l'endpoint retourne `200 OK` avec une enveloppe `Report` vide (`findings: []`, `green_summary: GreenSummary::disabled(0)`, `warnings: ["daemon has not yet processed any events"]`). Avant la 0.5.16, ce chemin retournait `503 Service Unavailable`, ce qui déclenchait les probes Kubernetes et perturbait les scripts CI traitant les 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de détecter le cold-start sans incohérence de code de statut. La vérification du cold-start s'appuie sur un double compteur (`events_processed_total > 0` ET `traces_analyzed_total > 0`) : des événements peuvent être ingérés quelques secondes avant le premier tick d'éviction (`trace_ttl_ms / 2`, 15 s par défaut), donc se contenter de `events_processed > 0` exposerait une fenêtre où la cellule est encore `disabled(0)`. Le compteur `export_report_requests_total` est incrémenté avant la vérification de cold-start, donc les réponses de cold-start sont comptées aussi, conformément aux conventions des access logs HTTP.
 
-Taille de réponse : bornée par `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT` (1000 + 1000 entrées), un `green_summary` borné (`top_offenders` plafonné, `regions` limité par la cardinalité des régions cloud), et `embedded_traces` sous son propre `EMBEDDED_TRACES_BYTE_BUDGET` (4 Mio de spans masqués), corps d'environ 7,5 Mo au pire. Acceptable sur un bind loopback (la posture documentée), le plafond mérite une revue si le daemon est un jour exposé hors loopback.
+Taille de réponse : bornée par `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT` (1000 + 1000 entrées), un `green_summary` borné (`top_offenders` plafonné, `regions` limité par la cardinalité des régions cloud), et `embedded_traces` sous son propre `EMBEDDED_TRACES_BYTE_BUDGET` (4 Mio de spans masqués), corps d'environ 7,5 Mo au pire. C'est acceptable sur un bind loopback (la posture documentée). Le plafond mérite une revue si le daemon est un jour exposé hors loopback.
 
-Atomicité du snapshot : le handler acquiert le read lock du `FindingsStore` puis le mutex du correlator en séquence, pas atomiquement. Les deux collections peuvent donc être décalées d'un batch (findings de la génération N, correlations de N+1), acceptable pour un dashboard post-mortem mais pas pour un contrat de snapshot strict.
+Atomicité du snapshot : le handler acquiert le verrou de lecture du `FindingsStore` puis le mutex du corrélateur en séquence, pas atomiquement. Les deux collections peuvent donc être décalées d'un batch (findings de la génération N, corrélations de N+1), ce qui est acceptable pour un dashboard post-mortem mais pas pour un contrat de snapshot strict.
 
 L'état partagé est encapsulé dans `QueryApiState` :
 
@@ -475,7 +479,7 @@ pub struct QueryApiState {
 }
 ```
 
-Le endpoint `/api/explain/{trace_id}` consulte la TraceWindow pour récupérer les spans (s'ils sont encore en mémoire), exécute les détecteurs par trace, puis construit l'arbre via `explain::build_tree` et `explain::format_tree_json`. Si la trace a déjà été évincée, il retourne un objet JSON avec un champ `error`.
+L'endpoint `/api/explain/{trace_id}` consulte la TraceWindow pour récupérer les spans (s'ils sont encore en mémoire), exécute les détecteurs par trace, puis construit l'arbre via `explain::build_tree` et `explain::format_tree_json`. Si la trace a déjà été évincée, il retourne un objet JSON avec un champ `error`.
 
 ### Configuration
 
@@ -500,7 +504,7 @@ Le corrélateur est possédé par la boucle du daemon (pas dans un Arc/Mutex sé
 
 ## Store ack daemon : JSONL + concurrence
 
-Le store ack côté daemon (`crates/sentinel-core/src/daemon/ack.rs`) complète les acknowledgments TOML côté CI (`crate::acknowledgments`) avec une API runtime pour les cas SRE-on-call. Les deux sources sont unionées au moment de la query, le TOML l'emportant en cas de conflit (baseline immuable livrée via revue de PR).
+Le store ack côté daemon (`crates/sentinel-core/src/daemon/ack.rs`) complète les acknowledgments TOML côté CI (`crate::acknowledgments`) avec une API runtime pour les cas d'astreinte SRE. Les deux sources sont réunies au moment de la requête, le TOML l'emportant en cas de conflit (baseline immuable livrée via revue de PR).
 
 ### Format de fichier
 
@@ -513,25 +517,25 @@ JSONL append-only à `~/.local/share/perf-sentinel/acks.jsonl` par défaut. Chaq
 
 ### Compaction au démarrage
 
-Le daemon rejoue le JSONL dans une `HashMap<Signature, AckEntry>` (apply sur `Ack`, remove sur `Unack`, drop sur expiration), puis réécrit atomiquement le fichier via tmp + rename avec uniquement les entrées actives. Une boucle ack/unack qui s'emballe ne peut donc pas accumuler indéfiniment, le fichier se reset à chaque redémarrage.
+Le daemon rejoue le JSONL dans une `HashMap<Signature, AckEntry>` (application sur `Ack`, suppression sur `Unack`, abandon à l'expiration), puis réécrit atomiquement le fichier via tmp + rename avec uniquement les entrées actives. Une boucle ack/unack qui s'emballe ne peut donc pas accumuler indéfiniment, puisque le fichier se réinitialise à chaque redémarrage.
 
 ### Modèle de concurrence
 
-La map en mémoire est derrière un `RwLock` pour des lectures snapshot bon marché. Les écritures disque passent par un `Mutex<File>` pour que des appels `ack`/`unack` concurrents produisent chacun une ligne JSONL bien formée. Le mutex est tenu pour toute la durée write + map-update, donc une écriture disque qui échoue ne laisse jamais la map en avance sur l'état persisté.
+La map en mémoire est derrière un `RwLock` pour des lectures snapshot bon marché. Les écritures disque passent par un `Mutex<File>` pour que des appels `ack`/`unack` concurrents produisent chacun une ligne JSONL bien formée. Le mutex est tenu pendant toute l'écriture et la mise à jour de la map, donc une écriture disque qui échoue ne laisse jamais la map en avance sur l'état persisté.
 
 ## Parsing du header d'autorisation
 
-Le helper auth-header vit dans `crates/sentinel-core/src/ingest/auth_header.rs`. Il parse une ligne `--auth-header "Name: Value"` user-supplied en une paire `(HeaderName, HeaderValue)` hyper-safe, partagée entre les sous-commandes Tempo et Jaeger-Query.
+Le helper auth-header vit dans `crates/sentinel-core/src/ingest/auth_header.rs`. Il parse une ligne `--auth-header "Name: Value"` fournie par l'utilisateur en une paire `(HeaderName, HeaderValue)` sûre pour hyper, partagée entre les sous-commandes Tempo et Jaeger-Query.
 
-La valeur parsée est marquée `sensitive` pour qu'hyper l'omette de son propre debug output et des tables de compression HPACK HTTP/2. La struct implémente aussi un `Debug` manuel qui n'imprime jamais la valeur, donc un `AuthHeader` loggé ne fuit jamais le credential.
+La valeur parsée est marquée `sensitive` pour qu'hyper l'omette de sa propre sortie de débogage et des tables de compression HPACK HTTP/2. La struct implémente aussi un `Debug` manuel qui n'imprime jamais la valeur, donc un `AuthHeader` journalisé ne divulgue jamais le secret.
 
 ### Règles de validation
 
-Le parsing est volontairement strict. Au-delà des checks au niveau hyper (nom token-only, valeur VCHAR + SP + HTAB, donc les tabs et espaces internes dans la valeur sont préservés tels quels et seuls CR/LF + ASCII non-visible sont rejetés), le parseur refuse aussi :
+Le parsing est strict. Au-delà des vérifications au niveau hyper (nom token-only, valeur VCHAR + SP + HTAB, donc les tabulations et espaces internes dans la valeur sont préservés tels quels et seuls CR/LF + ASCII non-visible sont rejetés), le parseur rejette aussi :
 
-- Les inputs bruts plus longs que 8 KiB, pour borner le clone par tâche dans le fanout parallèle Tempo et stopper un `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` pathologique à la porte. Un JWT typique fait 2 à 4 KiB, 8 KiB laisse de la marge pour des tokens multi-claims longs sans ouvrir la porte à des blobs arbitraires.
-- Les valeurs vides après trim, qui enverraient un `Authorization:` inutile au backend et produiraient un 401 confus.
-- Les noms de header qui activeraient du request smuggling ou un override d'authority si user-supplied : `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Les utilisateurs voulant tweaker ceux-là devraient passer par un proxy local, pas par ce flag.
+- Les entrées brutes plus longues que 8 KiB, pour borner le clone par tâche dans le fanout parallèle Tempo et stopper tôt un `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` pathologique. Un JWT typique fait 2 à 4 KiB, donc 8 KiB laisse de la marge pour des tokens multi-claims longs sans admettre des blobs arbitraires.
+- Les valeurs vides une fois les espaces retirés, qui enverraient un `Authorization:` inutile au backend et produiraient un 401 confus.
+- Les noms de header qui activeraient du request smuggling ou une substitution de l'autorité s'ils étaient fournis par l'utilisateur : `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Les utilisateurs voulant modifier ceux-là devraient passer par un proxy local, pas par ce flag.
 
 ## Ingestion des digests performance_schema MySQL
 
@@ -539,15 +543,15 @@ Le parsing est volontairement strict. Au-delà des checks au niveau hyper (nom t
 
 Deux détails mécaniques faciles à rater. Les colonnes de temps (`SUM_TIMER_WAIT`, `AVG_TIMER_WAIT`) arrivent en **picosecondes** et sont converties au parsing. Les classements sortent dans un ordre fixe (temps total, nombre d'appels, temps moyen, lignes examinées) et les consommateurs indexent dans ce tableau, un nouveau classement s'ajoute donc à la fin et les positions existantes ne bougent jamais.
 
-**Le pont digest vers trace est la partie intéressante.** Marquer un digest comme "vu dans les traces" demande de comparer le `DIGEST_TEXT` de MySQL à un template normalisé depuis du SQL applicatif, et une comparaison littérale ne correspond jamais : MySQL espace chaque token (`` `c` . `name` ``), met les mots-clés en majuscules et force les backticks, rien de tout cela ne survivant à la normalisation côté application. Les deux côtés sont donc canonicalisés d'abord, en retirant les backticks, en supprimant les espaces autour de la ponctuation, en réduisant les suites d'espaces et en passant en minuscules.
+**Le pont digest vers trace est la partie intéressante.** Marquer un digest comme "vu dans les traces" demande de comparer le `DIGEST_TEXT` de MySQL à un template normalisé depuis du SQL applicatif, et une comparaison littérale ne correspond jamais : MySQL espace chaque token (`` `c` . `name` ``), met les mots-clés en majuscules et force les backticks. La normalisation côté application ne conserve rien de tout cela. Les deux côtés sont donc canonicalisés d'abord, en retirant les backticks, en supprimant les espaces autour de la ponctuation, en réduisant les suites d'espaces et en passant en minuscules.
 
-Cette dernière étape a un plafond assumé qui mérite d'être écrit, car c'est un arbitrage et non un oubli : la mise en minuscules replie les identifiants en même temps que les mots-clés, donc sur un serveur sensible à la casse (`lower_case_table_names=0`) deux tables qui ne diffèrent que par la casse partagent une clé et le marqueur peut sur-correspondre. Ne replier que les mots-clés demanderait une table complète des mots-clés MySQL. Pour un marqueur informatif, la sur-correspondance est l'erreur la moins chère.
+Cette dernière étape a un plafond assumé. La mise en minuscules replie les identifiants en même temps que les mots-clés, donc sur un serveur sensible à la casse (`lower_case_table_names=0`) deux tables qui ne diffèrent que par la casse partagent une clé et le marqueur peut sur-correspondre. Ne replier que les mots-clés demanderait une table complète des mots-clés MySQL. Pour un marqueur informatif, la sur-correspondance est l'erreur la moins chère.
 
 ## Gestion des signaux d'arrêt
 
 `shutdown.rs` se résout sur SIGINT partout, et en plus sur SIGTERM sous Unix, ce que Kubernetes envoie à la terminaison d'un pod, ce que `kill` envoie par défaut et ce que systemd utilise pour arrêter une unité. Les deux déclenchent le même nettoyage. Construisez le future une seule fois et faites `tokio::pin!` avant une boucle `select!`, sinon les listeners se réenregistrent à chaque itération.
 
-Une réserve mérite d'être connue avant de réutiliser ceci hors du daemon : sous Unix, l'enregistrement du handler SIGTERM est global au processus et définitif. Tokio ne restaure jamais la disposition par défaut, donc une fois ce future attendu, le processus ne meurt plus par défaut sur SIGTERM, pour le reste de sa vie, même après que le future a été détruit. C'est exactement ce que veut un daemon de longue durée et exactement ce que ne veut pas une commande one-shot.
+Une réserve s'applique quand on réutilise ceci hors du daemon : sous Unix, l'enregistrement du handler SIGTERM est global au processus et définitif. Tokio ne restaure jamais la disposition par défaut, donc une fois ce future attendu, le processus ne meurt plus par défaut sur SIGTERM, pour le reste de sa vie, même après que le future a été détruit. Un daemon de longue durée veut ce comportement, mais pas une commande ponctuelle.
 
 ## Helpers d'ingestion partagés
 
@@ -555,4 +559,4 @@ Une réserve mérite d'être connue avant de réutiliser ceci hors du daemon : s
 
 Le parseur de lookback accepte les suffixes `d`, `h`, `m`, `s` et somme les formes composées (`2h30m` vaut 9000 s), avec de l'arithmétique vérifiée partout pour que `999999999h` remonte en erreur de débordement au lieu de boucler en release.
 
-Les helpers d'URL écrivent à la main un encodeur pour-cent minimal plutôt que de tirer `percent-encoding` pour douze lignes. Le validateur d'endpoint est volontairement étroit : il rejette un schéma autre que `http(s)` et les identifiants **dans l'autorité**, et accepte délibérément un `@` littéral dans le chemin ou la query, pour que `/api/traces?owner=foo%40example.com` fonctionne.
+Les helpers d'URL écrivent à la main un encodeur pour-cent minimal plutôt que de tirer `percent-encoding` pour douze lignes. Le validateur d'endpoint est étroit : il rejette un schéma autre que `http(s)` et les identifiants **dans l'autorité**, et accepte en revanche un `@` littéral dans le chemin ou la chaîne de requête, pour que `/api/traces?owner=foo%40example.com` fonctionne.

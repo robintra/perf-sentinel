@@ -28,7 +28,7 @@ for resource_spans in &request.resource_spans {
 
 **Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` by walking up the ancestor chain. A single-pass approach would miss parent spans defined later in the message.
 
-`source.endpoint` resolves in four steps, each falling through to the next: the outermost inbound HTTP route in the contiguous chain of an explicitly named service (`http.route`, then SERVER-only URL fallbacks), then the outermost `code.*` frame for entry points that carry no HTTP attribute (scheduled jobs, message consumers), then the destination of the nearest CONSUMER span (`<messaging.system> <destination>`), then the literal `"unknown"`. When `http.route` is a symbolic framework name with no `/` and the same span has a usable `url.path`, the path represents the endpoint; route values containing `/` remain authoritative. Anonymous resources use only the nearest proven route because an absent service name cannot establish a safe cross-block boundary. Every ancestor walk stops after exactly eight hops.
+`source.endpoint` resolves in four steps, each falling through to the next: the outermost inbound HTTP route in the contiguous chain of an explicitly named service (`http.route`, then SERVER-only URL fallbacks), then the outermost `code.*` frame for entry points that carry no HTTP attribute (scheduled jobs, message consumers), then the destination of the nearest CONSUMER span (`<messaging.system> <destination>`), then the literal `"unknown"`. When `http.route` is a symbolic framework name with no `/` and the same span has a usable `url.path`, the path represents the endpoint. Route values containing `/` remain authoritative. Anonymous resources use only the nearest proven route because an absent service name cannot establish a safe cross-block boundary. Every ancestor walk stops after exactly eight hops.
 
 The index uses raw `(trace_id, span_id)` byte pairs, avoiding hex encoding and preventing equal span ids in different traces from colliding. One index is built per explicit `service.name`, spanning every `ResourceSpans` block that service owns. Anonymous blocks receive separate local indexes. Each service's index is capped at 100,000 spans to prevent memory exhaustion from pathological OTLP payloads, so one noisy service cannot starve the others of parent lookup. A `tracing::warn!` is emitted when a cap is reached to help operators diagnose degraded parent resolution.
 
@@ -53,9 +53,9 @@ This is a well-known optimization for hex encoding. Instead of using `write!(hex
 
 For a 16-byte trace_id + 8-byte span_id, this saves ~600ns per span conversion. At 100,000 events/sec, that is 60ms/sec of avoided overhead.
 
-### `nanos_to_iso8601`: Howard Hinnant's Algorithm
+### `nanos_to_iso8601`: Howard Hinnant's algorithm
 
-> **Note:** This function now lives in `time.rs` (shared module) and is reused by Jaeger and Zipkin ingestion via `micros_to_iso8601`.
+> **Note:** This function lives in `time.rs` (shared module) and is reused by Jaeger and Zipkin ingestion via `micros_to_iso8601`.
 
 Converting Unix nanoseconds to `YYYY-MM-DDTHH:MM:SS.mmmZ` uses the civil date algorithm from [Howard Hinnant](https://howardhinnant.github.io/date_algorithms.html). The key steps:
 
@@ -68,17 +68,17 @@ This avoids the [chrono](https://docs.rs/chrono/) crate (~150KB binary overhead)
 
 ### Event type priority
 
-When a span has both a SQL attribute (`db.statement` or `db.query.text`) and an HTTP attribute (`http.url` or `url.full`), SQL takes priority. This is intentional: database instrumentation is more specific than HTTP client instrumentation. The SQL attribute carries the actual query text needed for normalization, while the HTTP attribute might represent the same operation at the transport level.
+When a span has both a SQL attribute (`db.statement` or `db.query.text`) and an HTTP attribute (`http.url` or `url.full`), SQL takes priority because database instrumentation is more specific than HTTP client instrumentation. The SQL attribute carries the actual query text needed for normalization, while the HTTP attribute might represent the same operation at the transport level.
 
-The HTTP branch admits everything except `SpanKind::Server`. Stable semconv puts `url.full` on CLIENT spans only, but legacy instrumentations set `http.url` on the inbound handler span too, so admitting a SERVER span would double-count every hop and invent self-directed edges, exactly the reason the RPC branch below is CLIENT-only. The gate sits inside the HTTP branch, after SQL, so a SERVER span carrying `db.statement` is still analyzed as SQL, and a span with an unset kind stays eligible for HTTP. Jaeger reads the `span.kind` tag (`server`) and Zipkin the `kind` field (`SERVER`). A SERVER span rejected here is still read as inbound context by the endpoint resolution above, and it counts as `not_io` rather than `missing_http_url`, since inbound work is not a stripped outbound call.
+The HTTP branch admits everything except `SpanKind::Server`. Stable semconv puts `url.full` on CLIENT spans only, but legacy instrumentations set `http.url` on the inbound handler span too, so admitting a SERVER span would double-count every hop and invent self-directed edges. The RPC branch below is CLIENT-only for the same reason. The gate sits inside the HTTP branch, after SQL, so a SERVER span carrying `db.statement` is still analyzed as SQL, and a span with an unset kind stays eligible for HTTP. Jaeger reads the `span.kind` tag (`server`) and Zipkin the `kind` field (`SERVER`). A SERVER span rejected here is still read as inbound context by the endpoint resolution above, and it counts as `not_io` rather than `missing_http_url`, since inbound work is not a stripped outbound call.
 
-RPC spans (`rpc.system`, e.g. gRPC or Dubbo) are checked after SQL and HTTP: they carry no statement or URL, so their target is `rpc.service/rpc.method` (falling back to the span name), and they enter the pipeline as `EventType::HttpOut` so the topological and occurrence detectors treat them as outbound calls. Only `SpanKind::Client` is admitted: the `rpc.*` keys are set on the inbound SERVER handler span too, and admitting those would double-count every hop and invent self-directed edges. This admission-only reuse keeps the HTTP normalize/sanitize path unchanged.
+RPC spans (`rpc.system`, e.g. gRPC or Dubbo) are checked after SQL and HTTP. They carry no statement or URL, so their target is `rpc.service/rpc.method` (falling back to the span name). They enter the pipeline as `EventType::HttpOut` so the topological and occurrence detectors treat them as outbound calls. Only `SpanKind::Client` is admitted: the `rpc.*` keys are set on the inbound SERVER handler span too, and admitting those would double-count every hop and invent self-directed edges. This admission-only reuse keeps the HTTP normalize/sanitize path unchanged.
 
 Messaging spans (`messaging.system`, one convention for Kafka, RabbitMQ, Pulsar, SQS, NATS and JMS) are checked last, with `messaging.destination.name` as the target and the span name as fallback. Unlike RPC they get their own `EventType::Messaging`, for two reasons: the destination must not go through the HTTP path normalizer, which would mask an SQS account id as `{id}`, and a publish deserves its own finding types rather than an HTTP-flavored label. Only `SpanKind::Producer` is admitted, on the same double-counting rationale as RPC, plus the fact that a polling consumer would flood the occurrence detectors.
 
 The producer-to-consumer edge is an OTel span link, not a parent-child relation, and the consumer usually starts its own trace. `resolve_producer_link` finds the `CONSUMER` span holding that link, reads its first entry and carries the producer trace id onto the event as `link_trace_id`. The gate on `CONSUMER` matters: batch span processors and follows-from relations emit links too. A link back into the span's own trace is dropped. The two traces are never merged, see [LIMITATIONS.md](../LIMITATIONS.md#messaging-producer-and-consumer-traces-are-linked-not-merged) for why.
 
-**Two topologies, because OTel instrumentations disagree on where `receive` goes.** Some nest the handler's work *under* the `receive` span, which an ancestor walk finds. The official OpenTelemetry Java and .NET Kafka instrumentations do not: it emits `receive` as a **sibling** of the work it triggered, under a shared parent.
+**Two topologies, because OTel instrumentations disagree on where `receive` goes.** Some nest the handler's work *under* the `receive` span, which an ancestor walk finds. The official OpenTelemetry Java and .NET Kafka instrumentations do not: they emit `receive` as a **sibling** of the work it triggered, under a shared parent.
 
 ```
 order-consumed        INTERNAL   parent=""     links=[]
@@ -122,7 +122,7 @@ The payload size is checked **before** deserialization. This prevents `serde_jso
 
 ### Auto-format detection
 
-`JsonIngest` now auto-detects the input format using lightweight byte-level heuristics. It peeks at the first 1-4 KB of the payload:
+`JsonIngest` auto-detects the input format using lightweight byte-level heuristics. It peeks at the first 1-4 KB of the payload:
 
 - Starts with `{` and contains `"resourceSpans"` (or `"resource_spans"`) in the first 1 KB: **OTLP/JSON** (single `ExportTraceServiceRequest` or the Collector `file` exporter's NDJSON, decoded via a serde stream deserializer and converted by the same `convert_otlp_request` the daemon listeners use)
 - Starts with `{` and contains `"data"` + `"spans"` in the first 4 KB: **Jaeger**
@@ -165,13 +165,13 @@ JSON unix socket        ─┘     (select! loop)                      └──
 ```
 
 The event loop uses `tokio::select!` to multiplex:
-- **Receive events** from the channel -> normalize -> push into window -> enqueue evictions
-- **Ticker** every TTL/2 ms -> evict expired traces -> enqueue
-- **Ctrl+C** -> drain all traces -> hand to the worker -> join -> shutdown
+- **Receive events** from the channel, normalize them, push them into the window, then enqueue evictions
+- **Ticker** every TTL/2 ms: evict expired traces, then enqueue them
+- **Ctrl+C**: drain all traces, hand them to the worker, join it, then shut down
 
 detect+score do **not** run on the select! loop. They run on a single dedicated
 analysis worker task fed over a bounded channel (see [Analysis worker](#analysis-worker)),
-so a long analysis pass can no longer stall ingestion or eviction.
+so a long analysis pass cannot stall ingestion or eviction.
 
 ### Normalization outside the lock
 
@@ -200,7 +200,7 @@ fn should_sample(trace_id: &str, rate: f64) -> bool {
 
 The [FNV-1a hash](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function) is a fast, non-cryptographic hash that produces well-distributed output. The offset basis and prime are the standard 64-bit FNV-1a constants.
 
-**Why FNV-1a?** Simpler and faster (~2ns for a typical trace_id) than `std::hash::DefaultHasher` (SipHash, ~10ns). Cryptographic quality is not needed for sampling, only uniform distribution matters.
+**Why FNV-1a?** Simpler and faster (~2ns for a typical trace_id) than `std::hash::DefaultHasher` (SipHash, ~10ns). Cryptographic quality is not needed for sampling. Only uniform distribution matters.
 
 **Deterministic:** the same `trace_id` always produces the same sampling decision, ensuring all events from a trace are either kept or dropped together.
 
@@ -233,14 +233,14 @@ let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
 - **Non-blocking enqueue with metered shedding.** The loop enqueues with `try_reserve`
   (synchronous, never awaits analysis), building the owned `CarbonContext` only once a
   slot is reserved so a shed never pays for a discarded clone. When the queue is full
-  (or the worker has stopped) the whole batch is shed
-  and counted via `perf_sentinel_analysis_shed_batches_total` and
-  `perf_sentinel_analysis_shed_traces_total`; `perf_sentinel_analysis_queue_depth`
-  tracks the backlog. Overload is explicit and observable, never a silent drop. The
-  trade-off is intentional: under sustained overload we drop whole batches rather than
-  block ingestion (a liveness/backpressure choice, not a throughput one).
+  (or the worker has stopped) the whole batch is shed and counted via
+  `perf_sentinel_analysis_shed_batches_total` and
+  `perf_sentinel_analysis_shed_traces_total`. `perf_sentinel_analysis_queue_depth`
+  tracks the backlog. Overload is explicit and observable, never a silent drop. Under
+  sustained overload we drop whole batches rather than block ingestion (a
+  liveness/backpressure trade-off, not a throughput one).
 - **Memory-pressure admission control (opt-in).** Queue-depth shedding is a proxy for
-  memory: when analysis keeps up, the queue stays empty while the `TraceWindow` (bounded
+  memory. When analysis keeps up, the queue stays empty while the `TraceWindow` (bounded
   by trace *count* and TTL, not bytes) can still grow RSS past the cgroup limit and get
   the pod OOMKilled before any shed fires. When `[daemon] memory_high_water_pct > 0`, a
   1 Hz watcher (`daemon/mem_pressure.rs`) reads cgroup v2 `memory.current / memory.max`
@@ -254,10 +254,10 @@ let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
 - **CarbonContext sampled at eviction time.** The per-batch `CarbonContext` (energy
   scraper snapshots + grid intensity) is built on the loop side when the batch is
   evicted and travels with it, preserving the previous sampling instant.
-- **Shutdown drains, then joins.** On Ctrl+C / SIGTERM the loop drains the window,
+- **Shutdown drains, then joins.** On Ctrl+C / SIGTERM the loop drains the window and
   hands the remainder to the worker with a blocking `send` (guaranteed delivery, no
-  shedding), closes the channel, and awaits the worker so every buffered and in-flight
-  batch is fully analyzed before returning.
+  shedding). It then closes the channel and awaits the worker so every buffered and
+  in-flight batch is fully analyzed before returning.
 - **Fail-loud on worker death.** A fourth `select!` arm watches the worker's
   `JoinHandle`. If the worker stops before shutdown (a detector panics), `run_event_loop`
   returns `DaemonError::AnalysisWorkerStopped` so the process exits and a supervisor
@@ -334,7 +334,7 @@ The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. I
 - `worst_finding_trace: HashMap<(&'static str, &'static str, String, String), ExemplarData>`, keyed by (finding_type, severity, effective service label, effective grouping label), last writer per key, updated per analysed batch by the daemon (`record_exemplars_labeled`) and on each `record_batch()` call on the library path
 - `worst_waste_trace: Option<ExemplarData>`, the trace_id of the finding with the most avoidable I/O
 
-Both expire 15 minutes after the batch that recorded them (`EXEMPLAR_TTL`). The map is bounded by the findings series count, 12 types x 3 severities x (the analysis pair cap plus two groupings, `_other` and the empty value, per admitted service), near 28k entries, so this is not about memory: a service that goes quiet would otherwise annotate its series forever with a `trace_id` already past the tracing backend's retention, and the Grafana click-through would land on a 404. The scrape path skips aged entries under its read lock, the write path prunes them under the one it already holds.
+Both expire 15 minutes after the batch that recorded them (`EXEMPLAR_TTL`). The map is bounded by the findings series count, 12 types x 3 severities x (the analysis pair cap plus two groupings, `_other` and the empty value, per admitted service), near 28k entries. The expiry is therefore not about memory: without it, a service that goes quiet would annotate its series forever with a `trace_id` already past the tracing backend's retention, and the Grafana click-through would land on a 404. The scrape path skips aged entries under its read lock, and the write path prunes them under the one it already holds.
 
 `RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other. Lock poisoning is handled gracefully via `unwrap_or_else(PoisonError::into_inner)`, so a panic in one thread does not cascade into crashes on subsequent lock acquisitions.
 
@@ -349,13 +349,13 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 
 ## pg_stat_statements ingestion
 
-`ingest/pg_stat.rs` provides a standalone analysis path for PostgreSQL `pg_stat_statements` exports. Unlike trace-based ingestion, this data has no `trace_id` or `span_id`, it cannot feed the N+1/redundant detection pipeline. Instead, it provides hotspot ranking and cross-referencing with trace findings.
+`ingest/pg_stat.rs` provides a standalone analysis path for PostgreSQL `pg_stat_statements` exports. Unlike trace-based ingestion, this data has no `trace_id` or `span_id`, so it cannot feed the N+1/redundant detection pipeline. Instead, it provides hotspot ranking and cross-referencing with trace findings.
 
 ### Design decisions
 
 **Separate from `IngestSource`:** the `IngestSource` trait returns `Vec<SpanEvent>`, but `pg_stat_statements` data does not map to `SpanEvent` (no trace_id, span_id or timestamp). It produces its own `PgStatReport` type with rankings.
 
-**Auto-format detection:** follows the same byte-level heuristic pattern as `json.rs`. If the first non-whitespace byte is `[` or `{`, parse as JSON; otherwise, parse as CSV. No external csv crate, the CSV parser handles RFC 4180 quoting manually (double-quoted fields, escaped `""`).
+**Auto-format detection:** follows the same byte-level heuristic pattern as `json.rs`. If the first non-whitespace byte is `[` or `{`, parse as JSON, otherwise as CSV. No external csv crate, the CSV parser handles RFC 4180 quoting manually (double-quoted fields, escaped `""`).
 
 **SQL normalization reuse:** each query goes through `normalize::sql::normalize_sql()` to produce a template comparable with trace-based findings. PostgreSQL normalizes queries at the server level (e.g., `$1` placeholders), but perf-sentinel re-normalizes for consistency with its own template format.
 
@@ -407,7 +407,7 @@ perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
 
 This flag is gated behind the `daemon` feature because it requires the `hyper` HTTP client stack. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
 
-The `report` subcommand exposes the same capability via `--pg-stat-prometheus URL`, mutually exclusive with its file-based `--pg-stat FILE` flag (enforced at the clap level via `conflicts_with`). When either flag is provided, the resulting `PgStatReport` is embedded into the HTML dashboard's `pg_stat` tab alongside the four rankings described above. The scrape path is shared with `pg-stat --prometheus`, no data-fetching code is duplicated.
+The `report` subcommand exposes the same capability via `--pg-stat-prometheus URL`, mutually exclusive with its file-based `--pg-stat FILE` flag (enforced at the clap level via `conflicts_with`). When either flag is provided, the resulting `PgStatReport` is embedded into the HTML dashboard's `pg_stat` tab alongside the four rankings described above. The scrape path is shared with `pg-stat --prometheus`, so no data-fetching code is duplicated.
 
 ## Tempo ingestion
 
@@ -419,13 +419,13 @@ The per-trace fetch loop is parallelized via `tokio::task::JoinSet` guarded by a
 
 ### Timeout split
 
-Two dedicated constants instead of a single value: `SEARCH_TIMEOUT = 5s` for `/api/search` (response is a small list of trace IDs, a tight timeout fails fast on a broken endpoint) and `FETCH_TRACE_TIMEOUT = 30s` for `/api/traces/{id}` (trace bodies can legitimately be many MiB on a wide fanout request and the query-frontend has to gather spans from ingesters + long-term storage). A single 5 s cap was empirically dropping tens of traces per 100-trace batch on long lookback windows; 30 s matches the Grafana Tempo datasource default. Both timeouts are parameters of the shared `fetch_raw` helper rather than a single module-level constant, so search and fetch-trace paths can never drift apart.
+Search and trace fetch use two dedicated constants instead of a single value. `SEARCH_TIMEOUT = 5s` applies to `/api/search`: the response is a small list of trace IDs, and a tight timeout fails fast on a broken endpoint. `FETCH_TRACE_TIMEOUT = 30s` applies to `/api/traces/{id}`: trace bodies can legitimately be many MiB on a wide fanout request, and the query-frontend has to gather spans from ingesters + long-term storage. A single 5 s cap was empirically dropping tens of traces per 100-trace batch on long lookback windows. The 30 s value matches the Grafana Tempo datasource default. Both timeouts are parameters of the shared `fetch_raw` helper rather than a single module-level constant, so search and fetch-trace paths can never drift apart.
 
 ### Ctrl-C and error aggregation
 
-The drain loop is driven by `tokio::select!` with `biased` branch ordering: `tokio::signal::ctrl_c()` is polled before `set.join_next()` so a pending interrupt is not starved by a flood of completions. On signal, `set.abort_all()` flags every in-flight task for cancellation; already-completed traces are preserved, aborted tasks resolve to `JoinError::is_cancelled()` and are silently skipped. The dedicated `TempoError::Interrupted` variant is returned only when zero traces had completed before the signal, so CI quality-gate paths can distinguish an operator abort from a genuine empty result (`NoTracesFound`).
+The drain loop is driven by `tokio::select!` with `biased` branch ordering: `tokio::signal::ctrl_c()` is polled before `set.join_next()` so a pending interrupt is not starved by a flood of completions. On signal, `set.abort_all()` flags every in-flight task for cancellation. Already-completed traces are preserved. Aborted tasks resolve to `JoinError::is_cancelled()` and are silently skipped. The dedicated `TempoError::Interrupted` variant is returned only when zero traces had completed before the signal, so CI quality-gate paths can distinguish an operator abort from a run that found no traces (`NoTracesFound`).
 
-Per-trace failures log at `debug`, not `error`. A single classified summary line (`emit_fetch_summary`) is emitted at the end of the loop, bucketed by error kind (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`) so downstream tooling (Loki, CloudWatch) can alert on the right signal without parsing 50 individual `ERROR` lines on a degraded Tempo. Summary severity tracks the worst class seen: `warn` if only `TraceNotFound` skips occurred (expected occasional condition, e.g. a trace rolled out of retention between search and fetch), `error` otherwise. A unit test (`classify_fetch_error_buckets_every_hard_failure_variant`) acts as a drift guard so a future variant added to `TempoError` does not silently fall through to `"other"`.
+Per-trace failures log at `debug`, not `error`. A single classified summary line (`emit_fetch_summary`) is emitted at the end of the loop, bucketed by error kind (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`). Downstream tooling (Loki, CloudWatch) can then alert on the right signal without parsing 50 individual `ERROR` lines on a degraded Tempo. Summary severity tracks the worst class seen: `warn` if only `TraceNotFound` skips occurred (expected occasional condition, e.g. a trace rolled out of retention between search and fetch), `error` otherwise. A unit test (`classify_fetch_error_buckets_every_hard_failure_variant`) acts as a drift guard so a future variant added to `TempoError` does not silently fall through to `"other"`.
 
 ## Jaeger Query API ingestion
 
@@ -488,11 +488,11 @@ Ten routes are mounted via `query_api_router()`. The router is only merged into 
 
 The endpoint returns a `Report` struct shape-identical to `analyze --format json`, so the response can be piped directly into `perf-sentinel report --input -` to materialize an HTML dashboard from a live daemon. Fields are populated from the daemon's live state: `findings` from `FindingsStore::query`, `correlations` from `CrossTraceCorrelator::active_correlations`, `analysis.events_processed` / `traces_analyzed` from the metrics counters (lifetime values, for context).
 
-`green_summary` is refreshed by the event loop after each completed batch. **Per-batch view:** every numeric field under it (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`, `regions`, `top_offenders`, `transport_gco2`) reflects the most recent batch only, not a daemon-lifetime aggregate. Operators wanting cumulative GreenOps numbers should scrape the `/metrics` Prometheus counters instead. The HTML dashboard's GreenOps tab renders only when `green_summary.co2` is non-null, so daemons configured with Electricity Maps surface the chip banner naturally once at least one batch has been processed. `analysis.duration_ms` is `0`, not daemon uptime: the batch-pipeline value times a single analysis run, and a daemon snapshot has no such run.
+`green_summary` is refreshed by the event loop after each completed batch. **Per-batch view:** every numeric field under it (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`, `regions`, `top_offenders`, `transport_gco2`) reflects the most recent batch only, not a daemon-lifetime aggregate. Operators wanting cumulative GreenOps numbers should scrape the `/metrics` Prometheus counters instead. The HTML dashboard's GreenOps tab renders only when `green_summary.co2` is non-null, so daemons configured with Electricity Maps surface the chip banner once at least one batch has been processed. `analysis.duration_ms` is `0`, not daemon uptime: the batch-pipeline value times a single analysis run, and a daemon snapshot has no such run.
 
-Cold-start handling: the endpoint returns `200 OK` with an empty `Report` envelope (`findings: []`, `green_summary: GreenSummary::disabled(0)`, `warnings: ["daemon has not yet processed any events"]`). Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health problem; the empty envelope lets clients detect cold-start without a status-code mismatch. The cold-start check gates on a double counter (`events_processed_total > 0` AND `traces_analyzed_total > 0`): events can be ingested seconds before the first eviction tick fires (`trace_ttl_ms / 2`, default 15s), so gating only on `events_processed > 0` would expose a window where the cell is still `disabled(0)`. The `export_report_requests_total` counter is bumped before the cold-start check, so cold-start responses are counted too, consistent with HTTP access-log conventions.
+Cold-start handling: the endpoint returns `200 OK` with an empty `Report` envelope (`findings: []`, `green_summary: GreenSummary::disabled(0)`, `warnings: ["daemon has not yet processed any events"]`). Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health problem. The empty envelope lets clients detect cold-start without a status-code mismatch. The cold-start check gates on a double counter (`events_processed_total > 0` AND `traces_analyzed_total > 0`): events can be ingested seconds before the first eviction tick fires (`trace_ttl_ms / 2`, default 15s), so gating only on `events_processed > 0` would expose a window where the cell is still `disabled(0)`. The `export_report_requests_total` counter is bumped before the cold-start check, so cold-start responses are counted too, consistent with HTTP access-log conventions.
 
-Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT` (1000 + 1000 entries), a bounded `green_summary` (`top_offenders` capped, `regions` limited by cloud-region cardinality), and `embedded_traces` under its own `EMBEDDED_TRACES_BYTE_BUDGET` (4 MiB of masked spans), worst-case body ~7.5 MB. Acceptable on a loopback bind (the documented posture); the cap deserves review if the daemon is ever bound to a non-loopback interface.
+Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT` (1000 + 1000 entries), a bounded `green_summary` (`top_offenders` capped, `regions` limited by cloud-region cardinality), and `embedded_traces` under its own `EMBEDDED_TRACES_BYTE_BUDGET` (4 MiB of masked spans), worst-case body ~7.5 MB. This is acceptable on a loopback bind (the documented posture). The cap deserves review if the daemon is ever bound to a non-loopback interface.
 
 Snapshot atomicity: the handler acquires the `FindingsStore` read lock and the correlator mutex in sequence, not atomically. The two collections can therefore be one batch apart (findings from generation N, correlations from N+1), which is acceptable for a post-mortem dashboard but not for a strict snapshot contract.
 
@@ -532,7 +532,7 @@ if let Some(correlator) = correlator {
 
 This ordering ensures that the `FindingsStore` always has the findings before the correlator processes them.
 
-Lock contention on the shared mutex was analyzed and is a non-issue at the intended scale: the single analysis worker is the only writer, the `/api/correlations` readers run at dashboard frequency over a bounded structure (capped pairs, 256-sample lag reservoirs), `enforce_pair_cap` early-returns under the cap and uses an O(n) quickselect when it trips, and the tokio mutex yields rather than blocking the runtime.
+Lock contention on the shared mutex is a non-issue at the intended scale: the single analysis worker is the only writer, and the `/api/correlations` readers run at dashboard frequency over a bounded structure (capped pairs, 256-sample lag reservoirs). `enforce_pair_cap` early-returns under the cap and uses an O(n) quickselect when it trips. The tokio mutex yields rather than blocking the runtime.
 
 ### NDJSON output
 
@@ -553,7 +553,7 @@ Append-only JSONL at `~/.local/share/perf-sentinel/acks.jsonl` by default. Each 
 
 ### Compaction at startup
 
-The daemon replays the JSONL into a `HashMap<Signature, AckEntry>` (apply on `Ack`, remove on `Unack`, drop on expiry), then atomically rewrites the file via tmp + rename with only the active entries. A runaway ack/unack loop therefore cannot accumulate forever, the file resets every restart.
+The daemon replays the JSONL into a `HashMap<Signature, AckEntry>` (apply on `Ack`, remove on `Unack`, drop on expiry), then atomically rewrites the file via tmp + rename with only the active entries. A runaway ack/unack loop therefore cannot accumulate forever, since the file resets every restart.
 
 ### Concurrency model
 
@@ -567,9 +567,9 @@ The parsed value is marked `sensitive` so hyper omits it from its own debug outp
 
 ### Validation rules
 
-Parsing is intentionally strict. Beyond the hyper-level checks (token-only name, VCHAR + SP + HTAB value, so internal tabs and spaces inside the value are preserved as-is and only CR/LF + non-visible ASCII are rejected) the parser also refuses:
+Parsing is strict. Beyond the hyper-level checks (token-only name, VCHAR + SP + HTAB value, so internal tabs and spaces inside the value are preserved as-is and only CR/LF + non-visible ASCII are rejected) the parser also rejects:
 
-- Raw inputs longer than 8 KiB, to bound the per-task clone in the Tempo parallel fanout and stop a pathological `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` at the door. A typical JWT is 2 to 4 KiB, 8 KiB leaves headroom for long multi-claim tokens without opening the door to arbitrary blobs.
+- Raw inputs longer than 8 KiB, to bound the per-task clone in the Tempo parallel fanout and stop a pathological `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` early. A typical JWT is 2 to 4 KiB, so 8 KiB leaves headroom for long multi-claim tokens without admitting arbitrary blobs.
 - Values that are empty after trimming, which would send a pointless `Authorization:` to the backend and produce a confusing 401.
 - Header names that would enable request smuggling or authority override if user-supplied: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Users wanting to tweak those should use a local proxy, not this flag.
 
@@ -579,15 +579,15 @@ Parsing is intentionally strict. Beyond the hyper-level checks (token-only name,
 
 Two mechanical details are easy to get wrong. Timer columns (`SUM_TIMER_WAIT`, `AVG_TIMER_WAIT`) arrive in **picoseconds** and are converted at parse time. Rankings are emitted in a fixed order (total time, call count, mean time, rows examined) and downstream consumers index into that array, so a new ranking is appended and existing positions never move.
 
-**The digest-to-trace bridge is the interesting part.** Marking a digest as "seen in traces" requires comparing MySQL's `DIGEST_TEXT` against a template normalized from application SQL, and a literal string compare never matches: MySQL spaces every token (`` `c` . `name` ``), uppercases keywords, and forces backtick quoting, none of which survives normalization on the application side. Both sides are therefore canonicalized first, stripping backticks, dropping whitespace around punctuation, collapsing runs, and lowercasing.
+**The digest-to-trace bridge is the interesting part.** Marking a digest as "seen in traces" requires comparing MySQL's `DIGEST_TEXT` against a template normalized from application SQL, and a literal string compare never matches: MySQL spaces every token (`` `c` . `name` ``), uppercases keywords, and forces backtick quoting, none of which the application-side normalization preserves. Both sides are therefore canonicalized first, stripping backticks, dropping whitespace around punctuation, collapsing runs, and lowercasing.
 
-That last step has an accepted ceiling worth stating, because it is a deliberate trade rather than an oversight: lowercasing folds identifiers as well as keywords, so on a case-sensitive server (`lower_case_table_names=0`) two tables differing only in case share a key and the marker can over-match. Folding keywords alone would need a full MySQL keyword table. For an informational marker the over-match is the cheaper error.
+That last step has an accepted ceiling. Lowercasing folds identifiers as well as keywords, so on a case-sensitive server (`lower_case_table_names=0`) two tables differing only in case share a key and the marker can over-match. Folding keywords alone would need a full MySQL keyword table. For an informational marker the over-match is the cheaper error.
 
 ## Shutdown signal handling
 
 `shutdown.rs` resolves on SIGINT everywhere and additionally on SIGTERM on Unix, which is what Kubernetes sends on pod termination, what `kill` sends by default, and what systemd uses to stop a unit. Both run the same graceful cleanup. Build the future once and `tokio::pin!` it before a `select!` loop, or the listeners re-register on every iteration.
 
-One caveat is worth knowing before reusing this outside the daemon: on Unix, registering the SIGTERM handler is process-wide and permanent. Tokio never restores the default disposition, so once this future has been awaited the process no longer dies by default on SIGTERM, for the rest of its life, even after the future is dropped. That is exactly what a long-running daemon wants and exactly what a one-shot command does not.
+One caveat applies when reusing this outside the daemon: on Unix, registering the SIGTERM handler is process-wide and permanent. Tokio never restores the default disposition, so once this future has been awaited the process no longer dies by default on SIGTERM, for the rest of its life, even after the future is dropped. A long-running daemon wants this, but a one-shot command does not.
 
 ## Shared ingest helpers
 
@@ -595,4 +595,4 @@ One caveat is worth knowing before reusing this outside the daemon: on Unix, reg
 
 The lookback parser accepts `d`, `h`, `m`, `s` suffixes and sums composed forms (`2h30m` is 9000 s), with checked arithmetic throughout so `999999999h` surfaces as an overflow error instead of wrapping in release builds.
 
-The URL helpers hand-roll a minimal percent-encoder rather than pull in `percent-encoding` for twelve lines. The endpoint validator is intentionally narrow: it rejects a non-`http(s)` scheme and userinfo **in the authority**, and deliberately still accepts a literal `@` in the path or query, so `/api/traces?owner=foo%40example.com` works.
+The URL helpers hand-roll a minimal percent-encoder rather than pull in `percent-encoding` for twelve lines. The endpoint validator is narrow: it rejects a non-`http(s)` scheme and userinfo **in the authority**, and still accepts a literal `@` in the path or query, so `/api/traces?owner=foo%40example.com` works.
