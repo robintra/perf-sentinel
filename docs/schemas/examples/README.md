@@ -14,9 +14,9 @@ The examples carry version information in two unrelated registers, and they bump
 - `binary_verification_url` (one occurrence per file) **always points to the latest released perf-sentinel version**. It tells a reader "here is where you can grab the current binary to verify these signatures yourself." It is the only field bumped by the release procedure (`docs/RELEASE-PROCEDURE.md` step 2).
 - `perf_sentinel_version`, `binary_version`, `binary_versions` (multiple occurrences) **are frozen at the example's historical baseline** (currently `0.7.0`, with one narrative entry referencing `0.6.2` as a prior version). They describe a snapshot of what a disclosure report looked like at that point in time. They are not bumped at every release.
 
-This asymmetry is deliberate. The point of the examples is to show what a real disclosure looks like (frozen narrative) while still letting a reader fetch the current binary (live URL). Bumping the narrative fields at every release would make the examples drift away from the actual schema versions a real user would have produced.
+This asymmetry lets the examples show what a real disclosure looks like (frozen narrative) while a reader can still fetch the current binary (live URL). Bumping the narrative fields at every release would make the examples drift away from the actual schema versions a real user would have produced.
 
-If you ever refactor these examples (for example, to demonstrate a new schema feature introduced in a later version), make a deliberate choice:
+If you ever refactor these examples (for example, to demonstrate a new schema feature introduced in a later version), choose one of two approaches:
 
 - Re-baseline the example to the new version: bump every version field together and rewrite any narrative that references prior versions.
 - Or freeze a new historical snapshot: pick the version that best illustrates the feature and keep all narrative fields consistent with that vintage.

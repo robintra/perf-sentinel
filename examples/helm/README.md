@@ -13,7 +13,7 @@ anti-pattern detection and GreenOps scoring).
  services  ---Zipkin------+                        +--> perf-sentinel  (analysis)
 ```
 
-The perf-sentinel chart is sentinel-only by design. The collector is
+The perf-sentinel chart is sentinel-only. The collector is
 composed by the user via the upstream
 [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts)
 chart. This keeps the perf-sentinel chart small and avoids duplicating
@@ -125,7 +125,7 @@ Kubernetes prerequisite rather than the host one.
 Pick exactly one energy backend: stacking two runs both scrapers and attributes
 the same joules twice. On a managed node pool, that choice is made for you,
 since no RAPL means `values-green-cloud.yaml`. The Electricity Maps overlay is
-not an energy backend and composes with any of them, it only changes the
+not an energy backend and composes with any of them. It only changes the
 gCO2/kWh applied to the energy you already have.
 
 ### How the overlays reach the daemon
@@ -154,8 +154,8 @@ share an `NN`. A pod failing those rules crashes on boot, and the image is
 
 Each `values-green-*.yaml` mirrors the `examples/NN-*.toml` of the same name
 field for field, comments and defaults included. Values are allowed to differ,
-and have to: `localhost` becomes in-cluster DNS. Three fields are deliberately
-absent from every overlay, and each says so in its header:
+and have to: `localhost` becomes in-cluster DNS. Three fields are absent from
+every overlay, and each says so in its header:
 
 - `[green] enabled` and `default_region` live in the base `config.toml`, which
   is merged *after* the fragment, so a copy here would be silently overridden.
@@ -165,9 +165,8 @@ absent from every overlay, and each says so in its header:
 `scripts/test/examples-helm-load-test.sh` enforces both halves: it renders every
 file in this directory, projects it the way kubelet does and loads it with a
 real binary, then checks that no overlay has dropped a field its `.toml` still
-carries. Run it after editing either side. A values file that renders is not a
-config that boots, and an overlay that boots is not one that still matches its
-fragment.
+carries. Run it after editing either side. A values file can render and still
+fail to boot, and an overlay can boot without matching its fragment.
 
 ## Adjusting to your topology
 
@@ -179,5 +178,5 @@ fragment.
   `[green.service_regions]`.
 - **Sampling at high volume**: enable the `tail_sampling` processor on
   the collector and route only error or slow traces to perf-sentinel.
-  Sampling below 100% means perf-sentinel cannot see every N+1 pattern,
-  trade volume against detection recall.
+  Sampling below 100% means perf-sentinel cannot see every N+1 pattern.
+  Trade volume against detection recall.

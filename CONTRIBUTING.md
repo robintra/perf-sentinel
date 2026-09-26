@@ -50,11 +50,11 @@ Bypass matrix:
 | WIP commit, clippy noisy on transient state | `SKIP_CLIPPY=1 git commit ...` (keeps gitleaks) |
 | Emergency, all checks off                   | `git commit --no-verify` (use sparingly)        |
 
-The clippy check on a Rust-touching commit costs ~5s on a warm cache for modern CPUs, up to ~20s on memory-constrained or slow runners. Commits that only touch docs, CI, or config files skip the clippy step entirely, so the only contributors paying the cost are the ones editing Rust.
+The clippy check on a Rust-touching commit costs ~5s on a warm cache for modern CPUs, up to ~20s on memory-constrained or slow runners. Commits that only touch docs, CI, or config files skip the clippy step entirely.
 
 If you have set `core.hooksPath` globally to a custom directory (some `dotfiles` setups do), `install-hooks.sh` aborts with instructions. Either unset it for this repo (`git config --local --unset core.hooksPath`) or chain the invocation from `scripts/hooks/pre-commit` into your existing global hook.
 
-CI also runs gitleaks and clippy on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier. SonarCloud cloud scan handles cognitive-complexity at threshold 15 on every PR and its quality gate blocks the pipeline (`sonar.qualitygate.wait=true`), the local clippy gate is at threshold 60 by design (see `clippy.toml` for the rationale).
+CI also runs gitleaks and clippy on every push (`.github/workflows/ci.yml`). The local hook only catches issues earlier. The SonarCloud scan handles cognitive-complexity at threshold 15 on every PR and its quality gate blocks the pipeline (`sonar.qualitygate.wait=true`). The local clippy gate is at threshold 60 (see `clippy.toml` for the rationale).
 
 ## Code coverage
 
@@ -98,7 +98,7 @@ Good first contributions: a new fixture plus a test case for an existing detecto
 
 The parts that reward expertise: the hand-written SQL tokenizer (`normalize/sql.rs`, design doc 02), the streaming correlator (`correlate/window.rs`, LRU + TTL ring buffer with a memory budget, doc 03), and the daemon (`daemon/`, tokio, OTLP gRPC + HTTP, sampling, security hardening, doc 06).
 
-Read the conventions below before your first PR: this project actively refuses speculative abstraction (three duplicated lines beat a premature helper, traits only at the pipeline borders), and the CI gates are strict (`clippy -D warnings`, `cognitive_complexity` denied, bounded Prometheus label sets, no outbound network calls). A PR that introduces an unneeded trait or an unbounded label value will be rejected regardless of code quality.
+Read the conventions below before your first PR: this project rejects speculative abstraction (three duplicated lines beat a premature helper, traits only at the pipeline borders), and the CI gates are strict (`clippy -D warnings`, `cognitive_complexity` denied, bounded Prometheus label sets, no outbound network calls). A PR that introduces an unneeded trait or an unbounded label value will be rejected regardless of code quality.
 
 ## Coding conventions
 
@@ -136,20 +136,20 @@ Keep the message to the subject line: no body, no `Co-Authored-By` or other trai
 ### Generated data files
 
 - `score/carbon_data.rs` and `score/cloud_energy/table_data.rs` carry a `GENERATED FILE` header: never edit them by hand. Regenerate with `python3 scripts/refresh-carbon-data.py` and `python3 scripts/refresh-instance-power.py` (stdlib only, no pip install), then run `cargo fmt -p perf-sentinel-core`. The semiannual `refresh-datasets` workflow runs all of it and opens a PR when upstream data moved.
-- The curated companions (`carbon.rs` `MANUAL_CARBON_ROWS`, `table.rs` `MANUAL_INSTANCE_ROWS`) stay hand-maintained. `refresh-instance-power.py` warns when a CCF snapshot starts covering a manual family; the manual carbon rows are subnational grids that the national-only Ember source can never cover.
+- The curated companions (`carbon.rs` `MANUAL_CARBON_ROWS`, `table.rs` `MANUAL_INSTANCE_ROWS`) stay hand-maintained. `refresh-instance-power.py` warns when a CCF snapshot starts covering a manual family. The manual carbon rows are subnational grids that the national-only Ember source can never cover.
 
 ### Prometheus metrics
 
 - Label values must always come from a **bounded, compile-time-known set** (enum variants, not user-controlled strings). This prevents label cardinality explosions that could crash the metrics endpoint.
-- The one sanctioned exception is the `service` label, and it pays for itself with a per-run cardinality cap and an overflow counter (`ServiceMeter` on the ingest side, `AnalysisServiceMeter` on the analysis side, overflow folded into `service="_other"` so sums stay exact). A new `service`-labeled metric written from the daemon must go through one of those meters.
-- `grouping` (since 0.19.0) is the second sanctioned exception, on the same terms: its value is the span's first `[detection] grouping_attributes` value, it goes through its own per-run caps and overflow counters (`CappedPairs` on admitted (service, grouping) pairs in the same two meters, a pair past the cap folding only its grouping into `grouping="_other"`), so a family's series count is bounded by the pair cap plus two extra groupings (`_other` and the empty value) per admitted service. The cap counts pairs, so what folds follows services x groupings: 11 services in 20 namespaces is 220 pairs and never folds, 100 services in 10 namespaces is 1000 pairs and folds every pair past the 512th. It is deliberately not named `namespace`: Prometheus Operator attaches a `namespace` target label, and the chart's `honorLabels: true` would let the daemon's win and break every namespace filter on the shipped dashboard. A new `grouping`-labeled metric written from the daemon must go through those meters. Any other unbounded label value stays rejected.
+- The one sanctioned exception is the `service` label, which comes with a per-run cardinality cap and an overflow counter (`ServiceMeter` on the ingest side, `AnalysisServiceMeter` on the analysis side, overflow folded into `service="_other"` so sums stay exact). A new `service`-labeled metric written from the daemon must go through one of those meters.
+- `grouping` (since 0.19.0) is the second sanctioned exception, on the same terms. Its value is the span's first `[detection] grouping_attributes` value, and it goes through its own per-run caps and overflow counters (`CappedPairs` on admitted (service, grouping) pairs in the same two meters, a pair past the cap folding only its grouping into `grouping="_other"`). A family's series count is bounded by the pair cap plus two extra groupings (`_other` and the empty value) per admitted service. The cap counts pairs, so what folds follows services x groupings: 11 services in 20 namespaces is 220 pairs and never folds, 100 services in 10 namespaces is 1000 pairs and folds every pair past the 512th. It is not named `namespace` because Prometheus Operator attaches a `namespace` target label, and the chart's `honorLabels: true` would let the daemon's win and break every namespace filter on the shipped dashboard. A new `grouping`-labeled metric written from the daemon must go through those meters. Any other unbounded label value stays rejected.
 - The rule binds the daemon, which owns a long-lived registry. `MetricsState`'s library entry points (`record_batch`, `record_exemplars`) take a caller-supplied `Report` and label it verbatim: a batch run carries a bounded service set and exits, so the cap would buy nothing. An embedder holding one `MetricsState` across an unbounded service stream caps its own input, and the doc comments say so.
 
 ## Test strategy
 
 ### Unit tests
 
-Each module has its own unit tests in a `#[cfg(test)] mod tests` block. Large modules keep that block in a sibling `tests.rs` file (folder module + `#[cfg(test)] mod tests;` declaration, e.g. `config/`, `score/`, `ingest/otlp/`, `report/html/`); follow that pattern when a test module grows past a few hundred lines. Tests should cover:
+Each module has its own unit tests in a `#[cfg(test)] mod tests` block. Large modules keep that block in a sibling `tests.rs` file (folder module + `#[cfg(test)] mod tests;` declaration, e.g. `config/`, `score/`, `ingest/otlp/`, `report/html/`). Follow that pattern when a test module grows past a few hundred lines. Tests should cover:
 
 - Happy path with representative input
 - Edge cases (empty input, boundary values, malformed data)
@@ -180,7 +180,7 @@ The CLI `demo` subcommand bundles its own dataset, embedded at `crates/sentinel-
 
 ## Documentation assets
 
-Some changes require regenerating committed image assets so the README, the docs and the dashboard stills stay in sync with the code. The pipelines are scripted, no manual screen-recording is needed.
+Some changes require regenerating committed image assets so the README, the docs and the dashboard stills stay in sync with the code. The pipelines are scripted, so no manual screen-recording is needed.
 
 ### Terminal and TUI (VHS)
 
@@ -223,7 +223,7 @@ When changing the underlying fixture (`tests/fixtures/report_realistic.json`), t
 
 ### Architecture diagrams
 
-Pipeline diagrams under `docs/diagrams/svg/` are committed SVGs hand-edited or exported from a draw tool. There is no automated regeneration pipeline — update them manually when the pipeline architecture changes.
+Pipeline diagrams under `docs/diagrams/svg/` are committed SVGs hand-edited or exported from a draw tool. There is no automated regeneration pipeline. Update them manually when the pipeline architecture changes.
 
 ### Running tests
 
