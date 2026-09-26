@@ -30,7 +30,7 @@ Chaque ligne de ce tableau remplace ou affine la ligne au-dessus. Vous pouvez vo
 | `[green.kepler]`                               | Les estimations par conteneur de Kepler. Classé sous les backends RAPL parce qu'une évaluation indépendante a mesuré de grandes erreurs d'attribution, voir les sources.                                                                    | `kepler_ebpf`                  |
 | `[green.scaphandre]`                           | L'énergie CPU depuis les compteurs Intel RAPL, attribuée par processus par Scaphandre.                                                                                                                                                      | `scaphandre_rapl`              |
 | `[green.alumet]`                               | L'énergie CPU depuis RAPL, attribuée par cgroup par Alumet. Le backend mesuré recommandé : mêmes compteurs que Scaphandre, échantillonnage caractérisé comme moins sujet à erreur par ses auteurs, attribution taillée pour les conteneurs. | `alumet_rapl`                  |
-| `[green.electricity_maps]`                     | Ne change pas E. Remplace l'intensité annuelle par la valeur en direct de votre région, le plus gros levier sur les chiffres de gCO2 dans les régions au mix électrique variable.                                                           | source d'intensité `real_time` |
+| `[green.electricity_maps]`                     | Ne change pas E. Remplace l'intensité annuelle du réseau par la valeur en direct de votre région, le plus gros levier sur les chiffres de gCO2 dans les régions au mix électrique variable.                                                 | source d'intensité `real_time` |
 
 Quand plusieurs backends couvrent le même service, le daemon garde la lecture la plus fidèle : `alumet_rapl` bat `scaphandre_rapl`, qui bat `kepler_ebpf`, puis `redfish_bmc`, puis `cloud_specpower`, puis le proxy. Tous les backends mesurés sont réservés au daemon (`watch`). Le mode batch `analyze` utilise toujours le chemin proxy.
 
@@ -41,37 +41,37 @@ Une contrainte s'applique à tous les barreaux RAPL : les compteurs matériels n
 Compter les opérations côté application manque un point structurel : l'énergie d'un N+1 est surtout brûlée par la base de données qui exécute les N requêtes, et une base n'émet pas de spans, elle est donc invisible pour l'attribution par service. La déclaration `[green.alumet.database]` comble ce trou avec une règle de trois simple : pointez Alumet sur le cgroup de la base, et chaque fenêtre de scoring multiplie l'énergie mesurée de la base par le ratio de gaspillage SQL seul.
 
 ```
-gaspillage base = énergie DB mesurée x (ops SQL évitables / ops SQL totales)
+database waste = measured DB energy x (avoidable SQL ops / total SQL ops)
 ```
 
-Le résultat est `green_summary.database_waste`, avec une conversion gCO2 quand vous déclarez la région de la base. Et le chiffre existe même sans Alumet : quand aucune mesure n'est disponible (exécutions batch, bases managées, pas de `[green.alumet.database]`), il est estimé depuis l'énergie modélisée des spans SQL, et son étiquette `model` dit quel chemin l'a produit (`alumet_rapl` = mesuré, `estimated` = modélisé). Le mesuré est une borne basse (énergie CPU seulement, ni DRAM ni disque). L'estimé n'est précis que comme le modèle d'énergie derrière le rapport (le proxy I/O et son encadrement 2x dans le cas courant). Les deux utilisent un ratio par comptage, le chiffre reste donc informatif. La variante mesurée est de l'énergie additionnelle exclue de `energy_kwh` et de `co2`. La variante estimée est une part re-présentée de ces totaux (ne jamais l'additionner par-dessus). La divulgation ne publie le chiffre que comme bloc séparé étiqueté hors de tous les totaux. La liste complète des bornes est dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
+Le résultat est `green_summary.database_waste`, avec une conversion gCO2 quand vous déclarez la région de la base. Et le chiffre existe même sans Alumet : quand aucune mesure n'est disponible (exécutions batch, bases managées, pas de `[green.alumet.database]`), il est estimé depuis l'énergie modélisée des spans SQL, et son étiquette `model` dit quel chemin l'a produit (`alumet_rapl` = mesuré, `estimated` = modélisé). Le mesuré est une borne basse (énergie CPU seulement, ni DRAM ni disque). L'estimé n'est pas plus précis que le modèle d'énergie derrière le rapport (le proxy I/O et son encadrement 2x dans le cas courant). Les deux utilisent un ratio par comptage, le chiffre reste donc informatif. La variante mesurée est de l'énergie additionnelle exclue de `energy_kwh` et de `co2`. La variante estimée est une part re-présentée de ces totaux (ne jamais l'additionner par-dessus). La divulgation ne publie le chiffre que comme bloc séparé étiqueté hors de tous les totaux. La liste complète des bornes est dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
 
 ## Le chiffre du broker
 
 Un broker de messages pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent. La même règle de trois y répond, avec le ratio messaging seul.
 
 ```
-gaspillage broker = énergie broker x (ops de publication évitables / ops de publication totales)
+broker waste = broker energy x (avoidable publish ops / total publish ops)
 ```
 
 Le résultat est `green_summary.messaging_waste`. Ce qui change par rapport à la base, c'est le nombre de façons d'obtenir l'énergie du broker, et elles n'ont pas le même statut.
 
-- `[green.alumet.broker]` mesure le cgroup du broker. Même échelon que la base, même borne : la formule d'attribution par défaut d'Alumet ne couvre que le CPU, donc il sous-compte.
-- `[green.broker_static]` déclare un cluster provisionné (`nodes` et un type d'instance) sans aucun agent, ce qui est la seule voie ouverte sur Confluent Cloud, MSK, SQS ou un Pulsar managé. Elle lit `E(n) = n x P_max` dans la table SPECpower embarquée. Cette table couvre le CPU et la carte mère : le résultat borne donc les vCPU déclarés à pleine charge et non la consommation murale du cluster, et un broker limité par le stockage peut consommer davantage. Ce chiffre ne bouge pas non plus quand l'application se met à publier par lots, ce qui est une vraie faiblesse pour une valeur censée montrer qu'une remédiation fonctionne.
+- `[green.alumet.broker]` mesure le cgroup du broker. Même barreau que la base, même borne : la formule d'attribution par défaut d'Alumet ne couvre que le CPU, donc il sous-compte.
+- `[green.broker_static]` déclare un cluster provisionné (`nodes` et un type d'instance) et ne demande aucun agent, ce qui est la seule voie ouverte sur Confluent Cloud, MSK, SQS ou un Pulsar managé. Elle lit `E(n) = n x P_max` dans la table SPECpower embarquée. Cette table couvre le CPU et la carte mère : le résultat borne donc les vCPU déclarés à pleine charge et non la consommation murale du cluster, et un broker limité par le stockage peut consommer davantage. Ce chiffre ne bouge pas non plus quand l'application se met à publier par lots, ce qui est une vraie faiblesse pour une valeur censée montrer qu'une remédiation fonctionne.
 - Sans aucune des deux, le chiffre est estimé depuis l'énergie modélisée des spans de publication, exactement comme le repli de la base.
 
 L'étiquette `model` dit quel chemin l'a produit (`alumet_rapl`, `broker_specpower`, `estimated`), et la divulgation périodique garde les trois séparés plutôt que de fondre une déclaration dans les sommes mesurées. Rien de tout cela ne repose sur un coefficient de joules par message. La puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, donc l'énergie marginale d'une publication n'est pas une constante. Les trois éléments qui la détermineraient (taux d'utilisation du cluster, facteur de réplication, topologie) sont tous invisibles depuis un span producteur. Les bornes sont dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
 
 ## Ce que les chiffres ne sont pas
 
-L'outil est un compteur directionnel de gaspillage avec un ancrage énergétique de mieux en mieux mesuré, pas un wattmètre et pas un inventaire carbone certifié. Le chemin proxy porte un encadrement multiplicatif de 2x. La puissance au repos et statique des serveurs n'est pas redistribuée aux services. Les ratios par comptage traitent pareil un SELECT indexé bon marché et une écriture lourde, alors que les mesures académiques montrent des écarts de puissance de plusieurs dizaines de pour cent. Tout cela est quantifié, avec le raisonnement, dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
+L'outil est un compteur directionnel de gaspillage avec un ancrage énergétique de plus en plus solide, pas un wattmètre et pas un inventaire carbone certifié. Le chemin proxy porte un encadrement multiplicatif de 2x. La puissance au repos et statique des serveurs n'est pas redistribuée aux services. Les ratios par comptage traitent pareil un SELECT indexé bon marché et une écriture lourde, alors que les mesures académiques montrent des écarts de puissance de plusieurs dizaines de pour cent. Tout cela est quantifié, avec le raisonnement, dans [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
 
 ## Sources
 
 Ce que chaque source externe apporte aux chiffres ci-dessus :
 
-- **Green Software Foundation, spécification Software Carbon Intensity (ISO/IEC 21031:2024)** : le cadre `carbone = E x I + M`, l'exigence d'intensité location-based, et l'obligation de divulguer la méthodologie derrière chaque chiffre.
-- **Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010** : à utilisation CPU égale, des opérateurs de base de données peuvent différer de jusqu'à 60 % en puissance. Fonde les multiplicateurs par verbe SQL et la réserve sur les ratios par comptage.
+- **Green Software Foundation, spécification Software Carbon Intensity (ISO/IEC 21031:2024)** : le cadre `carbon = E x I + M`, l'exigence d'une intensité du réseau location-based, et l'obligation de divulguer la méthodologie derrière chaque chiffre.
+- **Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010** : à utilisation CPU égale, des opérateurs de base de données peuvent présenter jusqu'à 60 % d'écart de puissance. Fonde les multiplicateurs par verbe SQL et la réserve sur les ratios par comptage.
 - **Xu, Tu, Wang, "Exploring Power-Performance Tradeoffs in Database Systems", ICDE 2010** et **Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961** : le coût énergétique relatif des classes d'opérations SQL derrière la pondération par verbe.
 - **Khan et al., "RAPL in Action: Experiences in Using RAPL for Power Measurements", ACM TOMPECS 2018** : les lectures RAPL corrèlent étroitement avec des mesures externes à la prise, la raison pour laquelle les backends RAPL passent devant ceux à base de modèle.
 - **Raffin, Trystram, "Dissecting the software-based measurement of CPU energy consumption: a comparative analysis", arXiv:2401.15985 (IEEE TPDS 2025)** : les pièges des lecteurs RAPL logiciels, et la raison pour laquelle `alumet_rapl` surclasse `scaphandre_rapl`.
@@ -80,6 +80,6 @@ Ce que chaque source externe apporte aux chiffres ci-dessus :
 - **Mytton, Lunden, Malmodin, "Network energy use not directly proportional to data volume", Journal of Industrial Ecology 28(4), 2024** : pourquoi le terme optionnel de transport réseau est modélisé prudemment.
 - **Les résultats publiés SPEC SPECpower_ssj2008 et la méthodologie Cloud Carbon Footprint** : l'interpolation utilisation-vers-watts derrière `cloud_specpower`.
 - **Boavizta** : les analyses de cycle de vie de serveurs derrière le terme incorporé.
-- **Electricity Maps** : l'API d'intensité en direct derrière la source d'intensité `real_time`.
+- **Electricity Maps** : l'API d'intensité du réseau en direct derrière la source d'intensité `real_time`.
 
 La justification de conception plus profonde, y compris la normalisation de la forme de lecture de chaque backend, se trouve dans `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md`.
