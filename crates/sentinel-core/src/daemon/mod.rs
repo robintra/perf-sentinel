@@ -58,7 +58,7 @@ pub(crate) struct SourceEndpointUpdate {
     pub(crate) consumer_endpoint: Option<String>,
 }
 
-/// One bounded daemon ingest message. JSON batches carry only `events`;
+/// One bounded daemon ingest message. JSON batches carry only `events`.
 /// OTLP can additionally carry endpoint and parent context from spans that do
 /// not themselves normalize into I/O events.
 pub(crate) struct IngestBatch {
@@ -165,8 +165,7 @@ pub enum DaemonError {
 
 /// Typed sub-enum for TLS configuration failures.
 ///
-/// Replaces the prior `Box<dyn std::error::Error>` variant with five
-/// concrete cases so callers can match on `TlsConfigError` and get
+/// Five concrete cases let callers match on `TlsConfigError` and get
 /// structured context instead of a `format!`-flattened string.
 ///
 /// Marked `#[non_exhaustive]` so that adding future variants (e.g. a
@@ -371,9 +370,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     });
     let detect_config = DetectConfig::from(&config);
     // Green scoring off means score_green never runs: the loop must not
-    // consume (and thus destroy) the accumulated database energy. Read
-    // through `then` rather than three `if`/`else` arms, which is the same
-    // gate said once per field without three branches in this function.
+    // consume (and thus destroy) the accumulated database energy. The
+    // three fields go through `then` rather than three `if`/`else` arms,
+    // so the gate adds no branch to this function.
     let green_on = config.green.enabled;
     let energy_sources = EnergySources {
         base_carbon_ctx,
@@ -751,12 +750,12 @@ total_applications_declared = 1
     // daemon::run end-to-end on ephemeral ports
     // ------------------------------------------------------------------
     //
-    // Spins up the daemon on ephemeral TCP ports (0 → OS-assigned) and
-    // a tempdir-scoped Unix socket, sends one NDJSON line, then polls
-    // the HTTP /metrics endpoint and asserts the daemon actually
-    // processed the event. Ctrl-C is never sent; the test aborts the
-    // JoinHandle instead, so the shutdown branch is not covered here
-    // (validated separately by manual testing).
+    // Spins up the daemon on ephemeral TCP ports (port 0, OS-assigned)
+    // and a tempdir-scoped Unix socket, sends one NDJSON line, then polls
+    // the HTTP /metrics endpoint and asserts the daemon processed the
+    // event. Ctrl-C is never sent. The test aborts the JoinHandle
+    // instead, so the shutdown branch is not covered here (validated
+    // separately by manual testing).
 
     #[cfg(unix)]
     #[tokio::test]
@@ -768,9 +767,9 @@ total_applications_declared = 1
 
         // Grab ephemeral ports via TCP binds, then release them so the
         // daemon can rebind. There is a brief race window between drop
-        // and rebind; we compensate below with a retry loop on the
-        // Unix-socket client connect, which is the first externally
-        // observable effect of a successful bind.
+        // and rebind. We compensate below with a retry loop on the
+        // Unix-socket client connect, the first externally observable
+        // effect of a successful bind.
         let l1 = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let l2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let http_port = l1.local_addr().unwrap().port();
@@ -811,7 +810,7 @@ total_applications_declared = 1
         let mut client = client.expect("daemon Unix socket must bind within 1s");
 
         // Send 6 N+1-worthy events so the detector has something to
-        // actually flag, which guarantees `findings_total` increments.
+        // flag, which guarantees `findings_total` increments.
         let mut payload = String::from("[");
         for i in 1..=6 {
             if i > 1 {
