@@ -27,11 +27,11 @@ def provider(name):
 
     Scaleway offer ids are the only all-upper-case, dash-separated ones
     (`COMPUTE3-X2C-4G`, `POP2-HM-2C-16G`), which the GCP fallback at the
-    bottom would otherwise swallow whole. Matched on that shape rather
-    than on a list of range prefixes: the offer list is read live from
-    the Product Catalog by `refresh-instance-power.py`, so a new range
-    lands in the table without anyone editing this file, and a prefix
-    list would file it under GCP silently.
+    bottom would otherwise catch. Matched on that shape rather than on a
+    list of range prefixes. `refresh-instance-power.py` reads the offer
+    list live from the Product Catalog, so a new range lands in the table
+    without anyone editing this file. A prefix list would file it under
+    GCP silently.
     """
     if name.startswith("xeon-"):
         return "Bare metal"
@@ -74,8 +74,8 @@ model interpolates between. {len(rows)} entries, table vintage
 `{vintage}`.
 
 **An unlisted type is not an error.** perf-sentinel warns once at startup,
-naming the type, and falls back to a provider-level average: the figure
-gets coarser, nothing breaks. That warning is also how you check your own
+naming the type, and falls back to a provider-level average, so the
+figure gets coarser. That warning is also how you check your own
 type without reading this page. When your hardware is absent and you know
 its draw, declare it directly instead, which is exact rather than
 approximated:
@@ -89,29 +89,29 @@ approximated:
 publishes coefficients for AWS, GCP and Azure only. Scaleway publishes
 no wattage either, but its Product Catalog API names the **exact CPU** of
 every offer without authentication (`AMD EPYC 7543`, not a generic
-family), so each offer is priced by the CCF coefficient for that CPU's
-architecture, the same vCPU-times-coefficient arithmetic as the three
-above. What that adds is one assumption, the same CCF already makes
-between AWS and GCP: that a coefficient computed on hyperscaler fleets
-transfers to comparable silicon elsewhere. Three groups of offers are
-excluded rather than approximated:
+family). Each offer is priced by the CCF coefficient for that CPU's
+architecture, with the same vCPU-times-coefficient arithmetic as the
+three above. This adds a single assumption, the one CCF already
+makes between AWS and GCP: that a coefficient computed on hyperscaler
+fleets transfers to comparable silicon elsewhere. Three groups of offers
+are excluded rather than approximated:
 
-- **shared-vCPU ranges** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`), where
-  attributing a whole vCPU to one tenant overstates what it draws;
+- **Shared-vCPU ranges** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`), where
+  attributing a whole vCPU to one tenant overstates what it draws.
 - **GPU offers** (`H100`, `L4`, `L40S`, `RENDER`), because the table
   models no accelerator for any provider, and an H100 alone outweighs
-  the entire CPU budget;
+  the entire CPU budget.
 - **AmpereOne and Granite Rapids ranges** (`STANDARD2`, `B300`), absent
   from the CCF CSVs.
 
-**OVHcloud and OUTSCALE are still absent**, and not for want of looking.
-Searched, as of August 2026:
+**OVHcloud and OUTSCALE are still absent.** Sources checked as of
+August 2026:
 
 - **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi)) is
   the only third-party base that reaches instance granularity, with 50
-  OVHcloud sizes. Its files carry **no power column** at all, and the
-  CPU a wattage would be derived from is Boavizta's own assumption,
-  flagged `CPU not verified` on all 12 OVHcloud archetype rows. One
+  OVHcloud sizes. Its files carry **no power column**, and the CPU a
+  wattage would be derived from is Boavizta's own assumption, flagged
+  `CPU not verified` on all 12 OVHcloud archetype rows. One
   credits a rack server with an `Intel Core i7-4940MX`, a mobile part,
   across two sockets. OVHcloud itself documents no CPU per range.
 - **OUTSCALE** stops at (Region, service category): two regions, three
@@ -128,7 +128,7 @@ and `docs/design/05-GREENOPS-AND-CARBON.md`. Configuring the scraper:
 
 This page is generated from the embedded table by
 `scripts/generate-instance-types-doc.py`, and a test fails the build if
-the two ever disagree. Do not edit it by hand.
+the two disagree. Do not edit it by hand.
 """
         headers = ("Instance type", "Idle (W)", "Max (W)")
         units = ("entry", "entries")
@@ -140,12 +140,13 @@ Tous les `instance_type` acceptés par `[green.cloud.services]` et par
 lesquelles le modèle SPECpower interpole. {len(rows)} entrées, millésime
 de la table `{vintage}`.
 
-**Un type absent n'est pas une erreur.** perf-sentinel émet un
-avertissement au démarrage en le nommant, puis retombe sur une moyenne du
-fournisseur : la valeur devient plus grossière, rien ne casse. Cet
+**Un type absent n'est pas une erreur.** perf-sentinel avertit une seule
+fois au démarrage en nommant le type, puis se rabat sur une moyenne du
+fournisseur, ce qui rend la valeur plus grossière. Cet
 avertissement est aussi la façon de vérifier votre propre type sans lire
 cette page. Quand votre matériel est absent et que vous connaissez sa
-consommation, déclarez-la directement, c'est exact plutôt qu'approché :
+consommation, déclarez-la directement, ce qui donne une valeur exacte
+plutôt qu'approchée :
 
 ```toml
 [green.cloud.services]
@@ -156,7 +157,7 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 Footprint ne publie des coefficients que pour AWS, GCP et Azure.
 Scaleway ne publie pas non plus de puissance, mais son API Product
 Catalog nomme le **CPU exact** de chaque offre sans authentification
-(`AMD EPYC 7543`, et non une famille générique) : chaque offre est donc
+(`AMD EPYC 7543`, et non une famille générique). Chaque offre est
 valorisée par le coefficient CCF de l'architecture de ce CPU, selon la
 même arithmétique vCPU fois coefficient que les trois autres. Cela
 ajoute une seule hypothèse, celle que CCF pose déjà entre AWS et GCP :
@@ -164,16 +165,16 @@ qu'un coefficient calculé sur des flottes d'hyperscalers se transpose à
 du silicium comparable ailleurs. Trois groupes d'offres sont exclus
 plutôt qu'approchés :
 
-- les **gammes à vCPU partagés** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`),
-  où attribuer un vCPU entier à un locataire surestime ce qu'il tire ;
-- les **offres GPU** (`H100`, `L4`, `L40S`, `RENDER`), parce que la
+- Les **gammes à vCPU partagés** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`),
+  où attribuer un vCPU entier à un locataire surestime ce qu'il tire.
+- Les **offres GPU** (`H100`, `L4`, `L40S`, `RENDER`), parce que la
   table ne modélise aucun accélérateur chez aucun fournisseur, et
-  qu'une H100 pèse à elle seule plus que tout le budget CPU ;
-- les **gammes AmpereOne et Granite Rapids** (`STANDARD2`, `B300`),
+  qu'une H100 pèse à elle seule plus que tout le budget CPU.
+- Les **gammes AmpereOne et Granite Rapids** (`STANDARD2`, `B300`),
   absentes des CSV de CCF.
 
-**OVHcloud et OUTSCALE restent absents**, et ce n'est pas faute d'avoir
-cherché. Recherché, en août 2026 :
+**OVHcloud et OUTSCALE restent absents.** Sources consultées en août
+2026 :
 
 - **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi))
   est la seule base tierce à descendre au type d'instance, avec 50

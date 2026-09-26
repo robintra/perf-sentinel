@@ -5,12 +5,13 @@ Tous les `instance_type` acceptés par `[green.cloud.services]` et par
 lesquelles le modèle SPECpower interpole. 421 entrées, millésime
 de la table `2026-04-24 (CCF aligned)`.
 
-**Un type absent n'est pas une erreur.** perf-sentinel émet un
-avertissement au démarrage en le nommant, puis retombe sur une moyenne du
-fournisseur : la valeur devient plus grossière, rien ne casse. Cet
+**Un type absent n'est pas une erreur.** perf-sentinel avertit une seule
+fois au démarrage en nommant le type, puis se rabat sur une moyenne du
+fournisseur, ce qui rend la valeur plus grossière. Cet
 avertissement est aussi la façon de vérifier votre propre type sans lire
 cette page. Quand votre matériel est absent et que vous connaissez sa
-consommation, déclarez-la directement, c'est exact plutôt qu'approché :
+consommation, déclarez-la directement, ce qui donne une valeur exacte
+plutôt qu'approchée :
 
 ```toml
 [green.cloud.services]
@@ -21,7 +22,7 @@ consommation, déclarez-la directement, c'est exact plutôt qu'approché :
 Footprint ne publie des coefficients que pour AWS, GCP et Azure.
 Scaleway ne publie pas non plus de puissance, mais son API Product
 Catalog nomme le **CPU exact** de chaque offre sans authentification
-(`AMD EPYC 7543`, et non une famille générique) : chaque offre est donc
+(`AMD EPYC 7543`, et non une famille générique). Chaque offre est
 valorisée par le coefficient CCF de l'architecture de ce CPU, selon la
 même arithmétique vCPU fois coefficient que les trois autres. Cela
 ajoute une seule hypothèse, celle que CCF pose déjà entre AWS et GCP :
@@ -29,16 +30,16 @@ qu'un coefficient calculé sur des flottes d'hyperscalers se transpose à
 du silicium comparable ailleurs. Trois groupes d'offres sont exclus
 plutôt qu'approchés :
 
-- les **gammes à vCPU partagés** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`),
-  où attribuer un vCPU entier à un locataire surestime ce qu'il tire ;
-- les **offres GPU** (`H100`, `L4`, `L40S`, `RENDER`), parce que la
+- Les **gammes à vCPU partagés** (`DEV1`, `PLAY2`, `BASIC2`, `BASIC3`),
+  où attribuer un vCPU entier à un locataire surestime ce qu'il tire.
+- Les **offres GPU** (`H100`, `L4`, `L40S`, `RENDER`), parce que la
   table ne modélise aucun accélérateur chez aucun fournisseur, et
-  qu'une H100 pèse à elle seule plus que tout le budget CPU ;
-- les **gammes AmpereOne et Granite Rapids** (`STANDARD2`, `B300`),
+  qu'une H100 pèse à elle seule plus que tout le budget CPU.
+- Les **gammes AmpereOne et Granite Rapids** (`STANDARD2`, `B300`),
   absentes des CSV de CCF.
 
-**OVHcloud et OUTSCALE restent absents**, et ce n'est pas faute d'avoir
-cherché. Recherché, en août 2026 :
+**OVHcloud et OUTSCALE restent absents.** Sources consultées en août
+2026 :
 
 - **Boavizta** ([BoaviztAPI](https://github.com/Boavizta/boaviztapi))
   est la seule base tierce à descendre au type d'instance, avec 50
