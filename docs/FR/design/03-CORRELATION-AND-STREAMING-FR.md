@@ -85,7 +85,7 @@ ses événements I/O n'arrivent dans un lot ultérieur. Chaque contexte porte so
 lien parent, et les spans intermédiaires non-I/O entrent dans le même LRU
 d'ascendance qui conserve le lien parent d'un événement et sa route prouvée
 facultative après rotation. Cela répare l'arrivée parent-après-enfant et les
-exports scindés par une recherche de huit sauts exactement, sans événement ni
+exports scindés par une recherche exacte à huit sauts, sans événement ni
 métrique I/O synthétique. Les événements, contextes d'endpoint, destinations de
 consumer et entrées d'ascendance forment quatre collections distinctes, **chacune** plafonnée par
 `max_events_per_trace`. Le LRU d'ascendance alloue sa
@@ -94,10 +94,10 @@ trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
 entrée parent. Une chaîne manquante n'utilise alors un repli que si le
 service possède exactement une racine conservée et qu'aucune racine distincte
 n'a été observée pour ce service. Une seconde racine distincte marque le service
-conservé comme ambigu même si le plafond rejette ce contexte. Répéter une mise
-à jour de la même racine ne le fait pas. L'ensemble d'ambiguïté est limité aux
-services qui ont une racine conservée. Les services multi-racines et les chaînes
-ayant épuisé la profondeur restent inconnus. Ce repli mono-racine n'est
+conservé comme ambigu même si le plafond de racines rejette ce contexte. Répéter
+une mise à jour de la même racine ne le fait pas. L'ensemble d'ambiguïté est
+limité aux services qui ont une racine conservée. Les services multi-racines et
+les chaînes ayant épuisé la profondeur restent inconnus. Ce repli mono-racine n'est
 jamais persisté dans l'événement actif ni dans l'état d'ascendance : il est
 appliqué uniquement au résultat de `peek_clone` ou à une trace détachée lors de
 sa finalisation. Une racine distincte tardive peut ainsi rétracter l'aperçu
@@ -158,9 +158,8 @@ Lors de la conversion des événements de trace évincés de `VecDeque` vers `Ve
 La consommation mémoire maximale du TraceWindow peut être estimée :
 
 ```
-mémoire_max = max_active_traces × max_events_per_trace
-              × (taille_moyenne_événement + taille_moyenne_contexte_endpoint
-                 + taille_moyenne_entrée_ascendance)
+max_memory = max_active_traces × max_events_per_trace
+             × (avg_event_size + avg_endpoint_context_size + avg_ancestry_entry_size)
 ```
 
 Les quatre collections par trace peuvent chacune atteindre leur plafond. Avec les
@@ -174,11 +173,25 @@ des traces typiques de 10 à 50 événements, la seule partie événements vaut
 environ :
 
 ```
-mémoire_typique = 10 000 × 50 × ~500 octets = ~250 Mo
+typical_memory = 10,000 × 50 × ~500 bytes = ~250 MB
 ```
 
 Les contextes d'endpoint et les entrées d'ascendance allouées progressivement
-s'ajoutent à cette estimation limitée aux événements. Le plafond configuré de
-1 000 entrées d'ascendance n'est pas préalloué pour chaque trace.
+ajoutent leur occupation effective à cette estimation limitée aux événements. Le
+plafond configuré de 1 000 entrées d'ascendance n'est pas préalloué pour chaque
+trace.
 
 La validation de la config plafonne `max_active_traces` à 1 000 000 et `max_events_per_trace` à 100 000 pour éviter les erreurs de configuration accidentelles.
+
+La moyenne de ~500 octets suppose des émetteurs au comportement normal. Le pire
+cas adverse est borné champ par champ par `sanitize_span_event` à chaque
+frontière d'ingestion (OTLP, JSON, Jaeger, Zipkin), avec `MAX_TARGET_LENGTH`
+(64 Kio par `target`) comme terme dominant. Un émetteur hostile ou pathologique
+qui envoie un texte SQL de taille maximale dans chaque événement peut porter la
+collection d'événements d'une seule trace à environ 130 Mo (1 000 événements ×
+~130 Kio de chaînes plafonnées, cible plus template). La mémoire reste bornée,
+mais l'enveloppe inclut le plafond d'événements, le plafond de contextes racines
+et le plafond d'ascendance, multipliés par le plafond de traces. Un opérateur qui
+soupçonne un émetteur de textes surdimensionnés devrait abaisser
+`max_events_per_trace` ou `max_active_traces` (voir la section sur la pression
+mémoire de `docs/FR/RUNBOOK-FR.md`).
