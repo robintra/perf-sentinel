@@ -253,7 +253,7 @@ ou comme moyen le moins coûteux de vérifier que le daemon tourne.
 | `max_active_traces`       | number | Plafond configuré de la fenêtre de corrélation (depuis 0.8.8)                                  |
 | `analysis_queue_depth`    | number | Batches en attente dans la file du worker d'analyse (depuis 0.8.8)                             |
 | `analysis_queue_capacity` | number | Plafond configuré de cette file (depuis 0.8.8)                                                 |
-| `stored_findings`         | number | Findings actuellement retenus dans le ring buffer                                              |
+| `stored_findings`         | number | Findings actuellement retenus dans le ring buffer de requêtage                                 |
 | `max_retained_findings`   | number | Plafond configuré de ce ring buffer (depuis 0.8.8)                                             |
 | `oldest_finding_ms`       | number | Instant de détection du plus ancien finding retenu, absent si le ring est vide (depuis 0.20.0) |
 
@@ -336,8 +336,8 @@ curl -sS http://127.0.0.1:4318/api/config
 }
 ```
 
-(Champs abrégés ci-dessus. La réponse live porte l'ensemble complet
-listé sous **Forme de réponse**.)
+(Champs omis ci-dessus par souci de concision. La réponse live porte
+l'ensemble complet listé sous **Forme de réponse**.)
 
 ### GET /api/energy
 
@@ -792,11 +792,11 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 
 ### GET /api/export/report
 
-Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec la même forme que `perf-sentinel analyze --format json`. Le dashboard HTML `perf-sentinel report` post-mortem peut ingérer ce snapshot du daemon live via HTTP par simple composition shell.
+Snapshot de l'état courant en mémoire du daemon sous forme de JSON `Report`, avec la même forme que `perf-sentinel analyze --format json`. Le dashboard HTML `perf-sentinel report` post-mortem peut ingérer ce snapshot du daemon live via HTTP par simple composition shell.
 
 La section `analysis` reflète les compteurs du daemon sur toute sa durée de vie (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config). Le snapshot porte une photo CO2 vivante de ce batch (voir **Portée du snapshot** plus bas pour ce qu'elle couvre et ne couvre pas). Le bandeau de chips et l'onglet GreenOps du dashboard HTML apparaissent sur les daemons configurés avec Electricity Maps. La quality gate est évaluée sur le snapshot, contre les findings vivants et les seuils figés au démarrage du daemon, donc `quality_gate.passed` porte le même verdict que celui du pipeline batch sur cet état. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
 
-**Portée du snapshot.** Deux populations coexistent dans le payload, et les confondre fausse les chiffres carbone de plusieurs ordres de grandeur. `findings` est plafonné par `[daemon] max_export_findings` (défaut 1000, surchargeable au lancement par `watch --max-export-findings`), les plus récentes : un daemon qui retient 46 000 findings en exporte 2 %, couvrant les dernières minutes plutôt que son uptime. `green_summary` n'est pas un agrégat sur ces findings : c'est le dernier résumé par batch écrit par l'event loop, donc ses valeurs absolues (`total_io_ops`, `co2`, `energy_kwh`) décrivent un batch, tandis que ses ratios restent représentatifs. La `quality_gate` compte donc les règles sur findings depuis la tranche exportée et lit `io_waste_ratio` sur ce batch. L'endpoint énonce ces deux faits dans `warning_details` sous le kind `snapshot_scope`, que le dashboard HTML affiche dans son bandeau. La sortie batch ne porte aucun de ces avertissements : là, tous les chiffres viennent de la même passe sur l'entrée.
+**Portée du snapshot.** Deux populations coexistent dans le payload, et les confondre fausse les chiffres carbone de plusieurs ordres de grandeur. `findings` est plafonné par `[daemon] max_export_findings` (défaut 1000, surchargeable au lancement par `watch --max-export-findings`), les plus récents : un daemon qui retient 46 000 findings en exporte 2 %, couvrant les dernières minutes plutôt que son uptime. `green_summary` n'est pas un agrégat sur ces findings : c'est le dernier résumé par batch écrit par l'event loop, donc ses valeurs absolues (`total_io_ops`, `co2`, `energy_kwh`) décrivent un batch, tandis que ses ratios restent représentatifs. La `quality_gate` compte donc les règles sur findings depuis la tranche exportée et lit `io_waste_ratio` sur ce batch. L'endpoint énonce ces deux faits dans `warning_details` sous le kind `snapshot_scope`, que le dashboard HTML affiche dans son bandeau. La sortie batch ne porte aucun de ces avertissements : là, tous les chiffres viennent de la même passe sur l'entrée.
 
 **Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les sondes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans chaîne d'avertissement et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) est conservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier événement ingéré et le premier tick d'éviction.
 
@@ -816,9 +816,9 @@ La sous-commande `report` auto-détecte la forme JSON : un tableau de premier ni
 
 ### POST /api/findings/{signature}/ack
 
-Acquitter un finding au runtime. La signature est le canonique
+Acquitter un finding au runtime. La signature est la forme canonique
 `<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix>`
-produit par la même logique de hash que le workflow TOML CI (voir
+produite par la même logique de hash que le workflow TOML CI (voir
 `docs/FR/ACKNOWLEDGMENTS-FR.md`). Disponible depuis 0.5.20.
 
 Le daemon maintient un store JSONL append-only à
@@ -842,7 +842,7 @@ peut pas s'accumuler à l'infini.
 ```json
 {
   "by": "alice@example.com",
-  "reason": "différé au prochain trimestre, voir TICKET-1234",
+  "reason": "deferred to next quarter, see TICKET-1234",
   "expires_at": "2026-08-01T00:00:00Z"
 }
 ```
@@ -857,7 +857,7 @@ peut pas s'accumuler à l'infini.
 | 409    | Déjà acquittée, côté daemon ou par la baseline TOML CI (plus bas)  |
 | 415    | `Content-Type: application/json` manquant                          |
 | 422    | JSON valide, mais un champ ne parse pas, `expires_at` par exemple  |
-| 500    | L'écriture dans le store a échoué, `ack store write failed`        |
+| 500    | L'écriture dans le store a échoué, `ack store write failed` dans le corps |
 | 503    | `[daemon.ack] enabled = false`, le store ack runtime est hors ligne |
 | 507    | Un plafond du store est atteint, le corps dit lequel (plus bas)    |
 
@@ -899,7 +899,7 @@ SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: alice@example.com" \
-  -d '{"reason":"différé au prochain trimestre","expires_at":"2026-08-01T00:00:00Z"}'
+  -d '{"reason":"deferred to next quarter","expires_at":"2026-08-01T00:00:00Z"}'
 # 201 Created
 ```
 
@@ -920,8 +920,8 @@ immédiatement.
 | 204    | Ack révoqué                                            |
 | 400    | La signature ne correspond pas au format canonique     |
 | 401    | Clé d'API requise et manquante ou mauvaise             |
-| 404    | La signature n'est pas actuellement acquittée daemon   |
-| 500    | L'écriture a échoué, `ack store write failed`          |
+| 404    | La signature n'est pas actuellement acquittée côté daemon |
+| 500    | L'écriture dans le store a échoué, `ack store write failed` |
 | 503    | Store ack runtime hors ligne                           |
 
 Une révocation ne répond jamais `507`. Elle ajoute sa propre ligne,
@@ -960,7 +960,7 @@ configurée gouverne aussi les lectures.
     "action": "ack",
     "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "by": "alice@example.com",
-    "reason": "différé au prochain trimestre",
+    "reason": "deferred to next quarter",
     "at": "2026-05-04T13:30:00Z",
     "expires_at": "2026-08-01T00:00:00Z"
   }
@@ -975,7 +975,7 @@ Avec `include_toml=true` :
     "action": "ack",
     "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "by": "alice@example.com",
-    "reason": "différé au prochain trimestre",
+    "reason": "deferred to next quarter",
     "at": "2026-05-04T13:30:00Z",
     "expires_at": "2026-08-01T00:00:00Z",
     "source": "daemon"
@@ -984,7 +984,7 @@ Avec `include_toml=true` :
     "action": "ack",
     "signature": "slow_sql:billing-svc:GET__invoices:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "by": "ci-bot",
-    "reason": "baseline permanente",
+    "reason": "permanent baseline",
     "at": "2026-05-04",
     "expires_at": "2026-12-31T23:59:59Z",
     "source": "toml"
@@ -1040,7 +1040,7 @@ receivers:
         http_config:
           http_headers:
             X-API-Key:
-              secrets: [ "<la api_key de [daemon.incidents]>" ]
+              secrets: [ "<the [daemon.incidents] api_key>" ]
 ```
 
 L'authentification est l'en-tête `X-API-Key` ou `Authorization: Bearer`
@@ -1053,8 +1053,8 @@ récent. En dessous, la même configuration brute porte la clé en
 
 Le Bearer s'adresse aux appelants serveur à serveur. La couche CORS
 annonce `x-api-key` mais pas `authorization`, donc un client navigateur
-d'une autre origine est refusé au préambule et continue d'utiliser
-l'en-tête.
+d'une autre origine est refusé dès la requête de pré-vérification CORS
+(preflight) et continue d'utiliser l'en-tête.
 
 Le Bearer existe pour les deux opérateurs Kubernetes qui génèrent un
 receiver, parce qu'aucun ne sait envoyer un en-tête libre. Le
@@ -1238,7 +1238,7 @@ garde la baseline CI immuable côté daemon, donc un SRE ne peut pas
 | TOML   | Fichier du repo         | `git log`                 | Non (PR-only)      |
 | Daemon | `acks.jsonl` sur disque | JSONL append + compaction | Oui (POST/DELETE)  |
 
-### Behavior change en 0.5.20 : filtre par défaut sur `/api/findings`
+### Changement de comportement en 0.5.20 : filtre par défaut sur `/api/findings`
 
 `GET /api/findings` (et les filtres `?service=` / `?type=` /
 `?severity=`) omettent désormais les findings acquittés par défaut.
@@ -1255,11 +1255,11 @@ findings acquittés même dans le chemin par défaut.
 
 ## Réponses d'erreur
 
-| Condition                                         | Status | Corps                                                                                                   |
+| Condition                                         | Statut | Corps                                                                                                   |
 |---------------------------------------------------|--------|---------------------------------------------------------------------------------------------------------|
 | `trace_id` inconnu sur `/api/findings/{trace_id}` | 200    | `[]`                                                                                                    |
 | `trace_id` inconnu sur `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`                                                         |
-| Corrélations désactivées ou correlator inactif    | 200    | `[]`                                                                                                    |
+| Corrélations désactivées ou corrélateur inactif   | 200    | `[]`                                                                                                    |
 | `/api/export/report` sur daemon cold-start        | 200    | enveloppe Report vide avec `warnings: ["daemon has not yet processed any events"]` (avant 0.5.16 : 503) |
 | Paramètre de requête malformé (ex. `limit=abc`)   | 400    | erreur en texte brut générée par axum                                                                   |
 | Chemin inconnu (ex. `/api/does-not-exist`)        | 404    | corps vide                                                                                              |
@@ -1287,10 +1287,10 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: "perf-sentinel a détecté un anti-pattern de performance critique"
+          summary: "perf-sentinel detected a critical performance anti-pattern"
           description: |
-            Compteur de findings critiques: {{ $value }}.
-            Interrogez `/api/findings?severity=critical` sur le daemon pour les détails.
+            Critical finding count is {{ $value }}.
+            Query `/api/findings?severity=critical` on the daemon for details.
 ```
 
 L'endpoint Prometheus intégré à `/metrics` expose déjà
@@ -1303,23 +1303,23 @@ Utilisez l'API de requêtage pour récupérer le **payload** (template,
 trace ID, suggestion) que le handler d'alerte inclut dans la
 notification.
 
-### Dashboard Grafana custom via le datasource JSON
+### Dashboard Grafana personnalisé via le datasource JSON
 
 Installez le plugin Grafana JSON API datasource, pointez-le vers le
 daemon et construisez des tableaux par service. Exemple de requête de
 panneau qui retourne les 20 findings les plus récents pour `order-svc` :
 
 ```
-URL :     http://perf-sentinel.internal:4318/api/findings
-Méthode : GET
-Params :  service=order-svc
-          limit=20
-Champs :  $.finding.type,
-          $.finding.severity,
-          $.finding.pattern.template,
-          $.finding.pattern.occurrences,
-          $.finding.source_endpoint,
-          $.stored_at_ms
+URL:     http://perf-sentinel.internal:4318/api/findings
+Method:  GET
+Params:  service=order-svc
+         limit=20
+Fields:  $.finding.type,
+         $.finding.severity,
+         $.finding.pattern.template,
+         $.finding.pattern.occurrences,
+         $.finding.source_endpoint,
+         $.stored_at_ms
 ```
 
 Couplez cela avec l'endpoint Prometheus `/metrics` déjà exposé par le
@@ -1331,7 +1331,7 @@ cliquer.
 
 Si votre daemon a un scraper opt-in configuré (`[green.scaphandre]`,
 `[green.cloud]`, `[green.electricity_maps]`, `[pg_stat]`), une stagnation
-dans `active_traces` ou la croissance de `stored_findings` est un signal
+de la croissance de `active_traces` ou de `stored_findings` est un signal
 fort que l'ingestion est bloquée. Extrait bash à intégrer dans un
 runbook on-call :
 
@@ -1346,8 +1346,8 @@ traces=$(echo "$response" | jq -r '.active_traces')
 findings=$(echo "$response" | jq -r '.stored_findings')
 
 if [ "$uptime" -gt 300 ] && [ "$traces" -eq 0 ] && [ "$findings" -eq 0 ]; then
-  echo "Le daemon perf-sentinel est inactif depuis ${uptime}s sans traces ni findings"
-  echo "Vérifier le chemin d'ingestion: endpoint OTLP, config collector, env vars Java agent"
+  echo "perf-sentinel daemon has been idle for ${uptime}s with no traces or findings"
+  echo "Check ingestion path: OTLP endpoint, collector config, Java agent env vars"
   exit 1
 fi
 ```
