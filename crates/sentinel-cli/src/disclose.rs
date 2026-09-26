@@ -85,9 +85,9 @@ impl From<PeriodTypeCli> for PeriodType {
 
 /// Read-only `disclose --tui` preview: a calendar stepper over the period,
 /// live intent and confidentiality toggles, an aggregated summary, and the
-/// equivalent `disclose` command. Never hashes or writes the report — the
+/// equivalent `disclose` command. Never hashes or writes the report: the
 /// canonical artefact stays on the reproducible CLI/CI path (`cmd_disclose`).
-/// Compiled only with the `tui` feature; the canonical `disclose` path does
+/// Compiled only with the `tui` feature. The canonical `disclose` path does
 /// not depend on any of it.
 #[cfg(feature = "tui")]
 pub(crate) mod preview {
@@ -964,7 +964,7 @@ pub(crate) mod preview {
             state.cycle_granularity();
             assert_eq!(state.granularity(), Granularity::Custom);
             assert_eq!(state.resolved_dates(), (d(2026, 3, 10), d(2026, 3, 12)));
-            // Push the From edge past To; To follows so the range stays ordered.
+            // Push the From edge past To, and To follows so the range stays ordered.
             state.step(true);
             state.step(true);
             state.step(true);
@@ -1075,7 +1075,7 @@ pub(crate) mod preview {
             state.cycle_granularity();
             state.cycle_granularity();
             assert_eq!(state.granularity(), Granularity::Custom);
-            // Move the "to" edge one month forward; "from" unchanged.
+            // Move the "to" edge one month forward. "from" stays unchanged.
             state.toggle_custom_field();
             state.step_month(true);
             assert_eq!(state.resolved_dates(), (d(2026, 3, 10), d(2026, 4, 20)));
@@ -1289,7 +1289,7 @@ fn write_optional_attestation(
 // Non-fatal continuity + completeness warnings. temporal_coverage is never
 // a hard gate (archiving is traffic-gated, so a low value can be a quiet
 // period), only surfaced here and as an in-band disclaimer. Pure (returns the
-// lines) so it is unit-testable, cmd_disclose prints them to stderr.
+// lines) so it is unit-testable. cmd_disclose prints them to stderr.
 fn non_fatal_warnings(
     coverage: &TemporalCoverage,
     intent: ReportIntent,
@@ -1374,11 +1374,11 @@ pub(crate) fn build_report(
 ) -> PeriodicReport {
     // Omitted rather than zeroed when no window carried a carbon figure,
     // so "not measured" never reads as "measured at zero".
-    // Published whenever a window carried carbon at all, zero included: the
+    // Published whenever a window carried carbon at all, zero included. The
     // field exists to make a lowered embodied coefficient visible, and
-    // omitting it at zero would hide the most extreme version of exactly
-    // that, an operator who sets the coefficient to 0 looking identical to
-    // a pre-v1.6 report.
+    // omitting it at zero would hide the most extreme case: an operator who
+    // sets the coefficient to 0 would publish a report that looks identical
+    // to a pre-v1.6 one.
     let embodied_total = aggregate
         .aggregate
         .carbon_breakdown
@@ -1609,7 +1609,7 @@ fn day_or_days(n: u32) -> &'static str {
 
 /// Append the temporal-continuity figure and its traffic-gated caveat. Always
 /// appended (the figure is published for transparency, never a hard gate), so
-/// a reader sees how much of the declared period actually carried measurements.
+/// a reader sees how much of the declared period carried measurements.
 fn augment_disclaimers_for_temporal_coverage(
     mut disclaimers: Vec<String>,
     tc: &TemporalCoverage,
@@ -1652,7 +1652,6 @@ fn build_applications(
             // Zero I/O recorded but findings present: cannot publish 100%.
             if any_anti_pattern == 0 { 100.0 } else { 0.0 }
         } else {
-            // Efficiency = 100 - 100 * avoidable / total_io_ops (clamped).
             (100.0 - 100.0 * (avoidable as f64) / (accum.total_io_ops as f64)).clamp(0.0, 100.0)
         };
         let endpoints_observed = u32::try_from(accum.endpoints_seen.len()).unwrap_or(u32::MAX);
@@ -1709,7 +1708,7 @@ fn build_anti_pattern_details(
     service_carbon_kwh_ratio: f64,
 ) -> Vec<AntiPatternDetail> {
     // Proxy coefficient lifted from the carbon module so the per-pattern
-    // waste line up with the aggregate proxy energy. Region-blind, see
+    // waste lines up with the aggregate proxy energy. Region-blind, see
     // design doc 08.
     const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1;
     let now = Utc::now();
