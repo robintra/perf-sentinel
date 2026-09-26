@@ -11,13 +11,13 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | [01 : Pipeline et types](01-PIPELINE-AND-TYPES-FR.md)               | Pipeline vs architecture hexagonale, chaîne de types, découpage en workspace, sortie déterministe, quality gate                                                                                      |
 | [02 : Normalisation](02-NORMALIZATION-FR.md)                        | Machine à états SQL, normaliseur HTTP, micro-optimisations (batch push, saut IN-list, UUID codé à la main)                                                                                           |
 | [03 : Corrélation et streaming](03-CORRELATION-AND-STREAMING-FR.md) | Groupement batch par HashMap, cache LRU, buffer circulaire, éviction TTL, budget mémoire                                                                                                             |
-| [04 : Détection](04-DETECTION-FR.md)                                | Algorithmes de détection N+1, redondant et lent, clés empruntées, fenêtre basée sur les itérateurs, correctifs suggérés indexés par framework ou par broker                                          |
+| [04 : Détection](04-DETECTION-FR.md)                                | Algorithmes de détection N+1, redondant et lent, clés empruntées, fenêtre basée sur les itérateurs, corrélation cross-trace, correctifs suggérés indexés par framework ou par broker                 |
 | [05 : GreenOps et carbone](05-GREENOPS-AND-CARBON-FR.md)            | Formule IIS, dédup du ratio de gaspillage, conversion CO2, alignement SCI, attribution de l'énergie base de données et broker                                                                        |
-| [06 : Ingestion et daemon](06-INGESTION-AND-DAEMON-FR.md)           | Conversion OTLP, admission des spans messaging et résolution du lien producteur, boucle événementielle du daemon, échantillonnage, renforcement sécurité                                             |
-| [07 : CLI, config et release](07-CLI-CONFIG-RELEASE-FR.md)          | Sous-commandes bench, query, report, diff. Générateur dashboard HTML, export CSV, hash deep-link, modal cheatsheet, raccourcis clavier style vim. Parsing de la config, profil release, distribution |
+| [06 : Ingestion et daemon](06-INGESTION-AND-DAEMON-FR.md)           | Conversion OTLP, admission des spans messaging et résolution du lien producteur, boucle événementielle du daemon, échantillonnage, renforcement sécurité, API de requête, pg_stat via Prometheus     |
+| [07 : CLI, config et release](07-CLI-CONFIG-RELEASE-FR.md)          | Sous-commandes bench, query, report, diff. Générateur dashboard HTML, export CSV, hash deep-link, modal cheatsheet, raccourcis d'onglets style vim. Parsing de la config, profil release, distribution, localisation du code source |
 | [08 : Rapport public périodique](08-PERIODIC-DISCLOSURE-FR.md)      | Déterminisme du schéma jusqu'à v1.5, granularité G1/G2, validateur collect-all, attribution par service, provenance mesurée/déclarée/estimée, writer d'archive daemon, dispatcher CLI `disclose`     |
 | [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)             | Énergie + carbone par service au scoring, attribution de la région, précédence des modèles, branchement runtime-vs-proxy dans l'agrégateur                                                           |
-| [10 : Sigstore et SLSA](10-SIGSTORE-ATTESTATION-FR.md)              | Predicate in-toto v1, flux de signature Sigstore cosign, provenance SLSA Build L3 du binaire, chaîne `verify-hash`, confidentialité sur Rekor public                                                 |
+| [10 : Sigstore et SLSA](10-SIGSTORE-ATTESTATION-FR.md)              | Predicate in-toto v1, flux de signature Sigstore cosign, provenance SLSA Build L3, chaîne `verify-hash`, confidentialité sur Rekor public                                                            |
 
 ## Correspondance avec les fichiers source
 
@@ -27,15 +27,15 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `event.rs`                     | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
 | `pipeline.rs`                  | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
 | `quality_gate.rs`              | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)                                                            |
+| `acknowledgments.rs`           | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `calibrate.rs`                 | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
+| `shutdown.rs`                  | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
+| `text_safety.rs`               | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `explain.rs`                   | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md), [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
 | `diff.rs`                      | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `synth.rs`                     | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `http_client.rs`               | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
 | `time.rs`                      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
-| `acknowledgments.rs`           | [04 : Détection](04-DETECTION-FR.md)                                                                    |
-| `calibrate.rs`                 | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
-| `shutdown.rs`                  | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)                                                         |
-| `text_safety.rs`               | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `normalize/sql.rs`             | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
 | `normalize/http.rs`            | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
 | `normalize/mod.rs`             | [02 : Normalisation](02-NORMALIZATION-FR.md)                                                            |
@@ -45,6 +45,7 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `detect/n_plus_one.rs`         | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/redundant.rs`          | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/slow.rs`               | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/correlate_cross.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/fanout.rs`             | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/chatty.rs`             | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/pool_saturation.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
@@ -60,7 +61,7 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `score/prom_parser.rs`         | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `score/ops_snapshot_diff.rs`   | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `score/broker_static.rs`       | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
-| `score/canonical.rs`           | [08 : Transparence périodique](08-PERIODIC-DISCLOSURE-FR.md)                                            |
+| `score/canonical.rs`           | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `score/alumet/`                | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/scaphandre/`            | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/kepler/`                | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
@@ -101,4 +102,3 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `sentinel-cli/src/main.rs`     | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
 | `sentinel-cli/src/disclose.rs` | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md)                                                 |
 | `sentinel-cli/src/tui/`        | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)                                                          |
-| `detect/correlate_cross.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
