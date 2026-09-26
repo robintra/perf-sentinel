@@ -9,19 +9,19 @@ Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into 
 
 ## Why not use `sqlparser`?
 
-The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that builds an AST. We deliberately chose a homemade tokenizer instead:
+The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that builds an AST. We chose a homemade tokenizer instead:
 
 - **Binary size:** sqlparser adds ~300KB to the release binary. perf-sentinel targets < 15 MB total.
 - **Dependency weight:** sqlparser pulls in additional crates and increases compile time.
-- **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals, it never needs to understand query structure.
+- **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals and never needs to understand query structure.
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
 - **Simplicity:** 120 lines of code vs a 50,000+ line dependency.
 
 The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings and `CALL` statements.
 
-This "never understands query structure" property is sufficient for the whole pipeline, not just this stage. Every detector (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) reasons over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
+This "never understands query structure" property is sufficient for every stage of the pipeline. Every detector (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) reasons over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
 
-A quieter benefit: the tokenizer is *total*. It always emits a best-effort template, even on truncated or unknown-dialect SQL (see the unterminated-literal handling), whereas a real parser rejects input it cannot parse. Since trace SQL is whatever a driver happened to log, a strict parser would need this tokenizer as a fallback anyway.
+The tokenizer is also *total*. It always emits a best-effort template, even on truncated or unknown-dialect SQL (see the unterminated-literal handling), whereas a real parser rejects input it cannot parse. Since trace SQL is whatever a driver happened to log, a strict parser would need this tokenizer as a fallback anyway.
 
 ## SQL tokenizer: single-pass state machine
 
@@ -124,7 +124,7 @@ fn is_uuid(s: &str) -> bool {
 }
 ```
 
-**Why hand-coded?** This function is called on every path segment of every HTTP URL in the pipeline. A compiled regex (`Regex::is_match`) takes ~150ns per call due to the regex engine overhead. The hand-coded check takes ~3ns, a length check (fast rejection for >99% of segments), four byte comparisons for dash positions and a single pass for hex digits.
+**Why hand-coded?** This function is called on every path segment of every HTTP URL in the pipeline. A compiled regex (`Regex::is_match`) takes ~150ns per call due to the regex engine overhead. The hand-coded check takes ~3ns: a length check (fast rejection for >99% of segments), four byte comparisons for dash positions and a single pass for hex digits.
 
 At 100,000 events/sec with an average of 4 path segments per URL, this saves ~60ms/sec of regex overhead.
 
@@ -147,13 +147,13 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
 
 This splits the authority from the path without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://` and bare paths (`/api/foo`, which have no authority).
 
-The callee host is then kept in the template for DNS-addressed calls (`GET user-svc/api/foo`) and dropped for IP-literal authorities. `host_group_prefix` classifies the authority: an IPv4 dotted-decimal or a bracketed IPv6 literal is a load-balanced replica address and is dropped, so pods behind one service keep deduping into one template, while a DNS hostname is lowercased, stripped of RFC 3986 userinfo and port, and prepended to the path.
+The callee host is then kept in the template for DNS-addressed calls (`GET user-svc/api/foo`) and dropped for IP-literal authorities. `host_group_prefix` classifies the authority. An IPv4 dotted-decimal or a bracketed IPv6 literal is a load-balanced replica address and is dropped, so pods behind one service keep deduping into one template. A DNS hostname is lowercased, stripped of RFC 3986 userinfo and port, and prepended to the path.
 
-Keeping the host stops two calls to the same path on different backends (`http://ms-a/x`, `http://ms-b/x`) from collapsing into one template and raising a false `redundant_http`. Because the finding signature hashes the template (`acknowledgments::compute_signature`), an outbound-HTTP finding's ack signature therefore depends on the callee host.
+Keeping the host stops two calls to the same path on different backends (`http://ms-a/x`, `http://ms-b/x`) from collapsing into one template and raising a false `redundant_http`. Because the finding signature hashes the template (`acknowledgments::compute_signature`), an outbound-HTTP finding's ack signature depends on the callee host.
 
 ### Query parameter limit
 
-Query parameters are stripped from the URL template and collected into `params`. The collection is capped at 100 parameters via `.take(100)` to prevent unbounded memory allocation from URLs with adversarially large query strings. Since query parameters are not part of the normalized template, excess parameters beyond 100 are simply not extracted.
+Query parameters are stripped from the URL template and collected into `params`. The collection is capped at 100 parameters via `.take(100)` to prevent unbounded memory allocation from URLs with adversarially large query strings. Since query parameters are not part of the normalized template, excess parameters beyond 100 are not extracted.
 
 ### Pre-allocation
 
@@ -177,12 +177,12 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 ```
 
-The messaging arm normalizes nothing on purpose: a topic or queue name is
-already a template, with no variable part to extract. Routing it through
+The messaging arm normalizes nothing: a topic or queue name is already a
+template, with no variable part to extract. Routing it through
 `normalize_http` would mask numeric segments as `{id}` and strip the account
 id out of an SQS queue ARN, merging two AWS accounts into one template. The
-one transformation it does apply lives in `sanitize_span_event`, not here:
-a destination carrying a scheme (`amqp://user:pass@host/q`) has its userinfo
+one transformation it does apply lives in `sanitize_span_event`, not here. A
+destination carrying a scheme (`amqp://user:pass@host/q`) has its userinfo
 and query stripped, because unlike SQL and HTTP this arm has no parser
 between an operator-supplied string and the finding template. A scheme-less
 destination is left byte-for-byte alone, since `@` and `#` are legal in

@@ -1,23 +1,23 @@
 # Index de la documentation de conception
 
-Ce répertoire contient la documentation de conception approfondie de perf-sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise, pas seulement ce que le code fait. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
+Ce répertoire contient la documentation de conception approfondie de perf-sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
 
 Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/FR/`](../00-INDEX-FR.md).
 
 ## Table des matières
 
-| Document                                                            | Sujets                                                                                                                                                                                         |
-|---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [01 : Pipeline et types](01-PIPELINE-AND-TYPES-FR.md)               | Pipeline vs architecture hexagonale, chaîne de types, découpage en workspace, sortie déterministe, quality gate                                                                                |
-| [02 : Normalisation](02-NORMALIZATION-FR.md)                        | Machine à états SQL, normaliseur HTTP, micro-optimisations (batch push, saut IN-list, UUID codé à la main)                                                                                     |
-| [03 : Corrélation et streaming](03-CORRELATION-AND-STREAMING-FR.md) | Groupement batch par HashMap, cache LRU, buffer circulaire, éviction TTL, budget mémoire                                                                                                       |
-| [04 : Détection](04-DETECTION-FR.md)                                | Algorithmes de détection N+1, redondant et lent, clés empruntées, fenêtre basée sur les itérateurs, correctifs suggérés indexés par framework ou par broker                                    |
-| [05 : GreenOps et carbone](05-GREENOPS-AND-CARBON-FR.md)            | Formule IIS, dédup du ratio de gaspillage, conversion CO2, alignement SCI, attribution de l'énergie base de données et broker                                                                  |
-| [06 : Ingestion et daemon](06-INGESTION-AND-DAEMON-FR.md)           | Conversion OTLP, admission des spans messaging et résolution du lien producteur, boucle événementielle du daemon, échantillonnage, renforcement sécurité                                       |
+| Document                                                            | Sujets                                                                                                                                                                                               |
+|---------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [01 : Pipeline et types](01-PIPELINE-AND-TYPES-FR.md)               | Pipeline vs architecture hexagonale, chaîne de types, découpage en workspace, sortie déterministe, quality gate                                                                                      |
+| [02 : Normalisation](02-NORMALIZATION-FR.md)                        | Machine à états SQL, normaliseur HTTP, micro-optimisations (batch push, saut IN-list, UUID codé à la main)                                                                                           |
+| [03 : Corrélation et streaming](03-CORRELATION-AND-STREAMING-FR.md) | Groupement batch par HashMap, cache LRU, buffer circulaire, éviction TTL, budget mémoire                                                                                                             |
+| [04 : Détection](04-DETECTION-FR.md)                                | Algorithmes de détection N+1, redondant et lent, clés empruntées, fenêtre basée sur les itérateurs, correctifs suggérés indexés par framework ou par broker                                          |
+| [05 : GreenOps et carbone](05-GREENOPS-AND-CARBON-FR.md)            | Formule IIS, dédup du ratio de gaspillage, conversion CO2, alignement SCI, attribution de l'énergie base de données et broker                                                                        |
+| [06 : Ingestion et daemon](06-INGESTION-AND-DAEMON-FR.md)           | Conversion OTLP, admission des spans messaging et résolution du lien producteur, boucle événementielle du daemon, échantillonnage, renforcement sécurité                                             |
 | [07 : CLI, config et release](07-CLI-CONFIG-RELEASE-FR.md)          | Sous-commandes bench, query, report, diff. Générateur dashboard HTML, export CSV, hash deep-link, modal cheatsheet, raccourcis clavier style vim. Parsing de la config, profil release, distribution |
-| [08 : Rapport public périodique](08-PERIODIC-DISCLOSURE-FR.md)      | Déterminisme du schéma jusqu'à v1.5, granularité G1/G2, validator collect-all, attribution par service, provenance mesurée/déclarée/estimée, writer d'archive daemon, dispatcher CLI `disclose` |
-| [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)             | Énergie + carbone par service au scoring, attribution de la région, précédence des modèles, branchement runtime-vs-proxy dans l'aggregator                                                     |
-| [10 : Sigstore et SLSA](10-SIGSTORE-ATTESTATION-FR.md)              | Predicate in-toto v1, flow signature Sigstore cosign, provenance SLSA Build L3 du binaire, chaîne `verify-hash`, privacy sur Rekor public                                                      |
+| [08 : Rapport public périodique](08-PERIODIC-DISCLOSURE-FR.md)      | Déterminisme du schéma jusqu'à v1.5, granularité G1/G2, validateur collect-all, attribution par service, provenance mesurée/déclarée/estimée, writer d'archive daemon, dispatcher CLI `disclose`     |
+| [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)             | Énergie + carbone par service au scoring, attribution de la région, précédence des modèles, branchement runtime-vs-proxy dans l'agrégateur                                                           |
+| [10 : Sigstore et SLSA](10-SIGSTORE-ATTESTATION-FR.md)              | Predicate in-toto v1, flux de signature Sigstore cosign, provenance SLSA Build L3 du binaire, chaîne `verify-hash`, confidentialité sur Rekor public                                                 |
 
 ## Correspondance avec les fichiers source
 

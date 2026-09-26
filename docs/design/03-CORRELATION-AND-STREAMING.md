@@ -6,7 +6,7 @@ Correlation groups normalized events by `trace_id` to form `Trace` objects for d
 
 ### Manual `get_mut` / `insert` pattern
 
-The batch correlator uses a deliberate pattern instead of the `HashMap::entry` API:
+The batch correlator uses this pattern instead of the `HashMap::entry` API:
 
 ```rust
 if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {
@@ -27,7 +27,7 @@ This is a well-known Rust optimization pattern documented in the [Rust Performan
 HashMap::with_capacity(events.len() / 10 + 1)
 ```
 
-The heuristic assumes ~10 events per trace on average. The `+ 1` prevents a zero-capacity map when `events.len() < 10`. Over-estimating is cheap (a few hundred bytes of unused bucket space), under-estimating triggers rehashing.
+The heuristic assumes ~10 events per trace on average. The `+ 1` prevents a zero-capacity map when `events.len() < 10`. Over-estimating is cheap (a few hundred bytes of unused bucket space). Under-estimating triggers rehashing.
 
 ## Streaming correlation: TraceWindow
 
@@ -89,11 +89,11 @@ without adding synthetic events or I/O metrics. Events, endpoint contexts,
 consumer destinations and ancestry entries are separate collections, and **each** is capped at
 `max_events_per_trace`. The ancestry LRU allocates
 progressively rather than reserving the configured cap for every trace.
-At the valid minimum cap of one, rotation may replace the sole parent entry;
-in that case a missing chain falls back only when the service has exactly one
+At the valid minimum cap of one, rotation may replace the sole parent entry.
+In that case a missing chain falls back only when the service has exactly one
 retained root and no distinct root for that service has been observed. A second
 distinct root marks the retained service as ambiguous even when the root cap
-drops that context; repeating an update for the same root does not. The
+drops that context. Repeating an update for the same root does not. The
 ambiguity set is limited to services with retained roots. Multi-root services
 and depth-exhausted chains remain unknown. This single-root fallback is never
 persisted in the active event or ancestry state: it is applied only to a
@@ -171,7 +171,7 @@ typical_memory = 10,000 × 50 × ~500 bytes = ~250 MB
 ```
 
 Endpoint contexts and progressively allocated ancestry entries add their actual
-occupancy to that event-only estimate; the configured 1,000-entry ancestry cap
+occupancy to that event-only estimate. The configured 1,000-entry ancestry cap
 is not preallocated for every trace.
 
 The config validation caps `max_active_traces` at 1,000,000 and `max_events_per_trace` at 100,000 to prevent accidental misconfiguration.
@@ -179,7 +179,7 @@ The config validation caps `max_active_traces` at 1,000,000 and `max_events_per_
 The ~500-byte average assumes well-behaved emitters. The adversarial
 worst case is bounded per field by `sanitize_span_event` at every
 ingest boundary (OTLP, JSON, Jaeger, Zipkin), with `MAX_TARGET_LENGTH`
-(64 KiB per `target`) as the dominating term: a hostile or pathological
+(64 KiB per `target`) as the dominating term. A hostile or pathological
 emitter shipping maximal SQL text in every event can push a single
 trace's event collection to roughly 130 MB (1,000 events × ~130 KiB of
 capped strings, target plus template). Memory stays bounded, but the

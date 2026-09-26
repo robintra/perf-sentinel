@@ -6,7 +6,7 @@ La corrélation regroupe les événements normalisés par `trace_id` pour former
 
 ### Pattern manuel `get_mut` / `insert`
 
-Le corrélateur batch utilise un pattern délibéré au lieu de l'API `HashMap::entry` :
+Le corrélateur batch utilise ce pattern au lieu de l'API `HashMap::entry` :
 
 ```rust
 if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {
@@ -27,7 +27,7 @@ C'est un pattern d'optimisation Rust bien connu documenté dans le [Rust Perform
 HashMap::with_capacity(events.len() / 10 + 1)
 ```
 
-L'heuristique suppose ~10 événements par trace en moyenne. Le `+ 1` empêche une map de capacité zéro quand `events.len() < 10`. Surestimer est peu coûteux (quelques centaines d'octets d'espace de buckets inutilisé), sous-estimer déclenche un rehashing.
+L'heuristique suppose ~10 événements par trace en moyenne. Le `+ 1` empêche une map de capacité zéro quand `events.len() < 10`. Surestimer est peu coûteux (quelques centaines d'octets d'espace de buckets inutilisé). Sous-estimer déclenche un rehashing.
 
 ## Corrélation streaming : TraceWindow
 
@@ -76,7 +76,7 @@ if buf.events.len() > self.config.max_events_per_trace {
 }
 ```
 
-**Pourquoi `VecDeque` ?** `Vec::remove(0)` est O(n) car il décale tous les éléments. `VecDeque::pop_front()` est O(1) car il est soutenu par un buffer circulaire. Pour les traces avec un grand nombre d'événements atteignant fréquemment le cap, cela évite une dégradation en O(n^2).
+**Pourquoi `VecDeque` ?** `Vec::remove(0)` est O(n) car il décale tous les éléments. `VecDeque::pop_front()` est O(1) car il est soutenu par un buffer circulaire. Pour les traces avec un grand nombre d'événements atteignant fréquemment le plafond, cela évite une dégradation en O(n^2).
 
 La capacité initiale est `VecDeque::with_capacity(8)` : une petite allocation pour les traces de courte durée qui évite les doublements répétés pour le cas courant de 1-10 événements.
 
@@ -91,21 +91,21 @@ consumer et entrées d'ascendance forment quatre collections distinctes, **chacu
 `max_events_per_trace`. Le LRU d'ascendance alloue sa
 mémoire progressivement au lieu de réserver le plafond configuré pour chaque
 trace. Au plafond minimal valide de un, la rotation peut remplacer l'unique
-entrée parent ; une chaîne manquante n'utilise alors un fallback que si le
+entrée parent. Une chaîne manquante n'utilise alors un repli que si le
 service possède exactement une racine conservée et qu'aucune racine distincte
 n'a été observée pour ce service. Une seconde racine distincte marque le service
-conservé comme ambigu même si le plafond rejette ce contexte ; répéter une mise
+conservé comme ambigu même si le plafond rejette ce contexte. Répéter une mise
 à jour de la même racine ne le fait pas. L'ensemble d'ambiguïté est limité aux
 services qui ont une racine conservée. Les services multi-racines et les chaînes
-ayant épuisé la profondeur restent inconnus. Ce fallback mono-racine n'est
+ayant épuisé la profondeur restent inconnus. Ce repli mono-racine n'est
 jamais persisté dans l'événement actif ni dans l'état d'ascendance : il est
 appliqué uniquement au résultat de `peek_clone` ou à une trace détachée lors de
 sa finalisation. Une racine distincte tardive peut ainsi rétracter l'aperçu
 provisoire sans réécrire les événements actifs. La réconciliation explicite
-fusionne d'abord les racines dans cet état autoritatif et borné avant de résoudre
+fusionne d'abord les racines dans cet état borné de référence avant de résoudre
 les événements. Les traces ne contenant que du contexte utilisent le même LRU
 `max_active_traces` et la même éviction `trace_ttl_ms` que les traces avec
-événements ; les routes précoces et l'ascendance intermédiaire ne peuvent donc
+événements. Les routes précoces et l'ascendance intermédiaire ne peuvent donc
 pas créer un état non borné. Seuls les identifiants OTLP valides des traces
 conservées par l'échantillonneur déterministe du daemon entrent dans cet état.
 
@@ -169,7 +169,7 @@ maximum théorique (10 000 × 1 000 × ~500 octets), auxquels s'ajoutent les
 contextes d'endpoint (route plus table des parents), destinations de consumer
 et entrées d'ascendance bornés séparément.
 
-En pratique, la plupart des traces ont bien moins d'événements que le cap. Pour
+En pratique, la plupart des traces ont bien moins d'événements que le plafond. Pour
 des traces typiques de 10 à 50 événements, la seule partie événements vaut
 environ :
 
@@ -178,7 +178,7 @@ mémoire_typique = 10 000 × 50 × ~500 octets = ~250 Mo
 ```
 
 Les contextes d'endpoint et les entrées d'ascendance allouées progressivement
-s'ajoutent à cette estimation limitée aux événements ; le plafond configuré de
+s'ajoutent à cette estimation limitée aux événements. Le plafond configuré de
 1 000 entrées d'ascendance n'est pas préalloué pour chaque trace.
 
 La validation de la config plafonne `max_active_traces` à 1 000 000 et `max_events_per_trace` à 100 000 pour éviter les erreurs de configuration accidentelles.

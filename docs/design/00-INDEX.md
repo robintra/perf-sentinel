@@ -1,6 +1,6 @@
 # Design documentation index
 
-This directory contains deep design documentation for perf-sentinel. These documents explain **why** each decision was made, not just what the code does. They are intended for contributors and maintainers who need to understand the rationale behind the implementation.
+This directory contains deep design documentation for perf-sentinel. These documents explain **why** each decision was made. They are intended for contributors and maintainers who need to understand the rationale behind the implementation.
 
 For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) directory.
 

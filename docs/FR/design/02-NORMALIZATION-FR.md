@@ -9,7 +9,7 @@ La normalisation est la deuxième étape du pipeline. Elle transforme les `SpanE
 
 ## Pourquoi ne pas utiliser `sqlparser` ?
 
-Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui construit un AST. Nous avons délibérément choisi un tokenizer maison à la place :
+Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui construit un AST. Nous avons choisi un tokenizer maison à la place :
 
 - **Taille du binaire :** sqlparser ajoute ~300 Ko au binaire release. perf-sentinel cible < 15 Mo au total.
 - **Poids des dépendances :** sqlparser amène des crates supplémentaires et augmente le temps de compilation.
@@ -17,11 +17,11 @@ Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui 
 - **Performance :** un parseur complet construit un AST que nous jetterions immédiatement. Notre tokenizer en une seule passe traite l'entrée en O(n) sans structure de données intermédiaire.
 - **Simplicité :** 120 lignes de code vs une dépendance de 50 000+ lignes.
 
-Le compromis est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : le tokenizer ne gère que le SQL ASCII et ne réalise pas d'analyse sémantique. Il supporte les CTEs, les identifiants double-quoted, les chaînes dollar-quoted PostgreSQL et les instructions `CALL`.
+Le compromis est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : le tokenizer ne gère que le SQL ASCII et ne réalise pas d'analyse sémantique. Il prend en charge les CTEs, les identifiants entre guillemets doubles, les chaînes dollar-quoted PostgreSQL et les instructions `CALL`.
 
-Cette propriété (ne jamais comprendre la structure de la requête) suffit pour tout le pipeline, pas seulement pour cette étape. Chaque détecteur (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) raisonne sur la *forme de la trace* (nombre d'occurrences, variance temporelle, ordonnancement des spans, scope d'instrumentation ORM) et sur le *fingerprint* de la requête, jamais sur sa grammaire interne. Une analyse SQL structurelle ne serait rentable que si perf-sentinel pivotait vers de l'analyse statique de requête isolée (une autre catégorie de produit), et même là un plan `EXPLAIN` vaut mieux que re-parser le texte loggé.
+Cette propriété (ne jamais comprendre la structure de la requête) suffit pour toutes les étapes du pipeline. Chaque détecteur (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) raisonne sur la *forme de la trace* (nombre d'occurrences, variance temporelle, ordonnancement des spans, scope d'instrumentation ORM) et sur l'*empreinte* de la requête, jamais sur sa grammaire interne. Une analyse SQL structurelle ne serait rentable que si perf-sentinel pivotait vers de l'analyse statique de requête isolée (une autre catégorie de produit), et même là un plan `EXPLAIN` vaut mieux que re-parser le texte journalisé.
 
-Un bénéfice plus discret : le tokenizer est *total*. Il produit toujours un template best-effort, même sur du SQL tronqué ou de dialecte inconnu (cf. la gestion des littéraux non terminés), là où un vrai parseur rejette une entrée qu'il ne sait pas analyser. Comme le SQL des traces est ce qu'un driver a bien voulu logger, un parseur strict aurait de toute façon besoin de ce tokenizer comme fallback.
+Le tokenizer est aussi *total*. Il produit toujours un template, construit au mieux, même sur du SQL tronqué ou de dialecte inconnu (cf. la gestion des littéraux non terminés), là où un vrai parseur rejette une entrée qu'il ne sait pas analyser. Comme le SQL des traces est ce qu'un driver a bien voulu journaliser, un parseur strict aurait de toute façon besoin de ce tokenizer comme repli.
 
 ## Tokenizer SQL : machine à états en une seule passe
 
@@ -147,13 +147,13 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
 
 Cela sépare l'autorité du chemin sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). Gère `http://`, `https://` et les chemins nus (`/api/foo`, qui n'ont pas d'autorité).
 
-Le host de l'appelé est ensuite gardé dans le template pour les appels adressés par DNS (`GET user-svc/api/foo`) et retiré pour les autorités en IP littérale. `host_group_prefix` classe l'autorité : une IPv4 en décimal pointé ou une IPv6 littérale entre crochets est une adresse de replica load-balancé et est retirée, donc les pods derrière un même service continuent de se regrouper dans un seul template, tandis qu'un nom d'hôte DNS est mis en minuscules, dépouillé de son userinfo RFC 3986 et de son port, puis préfixé au chemin.
+Le host de l'appelé est ensuite gardé dans le template pour les appels adressés par DNS (`GET user-svc/api/foo`) et retiré pour les autorités en IP littérale. `host_group_prefix` classe l'autorité. Une IPv4 en décimal pointé ou une IPv6 littérale entre crochets est une adresse de réplique derrière un répartiteur de charge et est retirée, donc les pods d'un même service continuent de se regrouper dans un seul template. Un nom d'hôte DNS est mis en minuscules, dépouillé de son userinfo RFC 3986 et de son port, puis préfixé au chemin.
 
-Garder le host empêche deux appels au même chemin sur des backends différents (`http://ms-a/x`, `http://ms-b/x`) de fusionner en un seul template et de lever un faux `redundant_http`. Comme la signature du finding hache le template (`acknowledgments::compute_signature`), la signature d'ack d'un finding HTTP sortant dépend donc du host de l'appelé.
+Garder le host empêche deux appels au même chemin sur des backends différents (`http://ms-a/x`, `http://ms-b/x`) de fusionner en un seul template et de lever un faux `redundant_http`. Comme la signature du finding hache le template (`acknowledgments::compute_signature`), la signature d'ack d'un finding HTTP sortant dépend du host de l'appelé.
 
 ### Limite de paramètres de requête
 
-Les paramètres de requête sont retirés du template URL et collectés dans `params`. La collection est plafonnée à 100 paramètres via `.take(100)` pour prévenir les allocations mémoire illimitées depuis des URLs avec des query strings adverses. Les paramètres de requête ne faisant pas partie du template normalisé, les paramètres au-delà de 100 ne sont simplement pas extraits.
+Les paramètres de requête sont retirés du template URL et collectés dans `params`. La collection est plafonnée à 100 paramètres via `.take(100)` pour prévenir les allocations mémoire illimitées depuis des URLs aux query strings démesurées construites par un attaquant. Les paramètres de requête ne faisant pas partie du template normalisé, les paramètres au-delà de 100 ne sont pas extraits.
 
 ### Pré-allocation
 
@@ -177,10 +177,10 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 ```
 
-Le bras messaging ne normalise rien, volontairement : un nom de topic ou de file est déjà un template, il n'a aucune partie variable à extraire. Le faire passer par `normalize_http` masquerait les segments numériques en `{id}` et retirerait l'identifiant de compte d'un ARN de file SQS, fusionnant deux comptes AWS dans un seul template. La seule transformation appliquée vit dans `sanitize_span_event`, pas ici : une destination porteuse d'un schéma (`amqp://user:pass@host/q`) se voit retirer ses identifiants et sa query, car contrairement à SQL et HTTP ce bras n'a aucun parseur entre une chaîne fournie par l'opérateur et le template du finding. Une destination sans schéma est laissée octet pour octet, puisque `@` et `#` sont légaux dans un nom de file (`ORDERS@QM1`, `logs.#`) et que les réécrire fusionnerait des destinations distinctes.
+Le bras messaging ne normalise rien : un nom de topic ou de file est déjà un template, il n'a aucune partie variable à extraire. Le faire passer par `normalize_http` masquerait les segments numériques en `{id}` et retirerait l'identifiant de compte d'un ARN de file SQS, fusionnant deux comptes AWS dans un seul template. La seule transformation appliquée vit dans `sanitize_span_event`, pas ici. Une destination qui comporte un schéma (`amqp://user:pass@host/q`) se voit retirer ses identifiants et sa chaîne de requête, car contrairement à SQL et HTTP ce bras n'a aucun parseur entre une chaîne fournie par l'opérateur et le template du finding. Une destination sans schéma est laissée octet pour octet, puisque `@` et `#` sont légaux dans un nom de file (`ORDERS@QM1`, `logs.#`) et que les réécrire fusionnerait des destinations distinctes.
 
 `normalize_all()` est un simple `events.into_iter().map(normalize).collect()`. Le `into_iter()` consomme le vecteur d'entrée et chaque `SpanEvent` est déplacé (pas cloné) dans le normaliseur.
 
 ## Défense en profondeur
 
-**Troncature des requêtes.** `normalize_sql` tronque l'entrée à `MAX_QUERY_LEN` (64 Ko) avant le traitement pour empêcher le tokenizer à états de tourner sur des entrées adversarialement longues. La troncature utilise `floor_char_boundary` pour éviter de couper des caractères UTF-8 multi-octets. C'est une deuxième couche après les limites de champs de `sanitize_span_event` appliquées à la frontière d'ingestion.
+**Troncature des requêtes.** `normalize_sql` tronque l'entrée à `MAX_QUERY_LEN` (64 Ko) avant le traitement pour empêcher le tokenizer à états de tourner sur des entrées démesurées construites par un attaquant. La troncature utilise `floor_char_boundary` pour éviter de couper des caractères UTF-8 multi-octets. C'est une deuxième couche après les limites de champs de `sanitize_span_event` appliquées à la frontière d'ingestion.
