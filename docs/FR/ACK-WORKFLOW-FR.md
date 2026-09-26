@@ -21,9 +21,9 @@ rapport statique n'a aucun chemin d'acquittement, car il n'a personne
 à qui poster.
 
 > **Qu'est-ce qu'une signature de finding.** Une signature est un
-> identifiant stable pour un finding, construit en hashant `(type de
-> finding, service, template d'endpoint normalisé, template normalisé
-> de requête, d'URL ou de destination)` avec SHA-256 et en gardant un
+> identifiant stable pour un finding, construit en hashant `(finding_type,
+> service, normalised endpoint template, normalised query, URL or destination template)`
+> avec SHA-256 et en gardant un
 > préfixe de 32 caractères hex. Le même finding produit par deux
 > redémarrages du daemon donne la même signature, donc un ack écrit
 > une fois reste attaché à sa cible à travers les redémarrages et à
@@ -48,7 +48,7 @@ intentionnels.
 signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 acknowledged_by = "team-architecture"
 acknowledged_at = "2026-05-04T13:30:00Z"
-reason = "Fan-out intentionnel pour endpoint de reporting batch"
+reason = "Intentional fanout for batch reporting endpoint"
 ```
 
 Commit, ouvrir une pull request, faire relire, fusionner. Le prochain
@@ -73,18 +73,18 @@ horodatages d'expiration optionnels.
 ```bash
 curl -X POST http://daemon:4318/api/findings/<sig>/ack \
   -H "Content-Type: application/json" \
-  -d '{"by":"alice","reason":"reporté","expires_at":"2026-05-11T00:00:00Z"}'
+  -d '{"by":"alice","reason":"deferred","expires_at":"2026-05-11T00:00:00Z"}'
 ```
 
 Quand l'auth est activée côté serveur (`[daemon.ack] api_key`),
-ajouter `-H "X-API-Key: <CLÉ>"`.
+ajouter `-H "X-API-Key: <KEY>"`.
 
 ### Ajouter un ack daemon via le CLI (depuis 0.5.22, recommandé)
 
 ```bash
 perf-sentinel ack create \
   --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
-  --reason "reporté au prochain sprint" \
+  --reason "deferred to next sprint" \
   --expires 7d
 ```
 
@@ -133,7 +133,7 @@ livrée via revue de PR et représente une décision immuable au niveau
 équipe. Le JSONL daemon est une surcharge mutable, limitée au runtime.
 
 Un ack daemon n'atteint jamais la CI. Le JSONL vit sur le disque de
-ce daemon-là, donc acquitter depuis le dashboard, la TUI ou
+ce daemon-là, donc acquitter depuis le dashboard, le TUI ou
 `ack create` fait taire ce daemon et rien d'autre. La gate CI, la
 baseline du Diff et l'avertissement `unmatched_acknowledgment` ne
 lisent que le TOML. Pour débloquer un pipeline, copiez la signature
@@ -143,13 +143,13 @@ côtés, le dashboard est donc un bon endroit d'où la copier.
 ### Écrire une entrée TOML sans rien recopier
 
 Rien n'est à transcrire à la main. Le rapport JSON porte déjà tous les
-champs d'une entrée, donc une seule commande y ajoute un bloc complet.
+champs d'une entrée, donc une seule commande ajoute un bloc complet.
 Ajustez le `select(...)` pour viser votre finding :
 
 ```bash
 perf-sentinel analyze --input traces.json --format json \
   | jq -r --arg by "$(git config user.email)" \
-          --arg why "Intentionnel, voir ADR-0042" \
+          --arg why "Intentional, see ADR-0042" \
           --arg on "$(date +%F)" '
       .findings[]
       | select(.type == "n_plus_one_sql" and .service == "order-svc")
@@ -166,7 +166,7 @@ source_endpoint = \"\(.source_endpoint)\""' \
 
 Relisez le bloc ajouté, posez un `expires_at` si la décision est
 temporaire, puis ouvrez la PR. Même recette pour promouvoir un ack fait
-sur un daemon : relisez la signature avec
+sur un daemon : lisez la signature avec
 `perf-sentinel ack --daemon <url> list --output json` et sélectionnez
 dessus. L'entrée daemon peut rester, le TOML gagne en cas de conflit.
 
@@ -194,16 +194,16 @@ open report.html
 `perf-sentinel query inspect` ouvre un TUI interactif qui expose la
 liste des findings du daemon, les arbres de spans et les corrélations
 cross-trace. Avec 0.5.24, presser `a` sur le finding sélectionné ouvre
-une modale d'acquittement (raison, expires, by) qui poste sur le
+une modale d'acquittement (reason / expires / by) qui poste sur le
 même endpoint daemon. `u` ouvre une modale de confirmation de révocation.
-Le panneau Findings affiche un indicateur italique gris `[acked by
-<user>]` à droite des findings déjà acquittés. Voir
+Le panneau Findings affiche un indicateur italique gris
+`[acked by <user>]` à côté des findings déjà acquittés. Voir
 [`INSPECT-FR.md`](./INSPECT-FR.md) pour la liste des raccourcis clavier
 et le flux d'authentification.
 
 ```bash
 perf-sentinel query --daemon http://localhost:4318 inspect
-# Press 'a' sur un finding, modale, remplir reason, Tab vers Submit, Enter
+# Sur un finding, appuyer sur 'a' → modale → remplir reason → Tab vers Submit → Enter
 ```
 
 `a` et `u` sont sans effet en mode batch (`inspect --input`) puisque
@@ -225,7 +225,7 @@ se modifie que dans le fichier. Voir le `docs/LAUNCHER.md` du Hub.
 
 | Scénario                                         | Utiliser                                                                                               |
 |--------------------------------------------------|--------------------------------------------------------------------------------------------------------|
-| Décision permanente par l'équipe                 | TOML (versionné, auditable git)                                                                        |
+| Décision permanente par l'équipe                 | TOML (versionné, auditable dans git)                                                                   |
 | Report temporaire pendant un incident            | Daemon (CLI ou curl)                                                                                   |
 | Faux positif partagé par tous les environnements | TOML                                                                                                   |
 | Suppression spécifique à un environnement        | Daemon (un par environnement)                                                                          |
@@ -268,7 +268,7 @@ exemples PromQL.
 Les acks correspondent aux findings via une signature canonique :
 
 ```
-<finding_type>:<service>:<endpoint_sanitisé>:<préfixe-sha256-du-template>
+<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>
 ```
 
 La signature exclut `trace_id` et `span_id`, donc un ack unique
@@ -283,15 +283,15 @@ Le composant `endpoint` est dérivé de l'attribut OpenTelemetry `http.route`
 sur le span HTTP d'entrée ou ses ancêtres du même service. Pour un service
 explicitement nommé, perf-sentinel sélectionne la route la plus externe de la
 chaîne contiguë. Il n'adopte jamais la route du service appelant. Un template
-sans slash initial est canonisé en l'ajoutant (`api/orders/{id}` devient
-`/api/orders/{id}`), de sorte que deux formes d'instrumentation équivalentes
-produisent la même signature. Certains frameworks placent plutôt un nom de
-route symbolique dans `http.route` et le chemin de requête dans `url.path`.
-Quand la route ne contient aucun `/` et que `url.path` est exploitable,
-perf-sentinel utilise `url.path`. Une route contenant `/` reste prioritaire, y
-compris les routes Django sans slash initial et les templates. Un nom de route
-sans `url.path` conserve le comportement prudent existant et reçoit un slash
-initial.
+de route sans slash initial est canonisé en l'ajoutant (`api/orders/{id}`
+devient `/api/orders/{id}`), de sorte que des formes d'instrumentation
+équivalentes produisent une seule signature. Certains frameworks placent plutôt
+un nom de route symbolique dans `http.route` et le chemin de requête dans
+`url.path`. Quand la route ne contient aucun `/` et que `url.path` est
+exploitable, perf-sentinel utilise `url.path`. Une route contenant `/` reste
+prioritaire, y compris les routes Django sans slash initial et les templates.
+Un nom de route sans `url.path` conserve le comportement prudent existant et
+reçoit un slash initial.
 
 Quand les services tracés émettent `http.route` :
 
@@ -307,9 +307,9 @@ format d'ingestion. Les spans CLIENT portant uniquement une URL restent des
 opérations sortantes et ne sont pas pris pour des points d'entrée. Chaque URL
 unique produit une signature différente, le renouvellement des acks devient
 proportionnel à la cardinalité des URL, et les findings différés
-réapparaissent à chaque nouvel id de requête. Le repli existe pour
-fournir une chaîne d'endpoint exploitable, pas comme posture
-recommandée.
+réapparaissent à chaque nouvel id de requête. Le repli existe pour que
+l'opérateur voie encore une chaîne d'endpoint exploitable, pas comme
+posture recommandée.
 
 Les agents OpenTelemetry standard émettent `http.route`
 automatiquement :
@@ -352,10 +352,11 @@ disparaissent au lieu de se déplacer. Une analyse batch fraîche signale en
 `unmatched_acknowledgment` tout acquittement qui n'a rien supprimé, findings
 déplacés comme disparus. Lisez le message avant d'agir. Quand l'endpoint a
 quand même émis des I/O (un enfant SQL survivant sur le même handler y
-suffit), le message indique que le problème semble corrigé et que l'entrée peut
-être supprimée. C'est la mauvaise conclusion pour un acquittement dont le
-finding a seulement disparu avec la montée de version. Le daemon n'émet jamais
-cet avertissement : c'est un signal batch uniquement.
+suffit), le message indique
+`the problem looks fixed and the entry can be removed`. C'est la mauvaise
+conclusion pour un acquittement dont le finding a seulement disparu avec la
+montée de version. Le daemon n'émet jamais cet avertissement : c'est un signal
+batch uniquement.
 
 ### Les renommages de service invalident les acks
 
