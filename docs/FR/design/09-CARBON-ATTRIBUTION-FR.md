@@ -1,10 +1,10 @@
 # Attribution carbone par service
 
-Notes de design pour l'attribution par service, calibrée au runtime, de l'énergie et du carbone, exposée dans `GreenSummary` et consommée par l'agrégateur du rapport périodique. À lire avec `docs/FR/METHODOLOGY-FR.md` (côté opérateur) et `docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md` (agrégateur + schéma).
+Notes de design pour l'attribution par service, calibrée au runtime, de l'énergie et du carbone, exposée dans `GreenSummary` et consommée par l'agrégateur du rapport périodique. À lire avec `docs/FR/METHODOLOGY-FR.md` (côté opérateur) et `docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md` (agrégateur + schéma sur le fil).
 
 ## Pourquoi
 
-La première version du rapport recalculait `aggregate.total_energy_kwh` via un proxy au moment de l'agrégation, même quand le daemon sous-jacent avait mesuré l'énergie via Scaphandre ou cloud SPECpower. Elle distribuait aussi le CO2 par fenêtre aux services proportionnellement à la part d'I/O ops, ignorant que deux services dans des régions différentes émettent à des intensités très différentes.
+La première version du rapport recalculait `aggregate.total_energy_kwh` via un proxy au moment de l'agrégation, même quand le daemon sous-jacent avait mesuré l'énergie via Scaphandre ou cloud SPECpower. Elle distribuait aussi le CO2 par fenêtre aux services proportionnellement à leurs opérations d'I/O, ignorant que deux services dans des régions différentes émettent à des intensités réseau très différentes.
 
 La correction consiste à calculer et sérialiser l'énergie + le carbone par service au moment du scoring, pour que l'agrégateur puisse sommer directement. Les valeurs par service sont calibrées au runtime de bout en bout : le daemon voit la vraie région de chaque service et le vrai tag de backend énergétique.
 
@@ -33,7 +33,7 @@ Une fois la boucle terminée, `score_green` produit les maps du GreenSummary :
 - `per_service_carbon_kgco2eq[svc] = acc.operational_gco2 / 1000.0`
 - `per_service_region[svc] = acc.region` (ou la sentinelle `"unknown"` si vide)
 - `energy_kwh = sum(per_service_energy_kwh.values())`
-- `energy_model = select_co2_model_tag(window_flags)` si l'énergie est positive, chaîne vide sinon
+- `energy_model = select_co2_model_tag(window_flags)` si l'énergie est > 0, chaîne vide sinon
 
 La map par service est indexée par nom de service (mis en minuscules en amont par `CarbonContext.service_regions`). Le champ `region` de l'accumulateur est aussi mis en minuscules avant stockage, pour s'aligner sur les clés de `per_region` et pour que les deux maps se recoupent. Une énergie nulle donne une chaîne `energy_model` vide, ce qui route la fenêtre vers le chemin de repli proxy de l'agrégateur.
 
@@ -48,7 +48,7 @@ Ce compromis garde la map par service simple. Une map plus granulaire `BTreeMap<
 
 ## Précédence du tag de modèle
 
-Le tag `energy_model` par fenêtre réutilise `select_co2_model_tag` existant dans `score::region_breakdown`, qui implémente déjà la précédence canonique :
+Le tag `energy_model` par fenêtre réutilise la fonction existante `select_co2_model_tag` de `score::region_breakdown`, qui implémente déjà la précédence canonique :
 
 ```
 electricity_maps_api > alumet_rapl > scaphandre_rapl > kepler_ebpf > redfish_bmc > cloud_specpower > io_proxy_v3 > io_proxy_v2 > io_proxy_v1
@@ -62,11 +62,11 @@ Le terme SCI `M` ne vit que dans `co2.total` et `aggregate.total_carbon_kgco2eq`
 
 - L'amortissement embarqué par requête est déjà une répartition arbitraire. Le découper par service exposerait une précision qui n'existe pas dans les données sources.
 - L'embarqué n'est pas actionnable par l'optimisation logicielle. Supprimer des N+1 ne change pas `M`.
-- Les consommateurs (auditeurs, dashboards publics) qui veulent le chiffre opérationnel par service bénéficient d'une valeur propre qui correspond directement à des actions d'optimisation.
+- Les consommateurs (auditeurs, dashboards publics) qui veulent le chiffre opérationnel par service bénéficient d'une valeur plus nette qui correspond directement à des actions d'optimisation.
 
 L'invariant `sum(per_service_carbon_kgco2eq) × 1000 ≈ co2.operational_gco2` (tolérance 1e-6) est testé.
 
-## Branchement de l'aggregator
+## Branchement de l'agrégateur
 
 `report::periodic::aggregator::Builder::process_window` regarde deux prédicats :
 
@@ -77,19 +77,19 @@ Quand les deux maps runtime sont non vides, l'agrégateur somme directement les 
 
 Un unique `tracing::warn!` par fichier d'archive signale l'usage du repli pour que les opérateurs repèrent des archives anciennes. Les compteurs `runtime_windows` et `fallback_windows` sur `AggregateInputs` portent la répartition pour les diagnostics en aval.
 
-## Hardening à la frontière d'archive
+## Durcissement à la frontière d'archive
 
-Les lignes d'archive sont un état sur disque contrôlé par l'opérateur. L'agrégateur traite chaque champ f64 lu depuis une archive comme non sûr :
+Les lignes d'archive sont un état sur disque contrôlé par l'opérateur. L'agrégateur traite chaque champ f64 lu depuis une archive comme non fiable :
 
 - `energy_kwh`, `per_service_energy_kwh.values()` et `per_service_carbon_kgco2eq.values()` passent par `sanitize_f64` qui ramène `NaN`, `+/-Inf` et les valeurs négatives à `0.0`. Sans ce garde-fou, une seule ligne empoisonnée propagerait `NaN` à toutes les sommes aval.
-- La map `per_service` est plafonnée à `MAX_SERVICES = 4096` entrées. Une fois le plafond atteint, les services distincts supplémentaires venant de l'archive sont silencieusement abandonnés. Les findings déjà routés vers un bucket connu continuent à accumuler.
-- `energy_source_models` est plafonné à `MAX_ENERGY_MODELS = 64` entrées et chaque chaîne `energy_model` est rejetée si plus longue que 64 octets. Les tags qui ne diffèrent que par le suffixe `+cal` fusionnent vers une seule entrée nue, donc l'ensemble ne porte jamais à la fois `scaphandre_rapl` et `scaphandre_rapl+cal`.
+- La map `per_service` est plafonnée à `MAX_SERVICES = 4096` entrées. Une fois le plafond atteint, les services distincts supplémentaires venant de l'archive sont silencieusement abandonnés. Les findings déjà routés vers un bucket connu continuent de s'accumuler.
+- `energy_source_models` est plafonné à `MAX_ENERGY_MODELS = 64` entrées et chaque chaîne `energy_model` est rejetée si plus longue que 64 octets. Les tags qui ne diffèrent que par le suffixe `+cal` fusionnent en une seule entrée nue, donc l'ensemble ne porte jamais à la fois `scaphandre_rapl` et `scaphandre_rapl+cal`.
 
 Ces plafonds reflètent le plafond `MAX_REGIONS` côté runtime dans `score::carbon_compute`. Ils sont silencieux (pas d'erreur). L'agrégateur les traite comme une agrégation au mieux.
 
-## Compatibilité ascendante
+## Rétrocompatibilité
 
-Les sept nouveaux champs d'attribution `GreenSummary` portent tous `#[serde(default)]` : `energy_kwh` et `energy_model` au niveau fenêtre, plus les maps par service `per_service_carbon_kgco2eq`, `per_service_energy_kwh`, `per_service_region`, `per_service_energy_model` et `per_service_measured_ratio`. Une ligne d'archive écrite sans attribution énergétique runtime désérialise avec `energy_kwh = 0.0`, `energy_model = ""` et des maps vides. L'agrégateur détecte ce cas et se rabat sur le proxy.
+Les sept nouveaux champs d'attribution `GreenSummary` portent tous `#[serde(default)]` : `energy_kwh` et `energy_model` au niveau fenêtre, plus les maps par service `per_service_carbon_kgco2eq`, `per_service_energy_kwh`, `per_service_region`, `per_service_energy_model` et `per_service_measured_ratio`. Une ligne d'archive écrite sans attribution énergétique runtime se désérialise avec `energy_kwh = 0.0`, `energy_model = ""` et des maps vides. L'agrégateur détecte ce cas et se rabat sur le proxy.
 
 Ce changement n'a pas incrémenté à lui seul la version de schéma. Les champs ajoutés sont des extensions `#[serde(default)]`, donc les consommateurs qui lisent uniquement l'ensemble documenté de base continuent à fonctionner, et ceux qui adoptent les nouveaux champs obtiennent automatiquement les valeurs calibrées au runtime.
 
