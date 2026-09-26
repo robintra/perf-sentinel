@@ -19,8 +19,8 @@ metadata:
   {{- end }}
 spec:
   clusterIP: None
-  # Pod DNS names must resolve before readiness passes, a peer lookup during
-  # startup depends on it.
+  # Pod DNS names must resolve before readiness passes, because a peer lookup
+  # during startup depends on it.
   publishNotReadyAddresses: true
   selector:
     {{- include "perf-sentinel.selectorLabels" . | nindent 4 }}

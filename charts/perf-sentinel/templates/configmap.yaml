@@ -3,8 +3,8 @@
 {{- $persist := eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
 
 {{- /* Persistence only exists on the StatefulSet path. Asking for it anywhere
-       else used to render a pod with no volume and no durable ack path, and
-       the operator only found out when the ack routes answered 503. */}}
+       else would render a pod with no volume and no durable ack path, and the
+       operator would only find out when the ack routes answered 503. */}}
 {{- if and .Values.workload.statefulset.persistence.enabled (ne .Values.workload.kind "StatefulSet") }}
 {{- fail (printf "configmap.yaml: workload.statefulset.persistence.enabled is true but workload.kind is %s. Persistence renders a volumeClaimTemplate, which only a StatefulSet has, so nothing would be mounted and runtime acks would return 503. Set workload.kind=StatefulSet or turn persistence off." .Values.workload.kind) }}
 {{- end }}
@@ -12,8 +12,8 @@
 {{- /* The daemon binds what [daemon] listen_port_* says in config.toml, while
        containerPort, the probes, the Service and the NetworkPolicy all derive
        from service.ports.*.port. Diverge and the pod listens where nothing
-       looks. An absent key is not a free pass: the daemon then binds its own
-       default (4318 / 4317, see config/mod.rs), which must still agree. */}}
+       looks. When the key is absent, the daemon binds its own default
+       (4318 / 4317, see config/mod.rs), which must still agree. */}}
 {{- $httpBind := default "4318" (regexFind "[0-9]+" (regexFind "(?m)^[ \t]*(daemon\\.)?listen_port_http[ \t]*=[ \t]*[0-9]+" $toml)) }}
 {{- if ne $httpBind (printf "%v" (int .Values.service.ports.otlpHttp.port)) }}
 {{- fail (printf "configmap.yaml: the daemon binds HTTP port %s (config.toml [daemon] listen_port_http, or its 4318 default when the key is absent) but service.ports.otlpHttp.port is %v. containerPort and the probes follow the Service value, so the daemon would listen where nothing looks. Set both to the same port." $httpBind .Values.service.ports.otlpHttp.port) }}
@@ -60,7 +60,7 @@ data:
            spelling the operator used and get it wrong, refuse to append when
            config.toml mentions either table at all, and point at the opt-out
            that hands the whole job over. Over-firing here costs one values
-           flag, under-firing costs a CrashLoopBackOff. */}}
+           flag, while under-firing costs a CrashLoopBackOff. */}}
     {{- if regexMatch "(?m)^[ \t]*(\\[daemon\\.(ack|archive)\\]|(daemon\\.)?(ack|archive)([\\. \t]|[ \t]*=))" $toml }}
     {{- fail (printf "configmap.yaml: config.toml already touches [daemon.ack] or [daemon.archive], and the chart cannot append a table TOML has already opened. Set workload.statefulset.persistence.manageDaemonPaths=false and write both paths yourself (storage_path = \"%s/acks.jsonl\", path = \"%s/archive.ndjson\"), or drop those keys and let the chart write them." $dataDir $dataDir) }}
     {{- end }}

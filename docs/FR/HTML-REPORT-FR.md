@@ -432,14 +432,14 @@ kill $DAEMON_PID
 
 ## Choisir entre statique et live
 
-| Cas d'usage                                              | Mode      |
-| -------------------------------------------------------- | --------- |
-| Artefact CI envoyé sur chaque MR                        | Statique  |
-| Revue de MR où le relecteur veut ack ou revoke            | Live      |
-| Doc de prise en main empaquetée dans un tarball                   | Statique  |
-| Dashboard ops live sur un poste personnel                | Live      |
-| Profil de navigateur partagé (kiosk, machine de démo)    | Statique  |
-| Analyse hors ligne air-gapped                               | Statique  |
+| Cas d'usage                                           | Mode     |
+|-------------------------------------------------------|----------|
+| Artefact CI envoyé sur chaque MR                      | Statique |
+| Revue de MR où le relecteur veut ack ou revoke        | Live     |
+| Doc de prise en main empaquetée dans un tarball       | Statique |
+| Dashboard ops live sur un poste personnel             | Live     |
+| Profil de navigateur partagé (kiosk, machine de démo) | Statique |
+| Analyse hors ligne air-gapped                         | Statique |
 
 ## Voir aussi
 

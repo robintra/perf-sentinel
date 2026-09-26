@@ -7,8 +7,8 @@
        ASCII digits and the slug lowercase [a-z0-9-] with no leading, trailing
        or doubled dash. A ConfigMap key is far more permissive than that, so a
        plausible-looking `green-alumet.toml` or `1-x.toml` would render, mount,
-       and CrashLoopBackOff the pod with a message nobody reads until they
-       exec into a container that has no shell. Fail at render instead. */}}
+       and CrashLoopBackOff the pod in a container that has no shell to read
+       the error from. Fail at render instead. */}}
 {{- $seen := dict }}
 {{- range $name, $content := $fragments }}
 {{- if not (regexMatch "^[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*\\.toml$" $name) }}
