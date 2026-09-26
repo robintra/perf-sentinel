@@ -23,7 +23,7 @@ pub enum SanitizerAwareMode {
     /// Reclassify when **either** the ORM scope signal **or** the timing
     /// variance signal fires. Default. Best recall on production stacks
     /// where the ORM scope is almost always present, at the cost of
-    /// hiding `redundant_sql` findings on truly repeated identical
+    /// hiding `redundant_sql` findings on legitimate repeated identical
     /// queries served from cache.
     #[default]
     Auto,
@@ -99,9 +99,9 @@ pub enum SanitizerVerdict {
 /// Instrumentation scope substrings that indicate an ORM is in the call
 /// stack. Matched case-insensitively via `contains`, so vendor variants
 /// (`io.opentelemetry.spring-data-3.0`, `io.opentelemetry.SpringData`)
-/// both hit. List intentionally errs on the side of recall: a false
-/// positive only swaps a `redundant_sql` finding for `n_plus_one_sql` on
-/// a sanitized group, which is the harm-reduction direction.
+/// both hit. The list errs on the side of recall: a false positive only
+/// swaps a `redundant_sql` finding for `n_plus_one_sql` on a sanitized
+/// group, which is the harm-reduction direction.
 ///
 /// Inclusion criterion: the library emits an `OTel` instrumentation
 /// scope that names an ORM layer (not a bare SQL driver). Bare drivers
@@ -146,9 +146,9 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
 /// Returns `true` when every span in the group looks like the `OTel`
 /// SQL sanitizer (or native driver) collapsed its literals: the
 /// template carries a recognized placeholder (see
-/// [`template_has_placeholder`]) and `params` is empty
-/// (`normalize_sql` extracts literals, not placeholders, so a
-/// sanitized N+1 has `params == []` on every span). JSONB `?` caveat
+/// [`template_has_placeholder`]) and `params` is empty.
+/// `normalize_sql` extracts literals, not placeholders, so a
+/// sanitized N+1 has `params == []` on every span. JSONB `?` caveat
 /// in the module-level note.
 #[must_use]
 pub fn looks_sanitized(spans: &[&NormalizedEvent]) -> bool {
@@ -267,13 +267,12 @@ pub const DEFAULT_MIN_CV: f64 = 0.5;
 /// of the per-span `duration_us` values exceeds `cv_threshold`: true N+1
 /// hits different rows with different cache states (durations spread),
 /// redundant calls hit the same cache lines (durations cluster).
-/// Requires at least 3 spans; `false` for fewer, zero mean, or empty.
+/// Returns `false` for fewer than 3 spans, a zero mean, or an empty group.
 ///
-/// The default threshold favors false positives over silent misses; the
+/// The default threshold favors false positives over silent misses. The
 /// harm asymmetry and the Strict-mode warm-cache limit are discussed in
-/// `docs/design/04-DETECTION.md`. A jittery runtime (PHP-FPM, throttled
-/// containers) spreads cached repeats past 0.5, which is what the knob
-/// is for.
+/// `docs/design/04-DETECTION.md`. The knob exists for jittery runtimes
+/// (PHP-FPM, throttled containers), which spread cached repeats past 0.5.
 #[must_use]
 pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent], cv_threshold: f64) -> bool {
     if spans.len() < 3 {
@@ -305,12 +304,12 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent], cv_thresh
 /// Combined verdict for `Auto` mode: ORM scope or timing variance.
 /// Either signal alone is enough to return `LikelyNPlusOne`.
 ///
-/// `high_occurrence` is deliberately NOT consulted here: Auto is the
-/// precision-first mode, and 15+ identical sanitized queries can be a
-/// legitimate cache-warm pattern (all hitting cache, uniform timing,
-/// no ORM scope) where the correct classification is `redundant_sql`
-/// not `n_plus_one_sql`. Users who need the `high_occurrence` signal
-/// should set `sanitizer_aware_classification = "strict"`.
+/// `high_occurrence` is NOT consulted here: Auto is the precision-first
+/// mode, and 15+ identical sanitized queries can be a legitimate
+/// cache-warm pattern (all hitting cache, uniform timing, no ORM scope)
+/// where the correct classification is `redundant_sql` not
+/// `n_plus_one_sql`. Users who need the `high_occurrence` signal should
+/// set `sanitizer_aware_classification = "strict"`.
 #[must_use]
 pub fn classify_sanitized_sql_group(
     spans: &[&NormalizedEvent],
@@ -362,8 +361,8 @@ pub fn classify_sanitized_sql_group_strict(
 ///
 /// `sequential_siblings` is a lazy closure consulted only by the Strict
 /// branch, so other modes skip the per-trace sibling walk entirely.
-/// `Never` and `Always` short-circuit upstream in [`super::n_plus_one`];
-/// the match stays exhaustive (no `_`) so a future variant fails to
+/// `Never` and `Always` short-circuit upstream in [`super::n_plus_one`].
+/// The match stays exhaustive (no `_`) so a future variant fails to
 /// compile rather than silently picking the OR fallback.
 pub(super) fn classify_sanitized_sql_group_indexed(
     spans: &[NormalizedEvent],
@@ -563,7 +562,7 @@ mod tests {
 
     #[test]
     fn from_config_unknown_value_warns_and_defaults_to_auto() {
-        // tracing::warn! is surfaced to stderr in tests; we only assert
+        // tracing::warn! is surfaced to stderr in tests. We only assert
         // the fallback behavior here. The warn macro itself is exercised
         // by invocation.
         assert_eq!(
@@ -838,7 +837,7 @@ mod tests {
         );
     }
 
-    // --- Strict mode (0.5.8+): both signals required ---
+    // --- Strict mode: both signals required ---
 
     /// Helper: build a sanitized group with explicit ORM scope and
     /// per-span durations, then return `(refs, scopes)` ready to feed
@@ -936,7 +935,7 @@ mod tests {
         // spans, but the reactive concat loop emits them sequentially
         // under one parent and the row-level cache miss spread clears
         // CV > 0.5. Strict must reclassify on the sequential+variance
-        // path, restoring parity with Auto for bare-driver stacks.
+        // path, at parity with Auto for bare-driver stacks.
         let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();

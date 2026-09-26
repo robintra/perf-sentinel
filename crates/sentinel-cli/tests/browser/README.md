@@ -16,7 +16,7 @@ npx playwright test
 The suite's `global-setup.ts` step:
 
 1. Builds the release binary with `cargo build --release --bin
-   perf-sentinel`, every run and not only when the binary is missing.
+   perf-sentinel`, on every run, even when the binary already exists.
    The suite asserts on what the embedded template emits, so a stale
    binary would pass the suite against code that no longer exists.
    Cargo no-ops in seconds when nothing changed.

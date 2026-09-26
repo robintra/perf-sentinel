@@ -90,7 +90,7 @@ impl tonic::transport::server::Connected for MaybeTlsStream {
 /// When `tls_acceptor` is `Some`, each accepted TCP connection is upgraded
 /// to TLS before being yielded. Failed TLS handshakes are silently dropped.
 ///
-/// Internally spawns a task that feeds a bounded channel; the returned
+/// Internally spawns a task that feeds a bounded channel. The returned
 /// `ReceiverStream` is consumed by tonic's `serve_with_incoming`.
 pub(super) fn tls_tcp_incoming(
     listener: tokio::net::TcpListener,
@@ -172,7 +172,7 @@ pub(super) fn load_tls_pem(
 }
 
 /// Build a `tokio_rustls::TlsAcceptor` from PEM cert chain + key.
-/// Used for the HTTP/OTLP listener; gRPC uses tonic's native TLS.
+/// Used for the HTTP/OTLP listener. gRPC uses tonic's native TLS.
 pub(super) fn build_tls_acceptor(
     cert_pem: &[u8],
     key_pem: &[u8],

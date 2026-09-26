@@ -6,7 +6,7 @@
 //!
 //! Timer columns (`SUM_TIMER_WAIT`, `AVG_TIMER_WAIT`) arrive in picoseconds and
 //! are converted to milliseconds at parse time. Like `pg_stat_statements`, the
-//! digest view has no `trace_id`, it provides a complementary database-level
+//! digest view has no `trace_id`. It provides a complementary database-level
 //! view of SQL hotspots.
 
 use crate::detect::Finding;
@@ -59,7 +59,7 @@ pub struct MySqlStatReport {
     /// Rankings in a stable order: by `total_exec_time`, by `calls`,
     /// by `mean_exec_time`, by `rows_examined`. Consumers that index by
     /// position (e.g., the HTML dashboard's `mysql_stat` sub-switcher)
-    /// rely on this ordering not changing. New rankings are appended,
+    /// rely on this ordering not changing. New rankings are appended and
     /// existing indices are never reassigned.
     pub rankings: Vec<MySqlStatRanking>,
     /// Matched share from the trace cross-reference. `None` when no
@@ -104,7 +104,7 @@ pub enum MySqlStatError {
 #[derive(Deserialize)]
 struct RawJsonEntry {
     // Option: performance_schema keeps a catch-all aggregation row with
-    // DIGEST_TEXT = NULL once the digest table saturates; that row is
+    // DIGEST_TEXT = NULL once the digest table saturates. That row is
     // skipped instead of failing the whole export.
     #[serde(default, alias = "DIGEST_TEXT")]
     digest_text: Option<String>,
@@ -125,7 +125,7 @@ struct RawJsonEntry {
 /// Detect whether the input is CSV or JSON.
 ///
 /// Peeks at the first non-whitespace byte: `[` or `{` indicates JSON,
-/// otherwise CSV. Returns `Csv` as fallback for empty input; the caller
+/// otherwise CSV. Returns `Csv` as fallback for empty input. The caller
 /// should validate non-emptiness separately.
 #[must_use]
 pub fn detect_mysql_stat_format(raw: &[u8]) -> MySqlStatFormat {
@@ -179,8 +179,8 @@ pub fn parse_mysql_stat(
 /// trade-off as `rank_pg_stat` (one-shot path, never per-event).
 ///
 /// Downstream consumers rely on the rankings appearing at the documented
-/// positions, new rankings are always appended and existing indices
-/// never reassign.
+/// positions. New rankings are always appended and existing indices
+/// are never reassigned.
 #[must_use]
 pub fn rank_mysql_stat(entries: &[MySqlStatEntry], top_n: usize) -> MySqlStatReport {
     let total_entries = entries.len();
@@ -238,7 +238,7 @@ pub fn rank_mysql_stat(entries: &[MySqlStatEntry], top_n: usize) -> MySqlStatRep
 /// Marks entries whose `normalized_template` matches any finding's
 /// pattern template. Both sides are canonicalized first: `MySQL`
 /// `DIGEST_TEXT` spaces every token (`` `c` . `name` ``), uppercases
-/// keywords and forces backtick quoting, none of which appears in a
+/// keywords and forces backtick quoting. None of these appears in a
 /// template normalized from raw application SQL, so an exact string
 /// compare would silently never match.
 pub fn cross_reference(entries: &mut [MySqlStatEntry], findings: &[Finding]) {
@@ -271,7 +271,7 @@ fn mark_matching<'a>(entries: &mut [MySqlStatEntry], templates: impl Iterator<It
 
 /// Tally the matched share over the entries' `seen_in_traces` flags,
 /// weighted by `calls`. Same caveat as the `pg_stat` variant: digest
-/// counters are cumulative since the last reset, this is a matched
+/// counters are cumulative since the last reset. This is a matched
 /// share, not a sampling ratio.
 #[must_use]
 pub fn trace_match_summary(
@@ -298,7 +298,7 @@ fn is_token_punct(c: char) -> bool {
 /// Known ceiling: lowercasing also folds identifiers, so on a
 /// case-sensitive server (`lower_case_table_names=0`) two tables that
 /// differ only by case share a key and the `[seen in traces]` marker
-/// can over-match. Accepted for an informational marker; a
+/// can over-match. Accepted for an informational marker. A
 /// keyword-only fold would need a full keyword table.
 fn comparison_key(template: &str) -> String {
     let mut out = String::with_capacity(template.len());
@@ -509,9 +509,9 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
 /// Unit of the ranked time series.
 ///
 /// Performance Schema counts `SUM_TIMER_WAIT` in picoseconds. The
-/// `mysqld_exporter` collector converts to seconds, a recording rule or a
-/// hand-written exporter usually forwards the column untouched, and reading
-/// one for the other is off by a factor of 10^12.
+/// `mysqld_exporter` collector converts to seconds, while a recording rule or
+/// a hand-written exporter usually forwards the column untouched. Reading one
+/// for the other is off by a factor of 10^12.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -663,7 +663,7 @@ pub async fn fetch_from_prometheus(
         scrape::validate_series_name(series).map_err(MySqlStatError::PrometheusRequest)?;
     }
 
-    // Both labels now land in the `sum by (...)` clause, not only in the
+    // Both labels land in the `sum by (...)` clause, not only in the
     // response they are read back from.
     for label in [&opts.query_label, &opts.schema_label] {
         scrape::validate_label_name(label).map_err(MySqlStatError::PrometheusRequest)?;
@@ -767,10 +767,10 @@ fn parse_prometheus_response(
 
     let results = scrape::instant_query_results(body).map_err(MySqlStatError::PrometheusFormat)?;
 
-    // identity -> counter, empty when that query was skipped or failed. Not
-    // indexed at all when the ranking came back empty: a database with no
-    // digests yet would otherwise warn once per counter about series that are
-    // fine.
+    // Counters keyed by identity, empty when that query was skipped or
+    // failed. Not indexed at all when the ranking came back empty: a database
+    // with no digests yet would otherwise warn once per counter about series
+    // that are fine.
     let identity = opts.identity();
     let index = |raw: Option<&bytes::Bytes>, series: Option<&String>| match (raw, series) {
         (Some(raw), Some(series)) if !results.is_empty() => {
@@ -1130,7 +1130,7 @@ mod tests {
     #[test]
     fn parse_csv_converts_picoseconds_to_ms() {
         let entries = parse_mysql_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
-        // 4_500_500_000_000 ps -> 4500.5 ms; 3_000_000_000 ps -> 3.0 ms.
+        // 4_500_500_000_000 ps -> 4500.5 ms, 3_000_000_000 ps -> 3.0 ms.
         assert!((entries[0].total_exec_time_ms - 4500.5).abs() < f64::EPSILON);
         assert!((entries[0].mean_exec_time_ms - 3.0).abs() < f64::EPSILON);
     }
@@ -1176,7 +1176,7 @@ mod tests {
         let entries = parse_mysql_stat(csv.as_bytes(), 1_048_576).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].calls, 10);
-        // Optional columns absent -> defaults.
+        // Absent optional columns take their defaults.
         assert_eq!(entries[0].rows_sent, 0);
         assert_eq!(entries[0].rows_examined, 0);
     }
@@ -1310,7 +1310,7 @@ mod tests {
     fn rank_orders_by_criterion() {
         let entries = parse_mysql_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
         let report = rank_mysql_stat(&entries, 10);
-        // total time: 4500.5 first; rows_examined: 500_000 (COUNT(*)) first.
+        // total time: 4500.5 first, rows_examined: 500_000 (COUNT(*)) first.
         assert_eq!(report.rankings[0].entries[0].calls, 1500);
         assert_eq!(report.rankings[3].entries[0].rows_examined, 500_000);
     }
@@ -1382,7 +1382,7 @@ mod tests {
     #[test]
     fn cross_reference_bridges_digest_spacing_and_backticks() {
         // Regression: MySQL DIGEST_TEXT spaces every token and forces
-        // backticks; the trace-side template comes from raw application
+        // backticks, while the trace-side template comes from raw application
         // SQL. Exact string equality would silently never match.
         let csv = format!(
             "{CSV_HEADER}\ncrm,\"SELECT `c` . `name` , `o` . `total` FROM `customers` `c` WHERE `c` . `id` = ?\",10,1000000000,100000000,10,10"

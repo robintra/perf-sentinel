@@ -156,7 +156,7 @@ fn a_misspelled_key_is_rejected_in_every_section() {
 
 #[test]
 fn the_legacy_key_message_survives_strict_parsing() {
-    // Rejecting unknown keys must not swallow the migration hint: the
+    // Rejecting unknown keys must not drop the migration hint: the
     // legacy scan runs before serde and owns these names.
     let err = load_from_str("listen_port = 4318\n").expect_err("legacy key must be rejected");
     let msg = err.to_string();
@@ -169,9 +169,8 @@ fn the_legacy_key_message_survives_strict_parsing() {
 
 #[test]
 fn every_example_config_loads() {
-    // The Redfish and Scaphandre snippets shipped for months in a shape the
-    // parser rejects, because nothing ever fed an example file back through
-    // it. An example that does not load is worse than no example.
+    // Feeds every `.toml` example back through the parser. An example
+    // that does not load is worse than no example.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let mut checked = 0;
     for entry in std::fs::read_dir(&dir).expect("read examples/") {
@@ -181,7 +180,7 @@ fn every_example_config_loads() {
         }
         let text = std::fs::read_to_string(&path).expect("read example");
         if let Err(e) = load_from_str(&text) {
-            // `{e}` and not `{e:?}`, the Debug form carries the whole file.
+            // `{e}` and not `{e:?}`: the Debug form carries the whole file.
             panic!("{} does not load: {e}", path.display());
         }
         checked += 1;
@@ -284,13 +283,12 @@ fn fields_in_struct<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
 
 #[test]
 fn example_config_covers_every_key_the_parser_accepts() {
-    // Parsed only to warn, the reference config must not advertise them.
+    // These keys are parsed only to warn, so the reference config must not
+    // advertise them.
     const DEPRECATED: &[&str] = &["network_energy_per_byte_kwh", "include_network_transport"];
-    // `examples/perf-sentinel.toml` calls itself the reference config, and
-    // nothing checked that claim: it had drifted to 14 of the 31 daemon
-    // keys, with whole sections missing. Adding a field to a *Section
-    // struct without showing it there fails here, which is the only place
-    // the omission is visible.
+    // `examples/perf-sentinel.toml` calls itself the reference config.
+    // Adding a field to a *Section struct without showing it there fails
+    // here, which is the only place the omission is visible.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let parser = std::fs::read_to_string(root.join("crates/sentinel-core/src/config/raw.rs"))
         .expect("read raw.rs");
@@ -378,10 +376,10 @@ fn field_name(line: &str) -> Option<&str> {
 
 #[test]
 fn parse_daemon_correlation_section() {
-    // The whole section had no test, and its one conversion is the kind
-    // that breaks quietly: the TOML key is in minutes, the field is in
-    // milliseconds. A silent default here reads as "correlation found
-    // nothing" rather than as a config that was never applied.
+    // The section's one conversion is the kind that breaks quietly: the
+    // TOML key is in minutes, the field is in milliseconds. A silent
+    // default here reads as "correlation found nothing" rather than as a
+    // config that was never applied.
     let config = load_from_str(
         "[daemon.correlation]\n\
          enabled = true\n\
@@ -488,7 +486,7 @@ max_payload_size = 2097152
 }
 
 // 0.6.0 breaking change: the 8 legacy top-level flats deprecated in
-// 0.5.26 are now removed. Loading a config that still uses them must
+// 0.5.26 are removed. Loading a config that still uses them must
 // fail loudly with a migration message rather than silently accept
 // the file with the legacy key ignored. Each test below covers one
 // (key, replacement) pair so a regression is easy to attribute.
@@ -699,7 +697,7 @@ json_socket = "C:\\temp\\perf-sentinel.sock"
 #[test]
 fn parse_windows_style_json_socket_path_with_trailing_comment() {
     // Covers `find_basic_string_end` stopping before `#`, a common
-    // hand-edited config shape the initial test matrix missed.
+    // hand-edited config shape.
     let config = load_from_str(
         "[daemon]\n\
          json_socket = \"C:\\temp\\sock\" # inline note\n",
@@ -738,7 +736,7 @@ json_socket = "\\\\server\\share\\sock"
 #[test]
 fn literal_string_windows_path_bypasses_normalization() {
     // TOML literal strings (`'...'`) already treat `\` literally.
-    // Our normalizer must not touch them; checked indirectly by
+    // Our normalizer must not touch them. Checked indirectly by
     // confirming the parser accepts a path with lone `\` inside `'`.
     let config = load_from_str(
         r"
@@ -794,8 +792,8 @@ fn normalization_applies_to_all_registered_path_keys() {
 #[test]
 fn normalization_leaves_toml_escape_sequences_literal_in_path_keys() {
     // `\t` and `\n` inside a path key are treated as literal
-    // backslash-sequences, not TOML escapes. This is by design for
-    // `TOML_PATH_STRING_KEYS` and documented in the helper's rustdoc.
+    // backslash-sequences, not TOML escapes. The helper's rustdoc
+    // documents this for `TOML_PATH_STRING_KEYS`.
     let config = load_from_str(
         r#"
 [daemon]
@@ -811,7 +809,7 @@ fn load_from_str_falls_back_when_original_error_is_unrelated_to_path() {
     // Force the normalization branch (Cow::Owned) via a Windows path,
     // then introduce a type mismatch on a strictly-typed key
     // (`listen_port` is `u16`). Both the normalized and the original
-    // parse fail; we just assert we surface a ConfigError::Parse
+    // parse fail. We only assert that we surface a ConfigError::Parse
     // rather than silently masking the issue.
     let err = load_from_str(
         r#"
@@ -830,22 +828,21 @@ sampling_rate = "not a number"
 #[test]
 fn find_basic_string_end_handles_escaped_inner_quote() {
     // `"a\"b"`: the first `"` at byte 3 is escaped, real end at byte
-    // 5. Guards the linear `run`-counter rewrite against regressions
-    // that would terminate too early.
+    // 5. Guards the linear `run` counter against regressions that
+    // would terminate too early.
     let value = r#""a\"b""#;
     assert_eq!(find_basic_string_end(value), Some(5));
 }
 
 #[test]
 fn find_basic_string_end_survives_very_long_backslash_run() {
-    // Previously the lookbehind was O(n²); this is a smoke test
-    // that a pathological input completes in well under the test
-    // timeout. If this regresses to quadratic, it still passes,
-    // but the timing would blow up.
+    // Smoke test that a pathological input completes well under the
+    // test timeout. A regression to an O(n²) lookbehind would still
+    // pass, but the timing would blow up.
     let mut input = String::from("\"");
     input.extend(std::iter::repeat_n('\\', 10_000));
     input.push('"');
-    // 10_000 backslashes → 5_000 `\\` pairs → closing `"` valid.
+    // 10_000 backslashes form 5_000 `\\` pairs, so the closing `"` is valid.
     assert_eq!(find_basic_string_end(&input), Some(10_001));
 }
 
@@ -897,7 +894,7 @@ fn rejects_negative_sampling_rate() {
 
 #[test]
 fn memory_high_water_pct_rejects_the_hysteresis_dead_zone() {
-    // 0 disables; 1..=5 would clamp the hysteresis low bound at or
+    // 0 disables, while 1..=5 would clamp the hysteresis low bound at or
     // below zero and the guard could never un-reject once tripped.
     assert!(load_from_str("[daemon]\nmemory_high_water_pct = 0").is_ok());
     assert!(load_from_str("[daemon]\nmemory_high_water_pct = 6").is_ok());
@@ -1363,7 +1360,7 @@ fn accepts_max_active_traces_above_comfort_ceiling_with_warning() {
 
 #[test]
 fn accepts_max_events_per_trace_outside_comfort_zone() {
-    // 10 < comfort floor (100); 50_000 > comfort ceiling (10_000).
+    // 10 < comfort floor (100), 50_000 > comfort ceiling (10_000).
     // Both inside hard bounds [1, 100_000].
     for value in [10, 50_000] {
         let result = load_from_str(&format!("[daemon]\nmax_events_per_trace = {value}\n"));
@@ -1373,7 +1370,7 @@ fn accepts_max_events_per_trace_outside_comfort_zone() {
 
 #[test]
 fn accepts_trace_ttl_outside_comfort_but_inside_hard_bounds() {
-    // 200ms < comfort floor (1s); 1_800_000 (30min) > comfort ceiling (10min).
+    // 200ms < comfort floor (1s), 1_800_000 (30min) > comfort ceiling (10min).
     for value in [200_u64, 1_800_000_u64] {
         let result = load_from_str(&format!("[daemon]\ntrace_ttl_ms = {value}\n"));
         assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
@@ -1382,7 +1379,7 @@ fn accepts_trace_ttl_outside_comfort_but_inside_hard_bounds() {
 
 #[test]
 fn accepts_max_fanout_outside_comfort_but_inside_hard_bounds() {
-    // 2 < comfort floor (5); 5_000 > comfort ceiling (1_000).
+    // 2 < comfort floor (5), 5_000 > comfort ceiling (1_000).
     for value in [2, 5_000] {
         let result = load_from_str(&format!("[detection]\nmax_fanout = {value}\n"));
         assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
@@ -1391,14 +1388,14 @@ fn accepts_max_fanout_outside_comfort_but_inside_hard_bounds() {
 
 #[test]
 fn accepts_max_payload_size_outside_comfort_but_inside_hard_bounds() {
-    // 64 KiB < comfort floor (256 KiB); 32 MiB > comfort ceiling (16 MiB).
+    // 64 KiB < comfort floor (256 KiB), 32 MiB > comfort ceiling (16 MiB).
     for value in [64 * 1024_u64, 32 * 1024 * 1024_u64] {
         let result = load_from_str(&format!("[daemon]\nmax_payload_size = {value}\n"));
         assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
     }
 }
 
-// --- max_retained_findings hard cap (was unbounded before) ---
+// --- max_retained_findings hard cap ---
 
 #[test]
 fn accepts_zero_max_retained_findings_disables_store() {
@@ -1424,7 +1421,7 @@ fn accepts_max_retained_findings_at_10m_hard_ceiling() {
 
 #[test]
 fn accepts_max_retained_findings_outside_comfort_but_inside_hard_bounds() {
-    // 50 < comfort floor (100); 500_000 > comfort ceiling (100_000).
+    // 50 < comfort floor (100), 500_000 > comfort ceiling (100_000).
     for value in [50, 500_000] {
         let result = load_from_str(&format!("[daemon]\nmax_retained_findings = {value}\n"));
         assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
@@ -1985,7 +1982,7 @@ fn carbon_context_omits_scoring_config_when_green_scoring_is_disabled() {
 #[test]
 fn deprecated_transport_keys_are_parsed_and_ignored() {
     // Deprecated 0.9.25: both keys still parse (a hard unknown-key error
-    // would break old configs) but no longer reach GreenConfig.
+    // would break old configs) but do not reach GreenConfig.
     let toml = r"
 [green]
 enabled = true
@@ -2028,7 +2025,7 @@ fn validate_http_authority_rejects_control_char() {
 
 #[test]
 fn has_control_char_rejects_c1_range() {
-    // U+0080..=U+009F survive a byte-level `< 0x20` filter because they
+    // U+0080..=U+009F pass a byte-level `< 0x20` filter because they
     // encode as `0xC2 0x80..0x9F` in UTF-8. They carry CSI/ST/OSC in
     // VT-family terminals, so any TOML field that ends up in stderr
     // must reject them at load time.
@@ -2133,10 +2130,9 @@ fn unresolved_env_ack_key_fails_validation() {
 
 // --- convert_electricity_maps_section branches ---
 
-// Local imports used by all the electricity_maps tests below.
-// `HashMap` and `Duration` are already in scope via `use super::*;`
-// at the top of this module, but Qodana flags the fully-qualified
-// forms as unnecessary; using the short names reads cleaner anyway.
+// Local imports for the electricity_maps tests below. `HashMap` and
+// `Duration` come from `use super::*;`, and Qodana flags their
+// fully-qualified forms as unnecessary.
 use crate::score::electricity_maps::ElectricityMapsConfig;
 use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
 
@@ -2160,9 +2156,10 @@ fn electricity_maps_empty_api_key_returns_none() {
 
 #[test]
 fn electricity_maps_warn_when_api_key_in_config_file() {
-    // `api_key` set, env var unset → returns Some(...) but emits a
-    // warning about preferring the env var. The warning path is
-    // exercised; we just verify the conversion succeeds.
+    // With `api_key` set and the env var unset, the conversion returns
+    // Some(...) but emits a warning about preferring the env var. The
+    // warning path is exercised, but we only verify the conversion
+    // succeeds.
     let mut region_map = HashMap::new();
     region_map.insert("eu-west-3".to_string(), "FR".to_string());
     let raw = ElectricityMapsSection {
@@ -2187,8 +2184,8 @@ fn electricity_maps_legacy_v3_endpoint_loads_cleanly() {
     // Backward-compat guard: an explicit v3 endpoint in the TOML
     // must still produce a valid ElectricityMapsConfig. The
     // deprecation warning is emitted at scraper startup (covered
-    // by the `is_legacy_v3_endpoint` unit tests), the conversion
-    // path here just keeps the field as-is.
+    // by the `is_legacy_v3_endpoint` unit tests). The conversion
+    // path here keeps the field as-is.
     let mut region_map = HashMap::new();
     region_map.insert("eu-west-3".to_string(), "FR".to_string());
     let raw = ElectricityMapsSection {
@@ -2261,7 +2258,7 @@ fn electricity_maps_region_map_keys_lowercased() {
 
 #[test]
 fn electricity_maps_env_var_takes_precedence_over_config_file() {
-    // Env-lookup returns a token → it wins over `api_key` in the file.
+    // When the env lookup returns a token, it wins over `api_key` in the file.
     // Covers the from_env branch of convert_electricity_maps_section_with_env
     // without touching the real process environment.
     let mut region_map = HashMap::new();
@@ -2295,7 +2292,8 @@ fn cloud_section_with_file_auth() -> CloudSection {
 
 #[test]
 fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
-    // Env-lookup returns a header → it wins over `auth_header` in the file.
+    // When the env lookup returns a header, it wins over `auth_header` in
+    // the file.
     // Mirrors electricity_maps_env_var_takes_precedence_over_config_file.
     let raw = cloud_section_with_file_auth();
     let cfg =
@@ -2795,7 +2793,7 @@ fn validate_daemon_cors_rejects_wildcard_mixed_with_explicit_origins() {
 #[allow(clippy::field_reassign_with_default)]
 fn validate_daemon_cors_rejects_wildcard_with_api_key() {
     // X-API-Key is a header (not a cookie), so allow_credentials = false
-    // does not block it, any browser origin can replay it under wildcard
+    // does not block it and any browser origin can replay it under wildcard
     // CORS. Reject the combination at config load.
     let mut cfg = Config::default();
     cfg.daemon.cors.allowed_origins = vec!["*".to_string()];
@@ -2849,7 +2847,7 @@ fn cors_disabled_with_api_disabled_is_accepted() {
         },
         ..Config::default()
     };
-    // Empty CORS list = layer not wired = no inconsistency.
+    // An empty CORS list wires no layer, so there is no inconsistency.
     assert!(cfg.daemon.cors.allowed_origins.is_empty());
     assert!(cfg.validate().is_ok());
 }
@@ -2930,9 +2928,9 @@ fn reporting_disclose_output_path_accepted_but_unused() {
     // periodic disclosures (planned for 0.8.0). Today it is
     // accepted by the parser but unused at runtime, and the
     // validator logs a tracing::warn so operators do not silently
-    // depend on a no-op. The test confirms the field survives
-    // round-trip parsing without error; the warning itself is
-    // surfaced as an effect at validate time.
+    // depend on a no-op. The test confirms the field round-trips
+    // through parsing without error. The warning itself is a side
+    // effect at validate time.
     let toml = r#"
 [reporting]
 disclose_output_path = "/var/lib/perf-sentinel/last.json"
@@ -3164,7 +3162,7 @@ fn convert_alumet_section_file_auth_used_when_env_absent() {
 
 #[test]
 fn convert_alumet_section_missing_metric_name_yields_none() {
-    // Defense in depth: load_from_str rejects this loudly first, this
+    // Defense in depth: load_from_str rejects this loudly first. This
     // guards a caller that builds a RawConfig directly.
     let raw = AlumetSection {
         endpoint: Some("http://localhost:9091/metrics".to_string()),
@@ -3608,7 +3606,7 @@ schema = "environment_metrics"
 #[test]
 fn load_toml_rejects_legacy_flat_endpoint_string() {
     // Pre-0.7.6 form was `"rack1" = "url"`. The new form requires
-    // a table with `url` + `schema`, serde must reject the string.
+    // a table with `url` + `schema`, so serde must reject the string.
     let toml = r#"
 [green.redfish.endpoints]
 "rack1" = "https://bmc.local/Power"
@@ -3637,10 +3635,10 @@ schema = "oem_custom"
 #[test]
 fn load_toml_rejects_legacy_top_level_power_path() {
     // Pre-0.7.6 had `power_path = "/..."` at the [green.redfish]
-    // top level, the new form moved schema selection to the
-    // endpoint table. `deny_unknown_fields` on RedfishSection makes
-    // a stale top-level `power_path` fail at load with a serde
-    // error, no silent drop.
+    // top level. The new form selects the schema in the endpoint
+    // table. `deny_unknown_fields` on RedfishSection makes a stale
+    // top-level `power_path` fail at load with a serde error
+    // instead of a silent drop.
     let toml = r#"
 [green.redfish]
 power_path = "/PowerControl/0/PowerConsumedWatts"
@@ -4129,8 +4127,9 @@ region = "eu-wets-3"
 
 #[test]
 fn max_export_findings_defaults_to_the_findings_api_cap() {
-    // The export used to be pinned to MAX_FINDINGS_LIMIT. Keeping that as
-    // the default means an operator who sets nothing sees no change.
+    // Defaults to MAX_FINDINGS_LIMIT, the findings API cap the export
+    // used before this knob existed, so an operator who sets nothing
+    // sees no change.
     let cfg = load_from_str("[daemon]").expect("parse");
     assert_eq!(cfg.daemon.max_export_findings, 1000);
 }
@@ -4157,7 +4156,7 @@ fn accepts_zero_max_export_findings_for_an_envelope_only_snapshot() {
     // the exported gate counts findings from the same slice, so at 0 its
     // three count rules pass whatever the daemon detected, while
     // io_waste_ratio_max still reads the batch summary. `validate` logs an
-    // advisory saying so; only a liveness probe wants this shape.
+    // advisory saying so. Only a liveness probe wants this shape.
     let result = load_from_str("[daemon]\nmax_export_findings = 0");
     assert!(result.is_ok(), "expected 0 to parse, got {result:?}");
 }
@@ -4174,10 +4173,10 @@ fn snapshot_budget_is_quiet_inside_the_body_limit() {
 
 #[test]
 fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
-    // The failure this exists for: 2000 is the top of max_export_findings'
-    // comfort zone and 400 sits inside max_retained_traces' (10..=500), yet
-    // together they project ~11 MB, past the 8 MiB the query clients read
-    // the snapshot with. Neither knob's own advisory sees the sum.
+    // 2000 is the top of max_export_findings' comfort zone and 400 sits
+    // inside max_retained_traces' (10..=500), yet together they project
+    // ~11 MB, past the 8 MiB the query clients read the snapshot with.
+    // Neither knob's own advisory sees the sum.
     let w = validate::snapshot_budget_warning(2_000, 400)
         .expect("in-comfort pair over the limit must warn");
     assert!(w.contains("max_export_findings"), "{w}");
@@ -4188,8 +4187,9 @@ fn snapshot_budget_warns_when_both_knobs_stay_in_their_comfort_zones() {
 fn snapshot_budget_ignores_trace_bytes_the_export_never_ships() {
     // `traces_store::snapshot_for` caps the span trees at half the body
     // limit and skips the rest, so max_retained_traces alone cannot blow
-    // the budget however high it goes. Projected unclamped it did, and the
-    // advisory then told the operator to lower the one knob already bounded.
+    // the budget however high it goes. An unclamped projection would, and
+    // the advisory would then tell the operator to lower the one knob
+    // already bounded.
     assert_eq!(validate::snapshot_budget_warning(1_000, 500), None);
     assert_eq!(validate::snapshot_budget_warning(1_000, 10_000), None);
 }
@@ -4209,8 +4209,8 @@ fn snapshot_read_limit_matches_the_client_cap() {
 #[cfg(feature = "daemon")]
 #[test]
 fn embedded_traces_budget_matches_the_export() {
-    // The clamp on the span-tree term is the whole reason the advisory does
-    // not blame max_retained_traces for bytes that never ship. Its copy of
+    // The clamp on the span-tree term keeps the advisory from blaming
+    // max_retained_traces for bytes that never ship. Its copy of
     // the budget drifts as silently as the read limit would, so it is pinned
     // to the export's own constant the same way.
     assert_eq!(

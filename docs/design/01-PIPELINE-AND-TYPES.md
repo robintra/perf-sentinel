@@ -4,7 +4,7 @@
 
 perf-sentinel processes I/O traces through a sequence of transformations: `event -> normalize -> correlate -> detect -> score -> report`. This is a **linear pipeline**, not a hexagonal (ports-and-adapters) architecture.
 
-The rationale is straightforward: the data flows in one direction. Events enter, get transformed at each stage and produce a report. There are no bidirectional dependencies, no domain events, no complex interaction patterns. A hexagonal architecture would introduce trait indirection between every stage, adding cognitive overhead, compile-time cost and dynamic dispatch for zero benefit.
+The data flows in one direction. Events enter, get transformed at each stage and produce a report. There are no bidirectional dependencies, no domain events, no complex interaction patterns. A hexagonal architecture would introduce trait indirection between every stage, adding cognitive overhead, compile-time cost and dynamic dispatch for zero benefit.
 
 Traits are used only at the **borders** of the pipeline:
 - **Input:** `IngestSource` trait (JSON, OTLP)
@@ -23,9 +23,9 @@ SpanEvent  ->  NormalizedEvent  ->  Trace  ->  Finding  ->  Report
  (event.rs)   (normalize/mod.rs) (correlate/) (detect/)  (report/mod.rs)
 ```
 
-**Why distinct types instead of mutating in place?** Each stage adds information (normalization adds `template` + `params`, correlation groups by `trace_id`, detection produces findings). Making this explicit in the type system means the compiler enforces that no stage can use data from a future stage. A `NormalizedEvent` is guaranteed to have a `template` field, a raw `SpanEvent` is not.
+**Why distinct types instead of mutating in place?** Each stage adds information (normalization adds `template` + `params`, correlation groups by `trace_id`, detection produces findings). Making this explicit in the type system means the compiler enforces that no stage can use data from a future stage. A `NormalizedEvent` is guaranteed to have a `template` field, but a raw `SpanEvent` is not.
 
-**Ownership transfer:** `normalize_all()` takes `Vec<SpanEvent>` by value (moved, not borrowed). This is deliberate:
+**Ownership transfer:** `normalize_all()` takes `Vec<SpanEvent>` by value (moved, not borrowed), for these reasons:
 - The caller doesn't need the raw events after normalization
 - Avoids lifetime annotations that would propagate through every stage
 - Enables the normalizer to move fields (`SpanEvent` is consumed into `NormalizedEvent.event`)
@@ -59,7 +59,7 @@ The project is split into two crates:
 - **sentinel-core**: library crate containing all pipeline logic
 - **sentinel-cli**: binary crate providing the CLI entry point
 
-**Why split?** The core library can be embedded by other Rust projects (e.g., a custom test harness that calls `pipeline::analyze` directly). The CLI is intentionally thin, it parses arguments with [clap](https://docs.rs/clap/), loads config and delegates to sentinel-core functions. All business logic lives in the library.
+**Why split?** The core library can be embedded by other Rust projects (e.g., a custom test harness that calls `pipeline::analyze` directly). The CLI is thin: it parses arguments with [clap](https://docs.rs/clap/), loads config and delegates to sentinel-core functions. All business logic lives in the library.
 
 The dependency direction is one-way: `sentinel-cli` depends on `sentinel-core`, never the reverse.
 

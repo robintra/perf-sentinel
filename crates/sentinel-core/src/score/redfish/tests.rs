@@ -65,7 +65,7 @@ fn single_chassis_single_service_publishes_coefficient() {
 
 #[test]
 fn two_services_on_same_chassis_share_coefficient() {
-    // Total ops 300 across two services → both get the same per-op value.
+    // Total ops 300 across two services, so both get the same per-op value.
     let mut next: HashMap<String, ServiceEnergy> = HashMap::new();
     let chassis_services = services(&["svc-a", "svc-b"]);
     let deltas = ops(&[("svc-a", 100), ("svc-b", 200)]);
@@ -137,7 +137,7 @@ fn nan_watts_ignored() {
 
 #[test]
 fn non_finite_scrape_interval_rejected() {
-    // Defense in depth, config clamps to [15, 3600] but the function
+    // Defense in depth: config clamps to [15, 3600], but the function
     // is `pub` and could be called with non-finite f64.
     let mut next: HashMap<String, ServiceEnergy> = HashMap::new();
     let chassis_services = services(&["svc-a"]);
@@ -323,12 +323,12 @@ fn rejects_empty_power_control_array() {
     );
 }
 
-// `custom_power_path_resolves_for_oem_vendors` removed in v0.7.6:
-// arbitrary JSON pointers are no longer configurable. An OEM that
-// exposes wattage under a non-standard path is expected to either
-// surface a Redfish-compliant `/Power` or `/EnvironmentMetrics` on
-// its own URL, or be fronted by a reverse proxy that reshapes the
-// payload. See docs/LIMITATIONS.md for the rationale.
+// No OEM custom-path test: arbitrary JSON pointers are not
+// configurable. An OEM that exposes wattage under a non-standard path
+// is expected to either surface a Redfish-compliant `/Power` or
+// `/EnvironmentMetrics` on its own URL, or be fronted by a reverse
+// proxy that reshapes the payload. See docs/LIMITATIONS.md for the
+// rationale.
 
 // --- multi-chassis attribution --------------------------------------
 
@@ -396,8 +396,7 @@ async fn spawn_scraper_with_ca_bundle_path_aborts_immediately() {
 #[tokio::test]
 async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
     // Regression guard: the gauge must climb from boot when every
-    // chassis is unreachable. Before the fix, last_success_ms was
-    // None at boot and the gauge stayed at 0.0 indefinitely.
+    // chassis is unreachable.
     use super::config::{RedfishConfig, RedfishEndpoint};
     use super::scraper::spawn_scraper;
     use crate::report::metrics::MetricsState;
@@ -438,7 +437,7 @@ async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
     // fixed window. On Linux the scrape fails fast (connection refused) within
     // a tick, but on Windows connecting to the dropped port can take until the
     // fetch timeout (5s) to fail, so a fixed 300ms wait flakes. Break as soon
-    // as the gauge moves; the budget only has to exceed the fetch timeout.
+    // as the gauge moves. The budget only has to exceed the fetch timeout.
     let mut age = 0.0;
     for _ in 0..320 {
         tokio::time::sleep(Duration::from_millis(25)).await;

@@ -17,7 +17,7 @@ type PoolKey<'a> = (&'a str, Option<(&'a str, &'a str)>);
 /// concurrency via a sweep line. If peak concurrent spans >= `threshold`,
 /// emits a finding.
 ///
-/// Per trace by design: a pool belongs to one process and no ingested
+/// Detection stays per trace: a pool belongs to one process and no ingested
 /// attribute names it, so a sum across traces would add up the pools of
 /// every replica of the service.
 #[must_use]
@@ -81,7 +81,7 @@ fn group_sql_indices_by_service(trace: &Trace) -> HashMap<PoolKey<'_>, Vec<usize
 
 /// Compute the peak concurrent-span count for a subset of `trace.spans`
 /// via a sweep-line pass. `indices` is the list of SQL spans belonging
-/// to a single service; each one contributes a (start, +1) and (end, -1)
+/// to a single service. Each one contributes a (start, +1) and (end, -1)
 /// event. Sort places ends before starts at the same instant
 /// (`false < true`), avoiding overcounting when one span ends as
 /// another begins.

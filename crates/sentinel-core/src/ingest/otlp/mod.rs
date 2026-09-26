@@ -18,7 +18,7 @@ use crate::report::metrics::{OtlpRejectReason, OtlpSpanFilterReason};
 
 /// Sink for the rejection counters this module emits, decoupling
 /// `ingest` from the concrete metrics implementation. `MetricsState`
-/// implements it in `report::metrics`; alternative sinks (counting
+/// implements it in `report::metrics`. Alternative sinks (counting
 /// fakes in tests, other metrics stacks) plug in without touching
 /// `ingest`. Decoupling rationale in
 /// `docs/design/06-INGESTION-AND-DAEMON.md` § "The `MetricsSink` trait".
@@ -35,7 +35,7 @@ pub trait MetricsSink: Send + Sync {
     /// Whether cgroup memory has crossed the configured high-water mark,
     /// so the handlers should reject ingest to bound RSS. Defaults to
     /// `false`: the guard is opt-in and only the daemon `MetricsState`
-    /// wires a real signal, batch/test sinks stay unaffected.
+    /// wires a real signal, so batch/test sinks stay unaffected.
     fn ingest_over_memory_limit(&self) -> bool {
         false
     }
@@ -45,8 +45,7 @@ pub trait MetricsSink: Send + Sync {
 /// reported. A ratio over a handful of spans is noise, and it feeds a
 /// build-blocking gate rule: without a floor, a capture holding one
 /// statement-less DB span alongside 900 healthy HTTP spans scores 0.0
-/// and fails the build. A kind under the floor is left unjudged rather
-/// than judged badly.
+/// and fails the build. A kind under the floor is left unjudged.
 pub const MIN_RATIO_SAMPLE: u64 = 20;
 
 /// `retained / (retained + gap)`, or `None` when the kind was not seen
@@ -62,7 +61,7 @@ fn ratio(retained: u64, gap: u64) -> Option<f64> {
 
 /// Per-request span conversion tally.
 ///
-/// `received` counts every span in the request; the `filtered_*` fields
+/// `received` counts every span in the request. The `filtered_*` fields
 /// count spans skipped by [`convert_span`] because they are not
 /// analyzable I/O operations (one field per [`OtlpSpanFilterReason`]
 /// variant). Retained spans = `received` minus the filtered sum.
@@ -124,7 +123,7 @@ impl SpanConversionStats {
         self.retained_http += other.retained_http;
     }
 
-    /// Spans that survived the filter: `received` minus every filtered tally.
+    /// Spans the filter retained: `received` minus every filtered tally.
     #[must_use]
     pub fn retained(&self) -> u64 {
         self.received.saturating_sub(
@@ -157,8 +156,8 @@ impl SpanConversionStats {
     /// spans and 100 SQL spans that all lack `db.statement` pools to
     /// 0.90 and slips past a 0.9 threshold, while every SQL detector is
     /// blind. Taking the minimum reports that as 0.0, which is the
-    /// case the gate rule exists to catch. Non-I/O spans and the
-    /// deliberate drops (`NonSqlDatastore`, `MergedDbSpan`) stay out of
+    /// case the gate rule exists to catch. Non-I/O spans and the drops
+    /// that are not gaps (`NonSqlDatastore`, `MergedDbSpan`) stay out of
     /// both ratios, mirroring the daemon's `instrumentation_gap_filtered`
     /// reasoning: a fleet exporting all its internal spans is healthy, a
     /// SQL span shipped without its query text is an instrumentation gap.
@@ -203,11 +202,6 @@ impl SpanConversionStats {
 // ── Conversion helpers ──────────────────────────────────────────────
 
 /// Convert bytes to a lowercase hex string using a lookup table.
-///
-/// Builds the String directly via byte append (all written bytes are
-/// ASCII hex, so `unsafe { String::from_utf8_unchecked }` would be
-/// sound but is avoided; we use safe `from_utf8` which optimizes
-/// cleanly since the buffer is pre-validated by construction).
 fn bytes_to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -505,8 +499,8 @@ fn walk_parents_for_code_attrs<'a>(
 /// Reads the first span link of the CONSUMER span that triggered this work,
 /// the edge `OTel` uses when the consumer starts its own trace. Gated on
 /// CONSUMER because batch span processors and follows-from relations emit
-/// links too, and those are not causality. The length check is not cosmetic:
-/// the proto bounds nothing and this runs once per descendant span.
+/// links too, and those are not causality. The length check is needed
+/// because the proto bounds nothing and this runs once per descendant span.
 ///
 /// Two topologies, because `OTel` instrumentations disagree on where the
 /// `receive` span goes.
@@ -686,7 +680,7 @@ fn consumer_entry_endpoint(classified: &ClassifiedAttrs<'_>, span_kind: i32) -> 
 }
 
 /// Inbound endpoint carried by the event span itself. A route template is a
-/// safe inbound signal on any kind; legacy URL fallbacks require SERVER.
+/// safe inbound signal on any kind. Legacy URL fallbacks require SERVER.
 fn own_inbound_http_endpoint(c: &ClassifiedAttrs<'_>, span_kind: i32) -> Option<String> {
     classified_inbound_http_endpoint(
         c,
@@ -718,7 +712,7 @@ fn classified_inbound_http_endpoint(
 ///
 /// One walk serves all three. The frame kept is the outermost usable one, not
 /// the nearest: on a layered stack the nearest is the DAO every caller
-/// shares, which collides in the ack signature exactly as `"unknown"` did.
+/// shares, which collides in the ack signature like `"unknown"` does.
 /// A route always wins, since only an entry point carries one. The consumer
 /// destination ranks last, so it only names what would otherwise be
 /// `"unknown"`. It is the nearest consumer, not the outermost: when consumer
@@ -779,8 +773,8 @@ fn resolve_source_endpoint<'a>(
 ///
 /// One index per service, spanning every `ResourceSpans` block that service
 /// owns: the batch processor splits one trace across blocks, and a per-block
-/// index lost the endpoint at the boundary. Services stay apart so a leaf
-/// cannot adopt a caller's frame or route, and each gets its own
+/// index would lose the endpoint at the boundary. Services stay apart so a
+/// leaf cannot adopt a caller's frame or route, and each gets its own
 /// [`MAX_SPANS_PER_SERVICE`] budget.
 fn build_span_indexes(request: &ExportTraceServiceRequest) -> ServiceSpanIndexes<'_> {
     let mut per_service: ServiceSpanIndexes<'_> = HashMap::new();
@@ -833,8 +827,8 @@ fn resource_service_name(
 }
 
 /// Build a `(trace_id, span_id) -> instrumentation scope name` index alongside
-/// the span index. Same [`MAX_SPANS_PER_SERVICE`] cap, entries beyond it simply
-/// lose scope attribution.
+/// the span index. Same [`MAX_SPANS_PER_SERVICE`] cap. Entries beyond it lose
+/// scope attribution.
 fn build_scope_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
 ) -> HashMap<SpanKey<'_>, &str> {
@@ -905,13 +899,14 @@ fn has_http_signal(c: &ClassifiedAttrs<'_>) -> bool {
 fn resolve_sql_statement<'a>(c: &ClassifiedAttrs<'a>, db_system: Option<&str>) -> Option<&'a str> {
     // A blank statement is a missing one. Instrumentations do emit
     // `db.statement=""` (a redacting layer that keeps the key, or a driver
-    // ping, see is_driver_ping), and taking it at face value produced a SQL
-    // event with an empty target: it normalized to an empty template,
-    // grouped with every other blank one on the endpoint, and surfaced as
-    // `redundant_sql` telling the team to cache an operation with no name.
-    // Treated as absent, the span becomes a `missing_db_statement` gap, or
-    // `not_io` when it is a driver ping. Blank-checked, not trimmed:
-    // trimming a non-blank statement would change its ack signature.
+    // ping, see is_driver_ping). Taken at face value, such a statement would
+    // yield a SQL event with an empty target. That event would normalize to
+    // an empty template, group with every other blank one on the endpoint,
+    // and surface as `redundant_sql` telling the team to cache an
+    // operation with no name. Treated as absent, the span becomes a
+    // `missing_db_statement` gap, or `not_io` when it is a driver ping.
+    // Blank-checked, not trimmed: trimming a non-blank statement would
+    // change its ack signature.
     let non_blank = |s: &&'a str| !s.trim().is_empty();
     c.db_statement
         .filter(non_blank)
@@ -956,7 +951,7 @@ struct StitchDonor<'a> {
 const SIBLING_DONOR_LOOKBACK: usize = 8;
 
 /// Visit the same-trace ancestors of `span`, nearest first, up to
-/// `CODE_ATTRS_MAX_DEPTH` hops; stop early when `visit` returns `true`.
+/// `CODE_ATTRS_MAX_DEPTH` hops, stopping early when `visit` returns `true`.
 /// A malformed parent cycle that loops back to `span` itself ends the
 /// walk, so a span is never its own ancestor.
 fn walk_same_trace_ancestors<'a>(
@@ -984,9 +979,9 @@ fn walk_same_trace_ancestors<'a>(
     }
 }
 
-/// Duration halves of a split query are execute/query spans; statement-less
-/// connect, commit, or transaction spans must keep today's filtering
-/// instead of adopting a neighbor query's statement.
+/// Duration halves of a split query are execute/query spans. Statement-less
+/// connect, commit, or transaction spans must stay filtered instead of
+/// adopting a neighbor query's statement.
 fn looks_like_query_execution(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     name.contains("execute") || name.contains("query")
@@ -1065,13 +1060,13 @@ fn classify_stitch_role<'a>(span: &Span, c: &ClassifiedAttrs<'a>) -> SpanRole<'a
 /// contrib doctrine layer carries `db.query.text` with no `db.system` (that
 /// attribute sits only on the child pdo layer), and the statement-bearing
 /// `SELECT orders` span must be usable as a donor for its `Doctrine::execute`
-/// sibling. An orphan with a SQL `db.system` is admitted directly; an orphan
+/// sibling. An orphan with a SQL `db.system` is admitted directly. An orphan
 /// with no `db.system` (again the doctrine layer) is admitted only when it
 /// has a statement-bearing sibling, so ORM logical-op spans that wrap their
 /// own SQL child (Ruby `ActiveRecord`) do not adopt a descendant's statement.
 ///
 /// `classified` is the capped per-resource cache: spans beyond it never
-/// participate and convert exactly as before.
+/// participate and convert without stitching.
 fn collect_stitch_participants<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
     classified: &[ClassifiedAttrs<'a>],
@@ -1145,7 +1140,7 @@ fn suppress_layered_duplicates<'a>(
 }
 
 /// Rule 2 split: a layered orphan defers to its outermost same-trace orphan
-/// ancestor (returned as `deferred` with the carrier's key); the rest carry
+/// ancestor (returned as `deferred` with the carrier's key). The rest carry
 /// their own stitched event.
 fn split_layered_orphans<'a>(
     orphans: &[&'a Span],
@@ -1239,7 +1234,7 @@ fn nearest_donor(
 }
 
 /// Bucket surviving donors by parent (sibling lookup) and by same-trace
-/// ancestor (descendant lookup); sibling buckets are sorted by start time so
+/// ancestor (descendant lookup). Sibling buckets are sorted by start time so
 /// carriers binary-search their relevant siblings. O(n), no quadratic scans.
 fn bucket_surviving_donors<'a>(
     donors: &[StitchDonor<'a>],
@@ -1328,8 +1323,7 @@ fn collect_orphan_candidates<'a>(
 /// statement spans fake redundancy.
 ///
 /// Three rules over the SQL spans of one resource (per `ResourceSpans`
-/// block; allowlisted SQL engines only, other engines keep today's
-/// behavior):
+/// block, allowlisted SQL engines only, other engines unchanged):
 /// 1. A donor (statement-bearing span) whose same-trace ancestor is a donor
 ///    with the identical statement is suppressed: layered duplicate.
 ///    Siblings are never collapsed (single-layer emitters like Laravel/PDO
@@ -1341,7 +1335,7 @@ fn collect_orphan_candidates<'a>(
 /// 3. Each remaining orphan adopts the statement of the nearest related
 ///    donor (sibling or ancestor/descendant, same trace, see
 ///    [`nearest_donor`]). Donors are reusable (prepare once, execute N
-///    times yields N events); a donor consumed at least once is suppressed.
+///    times yields N events). A donor consumed at least once is suppressed.
 ///
 /// Fail-open: an orphan with no related preceding donor (for example a
 /// prepare/execute pair split across collector batches) gets no decision
@@ -1350,7 +1344,7 @@ fn collect_orphan_candidates<'a>(
 /// Known limit: pairing is a nearest-start heuristic. Interleaved
 /// same-parent queries can swap params and durations between events, and
 /// batch-prepared statements can attribute an execution to the wrong
-/// template; nothing is dropped or double-emitted. Real emitters are
+/// template. Nothing is dropped or double-emitted. Real emitters are
 /// per-query sequential.
 fn compute_stitch_decisions<'a>(
     resource_spans: &'a opentelemetry_proto::tonic::trace::v1::ResourceSpans,
@@ -1369,8 +1363,8 @@ fn compute_stitch_decisions<'a>(
         .collect();
     let donor_suppressed = suppress_layered_duplicates(&donors, &donor_by_id, span_index);
 
-    // Rule 2: deferred spans are only suppressed if the carrier actually
-    // stitches, so the no-donor case stays byte-identical to today.
+    // Rule 2: deferred spans are only suppressed if the carrier stitches, so
+    // the no-donor case stays byte-identical to the output without stitching.
     let (deferred, carriers) = split_layered_orphans(&orphans, span_index);
 
     let mut decisions: HashMap<SpanKey<'a>, StitchDecision<'a>> = HashMap::new();
@@ -1433,10 +1427,10 @@ fn compute_stitch_decisions<'a>(
 /// `db.query.text`, or the dd-trace `dd.span.Resource` fallback), an
 /// outbound URL (legacy `http.url`, stable `url.full`), or an RPC callee
 /// (`rpc.system` with `rpc.service`/`rpc.method` or the span name) are
-/// skipped; see `classify_io_event`. Parent lookup is done within the same
+/// skipped (see `classify_io_event`). Parent lookup is done within the same
 /// request. For an explicitly named service, `source.endpoint` resolves to
-/// the outermost inbound HTTP route in its contiguous parent chain;
-/// anonymous resources conservatively use the nearest route. Entry points
+/// the outermost inbound HTTP route in its contiguous parent chain.
+/// Anonymous resources conservatively use the nearest route. Entry points
 /// without a route fall back to `code.*`, then to `"unknown"`.
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
@@ -1447,7 +1441,7 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
 ///
 /// The daemon listeners use this variant so the received vs filtered
 /// span counters move even when a whole request converts to zero
-/// events (the request itself still succeeds, by design).
+/// events (the request itself still succeeds).
 #[must_use]
 pub fn convert_otlp_request_counted(
     request: &ExportTraceServiceRequest,
@@ -1696,7 +1690,7 @@ fn span_filter_reason(
     db_system: Option<&str>,
     kind: i32,
 ) -> OtlpSpanFilterReason {
-    // Stable OTel semconv puts `url.full` on CLIENT spans only; SERVER
+    // Stable OTel semconv puts `url.full` on CLIENT spans only. SERVER
     // spans legitimately carry just `http.request.method` + `url.path`.
     // A server span without a full URL is inbound work, not a stripped
     // outbound call, so it must count as `not_io`, not as an
@@ -1722,12 +1716,6 @@ fn span_filter_reason(
     }
 }
 
-/// Classify an analyzable span as SQL, outbound HTTP or a message publish,
-/// returning `(event_type, target, operation)`. `None` when it carries no
-/// statement, no URL, no RPC client method and no messaging destination.
-/// `kind` is the OTLP `SpanKind`: SERVER spans are inbound context rather than
-/// outbound HTTP calls, RPC admits only CLIENT, and messaging only PRODUCER.
-/// Supports both legacy (pre-1.21) and stable (1.21+) `OTel` conventions.
 /// Micrometer `status` tag, read only on a span that carries a URL: an RPC
 /// callee is also an `HttpOut` event, and its `status` is no HTTP code.
 fn micrometer_http_status(c: &ClassifiedAttrs<'_>) -> Option<i64> {
@@ -1737,6 +1725,12 @@ fn micrometer_http_status(c: &ClassifiedAttrs<'_>) -> Option<i64> {
         .and_then(|s| s.parse().ok())
 }
 
+/// Classify an analyzable span as SQL, outbound HTTP or a message publish,
+/// returning `(event_type, target, operation)`. `None` when it carries no
+/// statement, no URL, no RPC client method and no messaging destination.
+/// `kind` is the OTLP `SpanKind`: SERVER spans are inbound context rather than
+/// outbound HTTP calls, RPC admits only CLIENT, and messaging only PRODUCER.
+/// Supports both legacy (pre-1.21) and stable (1.21+) `OTel` conventions.
 fn classify_io_event(
     c: &ClassifiedAttrs<'_>,
     db_system: Option<&str>,
@@ -1864,9 +1858,6 @@ fn rebuilt_classified<'a>(
     Some(rebuilt)
 }
 
-/// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
-///
-/// Non-I/O spans return the filter reason so the caller can tally them.
 /// Resource value first, span attribute as the fallback: a per-request
 /// dimension such as a tenant id only exists on the span.
 fn resolve_grouping(
@@ -1887,6 +1878,9 @@ fn resolve_grouping(
         .collect()
 }
 
+/// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
+///
+/// Non-I/O spans return the filter reason so the caller can tally them.
 #[allow(clippy::too_many_arguments)] // per-request context, each one distinct
 fn convert_span<'a>(
     span: &'a Span,
@@ -1951,8 +1945,8 @@ fn convert_span<'a>(
     let response_size_bytes = payload_size_bytes(&event_type, classified);
 
     // code.* attributes: leaf attrs first, walk parents only when empty.
-    // OTel JDBC and HTTP-client spans rarely carry their own code.*; the
-    // user frame sits on a parent.
+    // OTel JDBC and HTTP-client spans rarely carry their own code.* attributes.
+    // The user frame sits on a parent.
     let code = walk_parents_for_code_attrs(
         classified.code_attrs(),
         &span.trace_id,
@@ -1977,9 +1971,9 @@ fn convert_span<'a>(
         Some(bytes_to_hex(&span.parent_span_id))
     };
 
-    // cloud.region: resource → span fallback → None. The resource-level
-    // Arc is shared across all spans of this resource_spans block via
-    // Arc::clone; only the span-level fallback path allocates.
+    // cloud.region: resource, then span fallback, then None. The
+    // resource-level Arc is shared across all spans of this resource_spans
+    // block via Arc::clone. Only the span-level fallback path allocates.
     let cloud_region: Option<Arc<str>> = resource_cloud_region.cloned().or_else(|| {
         classified
             .cloud_region
@@ -2026,8 +2020,8 @@ fn convert_span<'a>(
     Ok(event)
 }
 
-/// Display-only method from the direct parent; it does not enter the ack
-/// signature and deliberately does not follow the endpoint ancestor walk.
+/// Display-only method from the direct parent. It does not enter the ack
+/// signature and does not follow the endpoint ancestor walk.
 fn resolve_source_method(span: &Span, span_index: &HashMap<SpanKey<'_>, &Span>) -> String {
     if span.parent_span_id.is_empty() {
         return span.name.clone();
@@ -2046,7 +2040,7 @@ fn resolve_source_method(span: &Span, span_index: &HashMap<SpanKey<'_>, &Span>) 
 // ── gRPC service implementation ─────────────────────────────────────
 
 /// Bounded wait when enqueueing a converted batch on the ingest channel.
-/// Short bursts absorb silently; sustained saturation surfaces as a fast
+/// Short bursts absorb silently. Sustained saturation surfaces as a fast
 /// retryable rejection that moves the `channel_full` counter. A plain
 /// `send().await` only errors on a closed channel, so saturation would
 /// otherwise park senders until the router request timeout with no
@@ -2091,7 +2085,7 @@ impl<T> From<tokio::sync::mpsc::error::SendTimeoutError<T>> for SinkRejection {
 
 impl OtlpSink {
     /// Enqueue one request, converting first on the `Events` arm. An empty
-    /// conversion is a success with nothing sent, as before.
+    /// conversion is a success with nothing sent.
     async fn accept(
         &self,
         request: ExportTraceServiceRequest,
@@ -2218,9 +2212,9 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        // Memory-pressure admission control, handler-level belt: the
-        // daemon wraps this service in a tonic interceptor that rejects
-        // before the message is even decoded (see
+        // Memory-pressure admission control, repeated at the handler level:
+        // the daemon wraps this service in a tonic interceptor that rejects
+        // before the message is decoded (see
         // `daemon::listeners::spawn_grpc_listener`), so this branch only
         // fires for direct callers (unit tests, embedders). UNAVAILABLE
         // is the retryable status compliant exporters back off on.
@@ -2245,7 +2239,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
             }
             // Saturation must map to a status the OTLP spec lists as
-            // retryable (UNAVAILABLE); INTERNAL is non-retryable and
+            // retryable (UNAVAILABLE). INTERNAL is non-retryable and
             // would make compliant exporters drop the batch for good.
             // A closed channel means shutdown: INTERNAL is accurate.
             return Err(match e {
@@ -2263,7 +2257,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 
 /// State shared by the OTLP HTTP handler.
 ///
-/// Cloned on every request by axum's `State` extractor; the sender and
+/// Cloned on every request by axum's `State` extractor. The sender and
 /// metrics handle are both cheap to clone (mpsc Sender is an Arc, the
 /// metrics Option carries an Arc).
 #[derive(Clone)]
@@ -2370,8 +2364,8 @@ fn otlp_http_router_with_sink_and_grouping(
         headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> StatusCode {
-        // Memory-pressure admission control, handler-level belt: the
-        // outermost `memory_pressure_guard` middleware already rejects
+        // Memory-pressure admission control, repeated at the handler level:
+        // the outermost `memory_pressure_guard` middleware already rejects
         // before the body is buffered or decompressed, so this branch
         // only fires for direct handler callers (unit tests, embedders
         // that skip the router layers). 503 is the retryable status
@@ -2421,8 +2415,8 @@ fn otlp_http_router_with_sink_and_grouping(
     }
 
     // Hard cap on concurrently processed OTLP HTTP requests, bounding
-    // decode CPU and buffered-body memory under a saturation flood:
-    // without it the kubelet liveness probe on /health starves behind
+    // decode CPU and buffered-body memory under a saturation flood.
+    // Without it the kubelet liveness probe on /health starves behind
     // decode work and restarts the daemon before shedding gets a chance
     // (observed at ~800 traces/s on a 500m-CPU pod). Excess requests
     // wait on this in-process semaphore, bounded by the router-level
@@ -2488,9 +2482,9 @@ fn otlp_http_router_with_sink_and_grouping(
 }
 
 /// Mount an [`OtlpGrpcService`] with the encodings and the decode cap every
-/// gRPC listener shares. Divergence here breaks one transport silently, which
-/// is how the pre-0.9.28 listener dropped every batch from a default
-/// Collector. The cap applies to the decompressed message.
+/// gRPC listener shares. Divergence here breaks one transport silently: a
+/// listener without gzip drops every batch from a default Collector. The cap
+/// applies to the decompressed message.
 #[cfg(feature = "daemon")]
 #[must_use]
 pub fn trace_service(

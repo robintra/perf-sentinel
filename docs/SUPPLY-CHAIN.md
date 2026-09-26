@@ -1,9 +1,10 @@
 # Supply chain pinning policy
 
 This document describes how perf-sentinel keeps its build inputs
-immutable. The goal is simple: a checkout of any tagged release
+immutable. The goal is that a checkout of any tagged release
 produces byte-identical CI runs and binaries weeks or years later,
-and a compromised upstream cannot silently swap a tag from under us.
+and that a compromised upstream cannot silently swap a tag from
+under us.
 
 The policy below is already enforced across the repository. This
 document formalises it so future contributors and reviewers can apply
@@ -46,9 +47,9 @@ Why SHA and not tags: the recent supply-chain attacks against
 `tj-actions/changed-files` (March 2025) and similar incidents all
 exploited the fact that a Git tag is a mutable pointer. A maintainer
 or attacker can move `v6` to a new commit at any time, and every
-workflow on the planet that pinned `@v6` immediately runs the new
-code. A SHA is content-addressable: rewriting it requires a
-collision in SHA-1, which is not in scope for any known attacker.
+workflow that pinned `@v6` immediately runs the new code. A SHA is
+content-addressable: rewriting it requires a collision in SHA-1,
+which is not in scope for any known attacker.
 
 ### Docker images
 
@@ -68,7 +69,7 @@ dependency closure.
 
 - `Cargo.toml` declares semver ranges as usual.
 - `Cargo.lock` is committed and is the authoritative source for what
-  the build actually compiles.
+  the build compiles.
 - `cargo audit` runs daily and on every PR.
 - Acknowledged advisories live in `audit.toml` with a paragraph
   explaining why the affected code path is not exercised. See the
@@ -117,12 +118,11 @@ updates:
         patterns: ["github/codeql-action", "github/codeql-action/*"]
 ```
 
-Cargo dependencies are deliberately excluded from Dependabot: the
-combination of `Cargo.lock` plus daily `cargo audit` already covers
-the security angle, and the volume of patch bumps Dependabot would
-generate on a 200+ crate workspace pays off poorly for a project of
-this size. Cargo updates are handled manually via `cargo update`
-when needed.
+Cargo dependencies are excluded from Dependabot: the combination of
+`Cargo.lock` plus daily `cargo audit` already covers the security
+angle, and the volume of patch bumps Dependabot would generate on a
+200+ crate workspace pays off poorly for a project of this size.
+Cargo updates are handled manually via `cargo update` when needed.
 
 ## Verification commands
 
@@ -183,8 +183,8 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
    available.
 
 2. **Triage**: read the advisory, run `cargo tree -i <crate>` to
-   confirm whether the affected version is actually compiled into
-   the binary (the `RUSTSEC-2026-0097` paragraph in `audit.toml` is
+   confirm whether the affected version is compiled into the
+   binary (the `RUSTSEC-2026-0097` paragraph in `audit.toml` is
    the canonical example of what depth of analysis is expected).
 
 3. **Remediation**: bump the dependency in `Cargo.toml` if the fix
@@ -217,7 +217,7 @@ If you have not used Sigstore before, this short primer is a prerequisite for th
 - **Fulcio** is the certificate authority. It consumes the OIDC token cosign obtained (proof of identity: email, GitHub workflow URL, ...) and issues a short-lived X.509 certificate (10 minutes) bound to that identity. Fulcio never sees the signer's private key.
 - **Rekor** is the public transparency log. It records the signature next to the Fulcio certificate, returns an inclusion proof, and exposes the entry at a stable log index. Past entries cannot be silently rewritten.
 
-**Who signs with which key.** Cosign generates a brand-new ephemeral keypair just before signing. Fulcio issues a 10-minute certificate that binds the *public* half of that keypair to the OIDC identity. Once the signature is uploaded to Rekor the keypair is discarded. What survives is the signature, the certificate, and the Rekor entry, which is exactly what a verifier needs.
+**Who signs with which key.** Cosign generates a brand-new ephemeral keypair just before signing. Fulcio issues a 10-minute certificate that binds the *public* half of that keypair to the OIDC identity. Once the signature is uploaded to Rekor the keypair is discarded. What remains is the signature, the certificate, and the Rekor entry, which is what a verifier needs.
 
 **The OIDC identity** is the subject of the Fulcio certificate, surfaced as `signer_identity` + `signer_issuer` in any document that records the signature. For a GitHub Actions release workflow the identity is the workflow URL (`https://github.com/robintra/perf-sentinel/.github/workflows/release.yml@refs/tags/...`) and the issuer is `https://token.actions.githubusercontent.com`. For an individual signing locally with a Google account, the identity is the email address and the issuer is `https://accounts.google.com`. Consumers should pin the expected identity regex and issuer in their verification policy.
 
@@ -227,7 +227,7 @@ If you have not used Sigstore before, this short primer is a prerequisite for th
 
 - **OIDC (OpenID Connect)** is an identity protocol layered on OAuth 2.0. In this workflow it is how cosign proves "this signer is `user@example.org`" (or "this is the perf-sentinel release workflow on tag v0.7.1") to Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
 - **in-toto v1 statement** is an open OpenSSF specification for software-supply-chain attestations. A JSON envelope that pairs an artefact hash with a typed *claim* about it. SLSA provenance and the periodic disclosure attestation are both in-toto statements internally. Cosign signs the statement, not the raw artefact, so verifiers can chain the trust from artefact hash to in-toto statement to cosign signature to Fulcio cert. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
-- **Bundle (`bundle.sig`)** is the JSON file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single artefact, which is what enables fully offline verification later (a consumer validates against Rekor's public key without re-querying Rekor live).
+- **Bundle (`bundle.sig`)** is the JSON file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single artefact, which enables fully offline verification later (a consumer validates against Rekor's public key without re-querying Rekor live).
 - **SLSA (Supply-chain Levels for Software Artifacts)** is a separate OpenSSF framework that describes *how* an artefact was built (source commit, builder, workflow). perf-sentinel binaries and Helm charts carry SLSA Build L3 attestations produced by `actions/attest-build-provenance`. Level L3 requires Sigstore OIDC signing plus builder isolation, both of which a GitHub-hosted runner provides. [Spec](https://slsa.dev/spec/v1.0/).
 - **SBOM (Software Bill of Materials)** is a structured inventory of an artefact's dependencies. perf-sentinel ships an SPDX-format SBOM attested under the SPDX in-toto predicate, so consumers verify it the same way they verify the Cosign signature. [SPDX spec](https://spdx.dev/specifications/), [SPDX in-toto predicate](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
 - **CT log (Certificate Transparency)** is the broader pattern Rekor implements. Sigstore's Rekor public instance is at `rekor.sigstore.dev`. Operators with stricter requirements can run a private instance.
@@ -243,12 +243,13 @@ published as a release asset.
 
 The 0.7.1 release migrated from the previous tooling,
 `slsa-framework/slsa-github-generator@v2.1.0`, which had been in
-de-facto maintenance since 2025-02-24 (15 months without a release as
-of the migration date, all internal actions still on Node.js 20 while
-GitHub-hosted runners switch to Node 24 default on 2 June 2026). The
-new pipeline preserves the SLSA Build Provenance contract, drops the
-release-asset `multiple.intoto.jsonl` (attestations now live in the
-attestations API), and upgrades the level claim from L2 to L3 since
+de-facto maintenance since 2025-02-24. As of the migration date it had
+gone 15 months without a release, and all its internal actions were
+still on Node.js 20 while GitHub-hosted runners were due to switch to
+Node 24 default on 2 June 2026. The new pipeline preserves the SLSA
+Build Provenance contract and drops the release-asset
+`multiple.intoto.jsonl` (attestations now live in the attestations
+API). It also upgrades the level claim from L2 to L3, since
 `actions/attest-build-provenance` produces a level-3 attestation by
 construction (provenance signed via Sigstore OIDC, builder isolation
 on a GitHub-hosted runner).
@@ -276,7 +277,7 @@ against the GitHub attestations API for tooling that cannot depend on
 **Migration note for consumers**: a 0.6.x or 0.7.0 binary still ships
 the legacy `multiple.intoto.jsonl` and is verified via
 `slsa-verifier verify-artifact`. The legacy verification path is
-preserved on those existing tags; only 0.7.1+ requires the new
+preserved on those existing tags. Only 0.7.1+ requires the new
 command.
 
 ## Binary SBOM and embedded audit data
@@ -305,8 +306,8 @@ gh attestation verify perf-sentinel-linux-amd64 \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-The SBOM is derived from the Linux amd64 binary; the four release binaries
-share their Rust dependency closure bar a few platform-shim crates, so it
+The SBOM is derived from the Linux amd64 binary. The four release binaries
+share their Rust dependency closure bar a few platform-shim crates, so the SBOM
 documents the release as a whole.
 
 ## PR review checklist

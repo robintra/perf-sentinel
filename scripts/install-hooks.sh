@@ -20,7 +20,7 @@ fi
 
 # Detect a non-default core.hooksPath. If set globally or locally to
 # anything other than `.git/hooks`, git will not run the hooks we
-# install here. We don't change the config behind your back; we report
+# install here. We don't change the config behind your back. We report
 # the situation and ask you to choose.
 EXISTING_HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
 if [ -n "${EXISTING_HOOKS_PATH}" ]; then

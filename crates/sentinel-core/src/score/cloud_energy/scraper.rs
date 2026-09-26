@@ -223,7 +223,8 @@ async fn run_cloud_scraper_loop(
     let redacted = http_client::redact_endpoint(&uri);
 
     // Parse the optional auth header once at startup. A parse failure
-    // logs and aborts the task, silent retries would just spam warn logs.
+    // logs and aborts the task, because silent retries would only spam
+    // warn logs.
     // Option<Arc<_>> so the no-auth path pays zero refcount cost in the
     // per-tick JoinSet fanout below.
     let parsed_auth: Option<Arc<AuthHeader>> = match parse_scraper_auth_header(
@@ -270,11 +271,10 @@ async fn run_cloud_scraper_loop(
         let mut cpu_readings: HashMap<String, f64> = HashMap::with_capacity(cfg.services.len());
 
         // Query CPU% for all configured services in parallel via a
-        // `JoinSet`. The previous sequential loop was N × request_time,
-        // which at 1024 services × 20ms easily exceeded the 15s scrape
-        // interval and caused ticker backlog. Parallelism lets us fan
-        // out the queries and collect them as they return. The hyper
-        // client holds an Arc internally so `.clone()` is cheap.
+        // `JoinSet`, collecting results as they return. A sequential
+        // loop costs N × request_time, which at 1024 services × 20ms
+        // exceeds the 15s scrape interval and backs up the ticker. The
+        // hyper client holds an Arc internally so `.clone()` is cheap.
         let mut set: tokio::task::JoinSet<(String, Result<f64, CloudScraperError>)> =
             tokio::task::JoinSet::new();
         for (service, svc_cfg) in &cfg.services {
@@ -339,7 +339,8 @@ async fn run_cloud_scraper_loop(
         } else if !cfg.services.is_empty() {
             consecutive_failures = consecutive_failures.saturating_add(1);
             // Advance the staleness gauge so hung-scraper alerts (and
-            // /api/energy) see the failure, Scaphandre/Kepler parity.
+            // /api/energy) see the failure, as the Scaphandre and Kepler
+            // scrapers do.
             #[allow(clippy::cast_precision_loss)]
             let age_secs = monotonic_ms().saturating_sub(last_success_ms) as f64 / 1000.0;
             metrics.cloud_energy_last_scrape_age_seconds.set(age_secs);
@@ -758,9 +759,9 @@ mod tests {
 
     #[test]
     fn manual_watts_variant_uses_default_provider_for_query() {
-        // ManualWatts has no provider field; resolve_cpu_query must
-        // fall back to cfg.default_provider, exercising the second
-        // match arm in resolve_cpu_query.
+        // ManualWatts has no provider field, so resolve_cpu_query must
+        // fall back to cfg.default_provider, exercising its second
+        // match arm.
         let svc = ServiceCloudConfig::ManualWatts {
             idle_watts: 10.0,
             max_watts: 100.0,
@@ -814,7 +815,8 @@ mod tests {
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
-        // No CPU reading → continue → no insertion → empty snapshot.
+        // No CPU reading, so the service is skipped and the snapshot
+        // stays empty.
         let snap = state.snapshot(200, 500);
         assert!(snap.is_empty());
     }
@@ -846,7 +848,7 @@ mod tests {
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
-        // No ops delta → continue → no insertion.
+        // No ops delta, so the service is skipped and nothing is inserted.
         let snap = state.snapshot(200, 500);
         assert!(snap.is_empty());
     }
@@ -854,13 +856,13 @@ mod tests {
     #[test]
     fn apply_scrape_zero_ops_non_finite_energy_skipped() {
         // ops=0 makes `compute_cloud_energy_per_op_kwh` return None,
-        // which hits the `continue` on line 421. The service should
-        // NOT be inserted into state.
+        // which hits the `continue` after that call in `apply_cloud_scrape`.
+        // The service should NOT be inserted into state.
         let state = CloudEnergyState::new();
         let mut cpu = HashMap::new();
         cpu.insert("svc-a".to_string(), 50.0);
         let mut ops = HashMap::new();
-        ops.insert("svc-a".to_string(), 0_u64); // zero ops → None
+        ops.insert("svc-a".to_string(), 0_u64); // zero ops yields None
 
         let mut services = HashMap::new();
         services.insert(
@@ -888,10 +890,10 @@ mod tests {
 
     #[test]
     fn resolve_power_falls_back_to_default_instance_type() {
-        // svc_cfg.instance_type is empty → uses cfg.default_instance_type.
+        // An empty svc_cfg.instance_type falls back to cfg.default_instance_type.
         let svc = ServiceCloudConfig::InstanceType {
             provider: Some("aws".into()),
-            instance_type: String::new(), // empty → fallback path
+            instance_type: String::new(), // empty, takes the fallback path
             cpu_query: None,
         };
         let mut cfg = make_test_config();
@@ -922,7 +924,7 @@ mod tests {
 
     #[test]
     fn warn_if_slow_does_not_panic_when_elapsed_exceeds_threshold() {
-        // 13s > 15s * 0.8 = 12s → emits a tracing::warn but must not panic.
+        // 13s > 15s * 0.8 = 12s, so it emits a tracing::warn but must not panic.
         let cfg = CloudEnergyConfig {
             prometheus_endpoint: "http://localhost:9090".into(),
             scrape_interval: Duration::from_secs(15),
@@ -1106,8 +1108,8 @@ mod tests {
     #[tokio::test]
     async fn spawn_cloud_scraper_unreachable_endpoint_keeps_running() {
         // Configured services but the endpoint refuses connections.
-        // The scraper must stay alive, go through log_scrape_failure,
-        // eventually bump consecutive_failures past the threshold.
+        // The scraper must stay alive, go through log_scrape_failure
+        // and eventually bump consecutive_failures past the threshold.
         let mut services = HashMap::new();
         services.insert(
             "svc-a".to_string(),

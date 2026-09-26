@@ -4,9 +4,9 @@
 //! finding for every trace that exhibits it. The buffer keeps those
 //! instances: they carry the per-trace severity, they let
 //! `by_trace_id` answer for a trace whose spans have aged out, and FIFO
-//! pressure is what expires a fixed problem. Listing them raw is what
-//! reads as duplicate rows, so [`coalesce_by_signature`] folds them at
-//! READ time by effective grouping identity and signature, leaving the stored
+//! pressure expires a fixed problem. Listed raw, they read as
+//! duplicate rows, so [`coalesce_by_signature`] folds them at READ time
+//! by effective grouping identity and signature, leaving the stored
 //! history intact.
 
 use std::collections::{HashMap, VecDeque};
@@ -58,19 +58,19 @@ fn default_seen_count() -> u64 {
 /// signature, preserving the input order (newest first, what
 /// [`FindingsStore::query`] yields).
 ///
-/// Two rows split here share one acknowledgment signature, by design: the
-/// signature is grouping-blind (see `acknowledgments::compute_signature`).
+/// Two rows split here share one acknowledgment signature: the signature
+/// is grouping-blind (see `acknowledgments::compute_signature`).
 /// Grouping answers who is affected and where, acknowledgment answers
 /// whether the code is accepted debt, and the second does not vary by
-/// deployment: the same N+1 in five tenants is one decision, not five.
-/// Environments that genuinely need separate triage run separate daemons
-/// with separate stores. Keeping the signature grouping-blind also means
+/// deployment: the same N+1 in five tenants is one decision.
+/// Environments that need separate triage run separate daemons with
+/// separate stores. Keeping the signature grouping-blind also means
 /// reordering `grouping_attributes` never invalidates an existing ack.
 ///
 /// The representative is the WORST-severity detection of the group, not
 /// the newest. Severity is derived per trace (12 repeats is critical, 6
 /// is a warning), so a row must not claim a severity its own
-/// `pattern.occurrences` and `trace_id` contradict: grafting the worst
+/// `pattern.occurrences` and `trace_id` contradict. Grafting the worst
 /// severity onto the newest instance produces a critical row pointing at
 /// the quiet trace, which cannot be triaged from what it shows. Ties
 /// keep the newest. `seen_count` counts the fold and `first_seen_ms` is
@@ -80,7 +80,7 @@ fn default_seen_count() -> u64 {
 /// `entries` must be newest first, the order the store reads its ring
 /// in. The fold keeps the first instance it meets at a given severity,
 /// so on a tie that is the newest one only when the caller has ordered
-/// them that way, and the rows come back in the order their groups were
+/// them that way. The rows come back in the order their groups were
 /// first met.
 #[must_use]
 pub fn coalesce_by_signature(entries: &[StoredFinding]) -> Vec<StoredFinding> {
@@ -115,7 +115,7 @@ impl<'a> Folded<'a> {
     }
 
     /// The row a reader gets: the representative's finding under the
-    /// group's metadata. A struct literal on purpose, so a field added to
+    /// group's metadata. A struct literal, so a field added to
     /// `StoredFinding` fails to compile here and gets an explicit answer
     /// to "whose value?" rather than inheriting the representative's.
     fn materialize(&self) -> StoredFinding {
@@ -170,8 +170,8 @@ fn fold_entries<'a>(entries: impl Iterator<Item = &'a StoredFinding>) -> Vec<Fol
 /// grouping attribute, so it can only screen instances: after the fold,
 /// a row folded across two namespaces would be kept or dropped whole.
 /// Shared so a third caller cannot screen on one and not the others.
-/// Severity is deliberately absent: it is a property of the group's
-/// worst instance, so it can only be judged after the fold.
+/// Severity is left out: it is a property of the group's worst
+/// instance, so it can only be judged after the fold.
 fn matches_buffer_pass_filters(sf: &StoredFinding, filter: &FindingsFilter) -> bool {
     if let Some(ref svc) = filter.service
         && sf.finding.service != *svc
@@ -202,10 +202,11 @@ fn matches_buffer_pass_filters(sf: &StoredFinding, filter: &FindingsFilter) -> b
 
 /// Merge a later fold of the same window into an earlier one, by the key
 /// [`fold_entries`] uses. Rows present in both keep the larger
-/// `seen_count` rather than the sum, since both folds counted the same
-/// instances, the earliest `first_seen_ms`, the latest `stored_at_ms` and
-/// the worse severity. Rows only the later fold has are appended, rows
-/// only the earlier one has are kept: the record can grow, never lose.
+/// `seen_count` (rather than the sum, since both folds counted the same
+/// instances), the earliest `first_seen_ms`, the latest `stored_at_ms` and
+/// the worse severity. Rows only the later fold has are appended and rows
+/// only the earlier one has are kept, so the record can grow but never
+/// lose a row.
 pub(crate) fn merge_folded(into: &mut Vec<StoredFinding>, later: Vec<StoredFinding>) {
     let mut index: HashMap<(Option<(String, String)>, String), usize> = into
         .iter()
@@ -317,7 +318,7 @@ pub struct FindingsFilter {
     pub namespace: Option<String>,
     /// Rows to skip before `limit` applies, so a listing past the cap is
     /// read a page at a time. On the folded listing it lands after the
-    /// fold, the severity screen and the delta bound; on the raw
+    /// fold, the severity screen and the delta bound. On the raw
     /// [`FindingsStore::query`] it skips instances. Newest first on both.
     pub offset: usize,
     /// Maximum number of results to return.
@@ -341,7 +342,7 @@ impl FindingsStore {
         // that `extend` in `push_batch` can trigger under the writer lock.
         // Reallocating under the lock briefly blocks query API readers.
         //
-        // The ceiling is deliberately low: the default
+        // The ceiling stays low: the default
         // `max_retained_findings = 10_000` is already well under `65k`
         // worth of StoredFinding slots (~12 MB), and users who set a much
         // higher cap typically want to pay the initial-memory cost lazily.
@@ -392,8 +393,8 @@ impl FindingsStore {
     /// Query findings with optional filters, newest first.
     ///
     /// Returns raw per-trace detections. Callers that list findings for
-    /// a human fold them with [`coalesce_by_signature`]; callers that
-    /// count them (the quality gate) must not, a pattern hitting 20
+    /// a human fold them with [`coalesce_by_signature`]. Callers that
+    /// count them (the quality gate) must not: a pattern hitting 20
     /// traces is 20 findings against a threshold.
     ///
     /// `filter.limit` is used as-is. Callers set the default (the query
@@ -423,16 +424,16 @@ impl FindingsStore {
     /// signature, then apply `filter.offset` and `filter.limit` to the
     /// FOLDED rows.
     ///
-    /// The limit lands after the fold on purpose: applied before, a
-    /// pattern recurring on 100 traces would consume the whole page and
-    /// hide every other problem behind it. Severity is filtered after the
-    /// fold too, against the group's worst, so `?severity=critical` cannot
-    /// report the same problem with a different `seen_count`.
+    /// The limit lands after the fold: applied before, a pattern recurring
+    /// on 100 traces would consume the whole page and hide every other
+    /// problem behind it. Severity is filtered after the fold too, against
+    /// the group's worst, so `?severity=critical` cannot report the same
+    /// problem with a different `seen_count`.
     ///
     /// Two time shapes. `until_ms` makes it a window, `[since_ms, until_ms]`
     /// with `since_ms` defaulting to the start of the buffer, screened
     /// during the buffer pass so `first_seen_ms` and `seen_count` describe
-    /// the window: after the fold a group's stamp is its most recent
+    /// the window. After the fold a group's stamp is its most recent
     /// detection, and an upper bound applied there would keep only the
     /// groups that had gone quiet by then. `since_ms` alone is a delta
     /// poll, applied after the fold against that most recent detection,
@@ -443,7 +444,7 @@ impl FindingsStore {
     }
 
     /// [`Self::query_coalesced`] plus the ring's oldest stamp, read under
-    /// the same guard, so the completeness marker describes the very pass
+    /// the same guard, so the completeness marker describes the pass
     /// that produced the rows and an eviction in between cannot make it
     /// vouch for more than was captured.
     pub async fn query_coalesced_with_oldest(
@@ -597,9 +598,9 @@ mod tests {
 
     #[tokio::test]
     async fn query_keeps_instances_and_coalesced_folds_them() {
-        // The tester's repro: one recurring pattern re-detected on 2
-        // traces lists ONCE for a reader, while the raw instances stay
-        // available for the gate and for per-trace triage.
+        // One recurring pattern re-detected on 2 traces lists ONCE for a
+        // reader, while the raw instances stay available for the gate and
+        // for per-trace triage.
         let store = FindingsStore::new(100);
         for (trace, ts) in [("trace-a", 1000u64), ("trace-b", 2000)] {
             let mut f = make_finding("svc", FindingType::RedundantSql);
@@ -784,7 +785,7 @@ mod tests {
 
     #[tokio::test]
     async fn since_bound_reads_the_group_stamp_not_the_representative() {
-        // The representative is the critical instance at 1000; the group's
+        // The representative is the critical instance at 1000. The group's
         // most recent detection is the warning at 5000. A delta poll from
         // 5000 keeps the row, and the row shows the critical evidence under
         // the group's stamps, which are two different instances' values.
@@ -910,7 +911,7 @@ mod tests {
     #[tokio::test]
     async fn since_ms_filters_on_the_most_recent_detection() {
         // A recurring problem must stay visible through a delta query with
-        // the history it really has, not the slice inside the window.
+        // its full history, not the slice inside the window.
         let store = FindingsStore::new(100);
         let mut recurring =
             make_finding_with_template("svc", FindingType::RedundantSql, "SELECT recurring");
@@ -958,10 +959,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_window_scopes_the_history_a_single_bound_leaves_whole() {
-        // The test that separates the correct implementation from the one
-        // that filters after the fold: there, a chronic pattern whose
-        // lifetime envelope straddles the window matches every window ever
-        // asked for, and reports counts from outside it.
+        // This test fails on an implementation that filters after the
+        // fold: there, a chronic pattern whose lifetime envelope straddles
+        // the window matches every window ever asked for, and reports
+        // counts from outside it.
         let store = FindingsStore::new(100);
         let mut chronic =
             make_finding_with_template("svc", FindingType::RedundantSql, "SELECT chronic");
@@ -1039,8 +1040,8 @@ mod tests {
             first_seen_ms: first,
             seen_count: seen,
         };
-        // The earlier fold saw A and B; by the later one the ring evicted A
-        // and analysis added C, and B gained one more detection.
+        // The earlier fold saw A and B. By the later one the ring evicted A,
+        // analysis added C, and B gained one more detection.
         let mut earlier = vec![row(&a, 1000, 1000, 1), row(&b, 2000, 2000, 2)];
         let later = vec![row(&b, 2000, 5000, 3), row(&c, 6000, 6000, 1)];
         merge_folded(&mut earlier, later);

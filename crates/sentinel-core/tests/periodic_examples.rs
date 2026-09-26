@@ -1,7 +1,7 @@
 //! Structural and validator-level checks on the published example
 //! reports in `docs/schemas/examples/`. JSON Schema validation itself
 //! is exercised by external tooling (CI matrix, future
-//! `--features schema-test` job); the Rust tests here guarantee that
+//! `--features schema-test` job). The Rust tests here guarantee that
 //! the canonical examples remain parseable and obey the official-intent
 //! validator.
 

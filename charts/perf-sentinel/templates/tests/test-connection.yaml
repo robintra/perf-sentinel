@@ -13,8 +13,8 @@ spec:
   ttlSecondsAfterFinished: 30
   template:
     metadata:
-      # Deliberately not the workload selector labels: a pod carrying those
-      # would be counted by the PodDisruptionBudget and picked by the Service.
+      # Not the workload selector labels: a pod carrying those would be counted
+      # by the PodDisruptionBudget and picked by the Service.
       labels:
         {{- /* Truncate the name, not the suffix: trimming the whole string at
                63 could eat "-test" and hand the pod the workload selector. */}}

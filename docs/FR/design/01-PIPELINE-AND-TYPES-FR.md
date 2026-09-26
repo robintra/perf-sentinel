@@ -4,13 +4,13 @@
 
 perf-sentinel traite les traces I/O à travers une séquence de transformations : `event -> normalize -> correlate -> detect -> score -> report`. C'est un **pipeline linéaire**, pas une architecture hexagonale (ports et adaptateurs).
 
-Le raisonnement est simple : les données circulent dans une seule direction. Les événements entrent, sont transformés à chaque étape et produisent un rapport. Il n'y a pas de dépendances bidirectionnelles, pas d'événements de domaine, pas de patterns d'interaction complexes. Une architecture hexagonale introduirait de l'indirection par traits entre chaque étape : ajoutant de la charge cognitive, du coût à la compilation et du dispatch dynamique pour zéro bénéfice.
+Les données circulent dans une seule direction. Les événements entrent, sont transformés à chaque étape et produisent un rapport. Il n'y a pas de dépendances bidirectionnelles, pas d'événements de domaine, pas de patterns d'interaction complexes. Une architecture hexagonale introduirait de l'indirection par traits entre chaque étape, ajoutant de la charge cognitive, du coût à la compilation et du dispatch dynamique pour zéro bénéfice.
 
 Les traits ne sont utilisés qu'aux **frontières** du pipeline :
 - **Entrée :** trait `IngestSource` (JSON, OTLP)
 - **Sortie :** trait `ReportSink` (fichier JSON, stdout)
 
-Entre les frontières, chaque étape est une **fonction pure** : elle prend des données en entrée et retourne des données transformées en sortie. Pas d'effets de bord, pas d'état, pas d'objets trait. Cela rend chaque étape testable indépendamment sans mocks : il suffit de construire les données d'entrée et d'asserter sur la sortie.
+Entre les frontières, chaque étape est une **fonction pure** : elle prend des données en entrée et retourne des données transformées en sortie. Pas d'effets de bord, pas d'état, pas d'objets trait. Cela rend chaque étape testable indépendamment sans mocks : il suffit de construire les données d'entrée et de vérifier la sortie.
 
 Ce pattern est courant dans les outils de traitement de données de l'écosystème Rust. Des projets comme [ripgrep](https://github.com/BurntSushi/ripgrep) et [bat](https://github.com/sharkdp/bat) suivent des architectures similaires de "pipeline de transformations".
 
@@ -23,9 +23,9 @@ SpanEvent  ->  NormalizedEvent  ->  Trace  ->  Finding  ->  Report
  (event.rs)   (normalize/mod.rs) (correlate/) (detect/)  (report/mod.rs)
 ```
 
-**Pourquoi des types distincts au lieu de mutations en place ?** Chaque étape ajoute de l'information (la normalisation ajoute `template` + `params`, la corrélation regroupe par `trace_id`, la détection produit des findings). Rendre cela explicite dans le système de types signifie que le compilateur garantit qu'aucune étape ne peut utiliser des données d'une étape future. Un `NormalizedEvent` est garanti d'avoir un champ `template` : un `SpanEvent` brut ne l'a pas.
+**Pourquoi des types distincts au lieu de mutations en place ?** Chaque étape ajoute de l'information (la normalisation ajoute `template` + `params`, la corrélation regroupe par `trace_id`, la détection produit des findings). Rendre cela explicite dans le système de types signifie que le compilateur garantit qu'aucune étape ne peut utiliser des données d'une étape future. Un `NormalizedEvent` a toujours un champ `template`, alors qu'un `SpanEvent` brut n'en a pas.
 
-**Transfert de propriété :** `normalize_all()` prend `Vec<SpanEvent>` par valeur (déplacé, pas emprunté). C'est délibéré :
+**Transfert de propriété :** `normalize_all()` prend `Vec<SpanEvent>` par valeur (déplacé, pas emprunté), pour ces raisons :
 - L'appelant n'a pas besoin des événements bruts après la normalisation
 - Évite les annotations de lifetime qui se propageraient à travers chaque étape
 - Permet au normaliseur de déplacer les champs (`SpanEvent` est consommé dans `NormalizedEvent.event`)
@@ -59,7 +59,7 @@ Le projet est découpé en deux crates :
 - **sentinel-core** : crate bibliothèque contenant toute la logique du pipeline
 - **sentinel-cli** : crate binaire fournissant le point d'entrée CLI
 
-**Pourquoi ce découpage ?** La bibliothèque core peut être embarquée par d'autres projets Rust (ex. un harnais de test personnalisé qui appelle `pipeline::analyze` directement). Le CLI est intentionnellement léger : il parse les arguments avec [clap](https://docs.rs/clap/), charge la configuration et délègue aux fonctions de sentinel-core. Toute la logique métier réside dans la bibliothèque.
+**Pourquoi ce découpage ?** La bibliothèque core peut être embarquée par d'autres projets Rust (ex. un harnais de test personnalisé qui appelle `pipeline::analyze` directement). Le CLI est léger : il parse les arguments avec [clap](https://docs.rs/clap/), charge la configuration et délègue aux fonctions de sentinel-core. Toute la logique métier réside dans la bibliothèque.
 
 La direction de dépendance est unidirectionnelle : `sentinel-cli` dépend de `sentinel-core`, jamais l'inverse.
 
@@ -70,7 +70,7 @@ Le quality gate (`quality_gate::evaluate`) est une étape distincte appelée apr
 - Au scoring de calculer **toutes** les métriques indépendamment du pass/fail
 - Au quality gate de prendre une décision binaire pass/fail basée sur des **règles configurables**
 
-Les trois règles (max N+1 SQL critiques, max N+1 HTTP warning+, max ratio de gaspillage) sont évaluées indépendamment. Le gate passe uniquement si toutes les règles passent. C'est plus flexible qu'un seuil de sévérité unique.
+Les quatre règles (max N+1 SQL critiques, max N+1 HTTP warning+, max N+1 messaging warning+, max ratio de gaspillage) sont évaluées indépendamment. Le gate passe uniquement si toutes les règles passent. C'est plus flexible qu'un seuil de sévérité unique.
 
 ## Structure du rapport
 
@@ -98,7 +98,7 @@ pub struct Report {
 #![allow(clippy::similar_names)]            // min_ts/min_ms, max_ts/max_ms sont clairs
 ```
 
-Les trois exceptions sont documentées avec leur justification. Chaque autre `#[allow]` dans le codebase a un commentaire en ligne expliquant pourquoi.
+Les trois exceptions sont documentées avec leur justification. Chaque autre `#[allow]` dans la base de code a un commentaire en ligne expliquant pourquoi.
 
 ## Gestion des erreurs
 

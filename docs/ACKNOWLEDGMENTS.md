@@ -2,8 +2,6 @@
 
 A way to tell perf-sentinel "yes, this finding is real, and we have decided not to fix it (yet)". Acknowledged findings are filtered from the CLI output and excluded from the quality gate. The decisions live in `.perf-sentinel-acknowledgments.toml` at the root of the repo, so every change goes through normal PR review and `git log` is the audit trail.
 
-This document covers the file format, the workflow, the CLI flags, and the FAQ.
-
 The runtime path (against a live daemon) layers on top: the `perf-sentinel ack` CLI subcommand, the live HTML dashboard (`perf-sentinel report --daemon-url ...`) and the TUI (`perf-sentinel query inspect`, press `a` to acknowledge a finding, `u` to revoke).
 
 <details>
@@ -81,15 +79,15 @@ reason = "Long-running aggregation, accepted by product."
 
 ### Field reference
 
-| Field             | Required | Notes                                                                     |
-|-------------------|----------|---------------------------------------------------------------------------|
-| `signature`       | yes      | Canonical finding signature (see below).                                  |
-| `acknowledged_by` | yes      | Email or identifier. Free text.                                           |
-| `acknowledged_at` | yes      | ISO 8601 date `YYYY-MM-DD`. Free text, not validated.                     |
-| `reason`          | yes      | Free text. Keep it short and link to ADR / Jira / Slack thread.           |
-| `expires_at`      | no       | ISO 8601 date `YYYY-MM-DD`. Validated at load time. Omit for a permanent ack. |
+| Field             | Required | Notes                                                                                                                         |
+|-------------------|----------|-------------------------------------------------------------------------------------------------------------------------------|
+| `signature`       | yes      | Canonical finding signature (see below).                                                                                      |
+| `acknowledged_by` | yes      | Email or identifier. Free text.                                                                                               |
+| `acknowledged_at` | yes      | ISO 8601 date `YYYY-MM-DD`. Free text, not validated.                                                                         |
+| `reason`          | yes      | Free text. Keep it short and link to ADR / Jira / Slack thread.                                                               |
+| `expires_at`      | no       | ISO 8601 date `YYYY-MM-DD`. Validated at load time. Omit for a permanent ack.                                                 |
 | `service`         | no       | The finding's `service`, verbatim. With `source_endpoint`, lets the unmatched warning say whether the endpoint was exercised. |
-| `source_endpoint` | no       | The finding's `source_endpoint`, verbatim (e.g. `GET /api/orders`).       |
+| `source_endpoint` | no       | The finding's `source_endpoint`, verbatim (e.g. `GET /api/orders`).                                                           |
 
 A missing required field fails the run with a clear error so a typo does not silently widen the acked set.
 
@@ -103,12 +101,12 @@ A missing required field fails the run with a clear error so a typo does not sil
 - `service` is the OpenTelemetry service name as captured in the trace (e.g. `order-service`).
 - `sanitized_endpoint` is `source_endpoint` with `/` and spaces replaced by `_` so the result splits cleanly on `:`.
   Migration note (0.9.15): `source_endpoint` is now stripped of any URL query string, fragment, and userinfo at ingestion (it could previously carry secrets on the raw-URL fallback path). This changes the signature of findings whose endpoint held a `?query`, `#fragment`, or `user:pass@`, so an existing ack on such an endpoint no longer matches and must be re-captured. Endpoints that use a route template (`/api/orders/{id}`), the common case, are unchanged.
-  Migration note (0.9.22): every finding whose endpoint was `unknown` changes signature, so an existing ack on one must be re-captured. Two causes. The inbound HTTP route is now resolved by walking the parent chain rather than the direct parent only, which covers the common layered stack where the route sits two or more levels above the leaf span. And entry points with no HTTP attribute anywhere (scheduled jobs, message consumers) now report the code frame (`com.foo.PurgeJob.execute`). The second also splits apart two jobs in one service that issued the same statement: they shared a single signature before, so acking one silently hid the other. Findings whose endpoint was already a route are unchanged. Note that `diff` baselines are keyed on the endpoint too and need re-capturing for the same reason.
-  Migration note (0.11.2): endpoint attribution changed in three ways, on OTLP, Jaeger and Zipkin alike, so a finding can change signature with no application change behind it. It selects the outermost route in a contiguous same-service chain instead of the nearest one, and the daemon retains bounded parent context across export requests, which moves findings that previously used an inner route or `unknown`. A framework route holding no `/` now yields to a usable `url.path`, but only on the inbound side, a SERVER span for its own endpoint or a non-CLIENT ancestor in the chain, which moves findings whose framework emitted a symbolic route name such as Symfony's `app_fault_nplusonesql` and leaves a kind-less instrumentation on the route name. And an `http.route` that omits its leading slash gains one, which moves findings that were already attributed to the right route, so Django's `api/orders/{id}` becomes `/api/orders/{id}`. Re-capture affected acknowledgments and persisted report baselines with 0.11.2. Trace-corpus baselines re-analyzed on both sides by the same binary do not churn. Separately, a SERVER span no longer produces an outbound HTTP call, so on a fleet instrumented in legacy semantic conventions some HTTP findings disappear rather than move. A fresh batch analysis flags every ack that suppressed nothing as `unmatched_acknowledgment`, and when the endpoint still emitted I/O the message reads `the problem looks fixed and the entry can be removed`, which is the wrong conclusion for an ack whose finding only vanished with the upgrade. The daemon never emits that warning.
-  Migration note (0.18.0): a span carrying no `service.name`, or one made only of whitespace, resolves to `unknown` instead of staying empty, so every finding a Zipkin or Jaeger export left anonymous changes signature. The `unmatched_acknowledgment` warning now names the successor in that case: when exactly one current finding shares the detector and the template hash under a different service or endpoint, it says the attribution moved rather than the query, which is also the hint the 0.9.22 and 0.11.2 endpoint moves above never had. Persisted report baselines (`diff`, `report --before`) built from such spans need re-capturing too, the diff identity is keyed on the service.
+  Migration note (0.9.22): every finding whose endpoint was `unknown` changes signature, so an existing ack on one must be re-captured. Two causes. The inbound HTTP route is now resolved by walking the parent chain rather than the direct parent only, which covers the common layered stack where the route sits two or more levels above the leaf span. And entry points with no HTTP attribute anywhere (scheduled jobs, message consumers) now report the code frame (`com.foo.PurgeJob.execute`). The second also splits apart two jobs in one service that issued the same statement: they shared a single signature before, so acking one silently hid the other. Findings whose endpoint was already a route are unchanged. `diff` baselines are keyed on the endpoint too and need re-capturing for the same reason.
+  Migration note (0.11.2): endpoint attribution changed in three ways, on OTLP, Jaeger and Zipkin alike, so a finding can change signature with no application change behind it. It selects the outermost route in a contiguous same-service chain instead of the nearest one, and the daemon retains bounded parent context across export requests, which moves findings that previously used an inner route or `unknown`. A framework route holding no `/` now yields to a usable `url.path`, but only on the inbound side (a SERVER span for its own endpoint or a non-CLIENT ancestor in the chain). This moves findings whose framework emitted a symbolic route name such as Symfony's `app_fault_nplusonesql`, and leaves a kind-less instrumentation on the route name. And an `http.route` that omits its leading slash gains one (Django's `api/orders/{id}` becomes `/api/orders/{id}`), which moves findings that were already attributed to the right route. Re-capture affected acknowledgments and persisted report baselines with 0.11.2. Trace-corpus baselines re-analyzed on both sides by the same binary do not churn. Separately, a SERVER span no longer produces an outbound HTTP call, so on a fleet instrumented in legacy semantic conventions some HTTP findings disappear rather than move. A fresh batch analysis flags every ack that suppressed nothing as `unmatched_acknowledgment`. When the endpoint still emitted I/O, the message reads `the problem looks fixed and the entry can be removed`, which is the wrong conclusion for an ack whose finding only vanished with the upgrade. The daemon never emits that warning.
+  Migration note (0.18.0): a span carrying no `service.name`, or one made only of whitespace, resolves to `unknown` instead of staying empty, so every finding a Zipkin or Jaeger export left anonymous changes signature. The `unmatched_acknowledgment` warning now names the successor in that case. When exactly one current finding shares the detector and the template hash under a different service or endpoint, it says the attribution moved rather than the query. The 0.9.22 and 0.11.2 endpoint moves above never had that hint. Persisted report baselines (`diff`, `report --before`) built from such spans need re-capturing too, because the diff identity is keyed on the service.
 - `sha256-prefix-of-template` is the first 32 hex chars (16 bytes) of `sha256(pattern.template)`. ~128 bits of collision resistance. Since the `(finding_type, service, sanitized_endpoint)` triple is already part of the signature, the hash only needs to disambiguate templates within the same triple, which is an extremely small population in practice. The 32-char prefix is defense in depth against accidental ack masking after a SQL refactor or a service rename. Bumped from 16 to 32 chars in 0.5.28, see CHANGELOG for migration (legacy 16-hex acks no longer match).
 
-Three findings produce three different signatures. Two findings produced by the same template on the same `(service, source_endpoint)` collapse to the same signature, which is the right semantics: ack once, suppress every recurrence.
+Three findings produce three different signatures. Two findings produced by the same template on the same `(service, source_endpoint)` collapse to the same signature, so one ack suppresses every recurrence.
 
 ## Workflow
 
@@ -152,15 +150,15 @@ The flags work uniformly on `analyze`, `report`, `inspect`, `diff`.
 
 ## Quality gate behavior
 
-Acknowledged findings are excluded from the quality gate computation. In other words: a finding that would have failed `n_plus_one_sql_critical_max = 0` becomes a PASS once acked.
+Acknowledged findings are excluded from the quality gate computation. A finding that would have failed `n_plus_one_sql_critical_max = 0` becomes a PASS once acked.
 
-This is the entire point of "won't fix / accepted" semantics. If you do not want this behavior, do not ack the finding, lower the threshold, or use `--no-acknowledgments` in CI.
+This is what "won't fix / accepted" means. If you do not want this behavior, do not ack the finding, lower the threshold, or use `--no-acknowledgments` in CI.
 
 ## What about the `io_waste_ratio_max` rule?
 
 The `io_waste_ratio_max` rule reads from `green_summary.io_waste_ratio`, which is computed from raw spans, not from the findings list. Acknowledging an N+1 finding does **not** lower the waste ratio, because the underlying I/O operations are still real and still happen.
 
-Decision: this is the right behavior. An ack means "the team accepted this finding, do not flag it". It does not mean "pretend the I/O work is not happening". The carbon and waste numbers are honest accounting, the alert routing is what the ack controls.
+This is the expected behavior. An ack means "the team accepted this finding, do not flag it". It does not mean "pretend the I/O work is not happening". The carbon and waste numbers still count the I/O of acked findings. The ack controls the alert routing.
 
 ## FAQ
 
@@ -171,7 +169,7 @@ Remove the `expires_at` line and re-commit. PR review captures the decision.
 Run `perf-sentinel analyze --no-acknowledgments --format json | jq '.findings[].signature'`, compare the value to what is in the TOML file. Common causes: the template normalized differently after a code change, the service name changed, the endpoint route was renamed.
 
 **Q: Can I ack a finding by service or by type, with wildcards?**
-No, signature-only matching is intentional in 0.5.17. Wildcards make it too easy to silence categories of finding by accident. If you want to ack 10 N+1 findings on a service, open 10 PRs (or one PR with 10 entries), one signature each.
+No, matching is signature-only in 0.5.17, because wildcards make it too easy to silence categories of finding by accident. If you want to ack 10 N+1 findings on a service, open 10 PRs (or one PR with 10 entries), one signature each.
 
 **Q: What if I commit an ack that turns out to be wrong?**
 Revert the commit. The next CI run will re-surface the finding.

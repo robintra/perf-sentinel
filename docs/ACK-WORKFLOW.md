@@ -4,9 +4,7 @@ perf-sentinel supports two complementary acknowledgment mechanisms:
 TOML in-repo (CI ack, since 0.5.17) and JSONL (JSON Lines, an
 append-only log format where each line is a standalone JSON object)
 via the daemon HTTP API (daemon ack, since 0.5.20). They cover
-different operational scenarios and can be used side-by-side. This
-page explains how each works, when to pick which, and how the CLI
-helper introduced in 0.5.22 plugs into the daemon side.
+different operational scenarios and can be used side-by-side.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ack-stores_dark.svg">
@@ -15,10 +13,10 @@ helper introduced in 0.5.22 plugs into the daemon side.
 
 Two things the diagram makes visible. The daemon reads both stores
 while batch reads only the TOML. And the HTML dashboard is always
-produced by batch `report`, the daemon serves no HTML at all:
+produced by batch `report`. The daemon serves no HTML at all.
 `--daemon-url` only makes that generated file talk to a daemon from the
-browser, which is what puts Ack buttons on it. A static report has no
-ack path, it has no one to post to.
+browser, which puts Ack buttons on it. A static report has no ack path
+because it has no one to post to.
 
 > **What is a finding signature.** A signature is a stable identifier
 > for a finding, built by hashing `(finding_type, service, normalised
@@ -26,7 +24,7 @@ ack path, it has no one to post to.
 > and keeping a 32-hex prefix. The same finding produced by two daemon
 > restarts yields the same signature, so an ack written once stays
 > attached to its target across restarts and across analyzers. The
-> exact serialisation rule and the 11 tests that lock it lives in
+> exact serialisation rule and the 11 tests that lock it live in
 > `docs/ACKNOWLEDGMENTS.md`.
 
 ## CI ack: TOML in repo
@@ -124,12 +122,11 @@ each row naming its `source`, see `docs/QUERY-API.md`.
 
 Both sources are unioned at finding-filtering time. If the same
 signature is acked in both TOML and daemon JSONL, the TOML version
-wins. The rationale: the TOML baseline is shipped via PR review and
-represents an immutable team-level decision; the daemon JSONL is a
+wins, because the TOML baseline is shipped via PR review and
+represents an immutable team-level decision. The daemon JSONL is a
 mutable, runtime-only override.
 
-One boundary to have clear before reaching for either surface: a
-daemon ack never reaches CI. The JSONL lives on that daemon's disk, so
+A daemon ack never reaches CI. The JSONL lives on that daemon's disk, so
 acking from the dashboard, the TUI or `ack create` silences that one
 daemon and nothing else. A CI gate, the Diff baseline and the
 `unmatched_acknowledgment` warning all read the TOML alone. To unblock
@@ -209,7 +206,7 @@ acknowledgment requires a running daemon to persist.
 A PerfSentinelHub that holds an ack credential for a daemon relays an
 ack or a revoke to it from one page, in the name of the signed-in user.
 The Grafana findings dashboard links to that page from the `Ack` column
-of its three findings tables (`<Hub URL>/?ack=<signature>`), which is
+of its three findings tables (`<Hub URL>/?ack=<signature>`). That page is
 the way to acknowledge a finding the daemon's ring no longer holds: the
 write route only needs the signature. One submit writes to every checked
 daemon that carries the finding, because each daemon keeps its own
@@ -265,9 +262,9 @@ Acknowledgments match findings by a canonical signature:
 <finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>
 ```
 
-The signature deliberately excludes `trace_id` and `span_id`, so a
-single ack survives service restarts and routine traffic with varying
-request identifiers. The contract is locked by unit tests in
+The signature excludes `trace_id` and `span_id`, so a single ack
+survives service restarts and routine traffic with varying request
+identifiers. The contract is locked by unit tests in
 `crates/sentinel-core/src/acknowledgments.rs`.
 
 ### Critical dependency on `http.route`
@@ -275,12 +272,12 @@ request identifiers. The contract is locked by unit tests in
 The `endpoint` component is derived from the OpenTelemetry `http.route`
 attribute on the entry HTTP span or its same-service ancestors. For an
 explicitly named service, perf-sentinel selects the outermost route in the
-contiguous chain; it never adopts the caller service's route. A route template
+contiguous chain. It never adopts the caller service's route. A route template
 without a leading slash is canonicalized with one (`api/orders/{id}` becomes
 `/api/orders/{id}`), so equivalent instrumentation shapes produce one
 signature. Some frameworks instead put a symbolic route name in `http.route`
 and the request path in `url.path`. When the route contains no `/` and
-`url.path` is usable, perf-sentinel uses `url.path`; a route containing `/`
+`url.path` is usable, perf-sentinel uses `url.path`. A route containing `/`
 remains authoritative, including slashless Django routes and templates. A
 symbolic route without `url.path` keeps the conservative existing behavior and
 is canonicalized with a leading slash.
@@ -325,8 +322,8 @@ same-service chain rather than the nearest one, and the daemon keeps valid
 sampled parent context across OTLP export requests, so findings that previously
 used an inner framework route or `unknown` can receive a different signature. A
 framework route holding no `/` now yields to a usable `url.path`, but only on
-the inbound side, a SERVER span for its own endpoint or a non-CLIENT ancestor in
-the chain, so an instrumentation that never sets a span kind keeps the route
+the inbound side (a SERVER span for its own endpoint or a non-CLIENT ancestor in
+the chain), so an instrumentation that never sets a span kind keeps the route
 name. And a route that omits its leading slash gains one, which moves findings
 that were already attributed to the right route. Re-capture affected
 acknowledgments and persisted report baselines with 0.11.2.
@@ -335,11 +332,11 @@ Separately, a SERVER span no longer produces an outbound HTTP call, so on a
 fleet instrumented in legacy semantic conventions some HTTP findings disappear
 rather than move. A fresh batch analysis flags every ack that suppressed
 nothing, moved and disappeared findings alike, as `unmatched_acknowledgment`.
-Read that message before acting on it: when the endpoint still emitted I/O, and
-a surviving SQL child on the same handler is enough for that, the message reads
-`the problem looks fixed and the entry can be removed`, which is the wrong
+Read that message before acting on it. When the endpoint still emitted I/O (a
+surviving SQL child on the same handler is enough for that), the message reads
+`the problem looks fixed and the entry can be removed`. That is the wrong
 conclusion for an ack whose finding only vanished with the upgrade. The daemon
-never emits this warning, it is a batch signal only.
+never emits this warning: it is a batch signal only.
 
 ### Service renames invalidate acks
 

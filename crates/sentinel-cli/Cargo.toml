@@ -66,7 +66,7 @@ humantime = { version = "2.4.0", optional = true }
 rpassword = { version = "7.5.4", optional = true }
 # Synchronous HTTP client used exclusively by `verify-hash --url`.
 # Sync (not tokio), small dep graph, audited (Cure53 2021). The default
-# `rustls` feature pulls in TLS support; no native-tls fallback.
+# `rustls` feature pulls in TLS support, with no native-tls fallback.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(unix)'.dependencies]

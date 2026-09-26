@@ -4,7 +4,7 @@ La détection est la quatrième étape du pipeline. Elle analyse les traces corr
 
 ## Pattern partagé : clés HashMap empruntées
 
-Les trois détecteurs regroupent les spans par une clé composite. Un point clé est que les spans vivent dans la struct `Trace`, qui survit à la fonction de détection. Cela signifie que nous pouvons **emprunter** depuis les spans au lieu de cloner :
+Les trois détecteurs regroupent les spans par une clé composite. Les spans vivent dans la struct `Trace`, qui survit à la fonction de détection, donc nous pouvons **emprunter** depuis les spans au lieu de cloner :
 
 ```rust
 // N+1 : grouper par (event_type, template)
@@ -30,7 +30,7 @@ Pour une trace avec 50 spans, chacun ayant un template de 40 caractères, les cl
 2. Ignorer les groupes avec moins de `threshold` occurrences (défaut 5)
 3. Compter les **jeux de paramètres distincts** via `HashSet<&[String]>`
 4. Ignorer les groupes avec moins de `threshold` paramètres distincts (mêmes paramètres = redondant, pas N+1)
-5. Calculer la fenêtre temporelle entre le plus ancien et le plus récent timestamp
+5. Calculer la fenêtre temporelle entre le plus ancien et le plus récent horodatage
 6. Ignorer les groupes où la fenêtre dépasse `window_limit_ms` (défaut 500ms)
 7. Assigner la sévérité : Critical si >= 10 occurrences, Warning sinon
 
@@ -43,7 +43,7 @@ let distinct_params: HashSet<&[String]> = indices
     .collect();
 ```
 
-Utiliser `&[String]` comme clé de HashSet est un choix de conception critique :
+Utiliser `&[String]` comme clé de HashSet apporte deux avantages :
 - **Pas d'allocation :** emprunte le Vec existant comme référence de slice
 - **Pas de bug de collision :** compare directement le contenu complet du Vec, contrairement à une approche `join(",")` où `["a,b"]` et `["a", "b"]` produiraient la même chaîne jointe
 
@@ -70,7 +70,7 @@ pub fn compute_window_and_bounds_iter<'a>(
 }
 ```
 
-**Pourquoi un itérateur au lieu de `&[&str]` ?** L'appelant devrait d'abord collecter les timestamps dans un Vec :
+**Pourquoi un itérateur au lieu de `&[&str]` ?** L'appelant devrait d'abord collecter les horodatages dans un Vec :
 
 ```rust
 // Ancien (alloue) :
@@ -101,7 +101,7 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 }
 ```
 
-**Pourquoi pas [chrono](https://docs.rs/chrono/) ?** chrono ajoute ~150 Ko au binaire et parse ~200ns par timestamp. Ce parseur artisanal gère le format fixe (`YYYY-MM-DDTHH:MM:SS.mmmZ`) en ~5ns en découpant sur des délimiteurs connus et en utilisant des appels itérateurs `.next()` au lieu de collecter dans des Vecs.
+**Pourquoi pas [chrono](https://docs.rs/chrono/) ?** chrono ajoute ~150 Ko au binaire et parse ~200ns par horodatage. Ce parseur artisanal gère le format fixe (`YYYY-MM-DDTHH:MM:SS.mmmZ`) en ~5ns en découpant sur des délimiteurs connus et en utilisant des appels itérateurs `.next()` au lieu de collecter dans des Vecs.
 
 Le parseur utilise des itérateurs partout (`split(':')` -> `.next()`, `split('.')` -> `.next()`) pour éviter d'allouer des collections `Vec<&str>` intermédiaires.
 
@@ -109,38 +109,38 @@ Le parseur calcule les millisecondes depuis l'epoch Unix en parsant les composan
 
 ### Comparaison lexicographique des timestamps
 
-Les timestamps min/max sont trouvés via comparaison de chaînes : `if ts < min_ts { min_ts = ts; }`. Cela fonctionne car les timestamps ISO 8601 avec des champs de largeur fixe (`2025-07-10T14:32:01.123Z`) se trient chronologiquement lorsqu'ils sont comparés lexicographiquement. C'est garanti par le [standard ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html), Section 5.3.3.
+Les horodatages min/max sont trouvés via comparaison de chaînes : `if ts < min_ts { min_ts = ts; }`. Cela fonctionne car les horodatages ISO 8601 avec des champs de largeur fixe (`2025-07-10T14:32:01.123Z`) se trient chronologiquement lorsqu'ils sont comparés lexicographiquement. C'est garanti par le [standard ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html), Section 5.3.3.
 
 ## Classification sanitizer-aware
 
-Les agents OpenTelemetry et les drivers de base de données collapsent les littéraux SQL en tokens de placeholder avant que l'instruction n'atteigne perf-sentinel. Le style de placeholder dépend de la stack : les agents JDBC produisent `?`, les drivers PostgreSQL natifs (pgx, asyncpg, sqlx, node-pg) émettent `$1`/`$2` (que `normalize_sql` réécrit en `$?` avec des params vides depuis v0.7.7), les drivers Python DB-API émettent `%s`, les drivers .NET émettent `@p0`/`@Name`, et Oracle/SQLAlchemy émettent `:name`. Dans tous les cas, l'instruction sanitizée arrive dans perf-sentinel avec le placeholder déjà en place et un vecteur `params` vide. Le check standard `distinct_params >= threshold` voit un seul slice de params vides et ne se déclenche jamais, le détecteur redundant regroupe alors tous les spans et les classe à tort en `redundant_sql`.
+Les agents OpenTelemetry et les drivers de base de données remplacent les littéraux SQL par des tokens de placeholder avant que l'instruction n'atteigne perf-sentinel. Le style de placeholder dépend de la stack : les agents JDBC produisent `?`, les drivers PostgreSQL natifs (pgx, asyncpg, sqlx, node-pg) émettent `$1`/`$2` (que `normalize_sql` réécrit en `$?` avec des params vides depuis v0.7.7), les drivers Python DB-API émettent `%s`, les drivers .NET émettent `@p0`/`@Name`, et Oracle/SQLAlchemy émettent `:name`. Dans tous les cas, l'instruction sanitizée arrive dans perf-sentinel avec le placeholder déjà en place et un vecteur `params` vide. La vérification standard `distinct_params >= threshold` voit un seul slice de params vides et ne se déclenche jamais. Le détecteur de redondance regroupe alors tous les spans et les classe à tort en `redundant_sql`.
 
 L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétablit la classification correcte via quatre signaux, évalués dans l'ordre :
 
 1. `looks_sanitized` : chaque span a un placeholder reconnu dans son template (`?`, `$?`, `%s`, `@alpha`, `:alpha`) et un vecteur `params` vide. Voir `template_has_placeholder` dans `sanitizer_aware.rs` pour la liste complète. Requis pour activer l'heuristique.
-2. `has_orm_scope` : au moins un OpenTelemetry instrumentation scope sur les spans correspond à un marqueur ORM connu (Hibernate, Spring Data, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, Laravel/Eloquent, Doctrine, etc.). Les marqueurs sont matchés avec un check de word-boundary (précédé et suivi d'un byte non-alphanumérique), donc `jpa` ne se déclenche que sur `spring-data-jpa` et apparentés, jamais sur `myappjpastats`. Une correspondance positive est traitée comme une preuve forte de N+1.
-3. `timing_variance_suggests_n_plus_one` : quand le signal scope est absent, fallback sur le coefficient de variation de `duration_us`. Un vrai N+1 frappe différentes lignes avec différents états de cache, donc l'écart est plus large, des appels redondants en cache se regroupent serré. Seuil `0.5` empirique.
-4. `sequential_siblings_indexed` (mode Strict uniquement) : tous les spans partagent un même `parent_span_id` non vide et le groupe chaîne `prev.end_us <= next.start_us` après tri par timestamp de début. Les bornes sont calculées en microsecondes pour éviter la troncation silencieuse des durées sous-milliseconde. Substitue `has_orm_scope` sur les piles bare-driver (Vert.x reactive PG, pgx, asyncpg, sqlx, Prisma `queryRaw`) qui n'émettent jamais de scope ORM.
-5. `high_occurrence` (mode Strict, toutes branches) : un nombre d'occurrences élevé (>= 3 x `n_plus_one_threshold`, par défaut 15) sert de signal primaire ET corroboratif. Sous la garde `looks_sanitized` (params vides, template avec `?`), 15+ templates sanitisés identiques dans un seul trace est structurellement un n+1 quel que soit le scope ORM, les siblings séquentiels ou la variance. Les boucles de polling legacy sous le seuil (typiquement 5-10 appels par requête) restent classées en `redundant_sql`.
+2. `has_orm_scope` : au moins un scope d'instrumentation OpenTelemetry sur les spans correspond à un marqueur ORM connu (Hibernate, Spring Data, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, Laravel/Eloquent, Doctrine, etc.). Les marqueurs sont comparés avec une vérification de frontière de mot (précédé et suivi d'un octet non alphanumérique), donc `jpa` ne se déclenche que sur `spring-data-jpa` et apparentés, jamais sur `myappjpastats`. Une correspondance positive est traitée comme une preuve forte de N+1.
+3. `timing_variance_suggests_n_plus_one` : quand le signal scope est absent, se rabattre sur le coefficient de variation de `duration_us`. Un vrai N+1 touche des lignes différentes avec des états de cache différents, donc l'écart est plus large. Les appels redondants en cache se regroupent étroitement. Seuil `0.5` empirique.
+4. `sequential_siblings_indexed` (mode Strict uniquement) : tous les spans partagent un même `parent_span_id` non vide et le groupe chaîne `prev.end_us <= next.start_us` après tri par horodatage de début. Les bornes sont calculées en microsecondes pour éviter la troncation silencieuse des durées sous-milliseconde. Se substitue à `has_orm_scope` sur les piles en accès direct au driver (Vert.x reactive PG, pgx, asyncpg, sqlx, Prisma `queryRaw`), qui n'émettent jamais de scope ORM.
+5. `high_occurrence` (mode Strict, toutes branches) : un nombre d'occurrences élevé (>= 3 x `n_plus_one_threshold`, par défaut 15) sert de signal primaire ET corroboratif. Sous la garde `looks_sanitized` (params vides, template avec `?`), 15+ templates sanitisés identiques dans une seule trace est structurellement un n+1 quel que soit le scope ORM, les siblings séquentiels ou la variance. Les boucles de polling legacy sous le seuil (typiquement 5-10 appels par requête) restent classées en `redundant_sql`.
 
-Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs trade-offs précision/rappel.
+Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § "`sanitizer_aware_classification`" avec leurs compromis précision/rappel.
 
-Le détail HTML rend cette décision vérifiable sans la modifier : les N+1 directs portent le libellé `direct`, les groupes récupérés le libellé `heuristic`, et la vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque span incriminé exact de la trace représentative. Pour un finding inter-traces, le résumé conserve le nombre total d'occurrences et la vue précise combien d'entre elles sont prouvées par la trace représentative. Les paramètres et cibles bruts restent masqués, et les spans sans rapport restent regroupés. Les anciens rapports dépourvus de configuration de détection ne permettent pas de reconstruire les identifiants exacts : les spans correspondants restent alors regroupés au lieu d'être présentés comme des preuves individuelles.
+Le détail HTML rend cette décision vérifiable sans la modifier. Les N+1 directs portent le libellé `direct` et les groupes récupérés le libellé `heuristic`. La vue affiche la fenêtre d'observation, le nombre de paramètres distincts, les statistiques temporelles p50/p99/CV disponibles, ainsi qu'une ligne horodatée avec durée/statut pour chaque span incriminé exact de la trace représentative. Pour un finding inter-traces, le résumé conserve le nombre total d'occurrences et la vue précise combien d'entre elles sont prouvées par la trace représentative. Les paramètres et cibles bruts restent masqués, et les spans sans rapport restent regroupés. Les anciens rapports dépourvus de configuration de détection ne permettent pas de reconstruire les identifiants exacts : les spans correspondants restent alors regroupés au lieu d'être présentés comme des preuves individuelles.
 
 ### Limite connue
 
-`looks_sanitized` ne peut pas distinguer un `?` littéral sanitizé d'un opérateur d'existence JSONB PostgreSQL (`data ? 'key'`) quand ce dernier apparaît dans une requête sans autre littéral. La direction du préjudice est asymétrique : un groupe JSONB mal classé bascule de `redundant_sql` vers `n_plus_one_sql`, les deux contribuant à parts égales aux `avoidable_io_ops` GreenOps, seul le texte de la suggestion diffère.
+`looks_sanitized` ne peut pas distinguer un `?` littéral sanitizé d'un opérateur d'existence JSONB PostgreSQL (`data ? 'key'`) quand ce dernier apparaît dans une requête sans autre littéral. La direction du préjudice est asymétrique : un groupe JSONB mal classé bascule de `redundant_sql` vers `n_plus_one_sql`. Les deux contribuent à parts égales aux `avoidable_io_ops` GreenOps, et seul le texte de la suggestion diffère.
 
 ### Extension HTTP (0.7.8+)
 
-Le même aiguillage couvre aussi les groupes HTTP sortants via `classify_http_group_indexed`. HTTP n'a pas d'analogue de `looks_sanitized` (le normaliseur collapse toujours les IDs de path en `{id}`/`{uuid}`, les params ne sont jamais effacés comme un sanitizer SQL les efface) ni de notion de scope ORM. Le chemin HTTP s'appuie donc sur un jeu de signaux plus étroit :
+Le même aiguillage couvre aussi les groupes HTTP sortants via `classify_http_group_indexed`. HTTP n'a pas d'analogue de `looks_sanitized` (le normaliseur ramène toujours les IDs de path à `{id}`/`{uuid}`, et les params ne sont jamais effacés comme un sanitizer SQL les efface) ni de notion de scope ORM. Le chemin HTTP s'appuie donc sur un jeu de signaux plus étroit :
 
 - `Auto`/`Always` : la variance de timing seule (CV `>= 0.5`).
 - `Strict` : un signal primaire (placeholder HTTP dans le template, occurrence élevée, ou siblings séquentiels) corroboré par la variance de timing. Contrairement au chemin SQL, l'occurrence élevée seule n'est **pas** une corroboration suffisante pour HTTP, car sans le filtre `looks_sanitized` une boucle de polling active ou un appel répété servi par un CDN serait promu en `n_plus_one_http`.
 
 #### Limite connue : redaction de la query string
 
-La détection des N+1 HTTP exige que le paramètre variable soit visible dans le span. Une boucle N+1 qui fait varier un segment de path est détectée (params extraits distincts, ou le placeholder `{id}` ancre le primaire Strict). Une boucle N+1 qui fait varier un **paramètre de query** est invisible quand l'instrumentation redacte la query string avant l'export. OpenTelemetry .NET `System.Net.Http` la redacte en `?*` par défaut, donc chaque appel porte un `url.full` identique au byte près, `distinct_params` retombe à 1, et le groupe est correctement classé en `redundant_http`. Le paramètre distinctif a été détruit en amont, donc aucun consommateur de traces ne peut le récupérer. Voir `docs/FR/LIMITATIONS-FR.md` § "Redaction de la query string HTTP et visibilité des N+1" pour les contournements côté opérateur.
+La détection des N+1 HTTP exige que le paramètre variable soit visible dans le span. Une boucle N+1 qui fait varier un segment de path est détectée (params extraits distincts, ou le placeholder `{id}` ancre le primaire Strict). Une boucle N+1 qui fait varier un **paramètre de query** est invisible quand l'instrumentation masque la query string avant l'export. OpenTelemetry .NET `System.Net.Http` la remplace par `?*` par défaut, donc chaque appel porte un `url.full` identique à l'octet près, `distinct_params` retombe à 1, et le groupe est correctement classé en `redundant_http`. Le paramètre distinctif a été détruit en amont, donc aucun consommateur de traces ne peut le récupérer. Voir `docs/FR/LIMITATIONS-FR.md` § "Redaction de la query string HTTP et visibilité des N+1" pour les contournements côté opérateur.
 
 ## Détection redondante
 
@@ -150,13 +150,13 @@ La détection des N+1 HTTP exige que le paramètre variable soit visible dans le
 HashMap<(&EventType, &str, &[String]), Vec<usize>>
 ```
 
-La clé en trois parties inclut le slice complet des paramètres, garantissant que deux spans avec le même template mais des paramètres différents sont dans des groupes différents. C'est le comportement correct : la détection redondante signale les **doublons exacts** (même template ET mêmes paramètres).
+La clé en trois parties inclut le slice complet des paramètres, garantissant que deux spans avec le même template mais des paramètres différents sont dans des groupes différents. La détection redondante signale les **doublons exacts** (même template ET mêmes paramètres).
 
 L'utilisation de `&[String]` au lieu de joindre les paramètres en une seule chaîne prévient un bug subtil de collision : `["a,b"]` (un paramètre contenant une virgule) et `["a", "b"]` (deux paramètres) produiraient la même clé jointe `"a,b"` mais sont des jeux de paramètres sémantiquement différents.
 
 ### Commandes de session
 
-Comme pour la détection N+1, le regroupement ignore les spans SQL dont le template est une commande de session. Un driver poolé en émet une par acquisition de connexion : une requête qui en emprunte N remonterait N doublons exacts qu'aucun cache ne peut dédupliquer. Ces statements restent comptés dans `total_io_ops` mais sortent de `avoidable_io_ops`, qui est dérivé des findings : `io_waste_ratio` baisse donc, et un seuil `io_waste_ratio_max` calibré sur une version antérieure devient plus permissif.
+Comme pour la détection N+1, le regroupement ignore les spans SQL dont le template est une commande de session. Un driver poolé en émet une par acquisition de connexion : une requête qui en emprunte N remonterait N doublons exacts qu'aucun cache ne peut dédupliquer. Ces instructions restent comptées dans `total_io_ops` mais sortent de `avoidable_io_ops`, qui est dérivé des findings : `io_waste_ratio` baisse donc, et un seuil `io_waste_ratio_max` calibré sur une version antérieure devient plus permissif.
 
 ### Sévérité
 
@@ -167,25 +167,25 @@ Le seuil de 2 (minimum pour signaler) attrape tout doublon exact. Contrairement 
 
 ### Paramètres bindés des ORM
 
-Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL ou les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car perf-sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
+Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL où les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car perf-sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
 
 ### Classification consciente du sanitizer (0.5.7+)
 
 La même forme apparaît dès que l'agent OpenTelemetry exécute son sanitizer d'instructions SQL (actif par défaut), puisque les littéraux sont remplacés par `?` avant que le span n'atteigne perf-sentinel. La règle standard de paramètres distincts ne voit qu'un seul groupe de paramètres vides et rejette le groupe, donc le détecteur de redondance classe à tort le N+1 en `redundant_sql` et l'opérateur reçoit la mauvaise recommandation.
 
-L'heuristique consciente du sanitizer introduite en 0.5.7 restaure la classification correcte en effectuant une seconde passe sur les mêmes groupes `(event_type, template)` que la première passe a rejetés. Elle ne s'active que lorsque chaque span du groupe a un vecteur `params` vide et un placeholder reconnu dans son template (la signature sur le fil d'un N+1 sanitisé). Depuis v0.7.7 le check `template_has_placeholder` reconnaît cinq styles : `?` (JDBC), `$?` (PostgreSQL natif, normalisé depuis `$1`/`$2`), `%s` (Python DB-API), `@alpha` (.NET, excluant `@@` variables système), `:alpha` (Oracle/SQLAlchemy, excluant `::` casts). Les requêtes vraiment sans littéraux comme `SELECT NOW()` n'ont aucun placeholder et n'activent pas l'heuristique. Elle évalue ensuite deux signaux indépendants :
+L'heuristique consciente du sanitizer introduite en 0.5.7 restaure la classification correcte en effectuant une seconde passe sur les mêmes groupes `(event_type, template)` que la première passe a rejetés. Elle ne s'active que lorsque chaque span du groupe a un vecteur `params` vide et un placeholder reconnu dans son template (la signature sur le fil d'un N+1 sanitisé). Depuis v0.7.7 la vérification `template_has_placeholder` reconnaît cinq styles : `?` (JDBC), `$?` (PostgreSQL natif, normalisé depuis `$1`/`$2`), `%s` (Python DB-API), `@alpha` (.NET, excluant `@@` variables système), `:alpha` (Oracle/SQLAlchemy, excluant `::` casts). Les requêtes sans aucun littéral, comme `SELECT NOW()`, n'ont aucun placeholder et n'activent pas l'heuristique. Elle évalue ensuite deux signaux indépendants :
 
-1. **Marqueur de scope d'instrumentation** (confiance élevée). Les chaînes `instrumentation_scopes` par span sont fouillées, en mode insensible à la casse, à la recherche de l'une des sous-chaînes ORM connues : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`/`activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`. Les drivers SQL bare comme `sqlx` (Go/Rust), `pgx`, `asyncpg` et le client réactif Vert.x PG sont intentionnellement exclus : leurs patterns n+1 sont pris en charge par le signal "siblings séquentiels". Une correspondance fait basculer le verdict en `LikelyNPlusOne`.
-2. **Repli sur la variance temporelle** (confiance moyenne). En l'absence de marqueur ORM, l'heuristique calcule le coefficient de variation (`écart-type / moyenne`) des `duration_us`. Les vrais accès N+1 touchent des lignes différentes avec des états de cache différents, donc les durées s'étalent (CV typiquement 0,4 à 1,0), les appels redondants sur du contenu en cache se regroupent (CV proche de 0). Le seuil de `0,5` est empirique et constitue le seul levier de l'heuristique. Au moins 3 spans sont nécessaires pour une estimation de variance stable.
+1. **Marqueur de scope d'instrumentation** (confiance élevée). Les chaînes `instrumentation_scopes` par span sont fouillées, en mode insensible à la casse, à la recherche de l'une des sous-chaînes ORM connues : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`/`activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`. Les drivers SQL sans ORM comme `sqlx` (Go/Rust), `pgx`, `asyncpg` et le client réactif Vert.x PG sont exclus : leurs patterns n+1 sont pris en charge par le signal "siblings séquentiels". Une correspondance fait basculer le verdict en `LikelyNPlusOne`.
+2. **Repli sur la variance temporelle** (confiance moyenne). En l'absence de marqueur ORM, l'heuristique calcule le coefficient de variation (`écart-type / moyenne`) des `duration_us`. Les vrais accès N+1 touchent des lignes différentes avec des états de cache différents, donc les durées s'étalent (CV typiquement 0,4 à 1,0). Les appels redondants sur du contenu en cache se regroupent (CV proche de 0). Le seuil de `0,5` est empirique et constitue le seul levier de l'heuristique. Au moins 3 spans sont nécessaires pour une estimation de variance stable.
 
 Le mode configurable `[detection] sanitizer_aware_classification` positionne l'émission sur un cadran rappel-vs-précision en quatre crans : `auto` (défaut) émet dès qu'**un** des signaux se déclenche, `strict` (0.5.8+) exige un signal primaire (scope ORM OU siblings séquentiels) plus un signal corroboratif (variance OU, sur la branche ORM, nombre d'occurrences élevé), `always` reclassifie tout groupe sanitisé sans condition, et `never` désactive entièrement la seconde passe. Les findings émis par l'heuristique portent `classification_method = SanitizerHeuristic` pour permettre aux consommateurs de les distinguer des classifications directes. Le mode choisit où se placer sur le compromis :
 
-- `auto` privilégie le rappel : capture tous les N+1 induits par un ORM parce que le scope ORM seul déclenche le verdict, au prix d'absorber des findings `redundant_sql` légitimes sur les stacks Spring Data / EF Core (un `findById(sameId)` appelé en boucle et servi depuis le row cache bascule en `n_plus_one_sql`).
-- `strict` privilégie la précision : préserve les findings `redundant_sql` sur les requêtes identiques de compte modéré (sous la barre `3 x threshold`). Au-dessus de la barre (par défaut 15 occurrences), tout groupe sanitisé se déclenche quel que soit le scope ORM, les siblings séquentiels ou la variance. Recommandé quand des findings `redundant_sql` exploitables ont de la valeur dans votre environnement.
+- `auto` privilégie le rappel : il capture tous les N+1 induits par un ORM parce que le scope ORM seul déclenche le verdict. Le prix est d'absorber des findings `redundant_sql` légitimes sur les stacks Spring Data / EF Core (un `findById(sameId)` appelé en boucle et servi depuis le cache de lignes bascule en `n_plus_one_sql`).
+- `strict` privilégie la précision : il préserve les findings `redundant_sql` sur les requêtes identiques en cache, en nombre modéré (sous la barre `3 x threshold`), parce que le signal de variance temporelle reste bas. Au-dessus de la barre (par défaut 15 occurrences), tout groupe sanitisé se déclenche quel que soit le scope ORM, les siblings séquentiels ou la variance. Recommandé quand des findings `redundant_sql` exploitables ont de la valeur dans votre environnement.
 
 Limites connues : une vraie redondance à un seul paramètre dont le littéral se trouve écrasé par le sanitizer (par exemple `SELECT * FROM config WHERE key = ?` interrogé 10 fois pour la même clé) ne peut pas être distinguée d'un N+1 sans signal de scope ou de variance. En mode `auto` elle bascule en `n_plus_one_sql` dès qu'un scope ORM est présent (sens de réduction du dommage, le batch fetch est un sur-ensemble strict de "mettre une valeur en cache"). En mode `strict` elle reste `redundant_sql` parce que la variance temporelle est basse. En mode `always` elle bascule toujours. En mode `never` l'heuristique est court-circuitée.
 
-Le signal de variance temporelle (`timing_variance_suggests_n_plus_one`, coefficient de variation > 0,5) porte un réglage à dommage asymétrique : un faux positif échange simplement `redundant_sql` contre `n_plus_one_sql` (même poids dans `avoidable_io_ops`, seul le texte de suggestion diffère), tandis qu'un faux négatif laisse un vrai N+1 silencieux, le seuil favorise donc les faux positifs. Sous `strict`, le signal devient porteur comme seul corroborateur sur la branche ORM en dessous de la barre de haute occurrence, et il a un angle mort en cache chaud : un vrai N+1 induit par un ORM contre un cache de lignes entièrement chaud (par exemple 100 lectures par clé primaire avec toutes les lignes dans `shared_buffers`) peut se resserrer à environ 10 % (CV autour de 0,1) et rester silencieux. Le seuil est `[detection] sanitizer_aware_min_cv`, 0,5 par défaut pour tous les modes. Le laboratoire de simulation a fourni le cas empirique que le défaut attendait : sous `strict`, dix lookups Doctrine identiques servis depuis le cache sur un worker PHP-FPM ont mesuré un CV proche de 0,75 une fois le runner chargé, franchissant la barre et transformant un finding `redundant_sql` en `n_plus_one_sql`. Relever le réglage à 1,0 y restaure le verdict redondant, tandis que la barre de haute occurrence garde les vrais N+1 signalés.
+Le signal de variance temporelle (`timing_variance_suggests_n_plus_one`, coefficient de variation > 0,5) est réglé pour un dommage asymétrique. Un faux positif échange simplement `redundant_sql` contre `n_plus_one_sql` (même poids dans `avoidable_io_ops`, seul le texte de suggestion diffère), tandis qu'un faux négatif laisse un vrai N+1 silencieux. Le seuil favorise donc les faux positifs. Sous `strict`, le signal est le seul corroborateur sur la branche ORM en dessous de la barre de haute occurrence. Il a aussi un angle mort en cache chaud : un vrai N+1 induit par un ORM contre un cache de lignes entièrement chaud (par exemple 100 lectures par clé primaire avec toutes les lignes dans `shared_buffers`) peut se resserrer à environ 10 % (CV autour de 0,1) et rester silencieux. Le seuil est `[detection] sanitizer_aware_min_cv`, 0,5 par défaut pour tous les modes. Le laboratoire de simulation a fourni le cas empirique que le défaut attendait : sous `strict`, dix lectures Doctrine identiques servies depuis le cache sur un worker PHP-FPM ont mesuré un CV proche de 0,75 une fois le runner chargé. Ce CV a franchi la barre et transformé un finding `redundant_sql` en `n_plus_one_sql`. Relever le réglage à 1,0 y restaure le verdict redondant, tandis que la barre de haute occurrence garde les vrais N+1 signalés.
 
 ## Détection lente
 
@@ -224,7 +224,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 }
 ```
 
-Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, quatre passes O(n) sont négligeables.
+Les détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils puissent en théorie partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, plusieurs passes O(n) sont négligeables.
 
 ## Détection de fanout
 
@@ -250,7 +250,7 @@ Comme les findings lents, les findings de fanout ont `green_impact.estimated_ext
 
 ### Pas dans le ratio de gaspillage
 
-Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un problème architectural (granularité de décomposition des services) qui nécessite un redesign des API, pas une simple élimination d'I/O. Le compteur de gaspillage ne devrait refléter que les I/O qui peuvent être supprimées par refactoring local (batching, cache).
+Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un problème architectural (granularité de décomposition des services) qui nécessite une refonte des API, pas une simple élimination d'I/O. Le compteur de gaspillage ne devrait refléter que les I/O qui peuvent être supprimées par refactoring local (batching, cache).
 
 ### Différence avec le fanout
 
@@ -261,7 +261,7 @@ Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le
 ### Algorithme
 
 1. Regrouper les spans SQL par service
-2. Pour chaque service, trier les spans par timestamp de début
+2. Pour chaque service, trier les spans par horodatage de début
 3. Exécuter un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[début, début + durée]`, suivre la concurrence maximale
 4. Ignorer les services où la concurrence maximale est inférieure à `pool_saturation_concurrent_threshold` (défaut 10)
 5. Émettre un finding `pool_saturation` avec le service et le pic de concurrence
@@ -269,11 +269,11 @@ Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le
 
 ### Sweep line
 
-L'algorithme de balayage crée deux événements par span : un événement d'ouverture au timestamp de début et un événement de fermeture au timestamp de fin (début + durée). Les événements sont triés chronologiquement. Un compteur est incrémenté à chaque ouverture et décrémenté à chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
+L'algorithme de balayage crée deux événements par span : un événement d'ouverture à l'horodatage de début et un événement de fermeture à l'horodatage de fin (début + durée). Les événements sont triés chronologiquement. Un compteur est incrémenté à chaque ouverture et décrémenté à chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
 
 ### Pas dans le ratio de gaspillage
 
-Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Elles signalent un risque de contention des ressources, pas des I/O évitables.
+Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Ils signalent un risque de contention des ressources, pas des I/O évitables.
 
 ## Détection des appels sérialisés
 
@@ -340,10 +340,10 @@ Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`
 
 ## Fenêtre lente inter-batchs (daemon)
 
-Le daemon analyse des batchs d'éviction d'environ `trace_ttl_ms / 2`, donc un template lent une fois toutes les quelques minutes ne réunit jamais `slow_query_min_occurrences` spans dans un même batch. `daemon/slow_window.rs` tient, sur le worker d'analyse, une fenêtre d'épisodes lents par clé (type d'événement, service, grouping, template normalisé). `[detection] slow_query_window_minutes` (15 par défaut, `0` désactive, plage 0-60) fixe la fenêtre. `analyze` et les autres commandes batch ne la construisent jamais.
+Le daemon analyse des batchs d'éviction d'environ `trace_ttl_ms / 2`, donc un template lent une fois toutes les quelques minutes ne réunit jamais `slow_query_min_occurrences` spans dans un même batch. `daemon/slow_window.rs` tient, sur le worker d'analyse, une fenêtre d'épisodes lents par clé (type d'événement, service, regroupement, template normalisé). `[detection] slow_query_window_minutes` (15 par défaut, `0` désactive, plage 0-60) fixe la fenêtre. `analyze` et les autres commandes batch ne la construisent jamais.
 
 - **Épisodes.** Les spans lents d'une clé situés à moins de max(60 s, 1.5 x `trace_ttl_ms`) du premier span d'un épisode comptent pour un seul épisode, qui garde le span le plus lent. Un span lent isolé, ou un verrou bref dont les victimes sont évincées dans ce laps de temps, reste un seul épisode et n'alimente que l'histogramme des durées.
-- **Suppression.** Un span lent dont le triplet (type, template, grouping) a déjà produit un finding lent dans le même batch n'est pas compté. L'entrée de sa clé perd ses épisodes et entre en période de silence, comme si elle avait été rapportée.
+- **Suppression.** Un span lent dont le triplet (type, template, regroupement) a déjà produit un finding lent dans le même batch n'est pas compté. L'entrée de sa clé perd ses épisodes et entre en période de silence, comme si elle avait été rapportée.
 - **Émission.** Une clé est rapportée quand un batch ouvre un nouvel épisode et que la fenêtre contient au moins `slow_query_min_occurrences` épisodes issus d'au moins 2 traces distinctes. Le temps est celui de l'analyse, pas l'horodatage des spans.
 - **Période de silence.** Après un rapport, la clé vide ses épisodes et reste muette pendant une fenêtre. Un problème persistant est de nouveau rapporté à son premier nouvel épisode après cette période, dès que la fenêtre contient assez d'épisodes.
 - **Forme.** Le finding est construit par la même fonction qu'un finding lent cross-trace de batch : même type, même règle de sévérité, même libellé de suggestion et même signature, il se replie donc avec eux dans le findings store. `pattern.occurrences` et les percentiles comptent des épisodes, un span (le plus lent) par épisode.
@@ -373,11 +373,11 @@ Les sept détecteurs s'exécutent séquentiellement sur chaque trace. `append(&m
 
 ## Corrélation temporelle cross-trace (mode daemon)
 
-En mode `watch`, perf-sentinel observe l'ensemble des findings sur tous les traces au fil du temps. Le module `detect/correlate_cross.rs` fournit un moteur de corrélation qui identifie les co-occurrences récurrentes entre findings de services différents : par exemple, "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
+En mode `watch`, perf-sentinel observe l'ensemble des findings sur toutes les traces au fil du temps. Le module `detect/correlate_cross.rs` fournit un moteur de corrélation qui identifie les co-occurrences récurrentes entre findings de services différents : par exemple, "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
 
 ### Deux horloges
 
-Chaque finding porte deux instants. Son **temps d'événement** est `first_timestamp`, le début de son premier span fautif, lu par `time::parse_iso8601_utc_to_ms` ; une valeur absente ou non UTC retombe sur le temps d'ingestion. Son **temps d'ingestion** est le `now_ms` du tick d'analyse qui l'a produit. L'appariement, l'orientation et le délai utilisent le temps d'événement : deux findings s'apparient quand leurs propres spans ont démarré à moins de `lag_threshold_ms` l'un de l'autre, quels que soient les ticks qui les ont analysés. La rétention, l'éviction et la fenêtre de rapport utilisent le temps d'ingestion, donc un trafic rejoué ou décalé vieillit quand même.
+Chaque finding porte deux instants. Son **temps d'événement** est `first_timestamp`, le début de son premier span fautif, lu par `time::parse_iso8601_utc_to_ms`. Une valeur absente ou non UTC se rabat sur le temps d'ingestion. Son **temps d'ingestion** est le `now_ms` du tick d'analyse qui l'a produit. L'appariement, l'orientation et le délai utilisent le temps d'événement : deux findings s'apparient quand leurs propres spans ont démarré à moins de `lag_threshold_ms` l'un de l'autre, quels que soient les ticks qui les ont analysés. La rétention, l'éviction et la fenêtre de rapport utilisent le temps d'ingestion, donc un trafic rejoué ou décalé vieillit quand même.
 
 ### Structure du corrélateur
 
@@ -395,8 +395,8 @@ pub struct CrossTraceCorrelator {
 ```
 
 - `occurrences` : l'horizon d'appariement, un `VecDeque` dans l'ordre d'ingestion. Chaque entrée porte l'endpoint interné, `event_ms`, `ingest_ms`, l'indice de grille à l'ingestion, un trace id plafonné et `counted_targets`, les cibles pour lesquelles cette occurrence a déjà compté comme source. Une entrée sort dès que `ingest_ms + lag_threshold_ms + ingest_skew_ms < now_ms`. L'horizon ne dépend que du délai et du décalage, jamais de `window_ms` : une fenêtre de 24 h garde le même deque qu'une fenêtre de 10 min. Le décalage vaut `2 x trace_ttl_ms`, donc le deque et le parcours que chaque finding en fait croissent avec le TTL (environ une minute de findings avec les 30 s par défaut).
-- `endpoints` : le registre des endpoints. Chaque `CorrelationEndpoint` distinct (type de finding, service, template, regroupement) est stocké une seule fois derrière un `Arc`, et le deque, les clés de paire et `counted_targets` partagent cette allocation : un long template SQL n'est gardé qu'une fois, quel que soit le nombre de findings qui le portent. La valeur est le compteur d'occurrences de l'endpoint, dénominateur de la confiance.
-- `pair_counts` : indexé par `PairKey` (source, cible), deux `Arc` internés. Chaque `PairState` contient le compteur de co-occurrences, un reservoir borné de délais, un compteur `total_observations`, un état PRNG `SplitMix64`, `first_seen_ms`/`last_seen_ms` sur l'horloge d'ingestion et les trace ids côté source et côté cible de la dernière correspondance.
+- `endpoints` : le registre des endpoints. Chaque `CorrelationEndpoint` distinct (type de finding, service, template, regroupement) est stocké une seule fois derrière un `Arc`. Le deque, les clés de paire et `counted_targets` partagent cette allocation : un long template SQL n'est gardé qu'une fois, quel que soit le nombre de findings qui le portent. La valeur est le compteur d'occurrences de l'endpoint, dénominateur de la confiance.
+- `pair_counts` : indexé par `PairKey` (source, cible), deux `Arc` internés. Chaque `PairState` contient le compteur de co-occurrences, un réservoir borné de délais, un compteur `total_observations`, un état PRNG `SplitMix64`, `first_seen_ms`/`last_seen_ms` sur l'horloge d'ingestion et les trace ids côté source et côté cible de la dernière correspondance.
 
 ### Grille globale en demi-fenêtres
 
@@ -404,7 +404,7 @@ Les deux compteurs, co-occurrences de la paire et occurrences de l'endpoint, son
 
 ### Décalage d'ingestion
 
-`ingest_skew_ms` est la portée supplémentaire, en temps d'ingestion, qui permet à des findings analysés dans des ticks différents de se retrouver dans l'horizon. Ce n'est pas une clé TOML : `setup_correlator` la dérive en `2 x trace_ttl_ms`. Une trace vidée sous la pression du LRU arrive tout de suite à l'analyse, alors qu'une trace vidée par le TTL attend le TTL plus au plus un tick d'éviction (un demi-TTL) ; le reste du budget couvre le batching de l'exporteur et du collecteur. La valeur par défaut de la struct (60 s) correspond au TTL par défaut de 30 s.
+`ingest_skew_ms` est la portée supplémentaire, en temps d'ingestion, qui permet à des findings analysés dans des ticks différents de se retrouver dans l'horizon. Ce n'est pas une clé TOML : `setup_correlator` la dérive en `2 x trace_ttl_ms`. Une trace vidée sous la pression du LRU arrive tout de suite à l'analyse, alors qu'une trace vidée par le TTL attend le TTL plus au plus un tick d'éviction (un demi-TTL). Le reste du budget couvre le batching de l'exporteur et du collecteur. La valeur par défaut de la struct (60 s) correspond au TTL par défaut de 30 s.
 
 ### Algorithme d'ingestion
 
@@ -414,8 +414,8 @@ La méthode `ingest()` est appelée par `process_traces` une fois les findings p
 2. **Évincer l'horizon.** Retirer les occurrences en tête tant qu'elles dépassent `lag_threshold_ms + ingest_skew_ms` en temps d'ingestion. L'éviction ne touche aucun compteur.
 3. **Nettoyer les paires obsolètes.** Une passe `HashMap::retain` retire les paires dont `last_seen_ms` est plus ancien que `window_ms`.
 4. **Nettoyer le registre.** Une fois par pas de grille, retirer les endpoints dont le compteur vaut 0 et qu'aucune paire ni occurrence de l'horizon ne retient plus (`Arc::strong_count == 1`).
-5. **Apparier chaque finding.** Interner son endpoint et le compter sur la grille, puis parcourir tout l'horizon. Une occurrence s'apparie quand son temps d'événement est à moins de `lag_threshold_ms`, qu'il s'agit d'un autre endpoint d'un autre service, et que les deux partagent la même clé et la même valeur de regroupement. L'événement le plus ancien est la **source** et le plus récent la **cible** ; à temps d'événement égal, l'arrivée la plus ancienne reste la source. Le délai est l'écart en temps d'événement. Le finding est ensuite ajouté au deque, donc les findings d'un même lot s'apparient aussi entre eux.
-6. **Compter une fois par occurrence source.** Chaque correspondance rafraîchit `last_seen_ms` et le trace id d'exemple (celui de la cible). Le compteur de co-occurrences, crédité à l'indice de grille de l'occurrence source, et le reservoir de délais ne bougent que si l'occurrence source n'a pas encore compté pour cet endpoint cible, ce que suit le `counted_targets` de la source. Une occurrence source suivie de trois cibles compte une fois, et le résultat ne dépend pas de l'ordre d'arrivée des quatre findings.
+5. **Apparier chaque finding.** Interner son endpoint et le compter sur la grille, puis parcourir tout l'horizon. Une occurrence s'apparie quand son temps d'événement est à moins de `lag_threshold_ms`, qu'il s'agit d'un autre endpoint d'un autre service, et que les deux partagent la même clé et la même valeur de regroupement. L'événement le plus ancien est la **source** et le plus récent la **cible**. À temps d'événement égal, l'arrivée la plus ancienne reste la source. Le délai est l'écart en temps d'événement. Le finding est ensuite ajouté au deque, donc les findings d'un même lot s'apparient aussi entre eux.
+6. **Compter une fois par occurrence source.** Chaque correspondance rafraîchit `last_seen_ms` et le trace id d'exemple (celui de la cible). Le compteur de co-occurrences, crédité à l'indice de grille de l'occurrence source, et le réservoir de délais ne bougent que si l'occurrence source n'a pas encore compté pour cet endpoint cible, ce que suit le `counted_targets` de la source. Une occurrence source suivie de trois cibles compte une fois, et le résultat ne dépend pas de l'ordre d'arrivée des quatre findings.
 7. **Appliquer le plafond de paires.** Une nouvelle paire est refusée tant que la map est à `max_tracked_pairs` (défaut 10 000). Quand un lot a subi des refus, la map est ramenée à 90 % du plafond en une passe : les paires sont classées par `(compteur de co-occurrences fenêtré, last_seen_ms)` croissant, donc les compteurs les plus bas partent d'abord et, à compteur égal, les plus anciennes. Le seuil vient de `select_nth_unstable` sur les tuples de rang, donc seules les clés retirées sont clonées.
 
 La valeur de retour est le nombre de paires perdues au plafond dans ce lot (refus plus évictions), qui alimente `perf_sentinel_correlator_pairs_evicted_total`.
@@ -426,22 +426,22 @@ Pour chaque paire, avec tous les compteurs lus à `now_idx` :
 
 - `co_occurrence_count` est le compteur fenêtré de la paire. Les paires sous `min_co_occurrences` (défaut 5) sont écartées.
 - `source_total_occurrences` est le compteur fenêtré de l'endpoint source. Une source absente du registre ou à 0 n'offre rien pour mesurer la paire, et la paire est écartée.
-- `confidence = co_occurrence_count / source_total_occurrences`. Chaque co-occurrence est dans le seau de son occurrence source et compte une fois par occurrence source, donc le ratio reste dans `[0, 1]` ; le plafond à 1 n'est qu'une précaution. Les paires sous `min_confidence` (défaut 0.7) sont écartées.
+- `confidence = co_occurrence_count / source_total_occurrences`. Chaque co-occurrence est dans le seau de son occurrence source et compte une fois par occurrence source, donc le ratio reste dans `[0, 1]`. Le plafond à 1 n'est qu'une précaution. Les paires sous `min_confidence` (défaut 0.7) sont écartées.
 
-`median_lag_ms` est la médiane du reservoir, un délai en temps d'événement. `first_seen` et `last_seen` sont sur l'horloge d'ingestion.
+`median_lag_ms` est la médiane du réservoir, un délai en temps d'événement. `first_seen` et `last_seen` sont sur l'horloge d'ingestion.
 
 ### Reservoir sampling pour les délais
 
 Une paire chaude qui se déclenche des milliers de fois dans la fenêtre ferait sinon croître `lags_ms` sans borne. Pour garder la mémoire par paire constante, `record_lag` utilise l'algorithme R de reservoir sampling plafonné à `MAX_LAG_SAMPLES = 64` (512 octets par paire) :
 
-- Tant que le reservoir a de la place, append inconditionnel.
-- Une fois plein, tirer `r` uniformément dans `[0, total_observations)` via `SplitMix64`. Si `r < MAX_LAG_SAMPLES`, remplacer `lags_ms[r]`. Conditionnellement à `r < k`, `r` est lui-même uniforme dans `[0, k)`, donc le choix du slot est non biaisé sans tirage PRNG supplémentaire.
+- Tant que le réservoir a de la place, ajout inconditionnel.
+- Une fois plein, tirer `r` uniformément dans `[0, total_observations)` via `SplitMix64`. Si `r < MAX_LAG_SAMPLES`, remplacer `lags_ms[r]`. Conditionnellement à `r < k`, `r` est lui-même uniforme dans `[0, k)`, donc le choix de l'emplacement est non biaisé sans tirage PRNG supplémentaire.
 
-Le PRNG est un état `SplitMix64` par `PairState`, seedé à la construction depuis `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` est un FNV-1a déterministe sur les champs `finding_type`, `service` et `template` de l'endpoint (PAS le `DefaultHasher` qui utilise un `RandomState` par process et rendrait le corrélateur non déterministe entre runs). Deux runs du daemon rejouant le même fichier de traces produisent des samples reservoir identiques et donc des médianes identiques.
+Le PRNG est un état `SplitMix64` par `PairState`, initialisé à la construction depuis `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` est un FNV-1a déterministe sur les champs `finding_type`, `service` et `template` de l'endpoint (PAS le `DefaultHasher` qui utilise un `RandomState` par processus et rendrait le corrélateur non déterministe entre exécutions). Deux exécutions du daemon rejouant le même fichier de traces produisent des échantillons de réservoir identiques et donc des médianes identiques.
 
 ### Calcul de la médiane
 
-Le helper `median()` trie un clone des valeurs de délai et retourne l'élément médian (longueur impaire) ou la moyenne des deux médians (longueur paire). Le tri est borné par `MAX_LAG_SAMPLES` grâce au reservoir, donc le calcul de la médiane est O(k log k) avec k = 64 quelle que soit la fréquence de la paire.
+La fonction utilitaire `median()` trie un clone des valeurs de délai et retourne l'élément médian (longueur impaire) ou la moyenne des deux médians (longueur paire). Le tri est borné par `MAX_LAG_SAMPLES` grâce au réservoir, donc le calcul de la médiane est O(k log k) avec k = 64 quelle que soit la fréquence de la paire.
 
 ### Identifiant de chaque extrémité
 
@@ -463,7 +463,7 @@ Deux N+1 sur le même service mais avec des templates différents sont donc des 
 
 - **Deque d'horizon** : environ `(lag_threshold_ms + ingest_skew_ms) x findings par seconde` entrées d'une centaine d'octets, quelle que soit `window_ms`.
 - **Registre des endpoints** : une entrée par endpoint distinct vu dans la fenêtre, template compris, nettoyé une fois par pas de grille. Sans plafond : il croît avec le nombre d'endpoints distincts, donc des templates mal normalisés restent pendant toute la fenêtre.
-- **Paires** : au plus `max_tracked_pairs`, chacune bien sous 1 Ko avec le reservoir de 64 échantillons.
+- **Paires** : au plus `max_tracked_pairs`, chacune bien sous 1 Ko avec le réservoir de 64 échantillons.
 - **CPU** : un parcours de l'horizon par finding entrant, aucune passe par tick sur les paires.
 
 ### Configuration
@@ -478,11 +478,11 @@ min_confidence = 0.7
 max_tracked_pairs = 10000
 ```
 
-L'option `enabled` (défaut false) active la corrélation. `setup_correlator` construit alors le corrélateur et dérive `ingest_skew_ms` de `trace_ttl_ms`. Les résultats sont exposés via `GET /api/correlations` et figés sous `correlations` dans `GET /api/export/report` ; le flux stdout du daemon ne les porte jamais.
+L'option `enabled` (défaut false) active la corrélation. `setup_correlator` construit alors le corrélateur et dérive `ingest_skew_ms` de `trace_ttl_ms`. Les résultats sont exposés via `GET /api/correlations` et figés sous `correlations` dans `GET /api/export/report`. Le flux stdout du daemon ne les porte jamais.
 
 ## Corrections actionnables (suggestions framework-aware)
 
-À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace ont retourné, à l'intérieur de `detect()`, et sur chaque finding slow cross-trace au moment où `build_cross_trace_finding` le construit, ce qui couvre la passe batch `detect_slow_cross_trace` et la fenêtre slow cross-batch du daemon.
+À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après le retour des détecteurs par trace, à l'intérieur de `detect()`, et sur chaque finding slow cross-trace au moment où `build_cross_trace_finding` le construit, ce qui couvre la passe batch `detect_slow_cross_trace` et la fenêtre slow cross-batch du daemon.
 
 La couverture a grandi en sept étapes :
 
@@ -492,9 +492,9 @@ La couverture a grandi en sept étapes :
 - v4 : Go (GORM) et Node.js/TypeScript (Prisma) avec détection de scope via le préfixe `@opentelemetry/instrumentation-*` et détection de langage via les extensions `.go`, `.js`, `.ts`.
 - v5 : Ruby (ActiveRecord) avec détection de scope via le préfixe vendeur `OpenTelemetry::Instrumentation::` et détection de langage via l'extension `.rb`.
 - v6 : PHP (Laravel/Eloquent, Symfony/Doctrine) avec détection de scope via les scopes natifs `io.opentelemetry.contrib.php.*` et détection de langage via l'extension `.php`. Le scope `io.opentelemetry.contrib.php.doctrine` est spécifique à la base de données, il ne marque donc que les findings DB, mais `io.opentelemetry.contrib.php.laravel` est applicatif (il instrumente le noyau HTTP, la console, les files d'attente et le modèle Eloquent), il accompagne donc chaque finding Laravel. PhpLaravelEloquent porte donc des correctifs pour les 10 anti-patterns SQL et HTTP, tandis que PhpDoctrine ne porte que ceux SQL. Seul ce chemin est conscient du framework : dd-trace-php passé par le `datadogreceiver` du Collector n'expose aucun attribut de code PHP (le scope est un `Datadog` fixe), ces findings retombent donc sur `PhpGeneric` ou restent non enrichis.
-- v7 : les deux types messaging (`n_plus_one_messaging`, `slow_messaging`), indexés par technologie de broker et non par framework. La remédiation d'un anti-pattern de publication vit dans l'API de lot du client du broker (`linger.ms`, `SendMessageBatch`, une session JMS transactionnelle), que le framework applicatif ne nomme pas, d'où une seconde table `MESSAGING_FIXES` indexée `(FindingType, MessagingSystem)`. La détection lit le premier segment du template du finding, qui porte la valeur `messaging.system` du span telle quelle (voir la note de normalisation dans `02-NORMALIZATION-FR.md`) : aucune heuristique de scope ni d'attribut de code, aucun accès aux spans. Kafka, RabbitMQ, SQS (`aws_sqs` plus le raccourci `sqs`), Pulsar, NATS et JMS sont couverts, `activemq` renvoie vers le conseil JMS puisque c'est l'API cliente en jeu. Un système non listé (`rocketmq`, `servicebus`, ...) garde la suggestion générique.
+- v7 : les deux types messaging (`n_plus_one_messaging`, `slow_messaging`), indexés par technologie de broker et non par framework. La remédiation d'un anti-pattern de publication vit dans l'API de lot du client du broker (`linger.ms`, `SendMessageBatch`, une session JMS transactionnelle), que le framework applicatif ne nomme pas, d'où une seconde table `MESSAGING_FIXES` indexée `(FindingType, MessagingSystem)`. La détection lit le premier segment du template du finding, qui porte la valeur `messaging.system` du span telle quelle (voir la note de normalisation dans `02-NORMALIZATION-FR.md`) : aucune heuristique de scope ni d'attribut de code, aucun accès aux spans. Kafka, RabbitMQ, SQS (`aws_sqs` plus le raccourci `sqs`), Pulsar, NATS et JMS sont couverts, et `activemq` renvoie vers le conseil JMS puisque c'est l'API cliente en jeu. Un système non listé (`rocketmq`, `servicebus`, ...) garde la suggestion générique.
 
-Les nouvelles entrées s'appuient sur le tag générique `*Generic` du langage quand la recommandation est indépendante du framework, et réutilisent un tag spécifique quand l'écosystème fournit une primitive canonique à recommander. L'état actuel couvre Java, C# (.NET 8 à 10), Python, Rust, Go, Node.js, Ruby et PHP sur les 10 anti-patterns SQL et HTTP, chacun avec un fallback générique par langage, plus les deux anti-patterns messaging sur six technologies de broker.
+Les nouvelles entrées s'appuient sur le tag générique `*Generic` du langage quand la recommandation est indépendante du framework, et réutilisent un tag spécifique quand l'écosystème fournit une primitive canonique à recommander. L'état actuel couvre Java, C# (.NET 8 à 10), Python, Rust, Go, Node.js, Ruby et PHP sur les 10 anti-patterns SQL et HTTP, chacun avec un repli générique par langage, plus les deux anti-patterns messaging sur six technologies de broker.
 
 ### Structure `SuggestedFix`
 
@@ -513,101 +513,101 @@ Sérialisé en JSON comme objet imbriqué sous `finding.suggested_fix`, omis qua
 
 Le détecteur est une fonction pure sur des champs déjà présents sur `Finding` (`instrumentation_scopes`, `code_location`, `service`), tous peuplés au moment de la détection depuis les attributs OTel du span. Pas d'accès au niveau span, pas d'allocation supplémentaire. Il inspecte cinq signaux dans l'ordre, du plus fiable au moins fiable :
 
-1. **Chaîne de scopes d'instrumentation**, capturée à l'ingestion OTLP depuis le span d'origine et ses ancêtres (par exemple `io.opentelemetry.spring-data-3.0`). Le plus fiable : le nom de scope est émis par l'agent quelle que soit la façon dont l'utilisateur nomme ses classes, il survit donc aux particularités de nommage du code utilisateur. Les scopes spécifiques aux vendeurs (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, le gem Ruby `OpenTelemetry::Instrumentation::ActiveRecord`, les scopes PHP `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`) sont vérifiés avant les scopes de la convention standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`. Go et Node sont volontairement absents des règles de scope par convention : leurs instrumentations utilisent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), et la frontière de segment `-` utilisée pour les suffixes de version Java produirait des faux positifs sur les noms de paquets npm (`pg` contre `instrumentation-pg-pool`).
-2. **Langage déduit du préfixe de scope natif de l'écosystème.** Quand la vérification de la chaîne de scopes échoue, le préfixe révèle quand même le langage (`github.com/` = chemin de module Go, `@opentelemetry/instrumentation-` ou `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = gem Ruby, `io.opentelemetry.contrib.php.` = PHP, puis tout autre scope `io.opentelemetry.` = agent Java, par exemple `io.opentelemetry.jdbc` ou `io.opentelemetry.apache-httpclient-5.0`). Le préfixe PHP est vérifié en premier pour que PHP garde ses scopes, et le préfixe Python `opentelemetry.instrumentation.` n'est pas revendiqué. Les règles de namespace de ce langage s'appliquent ensuite à `code_location` quand il est présent (un namespace Spring Data `*Repository` donne `java_jpa`), puis les règles de nom de service de l'étape 5 quand elles désignent un framework de ce langage (`helidon-mp-orders` donne `java_helidon_mp`), sinon le générique du langage s'applique, donc même un span sans `code.filepath` ni `code.namespace` reçoit une suggestion adaptée au langage.
-3. **Namespace de `code_location` avec langage déduit du filepath** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby, `.php` → PHP). Parcourt les règles de ce langage dans l'ordre déclaré ; fallback sur le générique du langage quand aucune règle ne matche. Les namespaces PHP utilisent des séparateurs `\`, reconnus par le même matcher de frontière de segment que `.` et `::`, et la dérivation de namespace à l'ingestion découpe `code.function.name` sur `\` quand il ne contient pas de point.
-4. **Namespace de `code_location` seul** quand le filepath est absent : essaie les règles de chaque langage dans l'ordre et retourne le premier hit. Pas de fallback générique sur ce chemin parce que le langage ne peut pas être connu.
+1. **Chaîne de scopes d'instrumentation**, capturée à l'ingestion OTLP depuis le span d'origine et ses ancêtres (par exemple `io.opentelemetry.spring-data-3.0`). Le plus fiable : le nom de scope est émis par l'agent quelle que soit la façon dont l'utilisateur nomme ses classes, donc les particularités de nommage du code utilisateur ne l'affectent pas. Les scopes spécifiques aux vendeurs (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`, le gem Ruby `OpenTelemetry::Instrumentation::ActiveRecord`, les scopes PHP `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`) sont vérifiés avant les scopes de la convention standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`. Go et Node sont absents des règles de scope par convention : leurs instrumentations utilisent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), et la frontière de segment `-` utilisée pour les suffixes de version Java produirait des faux positifs sur les noms de paquets npm (`pg` contre `instrumentation-pg-pool`).
+2. **Langage déduit du préfixe de scope natif de l'écosystème.** Quand la vérification de la chaîne de scopes échoue, le préfixe révèle quand même le langage (`github.com/` = chemin de module Go, `@opentelemetry/instrumentation-` ou `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet, `OpenTelemetry::Instrumentation::` = gem Ruby, `io.opentelemetry.contrib.php.` = PHP, puis tout autre scope `io.opentelemetry.` = agent Java, par exemple `io.opentelemetry.jdbc` ou `io.opentelemetry.apache-httpclient-5.0`). Le préfixe PHP est vérifié en premier pour que PHP garde ses scopes, et le préfixe Python `opentelemetry.instrumentation.` n'est pas revendiqué. Les règles de namespace de ce langage s'appliquent ensuite à `code_location` quand il est présent (un namespace Spring Data `*Repository` donne `java_jpa`), puis les règles de nom de service de l'étape 5 quand elles désignent un framework de ce langage (`helidon-mp-orders` donne `java_helidon_mp`). Sinon le générique du langage s'applique, donc même un span sans `code.filepath` ni `code.namespace` reçoit une suggestion adaptée au langage.
+3. **Namespace de `code_location` avec langage déduit du filepath** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node, `.rb` → Ruby, `.php` → PHP). Parcourt les règles de ce langage dans l'ordre déclaré et se rabat sur le générique du langage quand aucune règle ne correspond. Les namespaces PHP utilisent des séparateurs `\`, reconnus par la même vérification de frontière de segment que `.` et `::`, et la dérivation de namespace à l'ingestion découpe `code.function.name` sur `\` quand il ne contient pas de point.
+4. **Namespace de `code_location` seul** quand le filepath est absent : essaie les règles de chaque langage dans l'ordre et retourne la première correspondance. Pas de repli générique sur ce chemin parce que le langage ne peut pas être connu.
 5. **Nom de service** en dernier recours, uniquement pour les noms de frameworks assez distinctifs pour éviter les faux positifs dans des noms de services arbitraires (par exemple `helidon` dans `helidon-se-svc`). Confiance la plus basse, atteint seulement quand tous les signaux OTel sont absents.
 
-Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) n'ont pas de span d'origine unique : chacun porte les `instrumentation_scopes` et le `code_location` d'un appel représentatif qu'il référence déjà, à savoir le premier appel de la séquence sérialisée, le premier enfant du fan-out, le premier appel HTTP sortant de la trace chatty, le premier span SQL du service saturé. Le détecteur les lit comme pour tout autre finding. Chaque surface qui affiche `code_location` (`Source:` en CLI, `source` dans le rapport HTML, `locations[]` en SARIF) pointe alors sur cet appel représentatif, comme elle pointe sur le premier span du groupe pour un finding N+1.
+Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) n'ont pas de span d'origine unique. Chacun porte les `instrumentation_scopes` et le `code_location` d'un appel représentatif qu'il référence déjà : le premier appel de la séquence sérialisée, le premier enfant du fan-out, le premier appel HTTP sortant de la trace chatty, le premier span SQL du service saturé. Le détecteur les lit comme pour tout autre finding. Chaque surface qui affiche `code_location` (`Source:` en CLI, `source` dans le rapport HTML, `locations[]` en SARIF) pointe alors sur cet appel représentatif, comme elle pointe sur le premier span du groupe pour un finding N+1.
 
-Le match namespace est segment-boundary-aware des **deux côtés** : le hint doit commencer à la racine du namespace ou juste après un séparateur et doit se terminer à la fin du namespace ou juste avant un autre séparateur. Les caractères de séparation sont `.` (Java, C#) et `::` (Rust). Exemples :
+La correspondance de namespace respecte les frontières de segment des **deux côtés** : l'indication doit commencer à la racine du namespace ou juste après un séparateur et doit se terminer à la fin du namespace ou juste avant un autre séparateur. Les caractères de séparation sont `.` (Java, C#) et `::` (Rust). Exemples :
 
-- `diesel::` matche `diesel::query_dsl::FilterDsl` et `crate::diesel::reexport` mais **pas** `crate::mydiesel::query` (la boundary de tête protège le code utilisateur qui contient le hint).
-- `io.helidon` matche `io.helidon.webserver.Routing` mais **pas** `io.helidongrpc.Foo` (la boundary de fin protège les paquets utilisateur dont le premier segment commence simplement par le hint).
-- `Microsoft.EntityFrameworkCore` matche `Microsoft.EntityFrameworkCore.Query` mais **pas** `Microsoft.EntityFrameworkCoreCache.Provider`.
+- `diesel::` correspond à `diesel::query_dsl::FilterDsl` et à `crate::diesel::reexport` mais **pas** à `crate::mydiesel::query` (la frontière de tête protège le code utilisateur qui contient l'indication).
+- `io.helidon` correspond à `io.helidon.webserver.Routing` mais **pas** à `io.helidongrpc.Foo` (la frontière de fin protège les paquets utilisateur dont le premier segment commence simplement par l'indication).
+- `Microsoft.EntityFrameworkCore` correspond à `Microsoft.EntityFrameworkCore.Query` mais **pas** à `Microsoft.EntityFrameworkCoreCache.Provider`.
 
 ### Règles par langage
 
-L'ordre compte au sein d'un langage : le premier framework qui matche gagne. Les hints JPA passent intentionnellement après ceux de Quarkus reactive parce que `org.hibernate.reactive` contient `org.hibernate`.
+L'ordre compte au sein d'un langage : le premier framework qui correspond gagne. Les indications JPA passent après celles de Quarkus reactive parce que `org.hibernate.reactive` contient `org.hibernate`.
 
-Chaque hint est de l'un de deux types. **`Substring`** matche un segment de package délimité par des frontières (toutes les règles ci-dessous sauf mention contraire). **`LastSegmentEndsWith`** matche uniquement le suffixe du dernier segment du namespace, pour les conventions de code utilisateur comme les repositories Spring Data où le package du framework n'apparaît jamais dans `code.namespace` (par exemple `com.example.OrderRepository`).
+Chaque indication est de l'un de deux types. **`Substring`** correspond à un segment de package délimité par des frontières (toutes les règles ci-dessous sauf mention contraire). **`LastSegmentEndsWith`** ne compare que le suffixe du dernier segment du namespace, pour les conventions de code utilisateur comme les repositories Spring Data où le package du framework n'apparaît jamais dans `code.namespace` (par exemple `com.example.OrderRepository`).
 
 **Java (`JAVA_RULES`) :**
 
-| Framework                | Hints namespace                                                                                                                                                  |
-|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `JavaHelidonMp`          | `io.helidon.microprofile`                                                                                                                                        |
-| `JavaHelidonSe`          | `io.helidon`                                                                                                                                                     |
-| `JavaQuarkusReactive`    | `io.quarkus.hibernate.reactive`, `io.quarkus.panache.reactive`, `io.quarkus.reactive`, `org.hibernate.reactive`, `io.smallrye.mutiny`                            |
-| `JavaQuarkus`            | `io.quarkus.hibernate.orm`, `io.quarkus.panache.common`, `io.quarkus`                                                                                            |
-| `JavaWebFlux`            | `org.springframework.web.reactive`, `reactor.core`                                                                                                               |
-| `JavaJpa`                | `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa`, plus les suffixes de dernier segment `*Repository`, `*Repo`, `*Dao` |
-| `JavaGeneric` (fallback) | (tout fichier `.java` sans les hints ci-dessus)                                                                                                                  |
+| Framework             | Indications de namespace                                                                                                                                         |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `JavaHelidonMp`       | `io.helidon.microprofile`                                                                                                                                        |
+| `JavaHelidonSe`       | `io.helidon`                                                                                                                                                     |
+| `JavaQuarkusReactive` | `io.quarkus.hibernate.reactive`, `io.quarkus.panache.reactive`, `io.quarkus.reactive`, `org.hibernate.reactive`, `io.smallrye.mutiny`                            |
+| `JavaQuarkus`         | `io.quarkus.hibernate.orm`, `io.quarkus.panache.common`, `io.quarkus`                                                                                            |
+| `JavaWebFlux`         | `org.springframework.web.reactive`, `reactor.core`                                                                                                               |
+| `JavaJpa`             | `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa`, plus les suffixes de dernier segment `*Repository`, `*Repo`, `*Dao` |
+| `JavaGeneric` (repli) | (tout fichier `.java` sans les indications ci-dessus)                                                                                                            |
 
-`JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit matcher l'un des hints réactifs plus spécifiques en premier. Helidon MP doit passer avant Helidon SE parce que `io.helidon.microprofile` est un sous-package de `io.helidon`.
+`JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit correspondre en premier à l'une des indications réactives plus spécifiques. Helidon MP doit passer avant Helidon SE parce que `io.helidon.microprofile` est un sous-package de `io.helidon`.
 
 **C# (`CSHARP_RULES`) :**
 
-| Framework                  | Hints namespace                                               |
-|----------------------------|---------------------------------------------------------------|
-| `CsharpEfCore`             | `Microsoft.EntityFrameworkCore`, `Pomelo.EntityFrameworkCore` |
-| `CsharpGeneric` (fallback) | (tout fichier `.cs` sans les hints ci-dessus)                 |
+| Framework               | Indications de namespace                                      |
+|-------------------------|---------------------------------------------------------------|
+| `CsharpEfCore`          | `Microsoft.EntityFrameworkCore`, `Pomelo.EntityFrameworkCore` |
+| `CsharpGeneric` (repli) | (tout fichier `.cs` sans les indications ci-dessus)           |
 
 **Rust (`RUST_RULES`) :**
 
-| Framework                | Hints namespace                               |
-|--------------------------|-----------------------------------------------|
-| `RustDiesel`             | `diesel::`                                    |
-| `RustSeaOrm`             | `sea_orm::`                                   |
-| `RustGeneric` (fallback) | (tout fichier `.rs` sans les hints ci-dessus) |
+| Framework             | Indications de namespace                            |
+|-----------------------|-----------------------------------------------------|
+| `RustDiesel`          | `diesel::`                                          |
+| `RustSeaOrm`          | `sea_orm::`                                         |
+| `RustGeneric` (repli) | (tout fichier `.rs` sans les indications ci-dessus) |
 
 **Python (`PYTHON_RULES`) :**
 
-| Framework                  | Hints namespace                               |
-|----------------------------|-----------------------------------------------|
-| `PythonDjango`             | `django`                                      |
-| `PythonSqlAlchemy`         | `sqlalchemy`                                  |
-| `PythonGeneric` (fallback) | (tout fichier `.py` sans les hints ci-dessus) |
+| Framework               | Indications de namespace                            |
+|-------------------------|-----------------------------------------------------|
+| `PythonDjango`          | `django`                                            |
+| `PythonSqlAlchemy`      | `sqlalchemy`                                        |
+| `PythonGeneric` (repli) | (tout fichier `.py` sans les indications ci-dessus) |
 
 **Go (`GO_RULES`) :**
 
-| Framework              | Hints namespace                               |
-|------------------------|-----------------------------------------------|
-| `GoGorm`               | `gorm`                                        |
-| `GoGeneric` (fallback) | (tout fichier `.go` sans les hints ci-dessus) |
+| Framework           | Indications de namespace                            |
+|---------------------|-----------------------------------------------------|
+| `GoGorm`            | `gorm`                                              |
+| `GoGeneric` (repli) | (tout fichier `.go` sans les indications ci-dessus) |
 
 **Node.js (`JS_RULES`) :**
 
-| Framework                | Hints namespace                                                                               |
-|--------------------------|-----------------------------------------------------------------------------------------------|
-| `NodePrisma`             | `prisma`                                                                                      |
-| `NodeGeneric` (fallback) | (tout fichier `.js`/`.ts`/`.jsx`/`.tsx`/`.mjs`/`.mts`/`.cjs`/`.cts` sans les hints ci-dessus) |
+| Framework             | Indications de namespace                                                                            |
+|-----------------------|-----------------------------------------------------------------------------------------------------|
+| `NodePrisma`          | `prisma`                                                                                            |
+| `NodeGeneric` (repli) | (tout fichier `.js`/`.ts`/`.jsx`/`.tsx`/`.mjs`/`.mts`/`.cjs`/`.cts` sans les indications ci-dessus) |
 
 **Ruby (`RUBY_RULES`) :**
 
-| Framework                | Hints namespace                                     |
-|--------------------------|-----------------------------------------------------|
-| `RubyActiveRecord`       | (aucun, atteint via le scope vendeur)               |
-| `RubyGeneric` (fallback) | (tout fichier `.rb`, ou tout autre scope OTel Ruby) |
+| Framework             | Indications de namespace                            |
+|-----------------------|-----------------------------------------------------|
+| `RubyActiveRecord`    | (aucun, atteint via le scope vendeur)               |
+| `RubyGeneric` (repli) | (tout fichier `.rb`, ou tout autre scope OTel Ruby) |
 
 `RUBY_RULES` est vide : Ruby n'a pas de convention de namespace fiable dans `code.namespace`, donc `RubyActiveRecord` est atteint via le scope vendeur `OpenTelemetry::Instrumentation::ActiveRecord`, et tout autre scope OTel Ruby (les drivers pg/mysql2, Rack) ou un filepath `.rb` route vers `RubyGeneric`.
 
 **PHP (`PHP_RULES`) :**
 
-| Framework               | Hints namespace (séparés par `\`)                   |
-|-------------------------|-----------------------------------------------------|
-| `PhpLaravelEloquent`    | `Illuminate\Database\Eloquent`, `App\Models`        |
-| `PhpDoctrine`           | `Doctrine\ORM`, `Doctrine\DBAL`                     |
-| `PhpGeneric` (fallback) | (tout fichier `.php`, ou tout autre scope OTel PHP) |
+| Framework            | Indications de namespace (séparées par `\`)         |
+|----------------------|-----------------------------------------------------|
+| `PhpLaravelEloquent` | `Illuminate\Database\Eloquent`, `App\Models`        |
+| `PhpDoctrine`        | `Doctrine\ORM`, `Doctrine\DBAL`                     |
+| `PhpGeneric` (repli) | (tout fichier `.php`, ou tout autre scope OTel PHP) |
 
-Les frameworks PHP sont atteints en priorité via les scopes vendeurs `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`. Les hints namespace sont le signal secondaire : le span SQL feuille de Laravel est scope PDO (`code.function.name = "PDO::query"`) et n'expose aucun namespace applicatif, mais le span SQL propre à Doctrine porte un namespace `Doctrine\DBAL\...`. Tout autre scope OTel PHP (`pdo`, `mongodb`, `curl`, `guzzle`) ou un filepath `.php` route vers `PhpGeneric`.
+Les frameworks PHP sont atteints en priorité via les scopes vendeurs `io.opentelemetry.contrib.php.doctrine` et `io.opentelemetry.contrib.php.laravel`. Les indications de namespace sont le signal secondaire : le span SQL feuille de Laravel est scope PDO (`code.function.name = "PDO::query"`) et n'expose aucun namespace applicatif, mais le span SQL propre à Doctrine porte un namespace `Doctrine\DBAL\...`. Tout autre scope OTel PHP (`pdo`, `mongodb`, `curl`, `guzzle`) ou un filepath `.php` route vers `PhpGeneric`.
 
-Les frameworks Go et Node sont atteints via les hints namespace ci-dessus et le fallback langage-depuis-préfixe-de-scope, jamais via `SCOPE_RULES` : leurs instrumentations émettent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) que les préfixes de la convention ne matchent pas. Voir la section détecteur de framework ci-dessus.
+Les frameworks Go et Node sont atteints via les indications de namespace ci-dessus et le repli langage-depuis-préfixe-de-scope, jamais via `SCOPE_RULES` : leurs instrumentations émettent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) auxquels les préfixes de la convention ne correspondent pas. Voir la section détecteur de framework ci-dessus.
 
 ### Table de mapping
 
-Deux statics `LazyLock<HashMap<_, SuggestedFix>>`, et `lookup_fix` route sur le type de finding avant de lire le moindre signal de framework. Les anti-patterns protocolaires utilisent `FIXES`, indexée `(FindingType, Framework)` : un fallback générique par langage plus des entrées framework-specific. Les deux anti-patterns messaging utilisent `MESSAGING_FIXES`, indexée `(FindingType, MessagingSystem)`, de sorte qu'un finding messaging n'atteint jamais la table framework et inversement. Un lookup `FIXES` qui manque le framework détecté est retenté avec le générique du langage de ce framework (`JavaJpa` vers `JavaGeneric`, `CsharpEfCore` vers `CsharpGeneric`), de sorte qu'un framework détecté ne donne jamais moins que le conseil du langage. Un échec sur le générique aussi, ou sur `MESSAGING_FIXES`, laisse `suggested_fix` à `None`. La couverture n'est volontairement pas une matrice complète langage x pattern. En particulier, `n_plus_one_sql` et `redundant_sql` passent surtout par des entrées framework-specific (un fallback générique N+1 SQL n'existe que pour Java, Go, Node, Ruby et PHP), donc un lookup générique pour ces patterns retourne `None` pour plusieurs langages. Ancres représentatives :
+Deux statics `LazyLock<HashMap<_, SuggestedFix>>`, et `lookup_fix` route sur le type de finding avant de lire le moindre signal de framework. Les anti-patterns protocolaires utilisent `FIXES`, indexée `(FindingType, Framework)` : un repli générique par langage plus des entrées spécifiques au framework. Les deux anti-patterns messaging utilisent `MESSAGING_FIXES`, indexée `(FindingType, MessagingSystem)`, de sorte qu'un finding messaging n'atteint jamais la table framework et inversement. Une recherche dans `FIXES` qui manque le framework détecté est retentée avec le générique du langage de ce framework (`JavaJpa` vers `JavaGeneric`, `CsharpEfCore` vers `CsharpGeneric`), de sorte qu'un framework détecté ne donne jamais moins que le conseil du langage. Un échec sur le générique aussi, ou sur `MESSAGING_FIXES`, laisse `suggested_fix` à `None`. La couverture ne vise pas une matrice complète langage x pattern. En particulier, `n_plus_one_sql` et `redundant_sql` passent surtout par des entrées spécifiques au framework (un repli générique N+1 SQL n'existe que pour Java, Go, Node, Ruby et PHP), donc une recherche générique pour ces patterns retourne `None` pour plusieurs langages. Ancres représentatives :
 
 | Type de finding | Framework             | Ancre de la recommandation                                                                                                  |
 |-----------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
@@ -662,22 +662,22 @@ Pour ajouter un nouveau langage :
 
 1. Étendre l'enum `Language` et ses méthodes `rules()` / `generic()`.
 2. Ajouter le match d'extension de fichier dans `language_from_filepath`.
-3. Définir un nouveau slice `*_RULES` et une variante générique fallback sur `Framework`.
+3. Définir un nouveau slice `*_RULES` et une variante générique de repli sur `Framework`.
 
-Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déjà `suggestions::enrich` à la fin de la passe de détection per-trace, `build_cross_trace_finding` l'appelle sur chaque finding slow cross-trace, et les rendus CLI / JSON / SARIF gèrent déjà un `suggested_fix` optionnel.
+Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déjà `suggestions::enrich` à la fin de la passe de détection par trace, `build_cross_trace_finding` l'appelle sur chaque finding slow cross-trace, et les rendus CLI / JSON / SARIF gèrent déjà un `suggested_fix` optionnel.
 
 ## Signatures de findings et acquittements
 
-`acknowledgments.rs` est la moitié batch/CI du workflow d'acquittement. Il charge `.perf-sentinel-acknowledgments.toml`, calcule une signature par finding, déplace les findings acquittés dans `report.acknowledged_findings`, puis réévalue la porte qualité sur ce qui reste. Le store runtime du daemon (`daemon/ack.rs`) partage le format de signature et est unioné avec le TOML au moment de la requête, le TOML l'emportant : c'est la référence immuable passée par revue de PR.
+`acknowledgments.rs` est la moitié batch/CI du workflow d'acquittement. Il charge `.perf-sentinel-acknowledgments.toml`, calcule une signature par finding, déplace les findings acquittés dans `report.acknowledged_findings`, puis réévalue la porte qualité sur ce qui reste. Le store runtime du daemon (`daemon/ack.rs`) partage le format de signature et est fusionné avec le TOML au moment de la requête, le TOML l'emportant : c'est la référence immuable passée par revue de PR.
 
-**La signature est la pièce porteuse**, parce que c'est à elle qu'est épinglée la décision "on n'y touche pas" d'un opérateur. Sa forme est `<finding_type>:<service>:<endpoint_assaini>:<prefixe-sha256-du-template>`.
+**La signature est la pièce maîtresse**, parce que c'est à elle qu'est épinglée la décision "on n'y touche pas" d'un opérateur. Sa forme est `<finding_type>:<service>:<endpoint_assaini>:<prefixe-sha256-du-template>`.
 
 - **Pourquoi un hash uniquement sur le template.** Le triplet `(finding_type, service, source_endpoint)` est déjà dans la signature, le hash ne désambiguïse donc que les templates au sein d'un même triplet, une population minuscule. Ses 32 caractères hexadécimaux (128 bits) ne sont donc pas de la résistance aux collisions pour elle-même, mais une défense en profondeur contre un acquittement qui masquerait un *autre* finding après une refonte SQL ou un renommage de service.
 - **Pourquoi `/` et l'espace deviennent `_`.** Pour que `:` reste un séparateur unique et non ambigu, qu'un opérateur peut découper au `cut -d:` dans un pipeline shell.
 - **Pourquoi les caractères BiDi et invisibles sont retirés** de `service` et `source_endpoint` (Trojan Source, CVE-2021-42574) : deux signatures qui s'affichent à l'identique ne doivent pas désigner deux entrées distinctes, sinon un acquittement devient invérifiable à la lecture.
 
-**La stabilité est un contrat, pas un détail d'implémentation.** Toute modification du format, de l'assainissement ou de la largeur du hash invalide silencieusement chaque fichier d'acquittements déployé, et l'échec est silencieux dans le pire sens : les findings que l'opérateur avait acceptés réapparaissent, ou pire, un acquittement périmé continue de correspondre à autre chose. Une suite de tests dédiée épingle le format pour cette raison. Traitez un changement de signature comme une rupture exigeant un ré-acquittement, et dites-le dans le changelog.
+**La stabilité est un contrat, pas un détail d'implémentation.** Toute modification du format, de l'assainissement ou de la largeur du hash invalide silencieusement chaque fichier d'acquittements déployé. L'échec est silencieux dans le pire sens : les findings que l'opérateur avait acceptés réapparaissent, ou pire, un acquittement périmé continue de correspondre à autre chose. Une suite de tests dédiée épingle le format pour cette raison. Traitez un changement de signature comme une rupture exigeant un ré-acquittement, et dites-le dans le changelog.
 
-**Réévaluer la porte est le point central.** Filtrer les findings sans relancer `quality_gate` laisserait `analyze --ci` en échec sur des findings que l'opérateur a explicitement acceptés, ce qui est toute la sémantique de "won't fix". La réévaluation tourne même quand rien n'a correspondu, pour que le champ de la porte soit toujours cohérent avec la liste finale de `findings` et non avec un instantané d'avant filtrage. `apply` vide aussi `acknowledged_findings` en premier, pour qu'un `Report` repassé dedans (un aller-retour JSON de référence) ne puisse pas accumuler de paires périmées.
+**La porte est réévaluée après filtrage.** Filtrer les findings sans relancer `quality_gate` laisserait `analyze --ci` en échec sur des findings que l'opérateur a explicitement acceptés, ce qui est toute la sémantique de "won't fix". La réévaluation tourne même quand rien n'a correspondu, pour que le champ de la porte soit toujours cohérent avec la liste finale de `findings` et non avec un instantané d'avant filtrage. `apply` vide aussi `acknowledged_findings` en premier, pour qu'un `Report` repassé dedans (un aller-retour JSON de référence) ne puisse pas accumuler de paires périmées.
 
 **L'expiration échoue en ouvert sur le finding, en fermé sur le fichier.** Un acquittement dont `expires_at` est passé est inactif et son finding revient. Une date malformée, en revanche, interrompt l'exécution : une faute de frappe ne doit pas élargir silencieusement l'ensemble acquitté.

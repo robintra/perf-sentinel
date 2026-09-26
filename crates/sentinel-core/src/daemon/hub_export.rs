@@ -74,7 +74,7 @@ pub(super) struct HubExporter {
 /// How long a graceful shutdown waits for the exporter to flush what it
 /// still holds.
 ///
-/// Bounded on purpose: an unreachable Hub must not hold the daemon past
+/// Bounded because an unreachable Hub must not hold the daemon past
 /// the orchestrator's grace period, where the next signal is SIGKILL and
 /// nothing gets flushed at all. Ten seconds is one full request timeout
 /// plus room for the retry the flush may need.
@@ -139,13 +139,13 @@ impl HubExporter {
 
     /// Flush what the exporter still holds, then stop it.
     ///
-    /// Without this the task was aborted on drop and every pending
-    /// signature died with it, so a rolling upgrade lost each finding
+    /// Without this call, dropping the exporter aborts the task, and every
+    /// pending signature dies with it, so a rolling upgrade loses each finding
     /// discovered since the last flush. Mirrors how the archive writer is
-    /// drained, with a budget on top because the Hub is a remote the
-    /// archive is not: the wait ends either when the buffer empties or
-    /// when `SHUTDOWN_DRAIN_BUDGET` runs out, and the `Drop` below still
-    /// aborts whatever is left.
+    /// drained, with a budget on top because the Hub, unlike the archive,
+    /// is remote. The wait ends either when the buffer empties or when
+    /// `SHUTDOWN_DRAIN_BUDGET` runs out, and the `Drop` below still aborts
+    /// whatever is left.
     pub(super) async fn shutdown(&mut self) {
         let pending = self.buffer.len();
         self.shutdown.notify_one();
@@ -445,7 +445,7 @@ async fn run_exporter(
             continue;
         };
         // bounded_payload only pops from the end, so truncating keeps the
-        // acknowledgment aligned with what actually went over the wire.
+        // acknowledgment aligned with what went over the wire.
         batch.truncate(annotated.len());
 
         let outcome = match http_client::fetch_with_body(
@@ -574,7 +574,7 @@ async fn annotate(batch: &[PendingExport], acks: &AckSources) -> Vec<FindingResp
 /// from the end so the caller can keep its acknowledgment aligned.
 ///
 /// An oversized body shrinks proportionally to how far over the cap it is,
-/// not one finding at a time: findings are within an order of magnitude of
+/// not one finding at a time. Findings are within an order of magnitude of
 /// each other, so this converges in a couple of passes instead of
 /// re-serializing up to `batch_size` times for one huge outlier.
 fn bounded_payload(batch: &mut Vec<FindingResponse>) -> Option<Vec<u8>> {
@@ -852,7 +852,7 @@ mod tests {
 
         assert!(body.len() <= MAX_EXPORT_BODY_BYTES);
         // Popped from the end only, so the caller's `batch.truncate` stays
-        // aligned with what actually went over the wire.
+        // aligned with what went over the wire.
         assert_eq!(annotated.len(), 1);
         assert_eq!(annotated[0].stored.finding.signature, "sig-0");
 
@@ -896,10 +896,10 @@ mod tests {
         assert!(retry_delay(BUSY_FAILURE_CAP, 40) <= Duration::from_secs(6));
     }
 
-    /// The exporter used to sit in `sleep(flush_interval)` with no way out,
-    /// so shutdown could only `abort()` it and drop the buffer. With an hour
-    /// between flushes, a task that still honours the interval fails this
-    /// test by timing out.
+    /// An exporter waiting in `sleep(flush_interval)` with no way out
+    /// leaves shutdown nothing but `abort()`, which drops the buffer. With
+    /// an hour between flushes, a task that still honours the interval
+    /// fails this test by timing out.
     #[tokio::test]
     async fn shutdown_stops_the_exporter_instead_of_waiting_for_the_next_flush() {
         let buffer = Arc::new(HubExportBuffer::new(10));
@@ -953,8 +953,8 @@ mod tests {
         shutdown.notify_one();
 
         // The connection is refused, so the entry stays pending and the task
-        // keeps retrying. What matters is that it retries rather than
-        // spinning or exiting silently, and that the caller can abort it.
+        // keeps retrying. It must not spin or exit silently, and the caller
+        // must be able to abort it.
         assert!(
             tokio::time::timeout(Duration::from_millis(600), handle)
                 .await

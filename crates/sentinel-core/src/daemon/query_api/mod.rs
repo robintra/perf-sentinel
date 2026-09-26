@@ -113,7 +113,7 @@ pub struct QueryApiState {
     /// `quality_gate` mirrors the batch pipeline instead of a hardcoded pass.
     pub thresholds: crate::config::ThresholdsConfig,
     /// Which measured-energy backends are configured, frozen at startup.
-    /// Lets `/api/energy` report `configured` truthfully instead of
+    /// Lets `/api/energy` report `configured` accurately instead of
     /// inferring it from zero-valued metrics (the gauges are
     /// pre-registered at 0 whether or not a backend exists).
     pub energy_backends: EnergyBackendsConfigured,
@@ -122,7 +122,7 @@ pub struct QueryApiState {
 /// Configured-or-not flags for the five scraped energy backends.
 /// Electricity Maps is not here: its presence is already carried by
 /// `QueryApiState.scoring_config`.
-// Five genuinely independent flags, not a disguised state machine.
+// Five independent flags, not a disguised state machine.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnergyBackendsConfigured {
@@ -204,7 +204,7 @@ struct FindingsParams {
 struct AcksParams {
     /// `true` also lists the active CI TOML baseline acks, and every row
     /// then names its `source`. Default `false` keeps the daemon-only
-    /// listing as it always was.
+    /// listing unchanged.
     #[serde(default)]
     include_toml: bool,
 }
@@ -321,8 +321,8 @@ struct StatusResponse {
     /// Detection time of the oldest finding still in the ring, absent when
     /// it is empty. A window query returning nothing means "nothing fired"
     /// only when the window starts at or after this. Earlier than it, the
-    /// ring simply no longer reaches back that far and the archive is the
-    /// remaining route. Additive since 0.20.0.
+    /// ring does not reach back that far and the archive is the remaining
+    /// route. Additive since 0.20.0.
     #[serde(skip_serializing_if = "Option::is_none")]
     oldest_finding_ms: Option<u64>,
 }
@@ -349,7 +349,7 @@ async fn handle_findings(
     };
     // Folded: a listing is read by a human, and detection is per trace,
     // so one recurring pattern would otherwise fill the page with
-    // identical rows. The gate path deliberately reads raw instances.
+    // identical rows. The gate path reads raw instances.
     let stored = state.findings_store.query_coalesced(&filter).await;
     let daemon_snapshot: Arc<HashMap<String, AckEntry>> = match &state.ack_store {
         Some(s) => s.snapshot_active().await,
@@ -364,7 +364,7 @@ async fn handle_findings(
         .into_iter()
         .filter_map(|s| {
             // event_loop calls `enrich_with_signatures` before storing.
-            // Empty-sig is the pre-0.5.17 replay path; surfacing it
+            // Empty-sig is the pre-0.5.17 replay path. Surfacing it
             // helps operators notice a bypassed enrich step.
             let owned_sig: String;
             let sig: &str = if s.finding.signature.is_empty() {
@@ -397,7 +397,7 @@ async fn handle_findings(
 /// An empty or blank filter value is an absent one. A Grafana variable
 /// ignores an empty `allValue`, so a dashboard whose `All` must reach
 /// the API sends a single space, `?grouping=%20`, and gets the whole
-/// listing, where an exact match on `" "` returned nothing.
+/// listing, where an exact match on `" "` would return nothing.
 fn non_empty(value: Option<String>) -> Option<String> {
     value
         .map(|v| v.trim().to_string())
@@ -465,7 +465,7 @@ async fn handle_findings_by_trace(
 ) -> Json<Vec<StoredFinding>> {
     // Cap for defense-in-depth, consistent with `/api/findings`. In normal
     // traffic a trace has a handful of findings, but a pathological trace
-    // with hundreds of N+1 clusters is possible; the cap prevents a large
+    // with hundreds of N+1 clusters is possible. The cap prevents a large
     // serialization under an unauthenticated loopback API.
     let mut results = state.findings_store.by_trace_id(&trace_id).await;
     results.truncate(MAX_FINDINGS_LIMIT);
@@ -480,7 +480,7 @@ async fn handle_explain(
     // happens inside the window lock, but is bounded by
     // `max_events_per_trace` (config default 1000) so the critical
     // section stays short. A pathological trace with many spans could
-    // briefly block `process_traces`; the `{}` scope releases the lock
+    // briefly block `process_traces`. The `{}` scope releases the lock
     // as soon as the clone completes.
     let maybe_spans = {
         let window = state.window.lock().await;
@@ -647,10 +647,10 @@ async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigRe
 ///
 /// `last_scrape_age_seconds` and the scrape counters are `None` when the
 /// backend is not configured (its pre-registered metrics would read as a
-/// misleading fresh 0) or when the backend has no such metric at all
-/// (`cloud_energy` has no scrape counters, `electricity_maps` has no
+/// misleading fresh 0) or when the backend has no such metric at all.
+/// `cloud_energy` has no scrape counters, and `electricity_maps` has no
 /// freshness gauge: its liveness shows as `intensity_source = real_time`
-/// on the report's region breakdown).
+/// on the report's region breakdown.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnergyBackendStatus {
     /// Stable backend name: `alumet`, `scaphandre`, `kepler`,
@@ -666,8 +666,8 @@ pub struct EnergyBackendStatus {
 }
 
 /// `GET /api/energy` response: the six energy/intensity backends in a
-/// fixed order. Additive surface for operator tooling (`query monitor`);
-/// the per-service/per-region mix itself lives on `/api/export/report`.
+/// fixed order. Additive surface for operator tooling (`query monitor`).
+/// The per-service/per-region mix itself lives on `/api/export/report`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnergyStatusResponse {
     pub backends: Vec<EnergyBackendStatus>,
@@ -678,12 +678,12 @@ pub struct EnergyStatusResponse {
 /// backend keeps the name, flag, gauge and counters together: adding a
 /// seventh backend is one row here plus its flag in
 /// [`EnergyBackendsConfigured`], not three uncoupled edits.
-/// Deliberately bumps no request counter: the monitor polls it once per
-/// refresh tick, and the other read-only endpoints are not counted either.
+/// Bumps no request counter: the monitor polls it once per refresh tick,
+/// and the other read-only endpoints are not counted either.
 ///
 /// Row order follows the measured-energy precedence chain, so Alumet
-/// leads. Consumers read by `backend` name, the order is stable rather
-/// than an index contract.
+/// leads. Consumers read by `backend` name: the order is stable, but it
+/// is not an index contract.
 async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergyStatusResponse> {
     type CounterPair<'a> = (&'a prometheus::IntCounter, &'a prometheus::IntCounter);
     let m = &state.metrics;
@@ -713,14 +713,14 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
             Some(&m.redfish_last_scrape_age_seconds),
             Some((&m.redfish_scrape_success, &m.redfish_scrape_failed)),
         ),
-        // No scrape counters by design (interval evaluation, not a scrape).
+        // No scrape counters: interval evaluation, not a scrape.
         (
             "cloud_energy",
             b.cloud_energy,
             Some(&m.cloud_energy_last_scrape_age_seconds),
             None,
         ),
-        // No freshness gauge by design: liveness shows as real_time
+        // No freshness gauge: liveness shows as real_time
         // intensity sources on the report's region breakdown.
         (
             "electricity_maps",
@@ -775,7 +775,7 @@ fn export_analysis(events_processed: usize, traces_analyzed: usize) -> Analysis 
 /// `http_client::MAX_BODY_BYTES`. This bounds the trees' share only:
 /// findings and correlations are capped by count, not bytes, so a
 /// pathological store can in principle still overflow the fetch limit.
-/// That risk predates the trees, the budget keeps them from widening it.
+/// That risk predates the trees. The budget keeps them from widening it.
 ///
 /// `pub(crate)` so `config::validate`, which projects the snapshot size
 /// without the features that gate this module, can assert its own copy
@@ -784,8 +784,8 @@ pub(crate) const EMBEDDED_TRACES_BYTE_BUDGET: usize = crate::http_client::MAX_BO
 
 /// Span trees for the exported findings. The correlation window has
 /// usually dropped them by now, which is why they are retained
-/// separately, and why a trace older than the retention simply comes
-/// back absent. The store applies the byte budget itself, measuring
+/// separately, and why a trace older than the retention comes back
+/// absent. The store applies the byte budget itself, measuring
 /// before cloning and skipping oversized traces rather than stopping.
 async fn export_embedded_traces(
     state: &QueryApiState,
@@ -814,7 +814,7 @@ fn counter_as_usize(counter: u64, name: &'static str) -> usize {
     })
 }
 
-/// State what the snapshot actually covers.
+/// State what the snapshot covers.
 ///
 /// Two facts a consumer cannot recover from the payload: the findings
 /// are capped at `[daemon] max_export_findings`, and the green figures
@@ -822,10 +822,10 @@ fn counter_as_usize(counter: u64, name: &'static str) -> usize {
 /// aggregate over the findings listed beside them. On a busy daemon both
 /// describe a fraction of the store, so the carbon totals otherwise read
 /// as the daemon's lifetime. The cap also feeds `quality_gate`, whose
-/// count rules only ever see the exported slice, so the truncation line
-/// says so: a reader treating a green gate as the daemon's verdict is
-/// the failure this warning exists to prevent. Batch output carries
-/// neither warning: there every number comes from the same pass.
+/// count rules only ever see the exported slice. The truncation line
+/// says so, to keep a reader from treating a green gate as the daemon's
+/// verdict. Batch output carries neither warning: there every number
+/// comes from the same pass.
 fn snapshot_scope_warnings(exported: usize, retained: usize) -> Vec<crate::report::Warning> {
     use crate::report::warnings::SNAPSHOT_SCOPE;
 
@@ -858,9 +858,9 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
 
     // Prometheus counters are f64 internally. Daemon-lifetime counts
     // easily fit in u64 and we never decrement, so a saturating cast
-    // via `as` is safe. The two reads are not atomic as a pair, a
-    // concurrent `inc_by` in the event loop could race between them,
-    // the values are monotonic and informational so the worst case is
+    // via `as` is safe. The two reads are not atomic as a pair: a
+    // concurrent `inc_by` in the event loop could race between them.
+    // The values are monotonic and informational, so the worst case is
     // a report where `events_processed > 0` and `traces_analyzed = 0`
     // for a few microseconds around the first batch.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -910,15 +910,15 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     // Snapshot findings, capped by `[daemon] max_export_findings` so a
     // huge store does not serialize into an unbounded response body. Its
     // own knob rather than the `/api/findings` one: that cap paginates a
-    // browsing API, this one sizes a deliberate export, and an operator
-    // reporting on a busy daemon needs to raise the second without
-    // widening every page of the first.
+    // browsing API, this one sizes an export, and an operator reporting
+    // on a busy daemon needs to raise the second without widening every
+    // page of the first.
     //
     // Read the store size BEFORE the query, not after: the event loop
     // keeps pushing, and a count taken afterwards can exceed a slice that
     // was never truncated, making the export claim a cap it did not hit.
     // Taken first it is a lower bound at query time, so `retained >
-    // exported` only holds when findings really were dropped.
+    // exported` only holds when findings were dropped.
     let retained = state.findings_store.len().await;
     let stored = state
         .findings_store
@@ -959,7 +959,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
 
     // Read the live `GreenSummary` populated by the event loop after
     // each batch. The event loop emits the per-batch summary without
-    // the audit-trail metadata, the handler stitches `scoring_config`
+    // the audit-trail metadata. The handler stitches `scoring_config`
     // back from the daemon's startup config.
     let mut green_summary = state.green_summary.read().await.clone();
     green_summary
@@ -1162,7 +1162,7 @@ async fn handle_list_acks(
 ) -> Result<Response, ErrorResponse> {
     // Gate reads with the ack key or `[daemon] read_api_key`. The ack audit
     // trail exposes reviewer identities, reasons, and finding signatures, so
-    // when a key is configured it must govern this endpoint too, not just
+    // when a key is configured it must govern this endpoint as well as
     // POST/DELETE. Auth-only (not `check_ack_preconditions`): a disabled
     // store still returns an empty list rather than 503. No metric is recorded
     // on failure: a read denial is not an ack mutation, and AckAction has no
@@ -1311,7 +1311,7 @@ fn window_end_ms(state: &QueryApiState, at_ms: u64) -> u64 {
 ///
 /// Both bounds, so the fold runs over the window alone and `seen_count`
 /// describes it. The oldest stamp is read under the same guard as the
-/// fold, because it is what tells a short answer from an incomplete one.
+/// fold, because it tells a short answer from an incomplete one.
 /// A namespace on the incident screens out the findings of the same
 /// service in other namespaces, which a rollout across tenants would
 /// otherwise freeze into every one of its incidents.
@@ -1366,15 +1366,6 @@ fn archive_record(state: &QueryApiState, incident: &super::incidents::Incident) 
     }
 }
 
-/// Re-resolve each new incident's window once the traces live at it have
-/// been analysed, and merge the result into the record.
-///
-/// One task per delivery, not per alert, sleeping until one TTL after the
-/// latest window closes: a stamp lands at analysis, which is asynchronous
-/// to eviction, so reading at the close would race the very findings the
-/// pass exists to catch. `at_ms` is clamped to now for the arithmetic, so
-/// a `startsAt` in the future cannot park the task, and the wait is
-/// bounded by three TTLs of operator config.
 /// Count and log the alerts one delivery refused.
 fn report_rejections(metrics: &MetricsState, intake: &IncidentIntake, service_label: &str) {
     if intake.rejected_no_service > 0 {
@@ -1406,6 +1397,15 @@ fn report_rejections(metrics: &MetricsState, intake: &IncidentIntake, service_la
     }
 }
 
+/// Re-resolve each new incident's window once the traces live at it have
+/// been analysed, and merge the result into the record.
+///
+/// One task per delivery, not per alert, sleeping until one TTL after the
+/// latest window closes: a stamp lands at analysis, which is asynchronous
+/// to eviction, so reading at the close would race the findings the pass
+/// exists to catch. `at_ms` is clamped to now for the arithmetic, so a
+/// `startsAt` in the future cannot park the task, and the wait is bounded
+/// by three TTLs of operator config.
 fn schedule_settle(state: Arc<QueryApiState>, reqs: Vec<super::incidents::IncidentRequest>) {
     let Some(latest_at) = reqs.iter().map(|r| r.at_ms).max() else {
         return;
@@ -1545,7 +1545,7 @@ async fn handle_list_incidents(
 }
 
 /// A key-gated `GET`: the write key that gates the route, or `[daemon]
-/// read_api_key`. Never the reverse, every write keeps `check_ack_auth`
+/// read_api_key`. Never the reverse: every write keeps `check_ack_auth`
 /// with the write key alone. No write key means the gate is open and the
 /// read key is ignored, so it never adds a gate.
 fn check_read_auth(
@@ -1564,12 +1564,12 @@ fn check_read_auth(
 /// `Authorization: Bearer` carrying the same key.
 ///
 /// Both headers are accepted because the two Kubernetes operators that
-/// generate an Alertmanager receiver cannot send an arbitrary header:
+/// generate an Alertmanager receiver cannot send an arbitrary header.
 /// `AlertmanagerConfig`'s `HTTPConfig` (prometheus-operator) has none as
-/// of 0.86, and `VMAlertmanagerConfig` does not name one either: its
+/// of 0.86. `VMAlertmanagerConfig` does not name one either: its
 /// `http_config` is an open object, so the API server accepts whatever
-/// is written there and the operator renders only the fields it knows,
-/// leaving a webhook that goes out with no key and 401s on every
+/// is written there and the operator renders only the fields it knows.
+/// That leaves a webhook that goes out with no key and 401s on every
 /// delivery. Both CRDs do carry a bearer token. Raw
 /// `alertmanager.yml` keeps `http_headers` from Alertmanager 0.27 on,
 /// and `http_config.authorization` below it, which this same path
@@ -1580,9 +1580,9 @@ fn check_read_auth(
 /// carrying both is accepted when either is right.
 ///
 /// Server to server only in practice: the CORS layer advertises
-/// `x-api-key` and deliberately not `authorization`, so a cross-origin
-/// browser caller is refused at preflight and keeps using `X-API-Key`.
-/// See `listeners.rs`.
+/// `x-api-key` and not `authorization`, so a cross-origin browser caller
+/// is refused at preflight and keeps using `X-API-Key`. See
+/// `listeners.rs`.
 fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), ErrorResponse> {
     let Some(expected_key) = expected else {
         return Ok(());
@@ -1619,10 +1619,10 @@ fn bearer_matches(headers: &HeaderMap, expected_key: &str) -> bool {
 
 /// Constant-time in the credential's CONTENT, not in its length:
 /// `subtle`'s slice `ct_eq` short-circuits when the two lengths differ,
-/// so a timing oracle recovers the key's length and nothing else. That
-/// was already true of the `X-API-Key` path this widens, and what the
-/// brute-force argument rests on is the 12-character floor
-/// `check_api_key` enforces on every key.
+/// so a timing oracle recovers the key's length and nothing else. The
+/// `X-API-Key` header already goes through this comparison, so the Bearer
+/// path leaks nothing new. The brute-force argument rests on the
+/// 12-character floor `check_api_key` enforces on every key.
 fn secret_eq(provided: &str, expected: &str) -> bool {
     use subtle::ConstantTimeEq;
     provided.as_bytes().ct_eq(expected.as_bytes()).into()
@@ -1654,9 +1654,10 @@ const TUNING_ACTIVE_TRACES_RATIO: f64 = 0.9;
 const TUNING_ZERO_RETENTION_MIN_RECEIVED: u64 = 1_000;
 
 /// Sum of filtered OTLP spans that signal an instrumentation gap.
-/// Excludes `NonSqlDatastore` (Redis/Mongo drops are deliberate, a
-/// cache-only fleet must not trip the zero-retention warning) and
-/// `MergedDbSpan` (the query those spans belong to was analyzed).
+/// Excludes `NonSqlDatastore` (Redis/Mongo drops are not an
+/// instrumentation gap: a cache-only fleet must not trip the
+/// zero-retention warning) and `MergedDbSpan` (the query those spans
+/// belong to was analyzed).
 fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
     use crate::report::metrics::OtlpSpanFilterReason;
     OtlpSpanFilterReason::ALL
@@ -1676,9 +1677,9 @@ fn instrumentation_gap_filtered(metrics: &MetricsState) -> u64 {
         .sum()
 }
 
-/// Config-only advisor rule on `[daemon] sampling_rate`. Ratios are left out
-/// on purpose: uniform per-trace sampling hits numerator and denominator
-/// alike, so the waste ratio stays readable.
+/// Config-only advisor rule on `[daemon] sampling_rate`. Ratios are left
+/// out: uniform per-trace sampling hits numerator and denominator alike,
+/// so the waste ratio stays readable.
 ///
 /// Called from `collect_warning_details` and from the cold-start branch too:
 /// at rate 0.0 the daemon never leaves cold start.
@@ -1742,15 +1743,15 @@ fn grouping_fold_warning(metrics: &MetricsState) -> Option<crate::report::Warnin
 /// visible here gives a fast "is the daemon backpressured?" signal.
 ///
 /// The `tuning` entries are the daemon's settings advisor. Most rules
-/// compare a metric (lifetime counters, plus the point-in-time
-/// `active_traces` gauge for the trace-window rule, which therefore
-/// appears and disappears with the load) against the daemon config
-/// frozen at startup and, when a knob looks undersized for the
-/// observed load, emit a hint naming the knob, its current value and
-/// the suggested adjustment. All inputs are trusted (Prometheus counters
-/// and parsed config), so `Warning::new` applies.
+/// compare a metric against the daemon config frozen at startup. The
+/// metrics are lifetime counters, plus the point-in-time `active_traces`
+/// gauge for the trace-window rule, which therefore appears and
+/// disappears with the load. When a knob looks undersized for the
+/// observed load, the rule emits a hint naming the knob, its current
+/// value and the suggested adjustment. All inputs are trusted
+/// (Prometheus counters and parsed config), so `Warning::new` applies.
 ///
-/// Note: the cold-start branch in `handle_export_report` returns before
+/// The cold-start branch in `handle_export_report` returns before
 /// reaching this helper, so the metric-driven kinds never appear next to
 /// `cold_start`. Only [`sampling_rate_warning`], which reads no metric,
 /// is emitted on both paths.
@@ -1902,7 +1903,7 @@ fn collect_warning_details(
     }
 
     // A high not_io share is healthy on a well-instrumented fleet
-    // exporting all its spans; the actionable signal is ZERO retention:
+    // exporting all its spans. The actionable signal is ZERO retention:
     // spans keep arriving and not one is analyzable.
     let received = metrics.otlp_spans_received_total.get();
     if received >= TUNING_ZERO_RETENTION_MIN_RECEIVED {

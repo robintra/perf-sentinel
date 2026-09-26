@@ -5,7 +5,7 @@
 //! The full [`Report`] tree derives `Deserialize` so `perf-sentinel
 //! report --before <baseline.json>` can feed a stored baseline back in.
 //! Every saved baseline from a past release must keep parsing after a
-//! minor version bump, so the following rule is load-bearing:
+//! minor version bump, so the following rule is mandatory:
 //!
 //! **New fields added to `Report`, `Analysis`, `GreenSummary`,
 //! `QualityGate`, `Finding`, `Pattern`, `TopOffender`, `CarbonReport`,
@@ -19,10 +19,10 @@
 //! version with `#[serde(default)]` so incoming JSON from the previous
 //! version does not fail on unknown-field attempts to re-read them.
 //!
-//! We deliberately do NOT add `#[serde(deny_unknown_fields)]`. The
-//! trade-off is that a typo like `findigs:` silently deserializes as
-//! the default (empty vec), so production pipelines should validate
-//! baseline shapes upstream when they care.
+//! We do NOT add `#[serde(deny_unknown_fields)]`, so a typo like
+//! `findigs:` silently deserializes as the default (empty vec).
+//! Production pipelines that care should validate baseline shapes
+//! upstream.
 
 pub mod embedded;
 pub mod html;
@@ -70,8 +70,7 @@ pub struct Report {
     /// traces were analyzed.
     ///
     /// Lives on `Report` rather than on `GreenSummary` because it is a
-    /// raw telemetry counter, not a green metric, and is filled in
-    /// regardless of the green configuration.
+    /// raw telemetry counter, not a green metric.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub per_endpoint_io_ops: Vec<PerEndpointIoOps>,
     /// Cross-trace temporal correlations produced by the daemon's
@@ -109,8 +108,8 @@ pub struct Report {
     pub warning_details: Vec<Warning>,
     /// Findings filtered out by the user's acknowledgments file
     /// (`.perf-sentinel-acknowledgments.toml`), paired with the matching
-    /// ack metadata. Cleared from the wire payload by default; the CLI
-    /// only retains it when `--show-acknowledged` is set so audit output
+    /// ack metadata. Cleared from the wire payload by default. The CLI
+    /// only retains it when `--show-acknowledged` is set, so audit output
     /// stays opt-in. Additive on pre-0.5.17 baselines via `serde(default)`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub acknowledged_findings: Vec<AcknowledgedFinding>,
@@ -128,8 +127,9 @@ pub struct Report {
     /// pre-0.9.25 baselines, and on any baseline whose shape this binary
     /// cannot read: the field is informational, so a renamed threshold or
     /// an unknown enum variant degrades to `None` rather than failing the
-    /// whole report parse. Half-read thresholds would be worse than none,
-    /// consumers display them as the values that produced the findings.
+    /// whole report parse. Half-read thresholds would be worse than none
+    /// because consumers display them as the values that produced the
+    /// findings.
     #[serde(default, deserialize_with = "lenient_detection_config")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detection_config: Option<crate::detect::DetectConfig>,
@@ -149,7 +149,8 @@ pub struct AcknowledgedFinding {
 /// Avoidable energy/carbon at one N+1 threshold, archived per window.
 /// `avoidable_kwh`/`avoidable_gco2` are the energy/carbon shares of the
 /// avoidable I/O ops. The aggregator sums these and derives ratio/efficiency
-/// into the period-aggregate `periodic::schema::WasteTier` (gCO₂ → kg there).
+/// into the period-aggregate `periodic::schema::WasteTier` (gCO₂ converted
+/// to kg there).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AvoidableTier {
     pub n_plus_one_threshold: u32,
@@ -196,15 +197,15 @@ pub struct DisclosureDbWaste {
     /// from the instrumented services.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub energy_gco2: Option<f64>,
-    /// Window `energy_gco2` scaled by the canonical SQL ratio; `None`
+    /// Window `energy_gco2` scaled by the canonical SQL ratio. `None`
     /// when the window energy had no carbon conversion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_waste_gco2: Option<f64>,
 }
 
 /// Window messaging waste at both thresholds. Wire-identical to the
-/// database block by design, so one struct serves both fields and the two
-/// can never drift, the same reasoning as `MessagingWasteAggregate`.
+/// database block, so one struct serves both fields and the two can never
+/// drift (same reasoning as `MessagingWasteAggregate`).
 pub type DisclosureMsgWaste = DisclosureDbWaste;
 
 /// Analysis metadata.
@@ -240,7 +241,7 @@ pub struct IngestStats {
     /// Every span present in the input, before any filtering.
     pub spans_received: u64,
     /// Spans that produced no event at all. Excludes the merged
-    /// PHP-style split spans: their statement survives inside another
+    /// PHP-style split spans: their statement is kept inside another
     /// event, so counting them as dropped would overstate the loss on
     /// every surface. They stay visible under
     /// `filtered_merged_db_span`.
@@ -311,9 +312,9 @@ pub struct GreenSummary {
     /// (`""` when its span carried none): a finding whose spans come
     /// from several services charges every service's share under that
     /// one grouping, because `Pattern.occurrences_by_service` carries no
-    /// grouping and its shape is pinned by the v1 report schema. Exact
-    /// rather than approximate: the detectors key their groups on the
-    /// grouping identity, so every span of a finding carries it.
+    /// grouping and its shape is pinned by the v1 report schema. The split
+    /// is exact: the detectors key their groups on the grouping identity,
+    /// so every span of a finding carries it.
     /// In-process only (`serde(skip)`), read by the daemon for
     /// `perf_sentinel_service_avoidable_io_ops_total`. Ordered so cap
     /// admission does not depend on hash order.
@@ -351,7 +352,7 @@ pub struct GreenSummary {
     /// Settings that shaped the carbon numbers: the applied coefficients
     /// on every run, plus the Electricity Maps dimensions when that API
     /// is configured (read `electricity_maps` before naming it, presence
-    /// alone no longer implies it). Surfaced for Scope 2 audit trails so
+    /// alone does not imply it). Surfaced for Scope 2 audit trails so
     /// reporters can verify which model produced the numbers without
     /// reading the operator's TOML config. `None` when green scoring is
     /// off. Additive on pre-0.5.12 baselines via `skip_serializing_if`.
@@ -407,7 +408,7 @@ pub struct GreenSummary {
     /// service's spans were measured.
     /// Read together with `per_service_measured_ratio` for the share of
     /// spans that benefited from the measured model. Services without any
-    /// measured span inherit the window-level proxy tag; the `+cal` suffix
+    /// measured span inherit the window-level proxy tag. The `+cal` suffix
     /// on that inherited tag reflects window-wide calibration state, not
     /// whether a calibration factor applied to this specific service.
     /// Empty on pre-per-service-model baselines.
@@ -426,7 +427,7 @@ pub struct GreenSummary {
     /// Database-side waste figure, on every run. Measured on the
     /// declared `[green.alumet.database]` cgroup when a reading landed
     /// (daemon), otherwise estimated from the modeled energy of the
-    /// window's SQL spans; `model` says which. Never summed into
+    /// window's SQL spans, and `model` says which. Never summed into
     /// `energy_kwh`/`co2` (the estimated energy is a re-presented share
     /// of them), published in the disclosure only as the separate
     /// `aggregate.database_waste` block (`docs/METHODOLOGY.md`).
@@ -483,10 +484,11 @@ pub struct DatabaseWaste {
 
 /// Broker-side avoidable energy for the window, the messaging twin of
 /// [`DatabaseWaste`]. Informational, never folded into the report
-/// totals. Which way it errs depends on `model`, the three sources do
-/// not agree: `alumet_rapl` reads CPU only and so under-counts,
-/// `broker_specpower` bounds the declared vCPUs at full load without
-/// storage or network, `estimated` re-presents a share of the totals.
+/// totals. Which way it errs depends on `model`, since the three
+/// sources do not agree: `alumet_rapl` reads CPU only and so
+/// under-counts, `broker_specpower` bounds the declared vCPUs at full
+/// load without storage or network, `estimated` re-presents a share of
+/// the totals.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessagingWaste {
     /// Window energy of the broker, measured or declared.
@@ -537,9 +539,7 @@ pub struct PerEndpointIoOps {
 /// hot path stays a single O(N) walk.
 #[must_use]
 pub fn compute_per_endpoint_io_ops(traces: &[Trace]) -> Vec<PerEndpointIoOps> {
-    // BTreeMap so the resulting Vec is naturally sorted by key without
-    // a separate sort pass. Key is `(service, endpoint)` so two traces
-    // for the same endpoint on different services stay distinct.
+    // BTreeMap so the Vec comes out sorted by key without a sort pass.
     let mut counts: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for trace in traces {
         for span in &trace.spans {
@@ -641,9 +641,8 @@ mod tests {
     #[test]
     fn green_summary_pre_0512_baseline_loads_without_scoring_config() {
         // Hand-crafted JSON shaped like a pre-0.5.12 baseline (no
-        // scoring_config field). The Option must default to None,
-        // ensuring `report --before <old.json>` still works after the
-        // additive change.
+        // scoring_config field). The Option must default to None so
+        // `report --before <old.json>` still works.
         let json = r#"{
             "total_io_ops": 0,
             "avoidable_io_ops": 0,
@@ -672,10 +671,9 @@ mod tests {
     }
 
     fn minimal_report_json_without_warning_details() -> String {
-        // Shaped like a 0.5.18 Report (no warning_details key). Used to
-        // verify that the new field defaults to empty when absent, so a
-        // pre-0.5.19 baseline replayed via `report --before <old.json>`
-        // still parses cleanly.
+        // Shaped like a 0.5.18 Report (no warning_details key): the field
+        // must default to empty so a pre-0.5.19 baseline replayed via
+        // `report --before <old.json>` still parses cleanly.
         r#"{
             "analysis": {"duration_ms": 0, "events_processed": 0, "traces_analyzed": 0},
             "findings": [],

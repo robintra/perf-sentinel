@@ -4,11 +4,11 @@
 // publishes SARIF findings via the Warnings Next Generation plugin, and
 // archives JSON + SARIF artifacts. The quality gate is enforced by
 // `perf-sentinel analyze --ci` (non-zero exit on threshold breach) and
-// duplicated in the Warnings NG `qualityGates` for double safety.
+// duplicated in the Warnings NG `qualityGates` as a second check.
 //
 // Pipeline type requirement: this template targets MultiBranch Pipelines
 // (the standard for repos with PR-based workflows). The `env.CHANGE_ID`
-// check that gates the quality-gate stage on PR builds is only set by
+// variable that gates the quality-gate stage on PR builds is only set by
 // the MultiBranch Pipeline plus a branch-source plugin (GitHub Branch
 // Source, Bitbucket Branch Source, GitLab Branch Source, Gitea Branch
 // Source). Inside a classic single-branch Pipeline, `CHANGE_ID` is
@@ -17,7 +17,7 @@
 //
 // What you must adapt before using this template:
 //   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
-//      'latest'). Bump deliberately and review the CHANGELOG before each bump.
+//      'latest'). Review the CHANGELOG before each bump.
 //   2. PERF_SENTINEL_TRACES: path to a trace file produced by your
 //      integration test stage. The Java reference setup wraps the Maven
 //      build in `perf-sentinel capture` (see the stage comment below).
@@ -30,15 +30,16 @@
 // Required Jenkins plugins:
 //   - Warnings Next Generation >= 9.11.0 (publishes SARIF as a structured
 //                               issue tree. v9.11.0 introduced the SARIF
-//                               tool, earlier versions throw
+//                               tool. Earlier versions throw
 //                               NoSuchMethodError on `recordIssues`. See
 //                               https://plugins.jenkins.io/warnings-ng/releases/)
 //   - Pipeline Utility Steps   (only if you want to readJSON the report)
 //   - HTML Publisher >= 1.10   (optional, enables the interactive HTML
-//                               report block below via publishHTML;
-//                               version 1.10+ is CSP-compatible, earlier
-//                               versions break in modern Jenkins instances.
-//                               Pre-installed on most enterprise Jenkins.)
+//                               report block below via publishHTML.
+//                               Version 1.10+ is CSP-compatible, while
+//                               earlier versions break in modern Jenkins
+//                               instances. Pre-installed on most
+//                               enterprise Jenkins.)
 //   - Copy Artifact plugin     (optional, only needed if you enable the
 //                               Diff-tab baseline wiring in the HTML
 //                               report stage below)
@@ -64,14 +65,14 @@ def baseBranchJob() {
 
 // Best-effort copy of perf-sentinel-report.json from jobName's last
 // successful-or-unstable build into baseline/. Returns true if a baseline
-// was found. selector: lastSuccessful(stable: false) deliberately includes
-// UNSTABLE builds, not just SUCCESS ones: the Install/analyze stages above
-// mark a build UNSTABLE on a tooling hiccup while still archiving a valid
-// report, and the plugin's own default selector only matches SUCCESS,
-// which would silently skip those and fall back further than intended. A
-// missing job, missing artifact, or missing Copy Artifact plugin all
-// resolve to false rather than failing the build (optional: true), since
-// the Diff tab is a nice-to-have, not a build requirement.
+// was found. selector: lastSuccessful(stable: false) includes UNSTABLE
+// builds as well as SUCCESS ones: the Install/analyze stages below mark a
+// build UNSTABLE on a tooling hiccup while still archiving a valid report.
+// The plugin's own default selector only matches SUCCESS, which would
+// silently skip those and fall back further than intended. A missing job,
+// missing artifact, or missing Copy Artifact plugin all resolve to false
+// rather than failing the build (optional: true), since the Diff tab is a
+// nice-to-have, not a build requirement.
 def fetchBaseline(String jobName) {
     if (!jobName) {
         return false
@@ -189,10 +190,10 @@ pipeline {
                     // exists even when the gate would fail. Written to a
                     // .tmp path first and renamed only on success: shell '>'
                     // redirection creates its target file before the
-                    // command even runs, so without the rename a crashed
-                    // analyze would still leave an empty
-                    // perf-sentinel-results.sarif behind and defeat the
-                    // fileExists() guard on the 'Quality gate' stage below.
+                    // command runs. Without the rename, a crashed analyze
+                    // would still leave an empty perf-sentinel-results.sarif
+                    // behind and defeat the fileExists() guard on the
+                    // 'Quality gate' stage below.
                     sh '''
                         set -euo pipefail
                         ./perf-sentinel analyze \\
@@ -257,7 +258,7 @@ pipeline {
             // MultiBranch Pipeline only for pull-request builds.
             //
             // The fileExists check ensures this stage only runs a real
-            // threshold check: if the earlier analyze stage never produced
+            // threshold check. If the earlier analyze stage never produced
             // a SARIF (install/tooling failure, already caught above and
             // left the build UNSTABLE), skipping here avoids reporting a
             // tooling problem as a false quality-gate breach on the PR.
@@ -322,11 +323,11 @@ pipeline {
             // build page, alongside Warnings NG. Requires the
             // HTML Publisher plugin listed in the header.
             //
-            // Enable both the stage above and this block together,
+            // Enable both the stage above and this block together:
             // uncommenting only one leaves the sidebar pointing at
             // an empty report. `allowMissing: true` keeps this step
-            // tolerant when the report stage was skipped, `keepAll:
-            // true` retains the report for every build,
+            // tolerant when the report stage was skipped.
+            // `keepAll: true` retains the report for every build.
             // `alwaysLinkToLastBuild` makes the sidebar "Last
             // report" link point to the newest.
             //

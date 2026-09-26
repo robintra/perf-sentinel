@@ -9,7 +9,7 @@
 #
 # What you must adapt before using this template:
 #   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
-#      'latest'). Bump deliberately and review the CHANGELOG before each bump.
+#      'latest'). Review the CHANGELOG before each bump.
 #   2. PERF_SENTINEL_TRACES: path to a trace file produced by your integration
 #      test stage. Make sure your previous job (test stage) emits the trace
 #      file as an artifact, then declare a `dependencies:` or `needs:` so the
@@ -69,9 +69,9 @@ perf-sentinel:
       # merge request. The --ci gate re-run near the end of `script:` keeps
       # its own natural exit code (usually 1 on a real breach) and still
       # blocks normally. Checksum verification below is a separate script
-      # item and deliberately does NOT get this same exit-75 tolerance: a
-      # mismatch means a tampered or corrupted release, not a tooling blip,
-      # and must always block, on trunk and on merge requests alike.
+      # item and does NOT get this same exit-75 tolerance: a mismatch means
+      # a tampered or corrupted release, not a tooling blip, and must always
+      # block, on trunk and on merge requests alike.
       set -euo pipefail
       BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
       curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64" || exit 75
@@ -90,7 +90,7 @@ perf-sentinel:
     # so this template stays correct under GitLab executors that don't
     # propagate `before_script` PATH exports to the `script` block.
     # SARIF artifact for archive and inspection. Exits 75 on failure, same
-    # tooling-vs-breach distinction as before_script above -- a crash here
+    # tooling-vs-breach distinction as before_script above: a crash here
     # (missing binary, malformed traces) is not a quality-gate breach.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
@@ -107,12 +107,12 @@ perf-sentinel:
         > perf-sentinel-report.json || exit 75
     # Convert findings to GitLab Code Quality format. GitLab expects an array
     # of {description, fingerprint, severity, location.path, location.lines}.
-    # Note: code_location field names match the v0.4.1 stable contract
-    # (filepath, lineno, function, namespace -- no `code_` prefix). No
-    # exit-75 fallback here: a jq failure means a bug in this filter (e.g. a
-    # future perf-sentinel release renaming a field it reads), not a
-    # tooling blip, and should surface as a real, blocking failure rather
-    # than get folded into the tooling-tolerant bucket above.
+    # code_location field names match the v0.4.1 stable contract (filepath,
+    # lineno, function, namespace, all without the `code_` prefix). No exit-75
+    # fallback here: a jq failure means a bug in this filter (e.g. a future
+    # perf-sentinel release renaming a field it reads), not a tooling blip.
+    # It should surface as a blocking failure rather than get folded into
+    # the tooling-tolerant bucket above.
     - |
       set -euo pipefail
       jq '[
@@ -131,8 +131,8 @@ perf-sentinel:
         }
       ]' perf-sentinel-report.json > gl-code-quality-report.json
     # Re-run with --ci to enforce the quality gate. Exit code 1 if any
-    # threshold is breached -- the only command in this job allowed to
-    # fail with its natural exit code, since it only runs after every
+    # threshold is breached. This is the only command in this job allowed
+    # to fail with its natural exit code, since it only runs after every
     # report-only step above already succeeded.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
@@ -157,10 +157,9 @@ perf-sentinel:
   #
   # `allow_failure.exit_codes` distinguishes the two ways this job can
   # fail: a tooling exit (75, see before_script/script above) doesn't
-  # block the merge, any other nonzero exit (the --ci gate's own exit
-  # code on a real breach) still does. Without it, a broken binary
-  # download would block a merge request exactly like a genuine
-  # regression.
+  # block the merge, while any other nonzero exit (the --ci gate's own
+  # exit code on a real breach) still does. Without it, a broken binary
+  # download would block a merge request exactly like a regression.
   #
   # It sits on the job, not in a rule: `rules:allow_failure` accepts a
   # boolean only, and GitLab's CI lint rejects the whole file with

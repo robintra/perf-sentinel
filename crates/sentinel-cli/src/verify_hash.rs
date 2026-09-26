@@ -247,8 +247,8 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i
 
 /// Write `data` to `path` while refusing to follow a pre-existing
 /// symlink (defence in depth on shared `/tmp` setups). Uses
-/// `O_CREAT|O_EXCL|O_WRONLY` on Unix-likes via `create_new(true)`;
-/// on Windows there is no real symlink-attack surface for the
+/// `O_CREAT|O_EXCL|O_WRONLY` on Unix-likes via `create_new(true)`.
+/// On Windows there is no real symlink-attack surface for the
 /// system temp dir, so a plain `fs::write` is acceptable.
 fn write_temp_no_follow(path: &Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
@@ -268,7 +268,7 @@ fn http_get(url: &str) -> Result<Vec<u8>, String> {
         return Err("only https:// URLs are accepted".to_string());
     }
     // max_redirects(0): refuse cross-host redirects entirely. The
-    // scheme guard above only covers the initial request; redirects
+    // scheme guard above only covers the initial request. Redirects
     // could rebind to http://internal or https://localhost:4317 and
     // turn this fetch into an SSRF probe. Operators who need
     // redirect-following should re-resolve the canonical URL first.
@@ -507,7 +507,8 @@ fn run_cosign_verify(
 fn verify_binary_attestation(report: &PeriodicReport, verify_binary: Option<&Path>) -> Status {
     // An explicit --verify-binary always runs the check: gh verifies the
     // binary's own GitHub provenance. When the report records a commit, it is
-    // cross-checked so a genuine-but-different build cannot pass as this report's.
+    // cross-checked so a validly attested build of another commit cannot pass
+    // as this report's.
     if let Some(binary) = verify_binary {
         let expected_commit = report
             .integrity
@@ -538,13 +539,6 @@ fn last_stderr_line(stderr: &[u8]) -> String {
     sanitise_for_terminal(text.lines().last().unwrap_or("(no stderr)"))
 }
 
-/// Verify a binary's GitHub build provenance via `gh attestation verify`.
-///
-/// The `--repo` slug is a compile-time constant and `binary` is an
-/// operator-supplied path (never report-derived), so no argument
-/// sanitisation is needed on the command itself. When `expected_commit` is set
-/// (the report records one), the verified attestation must reference that commit
-/// so a genuine build of a different version cannot pass as this report's.
 /// Whether `commit` appears in `output` at the start of a hex run, so a short
 /// (7-char) commit cannot false-match inside an unrelated longer SHA/digest.
 fn output_references_commit(output: &str, commit: &str) -> bool {
@@ -553,6 +547,14 @@ fn output_references_commit(output: &str, commit: &str) -> bool {
         .any(|(i, _)| i == 0 || !output.as_bytes()[i - 1].is_ascii_hexdigit())
 }
 
+/// Verify a binary's GitHub build provenance via `gh attestation verify`.
+///
+/// The `--repo` slug is a compile-time constant and `binary` is an
+/// operator-supplied path (never report-derived), so no argument
+/// sanitisation is needed on the command itself. When `expected_commit` is set
+/// (the report records one), the verified attestation must reference that commit
+/// so a validly attested build of a different version cannot pass as this
+/// report's.
 fn run_gh_attestation_verify(binary: &Path, expected_commit: Option<&str>) -> Status {
     if !command_exists("gh") {
         return Status::Skip(
@@ -824,8 +826,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
         // Substitute one of the four canonical core patterns with a
         // non-canonical one. Counts stay at 4 but the canonical hash
-        // differs, which is exactly the audit case the cross-check
-        // exists to catch.
+        // differs, which is the audit case the cross-check exists to catch.
         let to_replace = report.methodology.core_patterns_required[0].clone();
         for slot in &mut report.methodology.core_patterns_required {
             if *slot == to_replace {
@@ -895,10 +896,9 @@ mod tests {
 
     #[test]
     fn signature_check_fails_without_identity_flags() {
-        // Closes the autosigning hole: a third-party auditor running
-        // verify-hash without --expected-identity (the default) must
-        // not see TRUSTED on a bundle whose identity comes only from
-        // the report itself.
+        // Autosigning case: a third-party auditor running verify-hash without
+        // --expected-identity (the default) must not see TRUSTED on a
+        // bundle whose identity comes only from the report itself.
         let report = report_with_signature();
         let s = verify_signature(&report, None, None, &IdentityOptions::default());
         match s {
@@ -931,9 +931,8 @@ mod tests {
     #[test]
     fn signature_check_skips_with_no_identity_check_and_paths_absent() {
         // Operator opts out explicitly. The check still reaches the
-        // paths-absent branch and returns Skip on that, which is the
-        // legacy behaviour (cryptographic integrity only, signer not
-        // verified).
+        // paths-absent branch and returns Skip there (cryptographic
+        // integrity only, signer not verified).
         let report = report_with_signature();
         let s = verify_signature(
             &report,
@@ -1019,7 +1018,8 @@ mod tests {
     #[test]
     fn unverified_attestation_metadata_blocks_trusted() {
         // hash + signature Ok but attestation metadata present-yet-unverified
-        // (Skip) must not reach TRUSTED, it would be a false provenance signal.
+        // (Skip) must not reach TRUSTED, because it would be a false
+        // provenance signal.
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
         let outcome = Outcome {
@@ -1035,7 +1035,7 @@ mod tests {
 
     #[test]
     fn no_attestation_metadata_still_reaches_trusted() {
-        // NotProvided (no metadata at all) must not block TRUSTED, that is
+        // NotProvided (no metadata at all) must not block TRUSTED. That is
         // the common case for reports without SLSA provenance.
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
@@ -1052,7 +1052,7 @@ mod tests {
 
     #[test]
     fn output_references_commit_requires_hex_boundary() {
-        // Genuine prefix of a 40-hex SHA at a boundary matches.
+        // A 7-hex prefix of a 40-hex SHA at a boundary matches.
         assert!(output_references_commit(
             "\"digest\": \"a47be9d1122334455667788990011223344556677\"",
             "a47be9d"

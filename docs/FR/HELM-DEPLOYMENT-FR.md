@@ -7,7 +7,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 ## Sommaire
 
 - [TL;DR](#tldr) : commande d'installation en un bloc.
-- [Topologie](#topologie) : pourquoi le chart est sentinel-only par design, et [où placer le sampling du collector](#sampling-du-collector-et-ce-qui-atteint-le-daemon) par rapport au daemon.
+- [Topologie](#topologie) : pourquoi le chart est sentinel-only, et [où placer le sampling du collector](#sampling-du-collector-et-ce-qui-atteint-le-daemon) par rapport au daemon.
 - [Installation depuis le registre OCI](#installation-depuis-le-registre-oci) : chemin d'installation production avec vérification Cosign.
 - [Artifact Hub](#artifact-hub) : référencement et métadonnées.
 - [Chaîne d'approvisionnement logicielle](#chaîne-dapprovisionnement-logicielle) : signatures Cosign keyless, provenance SLSA, SBOM, attestation public-good.
@@ -35,7 +35,7 @@ Une fois le pod prêt, pointez votre OpenTelemetry Collector vers `perf-sentinel
 
 ## Topologie
 
-Le chart est sentinel-only par construction. Les utilisateurs composent perf-sentinel avec le chart upstream [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts) plutôt que d'embarquer un collector qui dériverait des releases upstream.
+Le chart est sentinel-only. Les utilisateurs composent perf-sentinel avec le chart upstream [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts) plutôt que d'embarquer un collector qui dériverait des releases upstream.
 
 ```mermaid
 flowchart LR
@@ -64,20 +64,20 @@ flowchart LR
 
 La plupart des collectors de production samplent. Si le processeur qui
 s'en charge se trouve entre les applications et perf-sentinel, le daemon
-analyse une fraction du trafic et **n'a aucun moyen de le savoir** : une
+analyse une fraction du trafic et **n'a aucun moyen de le savoir**. Une
 trace samplée qui a été conservée ressemble exactement à une trace
 complète, et le rapport ne laisse rien deviner du fait que ses chiffres
 couvrent un dixième des requêtes.
 
 Ce qui survit au sampling et ce qui n'y survit pas :
 
-| | Effet d'un sampling amont |
-|---|---|
-| Détecteurs par trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Intacts sur les traces qui arrivent.** Les politiques head comme tail gardent ou jettent des traces entières, donc une trace conservée contient toujours sa boucle N+1 complète. |
-| Couverture | Dégradée. Un pattern présent sur une petite part du trafic peut être entièrement écarté et ne jamais remonter. |
-| Comptes absolus (findings, occurrences, totaux Prometheus) | Sous-estimés, silencieusement. Ils décrivent l'échantillon, et rien ne les remet à l'échelle. |
-| Ratios (ratio de gaspillage I/O, et les chiffres GreenOps qui en dérivent) | Non biaisés sous un sampler uniforme, qui touche numérateur et dénominateur de la même façon. Les politiques `errors` et `slow` d'un tail sampler biaisent la rétention vers les traces lourdes, et le ratio dérive avec elles. |
-| Corrélation cross-trace | De fait inactive. `[daemon.correlation] min_co_occurrences` exige qu'une paire se répète dans la fenêtre, ce qui survit rarement à un échantillon de 10%. |
+|                                                                                                                  | Effet d'un sampling amont                                                                                                                                                                                                       |
+|------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Détecteurs par trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `serialized_calls`, `pool_saturation`) | **Intacts sur les traces qui arrivent.** Les politiques head comme tail gardent ou jettent des traces entières, donc une trace conservée contient toujours sa boucle N+1 complète.                                              |
+| Couverture                                                                                                       | Dégradée. Un pattern présent sur une petite part du trafic peut être entièrement écarté et ne jamais remonter.                                                                                                                  |
+| Comptes absolus (findings, occurrences, totaux Prometheus)                                                       | Sous-estimés, silencieusement. Ils décrivent l'échantillon, et rien ne les remet à l'échelle.                                                                                                                                   |
+| Ratios (ratio de gaspillage I/O, et les chiffres GreenOps qui en dérivent)                                       | Non biaisés sous un sampler uniforme, qui touche numérateur et dénominateur de la même façon. Les politiques `errors` et `slow` d'un tail sampler biaisent la rétention vers les traces lourdes, et le ratio dérive avec elles. |
+| Corrélation cross-trace                                                                                          | De fait inactive. `[daemon.correlation] min_co_occurrences` exige qu'une paire se répète dans la fenêtre, ce qui survit rarement à un échantillon de 10%.                                                                       |
 
 **Donnez à perf-sentinel son propre pipeline non samplé.** Le sampling
 existe pour borner un coût de stockage, et perf-sentinel ne stocke
@@ -103,12 +103,12 @@ service:
 Gardez le filtre de bruit sur les deux branches. Écarter les
 health checks, les migrations Liquibase et les spans d'export du
 collector lui-même retire des findings sur lesquels personne n'agira.
-Attention aux expressions régulières trop larges à cet endroit : un
+Attention aux expressions régulières trop larges à cet endroit. Un
 motif DDL non ancré comme `.*DROP\s+.*` écarte aussi des requêtes
 applicatives qui contiennent seulement le mot.
 
 Si le volume supplémentaire pose problème, restreignez la branche
-d'analyse **par périmètre plutôt que par hasard** : ne routez que les
+d'analyse **par périmètre plutôt que par hasard**. Ne routez que les
 namespaces ou les services sur lesquels vous travaillez, ce qui garde
 leurs chiffres entiers, au lieu d'un échantillon probabiliste qui rend
 partiels les chiffres de tous les services. `filter/drop_noise` retire
@@ -129,10 +129,10 @@ daemon :
   ratios, puisque garder les erreurs et les traces lentes
   sur-représente les traces lourdes. Cela compte pour `disclose` : un
   rapport de divulgation publique bâti sur une fenêtre samplée dit faux
-  sur le gaspillage qu'il prétend mesurer. Le knob
+  sur le gaspillage qu'il prétend mesurer. Le paramètre
   `[daemon] sampling_rate` du daemon lève un avertissement `tuning` dans
-  `Report.warning_details` exactement pour cette raison, mais il ne peut
-  pas voir ce qu'un collector a écarté avant l'arrivée des spans.
+  `Report.warning_details` pour cette raison, mais il ne peut pas voir
+  ce qu'un collector a écarté avant l'arrivée des spans.
 
 Quand plusieurs réplicas du daemon se trouvent derrière le pipeline,
 l'intégrité des traces dépend du routage par trace ID, voir
@@ -141,7 +141,7 @@ l'intégrité des traces dépend du routage par trace ID, voir
 
 ## Installation depuis le registre OCI
 
-Le chart est publié en tant qu'artifact OCI sous `oci://ghcr.io/robintra/charts/perf-sentinel`. Chaque version reçoit une signature Cosign keyless (GitHub OIDC, log de transparence Rekor), une attestation de provenance de build SLSA v1.0 stockée sur l'attestation store du repo, et un SBOM SPDX livré à la fois en asset de GitHub Release et en tant qu'attestation signée.
+Le chart est publié en tant qu'artifact OCI sous `oci://ghcr.io/robintra/charts/perf-sentinel`. Chaque version reçoit une signature Cosign keyless (GitHub OIDC, log de transparence Rekor), une attestation de provenance de build SLSA v1.0 stockée sur l'attestation store du dépôt, et un SBOM SPDX livré à la fois en asset de GitHub Release et en tant qu'attestation signée.
 
 ### Pinner une version
 
@@ -152,7 +152,7 @@ helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
   -f my-values.yaml
 ```
 
-Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. Une release applicative bumpe les deux ensemble, un correctif chart seul ne bumpe que `version` et laisse l'`appVersion` en arrière (cas des `0.9.16`, `0.9.18`, `0.9.19`, `0.9.20` et `0.9.21`), donc un `--version` pinné donne toujours un `appVersion` connu. N'overridez `image.tag` que pour faire tourner un build daemon précis avec un autre chart.
+Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. Une release applicative incrémente les deux ensemble, un correctif chart seul n'incrémente que `version` et laisse l'`appVersion` en arrière (cas des `0.9.16`, `0.9.18`, `0.9.19`, `0.9.20` et `0.9.21`), donc un `--version` épinglé donne toujours un `appVersion` connu. Ne surchargez `image.tag` que pour faire tourner un build daemon précis avec un autre chart.
 
 ### Utilisation en subchart ou depuis Argo CD
 
@@ -182,27 +182,27 @@ Le chart est indexé sur [Artifact Hub](https://artifacthub.io), où
 les utilisateurs peuvent le découvrir, explorer son values schema
 et consulter le changelog.
 
-L'enregistrement est fait, `charts/perf-sentinel/artifacthub-repo.yml`
+L'enregistrement est fait. `charts/perf-sentinel/artifacthub-repo.yml`
 porte le `repositoryID` délivré et chaque release de chart le pousse
-sur le registry OCI sous le tag réservé `artifacthub.io`. Le flow, pour
-référence ou pour le refaire sur un autre registry :
+sur le registre OCI sous le tag réservé `artifacthub.io`. La procédure,
+pour référence ou pour la refaire sur un autre registre :
 
 1. Connectez-vous sur artifacthub.io avec un compte GitHub.
-2. Dans le panel de contrôle, ajoutez un repository de kind "Helm
+2. Dans le panneau de contrôle, ajoutez un dépôt de type "Helm
    charts (OCI)" pointant vers
    `oci://ghcr.io/robintra/charts/perf-sentinel`.
 3. Artifact Hub délivre un `repositoryID` (UUID).
 4. Placez cet UUID dans `charts/perf-sentinel/artifacthub-repo.yml`,
    committez et poussez.
-5. Taggez une nouvelle release de chart (patch bump) pour que le
-   workflow de release pousse le `artifacthub-repo.yml` mis à jour
-   sur le registry OCI sous le tag spécial `artifacthub.io`.
-6. Artifact Hub scrute le registry et récupère les nouvelles
+5. Taggez une nouvelle release de chart (incrément de patch) pour que
+   le workflow de release pousse le `artifacthub-repo.yml` mis à jour
+   sur le registre OCI sous le tag spécial `artifacthub.io`.
+6. Artifact Hub scrute le registre et récupère les nouvelles
    métadonnées en moins de 30 minutes. Le badge "Verified
    publisher" apparaît au prochain cycle de traitement.
 
 Le statut `official` est un sujet distinct : il se demande par une issue
-sur le dépôt artifacthub/hub, une fois que le repository porte déjà le
+sur le dépôt artifacthub/hub, une fois que le dépôt porte déjà le
 badge verified publisher. Aucune annotation de chart ne le confère.
 
 ## Chaîne d'approvisionnement logicielle
@@ -217,7 +217,7 @@ environnement régulé.
 
 ### Vérifier la signature Cosign
 
-La vérification Cosign keyless relie chaque release à un run spécifique du workflow GitHub Actions. L'identité du certificat doit matcher le workflow de release publié, et l'OIDC issuer doit être GitHub Actions :
+La vérification Cosign keyless relie chaque release à un run spécifique du workflow GitHub Actions. L'identité du certificat doit correspondre au workflow de release publié, et l'OIDC issuer doit être GitHub Actions :
 
 ```bash
 cosign verify \
@@ -228,15 +228,15 @@ cosign verify \
 
 **Nécessite cosign 3.0 ou plus récent.** La signature est un bundle Sigstore attaché au digest du chart comme referrer OCI 1.1, et non un tag `sha256-<digest>.sig` de l'ancien format. cosign 2.x ne lit pas les referrers et répond `Error: no signatures found` sur un chart pourtant correctement signé : vérifiez `cosign version` avant de tirer une conclusion de ce message. Testé sur le chart `0.9.21` avec cosign `v3.1.2`.
 
-Sous Windows, lancez cette commande depuis PowerShell ou WSL plutôt que depuis Git Bash : MSYS réécrit les échappements antislash de la regex (`\.` arrive en `/.`) et la vérification échoue alors sur un trompeur `no matching CertificateIdentity`. Écrire les échappements sous la forme `[.]` est équivalent et résiste à tous les shells.
+Sous Windows, lancez cette commande depuis PowerShell ou WSL plutôt que depuis Git Bash : MSYS réécrit les échappements antislash de la regex (`\.` arrive en `/.`) et la vérification échoue alors sur un trompeur `no matching CertificateIdentity`. Écrire les échappements sous la forme `[.]` est équivalent et fonctionne dans tous les shells.
 
-Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un mismatch ou une absence de signature retourne un code non nul.
+Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Une signature discordante ou absente retourne un code non nul.
 
-**Il n'y a pas de fichier `.prov`, donc `helm install --verify` n'est pas disponible.** C'est un choix délibéré, pas un oubli. Le mécanisme de provenance natif de Helm suppose une clé PGP de longue durée conservée en secret de CI, avec la charge de rotation, de révocation et de publication d'empreinte qui va avec. La signature Cosign keyless et l'attestation SLSA répondent à la même question, cet artefact vient-il bien du workflow de release de ce dépôt, sans qu'aucune clé de signature statique existe nulle part. Vérifiez avec la commande `cosign verify` ci-dessus plutôt qu'avec `helm --verify`.
+**Il n'y a pas de fichier `.prov`, donc `helm install --verify` n'est pas disponible.** C'est un choix, pas un oubli. Le mécanisme de provenance natif de Helm suppose une clé PGP de longue durée conservée en secret de CI, avec la charge de rotation, de révocation et de publication d'empreinte qui va avec. La signature Cosign keyless et l'attestation SLSA répondent à la même question, cet artefact vient-il bien du workflow de release de ce dépôt, sans qu'aucune clé de signature statique existe nulle part. Vérifiez avec la commande `cosign verify` ci-dessus plutôt qu'avec `helm --verify`.
 
 ### Vérifier la provenance de build SLSA
 
-Chaque tarball de chart publié porte une attestation de provenance de build SLSA v1.0 produite par `actions/attest-build-provenance` et stockée sur l'attestation store du repo (pas sur le registry OCI). L'attestation est interrogeable via `gh` :
+Chaque tarball de chart publié porte une attestation de provenance de build SLSA v1.0 produite par `actions/attest-build-provenance` et stockée sur l'attestation store du dépôt (pas sur le registre OCI). L'attestation est interrogeable via `gh` :
 
 ```bash
 gh release download chart-v0.9.21 \
@@ -247,7 +247,7 @@ gh attestation verify perf-sentinel-0.9.21.tgz \
   --repo robintra/perf-sentinel
 ```
 
-Si vous avez déjà récupéré l'artifact OCI et préférez ne pas fetcher
+Si vous avez déjà récupéré l'artifact OCI et préférez ne pas télécharger
 le tarball, vérifiez la provenance de build directement contre la
 référence OCI :
 
@@ -265,7 +265,7 @@ la provenance de build sur le tarball.
 ### Vérifier le SBOM
 
 Chaque release livre un SBOM SPDX en tant qu'asset de GitHub Release
-et en tant qu'attestation signée sur l'attestation store du repo.
+et en tant qu'attestation signée sur l'attestation store du dépôt.
 
 Le sujet de l'attestation SBOM est le tarball du chart, pas le fichier SBOM,
 donc vérifiez-la contre le tarball, exactement comme le contrôle de provenance
@@ -288,7 +288,7 @@ release.
 
 ## Installation depuis un checkout local
 
-Pour les contributeurs et les utilisateurs qui veulent inspecter, patcher ou bisect le chart avant de l'installer, un clone local fonctionne toujours :
+Pour les contributeurs et les utilisateurs qui veulent inspecter, modifier ou faire un bisect sur le chart avant de l'installer, un clone local fonctionne toujours :
 
 ```bash
 git clone https://github.com/robintra/perf-sentinel.git
@@ -302,11 +302,11 @@ helm install perf-sentinel ./charts/perf-sentinel \
   -f my-values.yaml
 ```
 
-Gardez le path OCI pour les installs de production. Le path local contourne volontairement les contrôles Cosign et SLSA, il ne devrait pas être utilisé sur des clusters partagés sauf si vous avez buildé le chart vous-même.
+Gardez le chemin OCI pour les installations de production. Le chemin local contourne les contrôles Cosign et SLSA, il ne devrait donc pas être utilisé sur des clusters partagés sauf si vous avez construit le chart vous-même.
 
 ## Couper une nouvelle release de chart
 
-Publier une nouvelle version du chart est une tâche mainteneur, pas une étape de déploiement. La procédure complète (bump du chart en lockstep, puis `scripts/release-chart.sh chart-vA.B.C`, qui gate sur la publication de l'image daemon) est dans [`RELEASE-PROCEDURE-FR.md`](./RELEASE-PROCEDURE-FR.md).
+Publier une nouvelle version du chart est une tâche mainteneur, pas une étape de déploiement. La procédure complète (incrément synchronisé du chart, puis `scripts/release-chart.sh chart-vA.B.C`, qui exige que l'image daemon soit publiée) est dans [`RELEASE-PROCEDURE-FR.md`](./RELEASE-PROCEDURE-FR.md).
 
 ## Modes de workload
 
@@ -314,7 +314,7 @@ Le chart accepte trois valeurs pour `workload.kind`. Choisissez-en une par insta
 
 ### `Deployment` (par défaut)
 
-Un daemon unique derrière un Service `ClusterIP`. C'est la topologie recommandée. perf-sentinel est stateful par trace (la `TraceWindow` vit en mémoire), donc exécuter un seul daemon et scaler verticalement est le bon premier mouvement. La [topologie shardée](../../examples/docker-compose-sharded.yml) est disponible pour des déploiements multi-daemon. Elle repose sur un consistent hashing par `trace_id` dans le `loadbalancingexporter` du Collector OTel afin que toutes les spans d'une trace atterrissent sur la même instance daemon.
+Un daemon unique derrière un Service `ClusterIP`. C'est la topologie recommandée. perf-sentinel est stateful par trace (la `TraceWindow` vit en mémoire), donc exécuter un seul daemon et le mettre à l'échelle verticalement est le bon premier mouvement. La [topologie shardée](../../examples/docker-compose-sharded.yml) est disponible pour des déploiements multi-daemon. Elle repose sur un consistent hashing par `trace_id` dans le `loadbalancingexporter` du Collector OTel afin que toutes les spans d'une trace atterrissent sur la même instance daemon.
 
 ```yaml
 workload:
@@ -336,9 +336,9 @@ workload:
 
 ### `DaemonSet`
 
-Rare. Utile uniquement si vous avez une exigence dure d'avoir un daemon sur chaque noeud (par exemple pour remplacer un forwarder de traces node-local existant). Un DaemonSet répartit les traces sur plusieurs noeuds, ce qui casse la détection N+1 sauf si un collector en amont garantit que toutes les spans d'une trace rejoignent le même daemon. La plupart des utilisateurs n'ont pas besoin de ce mode.
+Rare. Utile uniquement si vous avez une exigence dure d'avoir un daemon sur chaque nœud (par exemple pour remplacer un forwarder de traces node-local existant). Un DaemonSet répartit les traces sur plusieurs nœuds, ce qui casse la détection N+1 sauf si un collector en amont garantit que toutes les spans d'une trace rejoignent le même daemon. La plupart des utilisateurs n'ont pas besoin de ce mode.
 
-Comme cette casse est silencieuse (les groupes passent sous leur seuil et les findings n'apparaissent tout simplement pas, sans erreur ni métrique), le mode exige une affirmation explicite que ce routage est en place. Le rendu échoue sans elle :
+Comme cette casse est silencieuse (les groupes passent sous leur seuil et les findings n'apparaissent pas, sans erreur ni métrique), le mode exige une affirmation explicite que ce routage est en place. Le rendu échoue sans elle :
 
 ```yaml
 workload:
@@ -353,10 +353,10 @@ workload:
 
 ### `StatefulSet`
 
-Le seul mode où les acks runtime (`POST /api/findings/{sig}/ack`, depuis 0.5.20) fonctionnent. Activer la persistance monte un PVC sur `/var/lib/perf-sentinel`, et le chart pointe lui-même `[daemon.ack] storage_path` et `[daemon.archive] path` dessus, de sorte que l'audit trail des acks et l'archive de divulgation survivent aux redémarrages et aux replanifications de pod. Les acks TOML CI
+Le seul mode où les acks runtime (`POST /api/findings/{sig}/ack`, depuis 0.5.20) fonctionnent. Activer la persistance monte un PVC sur `/var/lib/perf-sentinel`, et le chart pointe lui-même `[daemon.ack] storage_path` et `[daemon.archive] path` dessus, de sorte que la piste d'audit des acks et l'archive de divulgation survivent aux redémarrages et aux replanifications de pod. Les acks TOML CI
 (`.perf-sentinel-acknowledgments.toml`) sont en lecture seule au runtime et n'ont pas besoin de PVC, seul le JSONL côté daemon en a besoin.
 
-> **Monter le TOML d'acks CI : un montage ConfigMap classique suffit.** Une ConfigMap projette chaque clé sous forme de symlink (`clé -> ..data/clé`). Le loader suit un symlink qui résout sous son propre répertoire, c'est-à-dire exactement cette projection, et refuse celui qui résout ailleurs, le durcissement contre un lien hostile pointant vers un fichier sensible (`caused by: Acknowledgments file is a symlink resolving outside its own directory, refusing to follow`). Montez la ConfigMap comme un répertoire et pointez `[daemon.ack] toml_path` sur la clé projetée :
+> **Monter le TOML d'acks CI : un montage ConfigMap classique suffit.** Une ConfigMap projette chaque clé sous forme de symlink (`clé -> ..data/clé`). Le loader suit un symlink qui résout sous son propre répertoire, c'est-à-dire exactement cette projection, et refuse celui qui résout ailleurs. Ce refus durcit le loader contre un lien hostile pointant vers un fichier sensible (`caused by: Acknowledgments file is a symlink resolving outside its own directory, refusing to follow`). Montez la ConfigMap comme un répertoire et pointez `[daemon.ack] toml_path` sur la clé projetée :
 >
 > ```yaml
 > volumeMounts:
@@ -377,15 +377,15 @@ workload:
       storageClass: gp3
 ```
 
-Pour posséder ces tables vous-même, par exemple pour `[daemon.ack] toml_path` ou `[daemon.archive] max_size_mb`, posez `persistence.manageDaemonPaths: false` et écrivez les deux chemins durables sous `/var/lib/perf-sentinel` dans `config.toml`. TOML ne peut pas ouvrir deux fois la même table, et une table s'ouvre aussi bien par un en-tête que par une clé pointée (`ack.storage_path = ...` sous `[daemon]`) ou une table inline, donc tant que `manageDaemonPaths` vaut true le chart refuse de rendre dès que `config.toml` mentionne l'une de ces tables sous l'une de ces formes. Le message nomme le drapeau à basculer. Il refuse par excès, parce que l'alternative est une configuration que le daemon ne sait pas parser et un pod en CrashLoop.
+Pour posséder ces tables vous-même, par exemple pour `[daemon.ack] toml_path` ou `[daemon.archive] max_size_mb`, posez `persistence.manageDaemonPaths: false` et écrivez les deux chemins durables sous `/var/lib/perf-sentinel` dans `config.toml`. TOML ne peut pas ouvrir deux fois la même table, et une table s'ouvre aussi bien par un en-tête que par une clé pointée (`ack.storage_path = ...` sous `[daemon]`) ou une table inline. Tant que `manageDaemonPaths` vaut true, le chart refuse donc de rendre dès que `config.toml` mentionne l'une de ces tables sous l'une de ces formes. Le message nomme le drapeau à basculer. Il refuse par excès, parce que l'alternative est une configuration que le daemon ne sait pas parser et un pod en CrashLoop.
 
-`[daemon.archive]` est entièrement sautée quand `config.toml` pose `[green] enabled = false` : le daemon rejette cette combinaison au démarrage, une archive de fenêtres sans énergie ni carbone rendrait la sortie de `disclose` dénuée de sens. Déclarer l'archive vous-même avec le scoring green désactivé fait échouer le rendu dans tous les modes de workload, pas seulement sous persistance, puisque le daemon la refuse de toute façon.
+`[daemon.archive]` est entièrement sautée quand `config.toml` pose `[green] enabled = false` : le daemon rejette cette combinaison au démarrage, car une archive de fenêtres sans énergie ni carbone rendrait la sortie de `disclose` dénuée de sens. Déclarer l'archive vous-même avec le scoring green désactivé fait échouer le rendu dans tous les modes de workload, pas seulement sous persistance, puisque le daemon la refuse de toute façon.
 
-Le chemin de montage est figé à `/var/lib/perf-sentinel`, `persistence` n'accepte aucune clé `mountPath`, et l'activer sur un `Deployment` ou un `DaemonSet` fait échouer le rendu au lieu de ne monter silencieusement rien.
+Le chemin de montage est figé à `/var/lib/perf-sentinel`, `persistence` n'accepte aucune clé `mountPath`, et l'activer sur un `Deployment` ou un `DaemonSet` fait échouer le rendu au lieu de ne rien monter en silence.
 
-En mode `Deployment` et `DaemonSet`, les acks runtime sont indisponibles, pas seulement éphémères. Le chemin de stockage par défaut est résolu via `dirs::data_local_dir()`, et l'image du conteneur est `FROM scratch` sans `HOME` ni `/etc/passwd`, donc le chemin ne peut pas être résolu du tout. Le daemon logge un WARN au démarrage, reste debout, et les deux routes d'écriture d'ack renvoient `503 Service Unavailable`. `GET /api/acks` n'est gardé que par l'authentification, par conception, et répond toujours `200` avec une liste vide : ce n'est donc pas une sonde valable pour détecter cet état.
+En mode `Deployment` et `DaemonSet`, les acks runtime sont indisponibles, pas seulement éphémères. Le chemin de stockage par défaut est résolu via `dirs::data_local_dir()`, et l'image du conteneur est `FROM scratch` sans `HOME` ni `/etc/passwd`, donc le chemin ne peut pas être résolu du tout. Le daemon journalise un WARN au démarrage, reste debout, et les deux routes d'écriture d'ack renvoient `503 Service Unavailable`. `GET /api/acks` n'est gardé que par l'authentification et répond toujours `200` avec une liste vide : ce n'est donc pas une sonde valable pour détecter cet état.
 
-Cet arbitrage se fait délibérément. Si vos opérateurs doivent acquitter des findings au runtime, depuis le dashboard, la CLI `ack` ou une alerte à 3h du matin, la topologie par défaut en est incapable et c'est `StatefulSet` avec `persistence.enabled` qu'il vous faut installer. La baseline TOML CI ne s'y substitue pas : elle porte les décisions permanentes de l'équipe, revues en pull request et partagées par tous les environnements, pas le report d'astreinte pendant un incident. Elle couvre en revanche le cas où chaque acquittement est une décision durable d'équipe, et elle n'a besoin d'aucun PVC puisqu'elle est en lecture seule au runtime. Voir [`docs/FR/ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md#choisir-entre-toml-et-daemon) pour savoir quel acquittement va où.
+Choisissez le mode de workload en tenant compte de cet arbitrage. Si vos opérateurs doivent acquitter des findings au runtime, depuis le dashboard, la CLI `ack` ou une alerte à 3h du matin, la topologie par défaut en est incapable et c'est `StatefulSet` avec `persistence.enabled` qu'il vous faut installer. La baseline TOML CI ne s'y substitue pas : elle porte les décisions permanentes de l'équipe, revues en pull request et partagées par tous les environnements, pas le report d'astreinte pendant un incident. Elle couvre en revanche le cas où chaque acquittement est une décision durable d'équipe, et elle n'a besoin d'aucun PVC puisqu'elle est en lecture seule au runtime. Voir [`docs/FR/ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md#choisir-entre-toml-et-daemon) pour savoir quel acquittement va où.
 
 ## Surface de configuration
 
@@ -411,7 +411,7 @@ Référence complète des champs : [`docs/FR/CONFIGURATION-FR.md`](./CONFIGURATI
 
 ### Fragments de configuration
 
-`config.toml` est un document unique. `config.fragments` est une map de documents TOML supplémentaires, rendus dans une seconde ConfigMap et montés comme répertoire sur `/etc/perf-sentinel/.perf-sentinel.d/`. Le daemon les fusionne par priorité de nom croissante, puis applique `config.toml` en dernier comme override final ([Fragments de configuration](./CONFIGURATION-FR.md#fragments-de-configuration)).
+`config.toml` est un document unique. `config.fragments` est une map de documents TOML supplémentaires, rendus dans une seconde ConfigMap et montés comme répertoire sur `/etc/perf-sentinel/.perf-sentinel.d/`. Le daemon les fusionne par priorité de nom croissante, puis applique `config.toml` en dernier comme surcharge finale ([Fragments de configuration](./CONFIGURATION-FR.md#fragments-de-configuration)).
 
 ```yaml
 config:
@@ -429,12 +429,12 @@ config:
       "order-svc" = "order-svc"
 ```
 
-C'est ainsi que les fichiers prêts à copier de `examples/` atteignent un cluster : gardez le nom de fichier, son préfixe `NN` porte déjà l'ordre de fusion. `examples/helm/` fournit un overlay de values par backend énergétique, empilable sur les values de base avec un second `-f`.
+C'est ainsi que les fichiers prêts à copier de `examples/` atteignent un cluster : gardez le nom de fichier, car son préfixe `NN` porte déjà l'ordre de fusion. `examples/helm/` fournit un overlay de values par backend énergétique, empilable sur les values de base avec un second `-f`.
 
 Deux règles sont vérifiées au rendu, parce que le daemon les applique au démarrage et que l'image est `FROM scratch` : un échec de boot ne laisse aucun shell pour aller lire l'erreur.
 
 - **Noms.** `NN-lowercase-name.toml`, `NN` sur deux chiffres, le reste en `[a-z0-9-]` sans tiret initial, final ni doublé. Deux fragments ne peuvent pas partager un `NN`, leur ordre de fusion serait indéfini.
-- **Clés réservées.** `listen_port_*` et la désactivation de `[green]` restent dans `config.toml`, toujours. `[daemon.ack]` et `[daemon.archive]` ne sont refusées que lorsque la persistance amène le chart à les écrire lui-même, seul cas où un fragment rouvrirait une table déjà ouverte ; sans persistance, ou avec `manageDaemonPaths=false`, vous possédez les deux chemins et un fragment convient très bien. Le chart croise ces clés avec `service.ports.*`, les probes et le PVC en ne lisant que `config.toml` : un fragment qui en redéfinirait une passerait un contrôle au vert tout en produisant un pod qui écoute là où rien ne route. Le contrôle ramène d'abord à une seule forme les orthographes que TOML autorise, si bien qu'un en-tête espacé (`[ green ]`), un nom de clé entre guillemets ou une table inline est détecté comme la forme simple, et qu'une clé réservée seulement citée dans un commentaire ne l'est pas.
+- **Clés réservées.** `listen_port_*` et la désactivation de `[green]` restent dans `config.toml`, toujours. `[daemon.ack]` et `[daemon.archive]` ne sont refusées que lorsque la persistance amène le chart à les écrire lui-même, seul cas où un fragment rouvrirait une table déjà ouverte. Sans persistance, ou avec `manageDaemonPaths=false`, vous possédez les deux chemins et un fragment convient très bien. Le chart croise ces clés avec `service.ports.*`, les probes et le PVC en ne lisant que `config.toml` : un fragment qui en redéfinirait une passerait un contrôle au vert tout en produisant un pod qui écoute là où rien ne route. Le contrôle ramène d'abord à une seule forme les orthographes que TOML autorise. Un en-tête espacé (`[ green ]`), un nom de clé entre guillemets ou une table inline est donc détecté comme la forme simple, et une clé réservée seulement citée dans un commentaire ne l'est pas.
 
 Éditer un fragment déplace l'annotation `checksum/config`, donc `helm upgrade` fait rouler les pods. Le répertoire est monté en entier plutôt que clé par clé, donc ajouter ou retirer un fragment atteint aussi un pod déjà en cours d'exécution.
 
@@ -442,7 +442,7 @@ Aucun secret dans un fragment : il est rendu dans une ConfigMap, lisible par qui
 
 ### Secrets
 
-Le fichier TOML ne doit jamais contenir de secrets (le daemon rejette les champs credentiels au chargement de la config). Injectez les valeurs sensibles via des variables d'environnement alimentées par un Secret :
+Le fichier TOML ne doit jamais contenir de secrets (le daemon rejette les champs d'identifiants au chargement de la config). Injectez les valeurs sensibles via des variables d'environnement alimentées par un Secret :
 
 ```bash
 kubectl -n observability create secret generic perf-sentinel-secrets \
@@ -455,7 +455,7 @@ extraEnvFrom:
       name: perf-sentinel-secrets
 ```
 
-Les valeurs de config adossées à un Secret suivent un seul pattern : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` et `PERF_SENTINEL_READ_API_KEY` pour les trois clés du daemon, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
+Les valeurs de config adossées à un Secret suivent un seul motif : le Secret entre dans l'environnement du pod, et une variable d'environnement dédiée surcharge le champ de config correspondant quand elle est définie (`PERF_SENTINEL_EMAPS_TOKEN` pour Electricity Maps, `PERF_SENTINEL_ACK_API_KEY`, `PERF_SENTINEL_INCIDENTS_API_KEY` et `PERF_SENTINEL_READ_API_KEY` pour les trois clés du daemon, et les en-têtes d'auth des scrapers). Voir la section "Environment variables" de `docs/FR/CONFIGURATION-FR.md`.
 
 ### Fichiers de calibration et certificats TLS
 
@@ -482,9 +482,9 @@ config:
 ### Store d'acks runtime du daemon
 
 Le daemon 0.5.20 ajoute trois endpoints d'ack runtime
-(`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils mutent l'état, donc trois décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
+(`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils modifient l'état, donc trois décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
 
-**Authentifier les écritures quand le daemon est exposé sur le réseau du pod.** Les snippets `values.yaml` plus haut utilisent `listen_address = "0.0.0.0"` pour la joignabilité cluster-wide. Sans mTLS en frontal, posez une clé ack de 16+ caractères via un Secret Kubernetes dont l'entrée `PERF_SENTINEL_ACK_API_KEY` est votre clé, exposé par `extraEnvFrom`, sans quoi les verbes `POST` et `DELETE` sont exposés :
+**Authentifier les écritures quand le daemon est exposé sur le réseau du pod.** Les extraits `values.yaml` plus haut utilisent `listen_address = "0.0.0.0"` pour que le daemon soit joignable dans tout le cluster. Sans mTLS en frontal, posez une clé ack de 16+ caractères via un Secret Kubernetes dont l'entrée `PERF_SENTINEL_ACK_API_KEY` est votre clé, exposé par `extraEnvFrom`, sans quoi les verbes `POST` et `DELETE` sont exposés :
 
 ```yaml
 extraEnvFrom:
@@ -492,15 +492,15 @@ extraEnvFrom:
       name: perf-sentinel-secrets   # entrée PERF_SENTINEL_ACK_API_KEY
 ```
 
-La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap ; un Secret monté vide est rejeté au config load. Le daemon hard-rejette aussi les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit) ; `GET /api/findings` reste non authentifié.
+La variable d'environnement `PERF_SENTINEL_ACK_API_KEY` surcharge le champ de config `[daemon.ack] api_key`, donc la clé vient du Secret et jamais du ConfigMap. Un Secret monté vide est rejeté au chargement de la config. Le daemon rejette aussi d'office les clés de moins de 12 caractères. Quand une clé est définie, elle garde les écritures (`POST` / `DELETE`) **et** `GET /api/acks` (la piste d'audit). `GET /api/findings` reste non authentifié.
 
 *Les lecteurs qui ne doivent jamais écrire (Grafana, le Hub).* Donnez-leur `[daemon] read_api_key` par son propre Secret, `PERF_SENTINEL_READ_API_KEY` dans la même liste `extraEnvFrom`. Elle ouvre `GET /api/acks` et `GET /api/incidents` et rien d'autre, et le daemon refuse au démarrage une clé de lecture égale à une clé d'écriture, donc une configuration de dashboard qui fuit ne peut ni acquitter un finding ni fabriquer un incident.
 
 **Les acks runtime ont besoin d'un PVC pour exister tout court.** Sans lui, le chemin de stockage par défaut ne peut pas être résolu dans l'image scratch et les routes d'écriture d'ack renvoient 503. Basculez en mode `StatefulSet` avec `persistence.enabled: true` (cf. ci-dessus), ce qui câble `[daemon.ack] storage_path` sur le PVC pour vous.
 
-**Dimensionnez le PVC pour l'archive.** Aux valeurs par défaut, l'archive par fenêtre garde un fichier actif plus `max_files = 12` fichiers tournés de `max_size_mb = 100` chacun, soit environ 1,3 Go, ce que la demande par défaut du chart, `2Gi`, couvre avec le store d'acks à côté. Un volume plein n'arrête pas le daemon : l'écrivain de l'archive abandonne les fenêtres qu'il ne peut pas écrire et les compte dans `perf_sentinel_archive_windows_dropped_total{reason="write_error"}`, donc surveillez ce compteur plutôt que la santé du daemon. Montez `workload.statefulset.persistence.size` au-dessus de `2Gi` quand vous donnez à `[daemon.archive]` un `max_files` ou un `max_size_mb` plus grand, et ne descendez en dessous qu'avec `persistence.manageDaemonPaths: false` et un `[daemon.archive]` plus petit dans `config.toml`. Montez-la aussi pour `[daemon.incidents] archive_path` quand vous pointez ce fichier sur le PVC, comme la note incidents de `values.yaml` le suggère : il est en ajout seul et ne tourne jamais, donc il grossit aussi longtemps que le daemon tourne et la valeur par défaut de `2Gi` ne lui laisse rien. Le `volumeClaimTemplate` d'un StatefulSet est immuable, donc une release installée sous un chart antérieur garde la demande avec laquelle elle a été créée : redimensionnez le PVC là où la StorageClass le permet, ou réinstallez.
+**Dimensionnez le PVC pour l'archive.** Aux valeurs par défaut, l'archive par fenêtre garde un fichier actif plus `max_files = 12` fichiers tournés de `max_size_mb = 100` chacun, soit environ 1,3 Go, ce que la demande par défaut du chart, `2Gi`, couvre avec le store d'acks à côté. Un volume plein n'arrête pas le daemon : l'écrivain de l'archive abandonne les fenêtres qu'il ne peut pas écrire et les compte dans `perf_sentinel_archive_windows_dropped_total{reason="write_error"}`, donc surveillez ce compteur plutôt que la santé du daemon. Montez `workload.statefulset.persistence.size` au-dessus de `2Gi` quand vous donnez à `[daemon.archive]` un `max_files` ou un `max_size_mb` plus grand, et ne descendez en dessous qu'avec `persistence.manageDaemonPaths: false` et un `[daemon.archive]` plus petit dans `config.toml`. Montez-la aussi pour `[daemon.incidents] archive_path` quand vous pointez ce fichier sur le PVC, comme la note incidents de `values.yaml` le suggère. L'archive d'incidents est en ajout seul et ne subit jamais de rotation, donc elle grossit aussi longtemps que le daemon tourne et la valeur par défaut de `2Gi` ne lui laisse rien. Le `volumeClaimTemplate` d'un StatefulSet est immuable, donc une release installée sous un chart antérieur garde la demande avec laquelle elle a été créée : redimensionnez le PVC là où la StorageClass le permet, ou réinstallez.
 
-**Attention au plancher du `securityContext`.** Le daemon ouvre chaque JSONL durable avec `O_NOFOLLOW` et le garde accessible au seul propriétaire. Monter le PVC sous un `fsGroup` ajoute `g+rw` aux fichiers qui s'y trouvent déjà, et les deux stores le retirent d'eux-mêmes : le store d'acks réécrit son fichier en `0600` par sa compaction de démarrage, l'archive d'incidents remet sa propre poignée ouverte au bon mode. Le cas qui échoue encore est un fichier dont l'UID du daemon n'est pas propriétaire, qu'il ne peut donc pas chmoder du tout : définir `runAsUser` et `fsGroup` de telle sorte que l'UID du daemon n'est pas propriétaire du mount PVC, ou tourner sous une politique d'admission mutante (Kyverno, OPA Gatekeeper) qui réécrit `fsGroup` ou `runAsUser` sur le pod. Le store d'acks signale alors `InsecurePermissions` et reste indisponible pendant que le daemon tient debout (les routes d'écriture d'ack renvoient 503, `GET /api/acks` une liste vide), donc cette moitié est une défaillance soft, mais `[daemon.incidents] archive_path` est ouvert au démarrage et fait échouer le daemon franchement, en nommant le mode fautif dans le message. Vérifiez le log au premier rollout.
+**Attention au plancher du `securityContext`.** Le daemon ouvre chaque JSONL durable avec `O_NOFOLLOW` et le garde accessible au seul propriétaire. Monter le PVC sous un `fsGroup` ajoute `g+rw` aux fichiers qui s'y trouvent déjà, et les deux stores le retirent d'eux-mêmes. Le store d'acks réécrit son fichier en `0600` par sa compaction de démarrage, et l'archive d'incidents remet sa propre poignée ouverte au bon mode. Le cas qui échoue encore est un fichier dont l'UID du daemon n'est pas propriétaire, et dont il ne peut donc pas du tout changer le mode. Deux configurations y mènent : `runAsUser` et `fsGroup` définis de telle sorte que l'UID du daemon n'est pas propriétaire du point de montage du PVC, ou une politique d'admission mutante (Kyverno, OPA Gatekeeper) qui réécrit `fsGroup` ou `runAsUser` sur le pod. Le store d'acks signale alors `InsecurePermissions` et reste indisponible pendant que le daemon tient debout (les routes d'écriture d'ack renvoient 503, `GET /api/acks` une liste vide), donc cette moitié est une défaillance non bloquante. Mais `[daemon.incidents] archive_path` est ouvert au démarrage et fait échouer le daemon franchement, en nommant le mode fautif dans le message. Vérifiez le log au premier rollout.
 
 **Charger la baseline TOML CI depuis une ConfigMap.** Montez `.perf-sentinel-acknowledgments.toml` via `extraVolumes` et pointez `[daemon.ack] toml_path` dessus pour que le daemon ait une vue unifiée des acks permanents (TOML) et runtime (JSONL). Le POST runtime renvoie `409 Conflict` sur les signatures déjà couvertes par un ack TOML actif, ce qui empêche le daemon de masquer silencieusement la baseline validée par l'équipe.
 
@@ -537,10 +537,10 @@ Voir `docs/FR/QUERY-API-FR.md` et `docs/FR/CONFIGURATION-FR.md` pour la référe
 
 Le chart peut rendre une `NetworkPolicy` qui restreint qui peut joindre les
 ports d'ingestion et de métriques du daemon. Elle est désactivée par défaut
-et fail-closed : l'activer sans selectors bloque tout ingress, vous devez
-donc allow-lister les namespaces ou pods qui parlent légitimement à
-perf-sentinel, typiquement le collecteur OTel (OTLP 4317 et 4318) et
-Prometheus (`/metrics` sur 4318).
+et fail-closed : l'activer sans sélecteurs bloque tout ingress, vous devez
+donc autoriser explicitement les namespaces ou pods qui parlent
+légitimement à perf-sentinel, typiquement le collecteur OTel (OTLP 4317
+et 4318) et Prometheus (`/metrics` sur 4318).
 
 ```yaml
 networkPolicy:
@@ -554,7 +554,7 @@ networkPolicy:
           app.kubernetes.io/name: otel-collector
 ```
 
-Les deux listes de selectors sont combinées en OU : une source d'ingress qui
+Les deux listes de sélecteurs sont combinées en OU : une source d'ingress qui
 correspond à n'importe quelle entrée de l'une ou l'autre liste est autorisée.
 Laissez une liste vide pour ignorer cette dimension de correspondance.
 
@@ -576,29 +576,31 @@ serviceMonitor:
     release: prometheus
 ```
 
-`honorLabels` vaut `true` par défaut depuis la version 0.17.1 du chart, et ce défaut compte. L'opérateur attache un label de cible nommé `service`, tiré du nom du Service, et quand honor labels est désactivé Prometheus renomme le label homonyme exposé par la cible : le `service` du daemon était stocké en `exported_service`. La variable `Service` du tableau de bord ne proposait plus que le nom de la release, et son panneau par service réduisait tous les services analysés à une seule ligne. Le daemon n'expose ni `job`, ni `instance`, ni `namespace`, donc rien d'autre ne change de main et `Namespace` lit toujours ce que le scrape attache. Honor labels tranche une collision, il ne remplace rien : le label `service` propre au daemon (`perf_sentinel_service_io_ops_total`, et depuis 0.18.0 `perf_sentinel_findings_total`, `perf_sentinel_slow_duration_seconds` et les counters d'analyse par service) est conservé là où il est exposé, donc toutes les autres séries reçoivent toujours le `service` de l'opérateur attaché à la cible, et tout ce qui route sur ce label reste intact. Le label `grouping` que ces séries gagnent en 0.19.0 n'entre en collision avec rien de ce que l'opérateur attache. Il ne s'appelle pas `namespace` précisément pour cela : l'opérateur attache bien un label de cible `namespace`, honor labels ferait gagner celui du daemon, et la variable `Daemon namespace` du tableau de bord comme tous les filtres `namespace=~"$namespace"` se mettraient à sélectionner les namespaces des charges au lieu de l'installation. Ce qui bouge, c'est une requête écrite sur la forme produite par le bug : filtrer `service="<nom complet de la release>"` sur la métrique par service ne renvoie plus rien, les vrais noms de services ont pris la place. Sur une installation qui a déjà stocké les séries renommées, `helm upgrade` corrige le scrape suivant et laisse l'historique en l'état.
+`honorLabels` vaut `true` par défaut depuis la version 0.17.1 du chart, et ce défaut compte. L'opérateur attache un label de cible nommé `service`, tiré du nom du Service, et quand honor labels est désactivé Prometheus renomme le label homonyme exposé par la cible : le `service` du daemon était stocké en `exported_service`. La variable `Service` du tableau de bord ne proposait plus que le nom de la release, et son panneau par service réduisait tous les services analysés à une seule ligne. Le daemon n'expose ni `job`, ni `instance`, ni `namespace`, donc rien d'autre ne change de main et `Namespace` lit toujours ce que le scrape attache. Honor labels tranche une collision et ne remplace rien. Le label `service` propre au daemon (`perf_sentinel_service_io_ops_total`, et depuis 0.18.0 `perf_sentinel_findings_total`, `perf_sentinel_slow_duration_seconds` et les compteurs d'analyse par service) est conservé là où il est exposé. Toutes les autres séries reçoivent toujours le `service` de l'opérateur attaché à la cible, et tout ce qui route sur ce label reste intact. Le label `grouping` que ces séries gagnent en 0.19.0 n'entre en collision avec rien de ce que l'opérateur attache. Il ne s'appelle pas `namespace` parce que l'opérateur attache bien un label de cible `namespace`. Honor labels ferait gagner celui du daemon, et la variable `Daemon namespace` du tableau de bord comme tous les filtres `namespace=~"$namespace"` se mettraient à sélectionner les namespaces des charges au lieu de l'installation. Un panneau ou une alerte écrits sur la forme produite par le bug, qui filtrent `service="<nom complet de la release>"` sur la métrique par service, ne renvoient plus rien, car les vrais noms de services ont pris la place. Sur une installation qui a déjà stocké les séries renommées, `helm upgrade` corrige le scrape suivant et laisse l'historique en l'état.
 
 #### Dashboards qui scrapent `/api/findings`
 
-Depuis 0.5.20, `GET /api/findings` filtre par défaut les findings acquittés. Les dashboards ou règles d'alerte existants qui interrogent l'endpoint et comptent les résultats vont silencieusement passer à côté de findings critiques si ceux-ci ont été acquittés au runtime ou par la baseline TOML CI. Deux options pour câbler un panel Prometheus ou Grafana sur l'endpoint :
+Depuis 0.5.20, `GET /api/findings` filtre par défaut les findings acquittés. Les dashboards ou règles d'alerte existants qui interrogent l'endpoint et comptent les résultats vont silencieusement passer à côté de findings critiques si ceux-ci ont été acquittés au runtime ou par la baseline TOML CI. Deux options pour câbler un panneau Prometheus ou Grafana sur l'endpoint :
 
-- Passer `?include_acked=true` et s'appuyer sur l'annotation `acknowledged_by` de la réponse pour filtrer ou colorer les lignes côté client. Garde le compteur visiblement haut quand un ack a atterri tout en laissant l'opérateur voir ce qui est silencé.
-- Garder la shape par défaut filtrée et documenter l'alerte comme "findings actifs uniquement", avec un panel séparé qui liste `GET /api/acks` pour rendre l'ensemble acquitté reviewable.
+- Passer `?include_acked=true` et s'appuyer sur l'annotation `acknowledged_by` de la réponse pour filtrer ou colorer les lignes côté client. Garde le compteur visiblement haut quand un ack a atterri tout en laissant l'opérateur voir ce qui est actuellement mis en sourdine.
+- Garder la forme filtrée par défaut et documenter l'alerte comme "findings actifs uniquement", avec un panneau séparé qui liste `GET /api/acks` pour pouvoir passer en revue l'ensemble acquitté.
 
-Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_waste_ratio`) ne sont pas affectés, ils enregistrent les événements de détection bruts sans aucun filtre d'ack.
+Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_waste_ratio`) ne sont pas affectés, car ils enregistrent les événements de détection bruts sans aucun filtre d'ack.
 
 ### Tableau de bord Grafana
 
 Un tableau de bord prêt à l'emploi est fourni dans le dépôt à
 [`examples/grafana-dashboard.json`](../../examples/grafana-dashboard.json)
-(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 29 panneaux :
-opérations d'E/S et ratio de gaspillage, types de findings par sévérité
-et dans le temps, p95 des requêtes lentes, traces actives, santé du
-daemon, pression mémoire, plafonds de cardinalité, scrapes énergie et
-export Hub, plus les jauges d'énergie, de carbone et de marge runtime
-issues des compteurs `/metrics` scrapés ci-dessus). Le chart ne l'embarque pas, pour la même raison qu'il
-n'embarque pas de collecteur : un tableau de bord figé dans le chart dérive
-du Grafana que vous exploitez déjà. Importez-le de deux façons.
+(titre `perf-sentinel overview`, uid `perf-sentinel-overview`). Ses 29
+panneaux couvrent les opérations d'E/S et le ratio de gaspillage, les
+types de findings par sévérité et dans le temps, le p95 des requêtes
+lentes, les traces actives, la santé du daemon, la pression mémoire, les
+plafonds de cardinalité, les scrapes énergie et l'export Hub, plus les
+jauges d'énergie, de carbone et de marge runtime issues des compteurs
+`/metrics` scrapés ci-dessus. Le chart ne l'embarque pas, pour la même
+raison qu'il n'embarque pas de collecteur : un tableau de bord figé dans
+le chart dérive du Grafana que vous exploitez déjà. Importez-le de deux
+façons.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">
@@ -610,13 +612,13 @@ JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
 
 **Une pastille `Compatibility`** termine la première ligne de panneaux. Elle passe à
 l'orange quand le daemon est antérieur à la 0.20.0, où `Service silence`
-n'a rien à tracer, et au rouge sous la 0.18.0, où les sélecteurs
+n'a rien à tracer. Elle passe au rouge sous la 0.18.0, où les sélecteurs
 `Service` et `Grouping` proposent encore des noms que les panneaux de
 findings ne peuvent honorer, si bien qu'une vue filtrée se lit comme un
-service propre. Il juge le daemon sur la présence de deux métriques dont
+service propre. Elle juge le daemon sur la présence de deux métriques dont
 les panneaux dépendent, `perf_sentinel_incidents_total` et
 `perf_sentinel_analysis_service_overflow_total`, plutôt que sur un numéro
-de version, parce qu'aucune métrique perf-sentinel n'en porte. Il affiche
+de version, parce qu'aucune métrique perf-sentinel n'en porte. Elle affiche
 `Unknown` quand rien ne répond pour les `Job` et `Namespace` choisis, ce
 qui est un daemon éteint ou un label de job qui ne correspond pas, jamais
 un verdict sur la version. Des panneaux vides sur un daemon à jour
@@ -633,22 +635,21 @@ bord offrait jusqu'ici. Le namespace est celui où tourne chaque daemon,
 pas celui des charges qu'il analyse, la variable choisit donc une
 installation et non une tranche du trafic. C'est le seul label que le
 daemon n'exporte pas : il est attaché par le scrape, donc Prometheus
-Operator le renseigne en lisant le ServiceMonitor du chart, et un scrape
+Operator le renseigne en lisant le ServiceMonitor du chart. Un scrape
 qui n'en attache aucun reste couvert par `All`, ce qui laisse le tableau
 de bord inchangé hors Kubernetes. `Service` filtre les panneaux
 d'analyse : findings, latence des spans lents et I/O, douze panneaux au
-total, chaque requête de la ligne depuis la 0.18.0, où
+total. Elle filtre chaque requête de la ligne depuis la 0.18.0, où
 `perf_sentinel_findings_total` et `perf_sentinel_slow_duration_seconds`
-ont gagné un label `service` borné, et `Grouping`, placée avant,
-restreint les mêmes douze panneaux et la
-liste des services au regroupement du trafic analysé (`k8s.namespace.name`,
-puis `service.namespace`, par défaut), ce que `Namespace` ne fait pas. Les
-autres panneaux mesurent le daemon lui-même (santé, files,
-intake OTLP, fraîcheur énergie) et restent globaux par construction :
-aucun service n'émet ces chiffres, aucun filtre service ne pourrait
-donc les découper. La cardinalité reste maîtrisée par des plafonds par
-run (128 services sur les findings, 64 sur l'histogramme, débordement
-replié dans `service="_other"`), et
+ont gagné un label `service` borné. `Grouping`, placée avant, restreint
+les mêmes douze panneaux et la liste des services au regroupement du
+trafic analysé (`k8s.namespace.name`, puis `service.namespace`, par
+défaut), ce que `Namespace` ne fait pas. Les autres panneaux mesurent le
+daemon lui-même (santé, files, réception OTLP, fraîcheur énergie) et
+restent globaux : aucun service n'émet ces chiffres, aucun filtre
+service ne pourrait donc les découper. La cardinalité reste maîtrisée
+par des plafonds par run (128 services sur les findings, 64 sur
+l'histogramme, débordement replié dans `service="_other"`).
 `[daemon] per_service_labels = false` restaure la forme sans label, et
 `per_grouping_labels = false` celle de la 0.18.0. Les plafonds de regroupement
 comptent les paires (service, grouping) admises après les plafonds de services
@@ -667,7 +668,7 @@ L'exception, ce sont les quelques panneaux `stat` qui affichent une
 valeur instantanée (`Active traces`, `Daemon health`) ou un total depuis
 le démarrage (`Total findings (cumulative)`, `Traces analyzed
 (cumulative)`, `Ingested I/O ops (cumulative)`). Un compteur cumulé depuis le
-démarrage du daemon est précisément ce qu'ils rapportent, ils le disent
+démarrage du daemon est ce qu'ils rapportent, ils le disent
 donc dans leur titre ou leur description, et ils repartent de zéro au
 redémarrage du pod.
 
@@ -675,14 +676,14 @@ redémarrage du pod.
 `sum(increase(perf_sentinel_service_avoidable_io_ops_total[$__range]))`
 sur `sum(increase(perf_sentinel_service_analyzed_io_ops_total[$__range]))`,
 les deux compteurs côté analyse de la même passe de scoring sous les
-mêmes plafonds, plutôt que lu sur la gauge `perf_sentinel_io_waste_ratio` exportée par le
-daemon. Cette gauge est un rapport de compteurs cumulés : elle ignore le
+mêmes plafonds, plutôt que lu sur la jauge `perf_sentinel_io_waste_ratio` exportée par le
+daemon. Cette jauge est un rapport de compteurs cumulés : elle ignore le
 sélecteur de plage, dilue un problème actuel dans tout ce qui s'est passé
 depuis le démarrage du pod, et affiche un cadran par réplica. La forme
 calculée répond sur la plage sélectionnée et pour toute la flotte, avec
 deux décimales, parce qu'une flotte à 1 % d'I/O évitables sur un million
 d'opérations mérite d'être vue là où un pourcentage entier l'arrondit à
-zéro. La gauge exportée reste disponible pour l'alerting.
+zéro. La jauge exportée reste disponible pour l'alerting.
 
 Chaque série qu'une requête renvoie une fois par réplica porte
 `{{instance}}` en légende, et les panneaux qui agrègent sur toute la
@@ -693,12 +694,12 @@ nombres côte à côte sans moyen de savoir lequel venait de quel pod.
 
 La ligne `Daemon health (global)` porte aussi ce que lisent les alertes
 livrées et ce que cette documentation appelle des panneaux. `Ingest
-memory pressure` est la gauge que lit `PerfSentinelMemoryPressureRejecting`,
+memory pressure` est la jauge que lit `PerfSentinelMemoryPressureRejecting`.
 `Runtime headroom and shedding` trace les traces écartées à côté des
-lots écartés puisque l'alerte se déclenche sur les traces, `Cardinality
-caps (overflow)` regroupe les six compteurs de plafond par run qui ne
-sont volontairement pas des alertes, `Energy scrape outcome` place les
-taux de succès et d'échec à côté des jauges de fraîcheur, `Daemon memory
+lots écartés, puisque l'alerte se déclenche sur les traces. `Cardinality
+caps (overflow)` regroupe les six compteurs de plafond par run que les
+règles livrées laissent de côté. `Energy scrape outcome` place les
+taux de succès et d'échec à côté des jauges de fraîcheur. `Daemon memory
 (RSS)` est le chiffre du collecteur de processus que le garde-fou
 mémoire maintient sous la limite, et `Hub export (pending and dropped)`
 surveille le tampon d'export borné. `OTLP span intake` ventile les spans
@@ -728,24 +729,23 @@ La clé d'étiquette (`grafana_dashboard` ici) doit correspondre au
 ### Grafana sur l'API de requête (table des findings)
 
 Le tableau de bord ci-dessus lit Prometheus, qui répond à "combien de
-findings, de quel type, depuis quel service" : depuis la 0.18.0
+findings, de quel type, depuis quel service". Depuis la 0.18.0,
 `perf_sentinel_findings_total` porte `type`, `severity` et un label
 `service` borné par un plafond de 128 services (le débordement se replie
 dans `service="_other"`) et, depuis la 0.19.0, un label `grouping` borné
 par ses propres plafonds. Un label par endpoint reste hors de
-`/metrics`, volontairement, parce que la cardinalité des endpoints n'est
-pas bornée. Quelle opération sur quel endpoint vit derrière l'API de
-requête.
+`/metrics` parce que la cardinalité des endpoints n'est pas bornée.
+Quelle opération sur quel endpoint vit derrière l'API de requête.
 
 Un second tableau de bord la lit directement par le
 [plugin Infinity](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
-(`yesoreyeram-infinity-datasource`, à installer d'abord, il n'est pas
-livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
+(`yesoreyeram-infinity-datasource`, qui n'est pas livré avec Grafana :
+installez-le d'abord et épinglez sa version là où vous le provisionnez) :
 
 - [`examples/grafana-infinity-datasource.yaml`](../../examples/grafana-infinity-datasource.yaml),
   la datasource provisionnée. Renseignez le namespace dans l'URL, et le
   port aussi si vous avez déplacé `service.ports.otlpHttp.port` : le
-  chart recoupe cette valeur avec `[daemon] listen_port_http`, ce
+  chart recoupe cette valeur avec `[daemon] listen_port_http`, mais ce
   fichier est hors de ce contrôle. Son second bloc, optionnel, pointe sur
   un PerfSentinelHub pour la rangée `History (Hub)` décrite plus bas.
 - [`examples/grafana-findings-dashboard.json`](../../examples/grafana-findings-dashboard.json),
@@ -756,7 +756,7 @@ livré avec Grafana, et épinglez sa version là où vous le provisionnez) :
   des backends énergie et, depuis la 0.20.0, les incidents postés par
   votre alerting avec les findings gelés pour chacun. Une pastille
   `Compatibility` à côté de la ligne d'état passe au rouge sous la
-  0.21.0, où ce tableau de bord se trompe au lieu de se dégrader :
+  0.21.0, où ce tableau de bord se trompe au lieu de se dégrader.
   `grouping` et `offset` n'existaient pas comme paramètres de requête, et
   l'API ignore ce qu'elle ne connaît pas, si bien que le sélecteur
   `Grouping` nomme un déploiement pendant que la table les liste tous et
@@ -796,23 +796,23 @@ zéro au redémarrage du daemon. La sévérité se filtre par l'en-tête de
 colonne, ainsi aucune requête ne peut demander à l'API une sévérité
 qu'elle ne connaît pas. Outre `Max rows`, cinq variables changent la
 requête. `Grouping` et `Service` la resserrent côté daemon par les
-paramètres `grouping` et `service`, et leurs valeurs sont les
-`label_values` de `perf_sentinel_findings_total`, raison pour laquelle
-le tableau de bord lie aussi une datasource Prometheus : les mêmes labels
-que filtre le tableau de bord d'aperçu, listés depuis Prometheus plutôt
-que lus sur une page peut-être déjà tronquée. Leur `All` envoie un
-blanc, que l'API lit comme une absence de filtre. `Finding type` la
-resserre par le paramètre `type` de l'API, l'un des douze types listés
-sous les libellés qu'affiche la colonne `Type`, et son `All` envoie le
-même blanc, si bien qu'un type rare comme `Slow SQL` n'est pas coupé par
-`Max rows` avant que l'en-tête de colonne puisse le filtrer. `Skip rows` est
-l'`offset` de l'API, un listing au-delà du plafond de 1000 lignes se lit
-donc par tranches, 0 puis le `Max rows` de la page précédente ; l'anneau
-continue de bouger entre deux requêtes, une ligne peut donc franchir une
-frontière de tranche, et resserrer d'abord est ce qui fait tenir la
-plupart des pages sous le plafond. `Include acked` : l'API laisse par
-défaut les findings acquittés de côté, un critique acquitté est donc
-absent sans que rien ne le dise, et `true` les redemande avec une
+paramètres `grouping` et `service`. Leurs valeurs sont les
+`label_values` de `perf_sentinel_findings_total`, donc le tableau de
+bord lie aussi une datasource Prometheus. Ce sont les mêmes labels que
+filtre le tableau de bord d'aperçu, listés depuis Prometheus plutôt que
+lus sur une page peut-être déjà tronquée. Leur `All` envoie un blanc,
+que l'API lit comme une absence de filtre. `Finding type` la resserre
+par le paramètre `type` de l'API, l'un des douze types listés sous les
+libellés qu'affiche la colonne `Type`, et son `All` envoie le même
+blanc. Un type rare comme `Slow SQL` n'est donc pas coupé par
+`Max rows` avant que l'en-tête de colonne puisse le filtrer. `Skip rows`
+est l'`offset` de l'API, un listing au-delà du plafond de 1000 lignes se
+lit donc par tranches, 0 puis le `Max rows` de la page précédente.
+L'anneau continue de bouger entre deux requêtes, une ligne peut donc
+franchir une frontière de tranche, et resserrer d'abord est ce qui fait
+tenir la plupart des pages sous le plafond. `Include acked` : l'API
+laisse par défaut les findings acquittés de côté, un critique acquitté
+est donc absent sans que rien ne le dise. `true` les redemande avec une
 colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
 `daemon` pour le stockage à chaud). `Suggestion` est le correctif propre
 au cadriciel ou au courtier que le daemon a déduit de la trace quand il
@@ -826,40 +826,42 @@ le plugin Infinity et la datasource Prometheus dans `__inputs` et
 `__requires`, la boîte d'import demande donc laquelle de chaque lier au
 lieu d'importer des panneaux qui n'ont rien à interroger. Le `2.0.0` de
 `__requires` est le plancher que vérifie cette boîte d'import, pas une
-garantie sur les majeures suivantes : après une montée de majeur du
-plugin, vérifiez que toutes les tables se remplissent encore, leurs
-colonnes venant du parseur backend et un changement de parseur vidant
+garantie sur les majeures suivantes. Après une montée de version majeure
+du plugin, vérifiez que toutes les tables se remplissent encore : leurs
+colonnes viennent du parseur backend, et un changement de parseur vide
 une table sans erreur nulle part.
 
 La table `Correlations` sous les findings lit `GET /api/correlations` :
 une ligne par paire orientée de findings qui se sont déclenchés ensemble
 entre services, la source d'abord et la cible dans les
-`[daemon.correlation] lag_threshold_ms`, avec le ratio `Confidence`, les
-deux comptes qui le fondent, le décalage médian, et `Source trace` et
-`Target trace`, les deux côtés de la dernière co-occurrence. Elle reste vide tant que `[daemon.correlation]
-enabled` n'est pas à `true`, et une paire vit une fenêtre
-(`window_minutes`) après sa dernière co-occurrence, rien ne la persiste,
-un redémarrage vide donc la table. La route ne prend aucun paramètre,
+`[daemon.correlation] lag_threshold_ms`. Chaque ligne porte le ratio
+`Confidence`, les deux comptes qui le fondent, le décalage médian, et
+`Source trace` et `Target trace`, les deux côtés de la dernière
+co-occurrence. La table reste vide tant que `[daemon.correlation] enabled`
+n'est pas à `true`. Une paire vit une fenêtre (`window_minutes`) après
+sa dernière co-occurrence et rien ne la sauvegarde, si bien qu'un
+redémarrage vide la table. La route ne prend aucun paramètre,
 `Grouping`, `Service` et `Finding type` ne la resserrent donc pas et ce
 sont les en-têtes de colonne qui filtrent.
 
 Deux tables en bas lisent `GET /api/incidents`, la route que
 `POST /api/incidents` remplit depuis un webhook Alertmanager (activée
-explicitement par `[daemon.incidents]`, voir `docs/FR/QUERY-API-FR.md`, et
+explicitement par `[daemon.incidents]`, voir `docs/FR/QUERY-API-FR.md`).
+Pour des règles et un receiver prêts à copier, voir
 `examples/incident-alerts-prometheus-operator.yaml` ou
-`examples/incident-alerts-victoriametrics-operator.yaml` pour des règles et un
-receiver prêts à copier).
-`Incidents` les liste du plus récent au plus ancien avec la fenêtre de
-capture, le nombre de findings gelés pour chacun, et une colonne
-`Capture` qui lit `oldest_finding_ms` contre le début de la fenêtre
-comme le fait `docs/FR/RUNBOOK-FR.md` : `complete` quand l'anneau
-atteignait encore en dessous de la fenêtre, `partial` quand il en avait
-déjà évincé une partie, `empty ring` quand rien n'était retenu. Cliquer
-une ligne renseigne la variable `Incident`, et `Incident findings`
-montre alors les lignes gelées pour cet incident, repliées sur la seule
-fenêtre, avec une colonne `First seen` à la place de `Acked via` : une
-première apparition postérieure au début de l'incident est une ligne
-qui n'a tiré qu'après le redémarrage. Le sélecteur de temps ne filtre
+`examples/incident-alerts-victoriametrics-operator.yaml`.
+`Incidents` liste les incidents du plus récent au plus ancien avec la
+fenêtre de capture, le nombre de findings gelés pour chacun, et une
+colonne `Capture`. Cette colonne lit `oldest_finding_ms` contre le
+début de la fenêtre comme le fait `docs/FR/RUNBOOK-FR.md` : `complete`
+quand l'anneau atteignait encore en dessous de la fenêtre, `partial`
+quand il en avait déjà évincé une partie, `empty ring` quand rien
+n'était retenu. Cliquer une ligne renseigne la variable `Incident`, et
+`Incident findings` montre alors les lignes gelées pour cet incident,
+repliées sur la seule fenêtre. Cette table a une colonne `First seen` à la
+place de `Acked via` : une première apparition postérieure au début de
+l'incident est une ligne qui ne s'est déclenchée qu'après le
+redémarrage. Le sélecteur de temps ne filtre
 aucune des deux tables, puisque la route n'a pas de filtre temporel.
 `Incidents` lit une page de 50 incidents après le nombre que choisit la
 variable `Incident skip rows` (de 0 à 950, par pas de 50), donc 0 montre
@@ -877,10 +879,10 @@ page.
 Les deux routes sont protégées, la datasource envoie donc désormais une
 clé. `examples/grafana-infinity-datasource.yaml` place
 `[daemon] read_api_key` dans l'en-tête `X-API-Key` (`auth_method:
-apiKey` dans les termes d'Infinity), sa valeur développée par Grafana
-depuis `PERF_SENTINEL_READ_API_KEY` dans l'environnement de Grafana
-lui-même via `$__env{}`, la clé vient donc d'un Secret monté dans le pod
-Grafana et ne figure jamais dans le fichier. C'est la clé de lecture,
+apiKey` dans les termes d'Infinity). Grafana remplit l'en-tête depuis
+`PERF_SENTINEL_READ_API_KEY` dans son propre environnement via
+`$__env{}`, la clé vient donc d'un Secret monté dans le pod Grafana et
+ne figure jamais dans le fichier. C'est la clé de lecture,
 jamais la clé d'écriture de `[daemon.incidents]` : un dossier Grafana ne
 doit pas pouvoir fabriquer un incident, et le daemon refuse au démarrage
 une clé de lecture égale à une clé d'écriture. Le même en-tête ouvre
@@ -896,17 +898,17 @@ Les tables ci-dessus lisent le ring du daemon, borné en volume et non en
 durée, donc le sélecteur de temps ne peut pas remonter. Là où un
 [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est
 déployé (0.3.0 et suivants), la rangée repliée `History (Hub)` lit le Hub
-à la place : son `GET /api/findings` avec la plage du sélecteur (`from`,
-`to`), la variable `Environment`, et les filtres `Service` et
-`Finding type` de la table live. `Findings history` liste une ligne par
-problème que le Hub a vu dans cet environnement un jour de la plage, à
-l'horloge du Hub en UTC, avec `First seen`, `Last seen` et `Status`
-calculés pour ce seul environnement. Elle n'a pas de colonnes
-d'occurrences : les comptes du daemon sont relatifs à son ring et ne
-s'additionnent pas sur des mois, et `perf_sentinel_findings_total` garde
-les volumes dans Prometheus. L'historique par jour commence le jour où le
-Hub est passé en 0.3.0, et le Hub le garde pendant `Hub:Retention`,
-180 jours par défaut.
+à la place. Elle appelle le `GET /api/findings` du Hub avec la plage du
+sélecteur (`from`, `to`), la variable `Environment`, et les filtres
+`Service` et `Finding type` de la table en direct. `Findings history`
+liste une ligne par problème que le Hub a vu dans cet environnement un
+jour de la plage, à l'horloge du Hub en UTC, avec `First seen`,
+`Last seen` et `Status` calculés pour ce seul environnement. Elle n'a
+pas de colonnes d'occurrences : les comptes du daemon sont relatifs à
+son ring et ne s'additionnent pas sur des mois, et
+`perf_sentinel_findings_total` garde les volumes dans Prometheus.
+L'historique par jour commence le jour où le Hub est passé en 0.3.0, et
+le Hub le garde pendant `Hub:Retention`, 180 jours par défaut.
 
 La rangée a besoin de trois choses, dont le reste du dashboard se passe :
 
@@ -931,9 +933,10 @@ d'historique ajoute son environnement, pour que cette page s'ouvre avec
 les sources de cet environnement cochées. Le lien a besoin de `Hub URL`,
 d'un Hub qui détient une clé d'ack pour la source (le
 `docs/CONFIGURATION.md` du Hub), et d'un finding que le Hub connaît déjà,
-ce qui prend quelques secondes avec `[daemon.hub_export]` et un poll
-sinon. Sans Hub les liens ne mènent nulle part : acquittez depuis la CLI,
-le rapport HTML ou le TUI, voir `docs/FR/ACK-WORKFLOW-FR.md`.
+ce qui prend quelques secondes avec `[daemon.hub_export]` et un cycle
+d'interrogation sinon. Sans Hub les liens ne mènent nulle part :
+acquittez depuis la CLI, le rapport HTML ou le TUI, voir
+`docs/FR/ACK-WORKFLOW-FR.md`.
 
 `Acked on` et `Acked by` viennent du miroir que le Hub tient des acks de
 chaque daemon, baseline CI comprise, ce qui demande des daemons à partir
@@ -942,8 +945,7 @@ observation.
 
 ### Règles d'alerte (PrometheusRule)
 
-Le chart fournit une `PrometheusRule` pour que les alertes qui comptent soient
-livrées, plutôt qu'un exercice de câblage à faire soi-même. Elle est
+Le chart fournit une `PrometheusRule` avec les alertes qui comptent. Elle est
 conditionnée comme le ServiceMonitor et désactivée par défaut :
 
 ```yaml
@@ -959,7 +961,7 @@ prometheusRule:
   scraperStaleSeconds: 120
 ```
 
-Le groupe par défaut `perf-sentinel.rules` porte cinq règles, et chacune se
+Le groupe par défaut `perf-sentinel.rules` porte cinq règles. Chacune se
 déclenche sur une donnée que le daemon a perdue sans pouvoir la retrouver : le
 daemon qui n'est plus collecté (`up{job="<fullname> de la release"} == 0`),
 l'ingestion abandonnée sur un canal saturé, l'ingestion refusée sous pression
@@ -969,16 +971,16 @@ divulgation perdue. La `description` de chaque alerte nomme le paramètre
 passées telles quelles dans le même groupe, sans fork.
 
 La saturation de file, l'éviction de paires du corrélateur et le débordement de
-cardinalité de services ne sont délibérément **pas** des alertes. Chacune se
-déclencherait sur un état que le daemon atteint en fonctionnant normalement, et
-chacune est déjà un panneau du tableau de bord Grafana livré. La saturation en
-particulier prédisait l'alerte de délestage, donc un incident produisait deux
-notifications et la première ne portait aucun remède que la seconde n'avait pas.
+cardinalité de services ne sont **pas** des alertes. Chacune se déclencherait
+sur un état que le daemon atteint en fonctionnant normalement, et chacune est
+déjà un panneau du tableau de bord Grafana livré. La saturation en particulier
+prédisait l'alerte de délestage, donc un incident produisait deux notifications
+et la première ne portait aucun remède que la seconde n'avait pas.
 
 `PerfSentinelDown` lit le nom de job que l'opérateur Prometheus dérive du
 Service, c'est-à-dire le fullname de la release. Collecter avec votre propre
-`scrape_config` sous un autre `job_name` laisse cette règle muette, redéfinissez
--la alors via `additionalRules`.
+`scrape_config` sous un autre `job_name` laisse cette règle muette. Dans ce cas,
+redéfinissez-la via `additionalRules`.
 
 ### PodDisruptionBudget
 
@@ -1019,7 +1021,7 @@ datasources:
 
 ### Sans le Prometheus Operator
 
-Si vous utilisez un Prometheus vanilla sans operator, ajoutez une entrée de scrape statique :
+Si vous utilisez un Prometheus standard sans l'opérateur, ajoutez une entrée de scrape statique :
 
 ```yaml
 scrape_configs:
@@ -1043,7 +1045,7 @@ Le rôle est `endpoints` parce que `__meta_kubernetes_endpoint_port_name`
 n'existe que là, et un `keep` sur un label que le rôle ne pose jamais
 écarte toutes les cibles. La dernière règle est ce que lit la variable
 `Namespace` du tableau de bord : Prometheus Operator attache ce label de
-lui-même, un scrape écrit à la main doit le demander.
+lui-même, mais un scrape écrit à la main doit le demander.
 
 ## Mise à jour
 
@@ -1053,9 +1055,9 @@ helm upgrade perf-sentinel ./charts/perf-sentinel \
   -f my-values.yaml
 ```
 
-Le daemon ne recharge pas sa config à chaud, donc les modifications de `config.toml` exigent un redémarrage du pod. Le chart gère cela automatiquement : une annotation `checksum/config` sur le pod template calcule un hash de la ConfigMap rendue, donc chaque édition de config bump l'annotation et déclenche un rolling restart. Aucun `kubectl rollout restart` manuel n'est nécessaire.
+Le daemon ne recharge pas sa config à chaud, donc les modifications de `config.toml` exigent un redémarrage du pod. Le chart gère cela automatiquement : une annotation `checksum/config` sur le pod template calcule un hash de la ConfigMap rendue, donc chaque édition de config modifie l'annotation et déclenche un rolling restart. Aucun `kubectl rollout restart` manuel n'est nécessaire.
 
-Lors d'un bump du chart vers un nouveau `appVersion`, pinnez `image.tag` explicitement et relisez `CHANGELOG.md` pour repérer les breaking changes de config. Le chart ne valide pas encore que la version du daemon corresponde à la version du chart, cette responsabilité incombe à l'opérateur.
+Lors du passage du chart à un nouveau `appVersion`, épinglez `image.tag` explicitement et relisez `CHANGELOG.md` pour repérer les changements de config incompatibles. Le chart ne valide pas encore que la version du daemon corresponde à la version du chart, cette vérification incombe donc à l'opérateur.
 
 ## Désinstallation
 

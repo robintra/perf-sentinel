@@ -36,14 +36,14 @@ const CARBON_SOURCE_VALUES: &[&str] = &["electricity_maps", "static_tables", "mi
 
 /// Minimum runtime-calibration ratio for an `official` intent report.
 /// Reports below this threshold are likely produced during a daemon
-/// migration or with partial Scaphandre coverage; publishing them as
+/// migration or with partial Scaphandre coverage. Publishing them as
 /// `official` would silently understate or distort the period total.
 pub const MIN_PERIOD_COVERAGE_FOR_OFFICIAL: f64 = 0.75;
 
 /// Informational threshold for the `disclose` CLI temporal-coverage warning.
 /// When fewer than this fraction of the declared period's days carry archived
 /// windows, the CLI emits a stderr warning and an in-band disclaimer. This is
-/// deliberately NOT a validation gate: `validate_official` never rejects on
+/// NOT a validation gate: `validate_official` never rejects on
 /// `temporal_coverage` because archiving is traffic-gated, so a low value can
 /// be a legitimately quiet period rather than a measurement gap.
 pub const LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD: f64 = 0.80;
@@ -190,8 +190,8 @@ fn validate_scope_manifest(scope: &ScopeManifest, errors: &mut Vec<ValidationErr
             reason: format!("must be a finite value in [0, 100], got {pct}"),
         });
     }
-    // A machine-derived numerator above an operator-declared denominator is a
-    // genuine inconsistency (it also implies coverage_percentage > 100).
+    // A machine-derived numerator above an operator-declared denominator is an
+    // inconsistency (it also implies coverage_percentage > 100).
     if let Some(total) = scope.total_requests_in_period
         && scope.requests_measured > total
     {
@@ -321,7 +321,7 @@ fn validate_calibration_inputs(meth: &Methodology, errors: &mut Vec<ValidationEr
         // The binary may carry an annotated suffix (e.g.
         // "2026-04-24 (CCF aligned)") but the operator declares the bare
         // date string. Substring match would accept "2026" or "CCF" and
-        // miss the drift the audit is meant to catch.
+        // miss the drift this check is meant to catch.
         let binary_date_prefix = binary_vintage.split_whitespace().next().unwrap_or("");
         if declared_vintage != binary_date_prefix {
             errors.push(ValidationError::Methodology {
@@ -464,7 +464,8 @@ fn validate_messaging_waste(agg: &Aggregate, errors: &mut Vec<ValidationError>) 
 
 /// One waste block, either twin: finite non-negative figures, bounded
 /// charset-clean model tags, and the provenance-split invariants. The
-/// zero split is accepted as-is, it marks a report predating the fields.
+/// zero split is accepted as-is because it marks a report predating the
+/// fields.
 fn validate_waste_block(
     block: &super::schema::DatabaseWasteAggregate,
     f: &WasteBlockFields,
@@ -543,8 +544,8 @@ fn validate_waste_block(
 
 /// Validate the v1.2 temporal-coverage block. The float ratio is always
 /// range-checked, with NO official-intent gate: archiving is traffic-gated, so
-/// a low value can be a legitimately quiet period, the breach is a CLI warning
-/// only. The integer sub-fields are cross-checked only when the block is
+/// a low value can be a legitimately quiet period and only triggers a CLI
+/// warning. The integer sub-fields are cross-checked only when the block is
 /// populated, so a pre-v1.2 / default (all-zero) block still validates. These
 /// mirror the `days_covered` and `requests_measured` consistency rules: a
 /// disclose-produced report satisfies them by construction, so only a
@@ -596,8 +597,8 @@ fn validate_temporal_coverage(
 /// Validate the canonical/operational avoidable tiers. The canonical tier
 /// must carry the binary-pinned threshold, else the figure was not computed
 /// at the non-manipulable threshold. The operational threshold is the
-/// operator's recorded choice and is deliberately not range-checked: a loose
-/// operator threshold is exactly what this tier exists to surface.
+/// operator's recorded choice and is not range-checked, because this tier
+/// exists to surface a loose operator threshold.
 fn validate_waste_tiers(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
     validate_waste_tier("canonical_waste", &agg.canonical_waste, errors);
     validate_waste_tier("operational_waste", &agg.operational_waste, errors);
@@ -902,16 +903,16 @@ mod tests {
         r.methodology.calibration_inputs.specpower_table_version = "2026-04-24".to_string();
         r.methodology.calibration_inputs.binary_specpower_vintage =
             Some("2026-04-24 (CCF aligned)".to_string());
-        // Operator declares the bare date prefix; the binary annotates it.
+        // Operator declares the bare date prefix. The binary annotates it.
         validate_official(&r).expect("date prefix vintage must validate");
     }
 
     #[test]
     fn declared_specpower_vintage_trivial_substring_rejected() {
         let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
-        // Operator declares a permissive substring that the previous
-        // contains-based rule would have accepted ("2026" sits inside
-        // "2026-04-24"). Prefix exact match must reject it as drift.
+        // Operator declares a permissive substring that a contains-based
+        // rule would accept ("2026" sits inside "2026-04-24"). Prefix exact
+        // match must reject it as drift.
         r.methodology.calibration_inputs.specpower_table_version = "2026".to_string();
         r.methodology.calibration_inputs.binary_specpower_vintage =
             Some("2026-04-24 (CCF aligned)".to_string());
@@ -928,9 +929,9 @@ mod tests {
     #[test]
     fn declared_specpower_vintage_without_binary_field_accepted() {
         let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
-        // When the binary vintage field is absent (older binary or
-        // intentionally skipped), the drift rule cannot fire and the
-        // operator's declaration is accepted as-is.
+        // When the binary vintage field is absent (older binary, or left
+        // out), the drift rule cannot fire and the operator's declaration
+        // is accepted as-is.
         r.methodology.calibration_inputs.specpower_table_version = "anything-2099".to_string();
         r.methodology.calibration_inputs.binary_specpower_vintage = None;
         validate_official(&r).expect("absent binary vintage must not gate the validator");
@@ -1027,8 +1028,8 @@ mod tests {
 
     #[test]
     fn high_operational_threshold_accepted() {
-        // The operator's threshold is recorded, not range-checked: a loose
-        // threshold is exactly what the operational tier exists to surface.
+        // The operator's threshold is recorded, not range-checked, because
+        // the operational tier exists to surface a loose threshold.
         let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
         r.aggregate.operational_waste.n_plus_one_threshold = 5_000;
         validate_official(&r).expect("a high operator threshold must not fail validation");
@@ -1148,7 +1149,7 @@ mod tests {
     #[test]
     fn low_temporal_coverage_accepted_for_official() {
         // No gate: a quiet period must still publish as official. Only the CLI
-        // warns, the validator stays silent. Block is internally consistent.
+        // warns. The validator stays silent. Block is internally consistent.
         let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
         r.aggregate.temporal_coverage = TemporalCoverage {
             temporal_coverage: 0.05,
@@ -1265,7 +1266,7 @@ mod tests {
     #[test]
     fn a_declared_only_block_satisfies_the_three_term_split() {
         // The shape every [green.broker_static]-only deployment produces.
-        // The two-term invariant this replaced would reject it.
+        // A two-term (measured + estimated) invariant would reject it.
         let mut block = valid_db_waste();
         block.measured_energy_kwh = 0.0;
         block.measured_windows = 0;

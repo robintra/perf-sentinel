@@ -235,13 +235,13 @@ Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.
 
 ### Self-hosted (Jaeger, Tempo, Zipkin)
 
-If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with an OTLP JSON dump from the Collector `file` exporter, or with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`), formats are auto-detected.
+If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with an OTLP JSON dump from the Collector `file` exporter, or with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`). Formats are auto-detected.
 
 ---
 
 ## Production: via OpenTelemetry Collector
 
-If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you will be able to add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, perf-sentinel analyzes a copy of the same spans.
+If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you can add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, perf-sentinel analyzes a copy of the same spans.
 
 ```yaml
 # otel-collector-config.yaml
@@ -353,7 +353,7 @@ service:
       exporters: [otlp/perf-sentinel]
 ```
 
-Sampling in front of perf-sentinel is supported, it is just lossy in
+Sampling in front of perf-sentinel is supported, but it is lossy in
 ways the daemon cannot report: a kept trace is indistinguishable from a
 complete one, so nothing in the output says the numbers cover a tenth
 of the traffic. If volume forces you to narrow the analysis branch,
@@ -369,7 +369,7 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 - **Within a kept trace, all spans are preserved**. OTel and Jaeger sample per-trace, not per-span, so an N+1 loop, a chatty service hop or a fanout pattern that lives inside one request still detects cleanly as long as the parent trace is kept.
 - **Head-based sampling breaks count-based detections**. A 1% head-based policy drops 99% of traces before they reach the collector, so a 50-call N+1 loop is observed as 3 calls, well below any reasonable threshold. Same for chatty services, fanout, serialized parallelizable calls, pool saturation. Anything threshold-driven gets silently underreported.
 - **Tail-based sampling stays compatible with detection** because the policies you would write for incident review (keep errors, keep slow traces, keep specific services) are exactly the ones that surface anti-patterns. The [`tail_sampling` processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) example above keeps everything under those policies plus a 10% probabilistic sample of the rest.
-- **Counts are understated by any sampling, silently.** Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio survives it, but the `errors` and `slow` policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. perf-sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
+- **Counts are understated by any sampling, silently.** Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio stays unbiased, but the `errors` and `slow` policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. perf-sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
 - **Cross-trace correlation goes quiet.** `[daemon.correlation] min_co_occurrences` needs a finding pair to recur inside the window. At a 10% sample the repeated co-occurrences rarely survive, so the correlator reports nothing even when the coupling is real. That silence is not evidence of a healthy topology.
 - **CI runs should keep 100% of traces**. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The Quick start sections above assume 100% sampling.
 - **`pg-stat` mode is sampling-immune**. `pg_stat_statements` aggregates query counters server-side in PostgreSQL, regardless of what the application tracer captured. A query that runs 10 000 times shows up as 10 000 calls even if 99% of the parent traces were dropped at the head. Run `perf-sentinel pg-stat ...` (or pass `--pg-stat` to `analyze` and `report`) as a fallback when you cannot trust the trace volume, or as a primary signal for code paths the tracer does not even cover.
@@ -382,39 +382,39 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 
 perf-sentinel detects I/O anti-patterns by looking at specific span attributes. Both the legacy and stable [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported.
 
-| Purpose         | Legacy attribute (pre-1.21)               | Stable attribute (1.21+)    | Example                                   |
-|-----------------|-------------------------------------------|-----------------------------|-------------------------------------------|
-| SQL query text  | `db.statement`                            | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
-| SQL system      | `db.system`                               | `db.system`                 | `postgresql`, `mysql`                     |
-| HTTP target URL | `http.url`                                | `url.full`                  | `http://account-svc:5000/api/account/123` |
-| HTTP method     | `http.method`                             | `http.request.method`       | `GET`, `POST`                             |
-| HTTP status     | `http.status_code`                        | `http.response.status_code` | `200`, `404`                              |
-| RPC callee      | `rpc.system` + `rpc.service`/`rpc.method` | (same)                      | `grpc`, `order.v1.OrderService/GetOrder`  |
-| Broker system   | `messaging.system`                        | (same)                      | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
-| Broker destination | `messaging.destination`                | `messaging.destination.name` | `orders`, `signature.jobs`               |
-| Message size    | `messaging.message.body.size`             | (same)                      | `4096`                                    |
-| Source endpoint | `http.route`, `url.path`                  | `http.route`, `url.path`    | `POST /api/game/{id}/start`               |
-| Service name    | `service.name` (resource)                 | `service.name` (resource)   | `game`, `account-svc`                     |
-| Service namespace | `service.namespace` (resource)          | (same)                      | `commerce`                                |
-| Kubernetes namespace | `k8s.namespace.name` (resource)       | (same)                      | `prod-eu`                                 |
+| Purpose              | Legacy attribute (pre-1.21)               | Stable attribute (1.21+)     | Example                                   |
+|----------------------|-------------------------------------------|------------------------------|-------------------------------------------|
+| SQL query text       | `db.statement`                            | `db.query.text`              | `SELECT * FROM player WHERE game_id = 42` |
+| SQL system           | `db.system`                               | `db.system`                  | `postgresql`, `mysql`                     |
+| HTTP target URL      | `http.url`                                | `url.full`                   | `http://account-svc:5000/api/account/123` |
+| HTTP method          | `http.method`                             | `http.request.method`        | `GET`, `POST`                             |
+| HTTP status          | `http.status_code`                        | `http.response.status_code`  | `200`, `404`                              |
+| RPC callee           | `rpc.system` + `rpc.service`/`rpc.method` | (same)                       | `grpc`, `order.v1.OrderService/GetOrder`  |
+| Broker system        | `messaging.system`                        | (same)                       | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
+| Broker destination   | `messaging.destination`                   | `messaging.destination.name` | `orders`, `signature.jobs`                |
+| Message size         | `messaging.message.body.size`             | (same)                       | `4096`                                    |
+| Source endpoint      | `http.route`, `url.path`                  | `http.route`, `url.path`     | `POST /api/game/{id}/start`               |
+| Service name         | `service.name` (resource)                 | `service.name` (resource)    | `game`, `account-svc`                     |
+| Service namespace    | `service.namespace` (resource)            | (same)                       | `commerce`                                |
+| Kubernetes namespace | `k8s.namespace.name` (resource)           | (same)                       | `prod-eu`                                 |
 
-Spring Boot services traced through Micrometer Observation (the `spring-boot-starter-opentelemetry` starter, or the Micrometer Zipkin bridge) tag their outbound HTTP spans with `method` and `status` instead of the OTel names. perf-sentinel reads these two tags as a last resort, and only on a span it already classified as an outbound call through its URL; a non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.
+Spring Boot services traced through Micrometer Observation (the `spring-boot-starter-opentelemetry` starter, or the Micrometer Zipkin bridge) tag their outbound HTTP spans with `method` and `status` instead of the OTel names. perf-sentinel reads these two tags as a last resort, and only on a span it already classified as an outbound call through its URL. A non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.
 
 Spans that carry no SQL, HTTP, RPC, or messaging attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
 
 **Outbound HTTP is client-side only.** A span whose kind is SERVER never becomes an outbound HTTP call, even when it carries `http.url` or `url.full`. The stable convention puts `url.full` on CLIENT spans only, but legacy instrumentations set `http.url` on the inbound handler span too, and admitting those would count every instrumented hop twice and credit a service with calls it never made. This matches the CLIENT-only rule for RPC below. Three consequences. A SERVER span carrying `db.statement` is still analyzed, because SQL is classified before HTTP. A span that never sets its kind stays eligible for HTTP, so an instrumentation that omits the kind is unaffected. And a rejected SERVER span still supplies its `http.route` as the inbound endpoint that findings are attributed to. Jaeger reads the `span.kind` tag (`server`), Zipkin the `kind` field (`SERVER`).
 
-Which attributes separate one deployment from another is configuration, not a fixed pair. `[detection] grouping_attributes` takes an ordered list of resource or span attributes, defaulting to `["k8s.namespace.name", "service.namespace"]`. The first one present on a span decides identity: two identical findings in two groupings stay two findings, and the key remains part of that identity so `tenant.id=prod` cannot collide with `k8s.namespace.name=prod`. Every listed attribute that is present is captured and displayed, and each surface labels it as `key=value`. A shared cluster where the namespace does not tell tenants apart can group by `tenant.id` instead, provided the application sets it on its spans. The HTML filter uses the first captured configured attribute; when none is present, the finding has no grouping chip. Acknowledgment signatures ignore the list entirely, so one ack still covers every deployment and reordering the list never invalidates an ack. The same configured order applies to batch files, daemon OTLP gRPC and HTTP, Tempo, and Jaeger Query. Jaeger reads values from process tags with span-tag fallback, and Zipkin reads them from span tags.
+Which attributes separate one deployment from another is configuration, not a fixed pair. `[detection] grouping_attributes` takes an ordered list of resource or span attributes, defaulting to `["k8s.namespace.name", "service.namespace"]`. The first one present on a span decides identity: two identical findings in two groupings stay two findings, and the key remains part of that identity so `tenant.id=prod` cannot collide with `k8s.namespace.name=prod`. Every listed attribute that is present is captured and displayed, and each surface labels it as `key=value`. A shared cluster where the namespace does not tell tenants apart can group by `tenant.id` instead, provided the application sets it on its spans. The HTML filter uses the first captured configured attribute. When none is present, the finding has no grouping chip. Acknowledgment signatures ignore the list entirely, so one ack still covers every deployment and reordering the list never invalidates an ack. The same configured order applies to batch files, daemon OTLP gRPC and HTTP, Tempo, and Jaeger Query. Jaeger reads values from process tags with span-tag fallback, and Zipkin reads them from span tags.
 
-RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a URL, so they are keyed on `rpc.system` and modeled as outbound calls: the target is `rpc.service/rpc.method` (falling back to the span name when either is absent), and findings appear under the `_http` types. This keeps the topological detectors (fanout, chatty, serialized) and the occurrence detectors (n+1, redundant) working on RPC-heavy fleets. RPC spans carry no query text, so `n_plus_one_sql` and the SQL normalizer never apply to them.
+RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a URL, so they are keyed on `rpc.system` and modeled as outbound calls. The target is `rpc.service/rpc.method` (falling back to the span name when either is absent), and findings appear under the `_http` types. This keeps the topological detectors (fanout, chatty, serialized) and the occurrence detectors (n+1, redundant) working on RPC-heavy fleets. RPC spans carry no query text, so `n_plus_one_sql` and the SQL normalizer never apply to them.
 
 Three consequences to be aware of on RPC findings:
 
 - **Only CLIENT spans are modeled.** The `rpc.*` attributes are set on the inbound SERVER handler span as well as the outbound CLIENT span, so perf-sentinel admits only `SpanKind::Client`. An RPC span with an unset or non-CLIENT kind is treated as inbound work (not an outbound call), so an instrumentation that never sets the span kind produces no RPC findings.
 - **Findings surface under the `_http` types.** An RPC N+1 is reported as `n_plus_one_http` and its remediation text mentions an HTTP batch endpoint. The finding is correct about the anti-pattern (the repeated dependency call), only the protocol label and the batch-endpoint wording are HTTP-flavored.
-- **Per-call arguments are invisible.** A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to the same method share one empty-parameter template. Like a query-redacted HTTP URL (see [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility)), those calls read as `redundant_http` rather than `n_plus_one_http`. The repeated-call signal is genuine either way, only the "cache vs batch" remediation differs.
+- **Per-call arguments are invisible.** A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to the same method share one empty-parameter template. Like a query-redacted HTTP URL (see [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility)), those calls read as `redundant_http` rather than `n_plus_one_http`. The repeated-call signal is real either way, only the "cache vs batch" remediation differs.
 
-Messaging spans (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS) carry neither a statement nor a URL either, so they are keyed on `messaging.system` and modeled as outbound calls whose target is the destination, falling back to the span name when the destination attribute is absent. One convention covers the whole family. Unlike RPC, they get their own finding types: `n_plus_one_messaging` and `slow_messaging`. There is no redundant counterpart, a publish carries no parameters to compare.
+Messaging spans (Kafka, RabbitMQ, Pulsar, SQS, NATS, JMS) carry neither a statement nor a URL either, so they are keyed on `messaging.system` and modeled as outbound calls whose target is the destination, falling back to the span name when the destination attribute is absent. One convention covers the whole family. Unlike RPC, they get their own finding types: `n_plus_one_messaging` and `slow_messaging`. There is no redundant counterpart because a publish carries no parameters to compare.
 
 Three consequences to be aware of on messaging findings:
 
@@ -425,13 +425,13 @@ Three consequences to be aware of on messaging findings:
 > **Silent skip.** A span dropped for a missing carrying attribute
 > produces no warning and no error. A SQL span without `db.statement` /
 > `db.query.text`, an HTTP span without `http.url` / `url.full`, or a
-> SERVER span whose URL describes its own inbound request,
-> simply yields no finding. A thin or empty report can therefore mean
-> *no problems* or *no usable instrumentation*. Run
-> `perf-sentinel inspect` to see what was actually extracted, and see
+> SERVER span whose URL describes its own inbound request yields no
+> finding. A thin or empty report can therefore mean *no problems* or
+> *no usable instrumentation*. Run `perf-sentinel inspect` to see what
+> was extracted, and see
 > [Instrumentation quality bounds findings](./LIMITATIONS.md#instrumentation-quality-bounds-findings).
 
-> **`http.route` is load-bearing for ack stability.** The acknowledgment
+> **Ack stability depends on `http.route`.** The acknowledgment
 > signature is keyed on the route template, not the instantiated URL.
 > Services that emit `http.route` (Spring Boot, ASP.NET Core, Express,
 > any modern auto-instrumentation) get acks that survive restarts and
@@ -520,16 +520,16 @@ fi
 
 The setup above assumes a long-running process talking to a live OTLP endpoint. Integration tests are different: they run inside the test runner's own JVM and there is no daemon to send traces to in CI. See [CI.md](./CI.md#ci-mode-batch-analysis) for the batch-mode path this feeds.
 
-**Before agent 2.32.0, Java has no file exporter, and a forked test JVM cannot hand you its stdout either.** Up to SDK 1.65, the one agent 2.31.1 bundles, no Java exporter writes spans to a path you choose. The declarative-configuration exporter `otlp_file/development` defines an `output_stream: file://...` field, but the Java SDK only implements it from 1.66 on, see Option 3 below. That leaves `experimental-otlp/stdout`, which writes OTLP JSON to `System.out`, and this is where Maven gets in the way: Surefire and Failsafe talk to the forked JVM over an encoded protocol carried on that fork's stdout. The agent initialises in `premain` and captures the original `System.out`, the command channel itself, before Surefire installs the wrapper `redirectTestOutputToFile` acts on. Every export is then classified as channel corruption and diverted into `target/failsafe-reports/<timestamp>-jvmRunN.dumpstream`:
+**Before agent 2.32.0, Java has no file exporter, and a forked test JVM cannot hand you its stdout either.** Up to SDK 1.65, the one agent 2.31.1 bundles, no Java exporter writes spans to a path you choose. The declarative-configuration exporter `otlp_file/development` defines an `output_stream: file://...` field, but the Java SDK only implements it from 1.66 on, see Option 3 below. That leaves `experimental-otlp/stdout`, which writes OTLP JSON to `System.out`. Maven gets in the way, because Surefire and Failsafe talk to the forked JVM over an encoded protocol carried on that fork's stdout. The agent initialises in `premain` and captures the original `System.out`, the command channel itself, before Surefire installs the wrapper `redirectTestOutputToFile` acts on. Every export is then classified as channel corruption and diverted into `target/failsafe-reports/<timestamp>-jvmRunN.dumpstream`:
 
 ```
 Corrupted channel by directly writing to native stream in forked JVM 1.
 Stream '{"resourceSpans":[{"resource":{"attributes":[{"key":"host.arch",…}]}}]}'.
 ```
 
-Nothing usable reaches `-output.txt`, and piping the build with `tee` does not help either, since the fork's stdout is the channel rather than the console. This is not a version artefact, Failsafe 3.5.0, 3.2.5 and 2.22.2 all divert it.
+Nothing usable reaches `-output.txt`, and piping the build with `tee` does not help either, since the fork's stdout is the channel rather than the console. This is not a version artefact: Failsafe 3.5.0, 3.2.5 and 2.22.2 all divert it.
 
-So, short of agent 2.32.0, the traces have to leave the JVM the way they do in production, over the network, and something has to be listening. That is what `perf-sentinel capture` is for, and it works the same on every agent version.
+So, short of agent 2.32.0, the traces have to leave the JVM the way they do in production, over the network, and something has to be listening. `perf-sentinel capture` is that listener, and it works the same on every agent version.
 
 **Attach the agent to the test JVM, not just the built image.** If integration tests run in-process against `@SpringBootTest` (Maven Failsafe, Gradle `integrationTest`) rather than against the built container, the agent baked into your Dockerfile never sees them. Copy the agent jar into the build, pinned to the version baked into your Dockerfile so both environments instrument the same way:
 
@@ -579,13 +579,13 @@ So, short of agent 2.32.0, the traces have to leave the JVM the way they do in p
 
 Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeholder) and append `-javaagent:...` to it. Overwriting it is a common mistake that silently drops JaCoCo coverage instrumentation. `OTEL_TRACES_SAMPLER=always_on` matters more here than in production: sampling would drop exactly the repeated calls N+1 detection relies on.
 
-**Set the protocol, do not rely on the default.** Agent 2.0 changed it from `grpc` to `http/protobuf`, so the same endpoint means different ports depending on the agent version. An endpoint pointed at the wrong one exports nothing and only warns in the agent's own log, which leaves a capture empty for a reason nothing else names. Pairing `:4317` with `grpc`, as above, or `:4318` with `http/protobuf`, both work.
+**Set the protocol, do not rely on the default.** Agent 2.0 changed it from `grpc` to `http/protobuf`, so the same endpoint means different ports depending on the agent version. An endpoint pointed at the wrong one exports nothing and only warns in the agent's own log, which leaves a capture empty for a reason nothing else names. `:4317` with `grpc`, as above, and `:4318` with `http/protobuf` both work.
 
-Nothing above is specific to perf-sentinel, it is the standard OTLP setup. What changes is who listens.
+Nothing above is specific to perf-sentinel: it is the standard OTLP setup. Only the listener changes.
 
 ##### Option 1, `perf-sentinel capture` (recommended)
 
-The `capture` subcommand receives OTLP and writes a trace file, nothing else. No Collector, no container, no plugin, and the fork stays exactly as it is. Either wrap the test step:
+The `capture` subcommand receives OTLP and writes a trace file, nothing else. No Collector, no container, no plugin, and the fork stays as it is. Either wrap the test step:
 
 ```bash
 perf-sentinel capture --output target/traces.json -- mvn verify
@@ -602,9 +602,9 @@ kill -TERM $CAPTURE && wait $CAPTURE
 perf-sentinel analyze --ci --input target/traces.json
 ```
 
-> **Prefix your existing test step, never add a second one.** `capture -- mvn verify` runs the tests once, it does not run them again. Adding a new pipeline stage next to the existing one would run the whole integration suite twice, for nothing.
+> **Prefix your existing test step, never add a second one.** `capture -- mvn verify` runs the tests once and does not run them again. Adding a new pipeline stage next to the existing one would run the whole integration suite twice, for nothing.
 
-> **A cleaning goal cannot wrap a capture writing into what it cleans.** `capture --output target/traces.json -- mvn clean verify` fails by construction: `capture` opens the file before spawning the command, `clean` then unlinks `target/` under it, and the run ends with an error naming the deleted file rather than a trace count for an inode no path points at. Either drop `clean` from the wrapped command, as the recipe above does, or write the trace file outside the cleaned directory (`--output /tmp/traces.json`).
+> **A cleaning goal cannot wrap a capture writing into what it cleans.** `capture --output target/traces.json -- mvn clean verify` fails by construction. `capture` opens the file before spawning the command, `clean` then unlinks `target/` under it, and the run ends with an error naming the deleted file rather than a trace count for an inode no path points at. Either drop `clean` from the wrapped command, as the recipe above does, or write the trace file outside the cleaned directory (`--output /tmp/traces.json`).
 
 Wrapping is the sturdier of the two: the ports are bound before the command starts, so no export can be lost to a start-up race, and the capture stops when the command exits rather than on a guessed delay. The wrapped command inherits stdout and stderr untouched, and its exit code is propagated, so a failing test run stays a failing job.
 
@@ -659,7 +659,7 @@ A failing test still leaves a complete, analyzable file.
 
 ##### Option 4, no fork at all
 
-`<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, at a price: test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port and the agent predates 2.32.0.
+`<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, but it has a cost. Test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port and the agent predates 2.32.0.
 
 **Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so perf-sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should. The real mechanism is `otlp_file/development` with `output_stream` (Option 3).
 
@@ -728,9 +728,9 @@ For SQL query detection, add the instrumentation that matches your database acce
 
 The `SetDbStatementForText = true` option is required for perf-sentinel to see the query text. Without it, SQL spans are emitted but `db.statement` is empty.
 
-Note: Entity Framework Core uses named bind parameters (`@__param_0`). Since the actual parameter values are not visible in the query template, perf-sentinel may detect repeated queries as `redundant_sql` (same template, same visible params) rather than `n_plus_one_sql` (same template, different params).
+Entity Framework Core uses named bind parameters (`@__param_0`). Since the actual parameter values are not visible in the query template, perf-sentinel may detect repeated queries as `redundant_sql` (same template, same visible params) rather than `n_plus_one_sql` (same template, different params).
 
-Note: `System.Net.Http` redacts the query string to `?*` by default, so outbound HTTP N+1 loops that vary a query parameter (`?seq=1`, `?seq=2`, ...) reach perf-sentinel as identical URLs and are detected as `redundant_http` rather than `n_plus_one_http`. To get `n_plus_one_http` on these loops, set `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true` so the query survives, or model the varying identifier as a path segment (`/api/resource/{id}`). See [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility) for the full rationale.
+`System.Net.Http` redacts the query string to `?*` by default, so outbound HTTP N+1 loops that vary a query parameter (`?seq=1`, `?seq=2`, ...) reach perf-sentinel as identical URLs and are detected as `redundant_http` rather than `n_plus_one_http`. To get `n_plus_one_http` on these loops, set `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true` to keep the query string, or model the varying identifier as a path segment (`/api/resource/{id}`). See [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility) for the full rationale.
 
 ---
 
@@ -868,7 +868,7 @@ environment:
 
 ### Node.js (Nest.js + Prisma, OTel SDK 0.218)
 
-Nest.js applications use the `@opentelemetry/sdk-node` package with framework-specific instrumentations. Prisma generates SQL, the `pg` client sends it.
+Nest.js applications use the `@opentelemetry/sdk-node` package with framework-specific instrumentations. Prisma generates the SQL and the `pg` client sends it.
 
 **Dependencies (package.json):**
 
@@ -964,7 +964,7 @@ let _span = tracing::info_span!("db.query",
 
 ### Ruby (Rails + ActiveRecord, opentelemetry-ruby)
 
-Rails applications use the opentelemetry-ruby instrumentation gems. The `ActiveRecord` instrumentation provides the ORM scope, the underlying driver instrumentation (`pg`, `mysql2`) emits the SQL `db.statement`.
+Rails applications use the opentelemetry-ruby instrumentation gems. The `ActiveRecord` instrumentation provides the ORM scope, and the underlying driver instrumentation (`pg`, `mysql2`) emits the SQL `db.statement`.
 
 **Dependencies (Gemfile):**
 
@@ -991,7 +991,7 @@ OpenTelemetry::SDK.configure do |c|
 end
 ```
 
-The `pg` instrumentation needs `db_statement: :include` (or the default `:obfuscate`, which emits the sanitized template) so the SQL reaches perf-sentinel. The `OpenTelemetry::Instrumentation::ActiveRecord` scope rides the span chain and is recognized as an ORM, so the sanitizer-aware N+1 path fires and findings carry ActiveRecord-specific suggested fixes (`includes` / `preload` / `eager_load`).
+The `pg` instrumentation needs `db_statement: :include` (or the default `:obfuscate`, which emits the sanitized template) so the SQL reaches perf-sentinel. The `OpenTelemetry::Instrumentation::ActiveRecord` scope appears on the span chain and is recognized as an ORM, so the sanitizer-aware N+1 path fires and findings carry ActiveRecord-specific suggested fixes (`includes` / `preload` / `eager_load`).
 
 The `active_record` instrumentation emits this scope only for record-loading queries (`find_by_sql`, `where(...).to_a`). Aggregate queries (`count`, `sum`) carry only the `pg` / `mysql2` driver span, so their findings fall back to the `ruby_generic` fix.
 
@@ -1021,7 +1021,7 @@ composer require \
 
 **Framework mapping.**
 
-- Laravel/Eloquent: the SQL leaf span is PDO-scoped, but the app-wide `io.opentelemetry.contrib.php.laravel` scope rides the span chain, so findings carry `php_laravel_eloquent` fixes (`with()` / `load()` eager loading) across every anti-pattern.
+- Laravel/Eloquent: the SQL leaf span is PDO-scoped, but the app-wide `io.opentelemetry.contrib.php.laravel` scope appears on the span chain, so findings carry `php_laravel_eloquent` fixes (`with()` / `load()` eager loading) across every anti-pattern.
 - Symfony/Doctrine: the `io.opentelemetry.contrib.php.doctrine` scope is emitted directly on the SQL span (DBAL is instrumented), so SQL findings carry `php_doctrine` fixes (DQL fetch-join). A Symfony app that uses raw PDO instead of Doctrine falls to `php_generic`.
 
 The PDO instrumentation emits the obfuscated SQL template by default, which is enough for detection. The `io.opentelemetry.contrib.php.pdo` scope alone (no Laravel/Doctrine scope) routes to `php_generic`.
@@ -1041,7 +1041,7 @@ environment:
 
 ## SQL placeholder styles and detection
 
-Different database drivers emit different placeholder syntax in the `db.statement` span attribute. perf-sentinel's SQL normalizer recognizes all common styles and maps them to `$?` or `?` in the normalized template, with `params` kept empty for parameterized queries. This is what enables the sanitizer-aware N+1 detection path (which requires `params == []` and a recognized placeholder in the template).
+Different database drivers emit different placeholder syntax in the `db.statement` span attribute. perf-sentinel's SQL normalizer recognizes all common styles and maps them to `$?` or `?` in the normalized template, with `params` kept empty for parameterized queries. This enables the sanitizer-aware N+1 detection path (which requires `params == []` and a recognized placeholder in the template).
 
 | Placeholder    | Produced by                                                                                                             | Normalized to  | Example           |
 |----------------|-------------------------------------------------------------------------------------------------------------------------|----------------|-------------------|

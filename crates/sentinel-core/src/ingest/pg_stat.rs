@@ -3,7 +3,7 @@
 //! Parses CSV or JSON exports of `pg_stat_statements` into a `PgStatReport`
 //! with top-N rankings by total execution time, call count, and mean execution time.
 //!
-//! Unlike trace-based ingestion, `pg_stat_statements` has no `trace_id`, it provides
+//! Unlike trace-based ingestion, `pg_stat_statements` has no `trace_id`. It provides
 //! a complementary view of SQL hotspots at the database level.
 
 use crate::detect::Finding;
@@ -54,7 +54,7 @@ pub struct PgStatReport {
     /// by `mean_exec_time`, by `shared_blks_total` (cache hits + reads).
     /// Consumers that index by position (e.g., the HTML dashboard's
     /// `pg_stat` sub-switcher) rely on this ordering not changing. New
-    /// rankings are appended, existing indices are never reassigned.
+    /// rankings are appended and existing indices are never reassigned.
     pub rankings: Vec<PgStatRanking>,
     /// Matched share from the trace cross-reference. `None` when no
     /// trace set was provided. Additive, absent from the JSON when
@@ -118,7 +118,7 @@ struct RawJsonEntry {
 /// Detect whether the input is CSV or JSON.
 ///
 /// Peeks at the first non-whitespace byte: `[` or `{` indicates JSON,
-/// otherwise CSV. Returns `Csv` as fallback for empty input; the caller
+/// otherwise CSV. Returns `Csv` as fallback for empty input. The caller
 /// should validate non-emptiness separately.
 #[must_use]
 pub fn detect_pg_stat_format(raw: &[u8]) -> PgStatFormat {
@@ -180,7 +180,7 @@ pub fn parse_pg_stat(raw: &[u8], max_size: usize) -> Result<Vec<PgStatEntry>, Pg
 ///
 /// Downstream consumers (the HTML dashboard's `pg_stat` sub-switcher
 /// in particular) rely on the rankings appearing at the documented
-/// positions, new rankings are always appended and existing indices
+/// positions. New rankings are always appended and existing indices
 /// never reassign.
 #[must_use]
 pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
@@ -277,7 +277,7 @@ fn mark_matching(entries: &mut [PgStatEntry], seen: impl Fn(&str) -> bool) {
 /// and weighted by `calls`. Meaningful only after one of the
 /// cross-reference passes ran.
 ///
-/// Deliberately not named "coverage": database statement counters
+/// Not named "coverage" because database statement counters
 /// (`pg_stat_statements`, `performance_schema` digests) are cumulative
 /// since their last reset while the traces cover one capture window, so
 /// the calls-weighted share understates tracing on a long-lived database
@@ -335,7 +335,7 @@ pub struct TraceCoverage {
 
 impl TraceCoverage {
     /// Traced share of executed calls in percent. `None` when no call
-    /// was executed on the traced templates, a ratio would be
+    /// was executed on the traced templates, since a ratio would be
     /// meaningless there.
     #[must_use]
     pub fn coverage_percent(&self) -> Option<f64> {
@@ -352,7 +352,7 @@ impl TraceCoverage {
 ///
 /// A template absent from the baseline counts with its full current
 /// tally: it first ran inside the window. A template absent from the
-/// current snapshot is ignored, `pg_stat_statements` evicted it and its
+/// current snapshot is ignored: `pg_stat_statements` evicted it and its
 /// delta is unknowable.
 #[must_use]
 pub fn trace_coverage<S: std::hash::BuildHasher>(
@@ -700,8 +700,8 @@ fn validate_series_name(series: &str) -> Result<(), PgStatError> {
 /// Identity of a `pg_stat_statements` row: every query folds on it, so the
 /// time and the counts describe the same rows.
 ///
-/// `datname` and `user` are deliberately absent, so one statement is one
-/// ranked row whichever database it ran against. `instance` and `job` are
+/// `datname` and `user` are absent so that one statement is one ranked
+/// row whichever database it ran against. `instance` and `job` are
 /// present for the opposite reason: a Prometheus scraping several servers
 /// must not sum their times into one row that names no server. They read as
 /// empty when the exporter omits them, which still joins.
@@ -746,7 +746,7 @@ pub async fn fetch_from_prometheus(
     // the request, through the guards `mysql-stat` shares.
     validate_prometheus_endpoint(endpoint)?;
     validate_series_name(&opts.series)?;
-    // The query label now lands in the `sum by (...)` clause, not only in the
+    // The query label lands in the `sum by (...)` clause, not only in the
     // response it is read back from.
     crate::ingest::prometheus_scrape::validate_label_name(&opts.query_label)
         .map_err(PgStatError::PrometheusRequest)?;
@@ -820,12 +820,12 @@ fn parse_prometheus_response(
     calls_body: Option<&[u8]>,
     opts: &PrometheusPgStat,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
-    // identity -> calls, empty when no second query was made.
     let results = crate::ingest::prometheus_scrape::instant_query_results(body)
         .map_err(PgStatError::PrometheusFormat)?;
 
-    // Not indexed when the ranking came back empty: an instance with no
-    // statements yet would otherwise warn about a series that is fine.
+    // Calls by identity, empty when no second query was made. Not indexed
+    // when the ranking came back empty: an instance with no statements yet
+    // would otherwise warn about a series that is fine.
     let call_counts = match (calls_body, opts.calls_series.as_deref()) {
         (Some(raw), Some(series)) if !results.is_empty() => {
             crate::ingest::prometheus_scrape::counter_by_labels(raw, PG_IDENTITY, series)
@@ -848,9 +848,8 @@ fn parse_prometheus_response(
             .unit
             .to_ms(crate::ingest::prometheus_scrape::sample_value(result));
 
-        // A label named `calls` is not a thing any exporter publishes; the
-        // count comes from the joined series, on the same identity both
-        // queries aggregated by.
+        // No exporter publishes a label named `calls`. The count comes from
+        // the joined series, on the same identity both queries aggregated by.
         let calls = crate::ingest::prometheus_scrape::identity_key(metric, PG_IDENTITY)
             .and_then(|key| call_counts.get(&key).copied())
             .unwrap_or(0);
@@ -987,7 +986,7 @@ mod tests {
     #[test]
     fn parse_csv_normalization_applied() {
         let entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
-        // order_id = 42 -> order_id = ?
+        // order_id = 42 becomes order_id = ?
         assert_eq!(
             entries[0].normalized_template,
             "SELECT * FROM order_item WHERE order_id = ?"
@@ -1261,7 +1260,7 @@ mod tests {
     #[test]
     fn trace_coverage_skips_reset_counters() {
         // Counter went backwards: statistics were reset between the two
-        // snapshots, the delta is unknowable and must not pollute the sums.
+        // snapshots, so the delta is unknowable and must not pollute the sums.
         let current = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 10)];
         let baseline = vec![coverage_entry("SELECT a FROM t WHERE id = ?", 900)];
         let trace_counts: std::collections::HashMap<String, u64> =
@@ -1447,7 +1446,7 @@ mod tests {
     #[test]
     fn call_counts_join_on_queryid() {
         // calls is a series of its own on every exporter, never a label, so
-        // the ranking by calls was silently empty before.
+        // reading it as a label leaves the ranking by calls silently empty.
         let timings = br#"{"data":{"result":[
             {"metric":{"query":"SELECT 1","queryid":"42"},"value":[1,"4.5"]}]}}"#;
         let calls = br#"{"data":{"result":[

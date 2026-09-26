@@ -141,14 +141,14 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
 
 /// True when a symlink resolves to a target under its own directory.
 ///
-/// Refusing every symlink made the file unusable from a Kubernetes `ConfigMap`,
-/// which is the obvious way to ship it: the `kubelet` writes the payload into a
-/// timestamped directory, points `..data` at it, and leaves one symlink per
-/// key. The target never leaves the mount, so following it grants no reach the
-/// caller did not already have by naming that directory.
+/// Refusing every symlink would make the file unusable from a Kubernetes
+/// `ConfigMap`, which is the obvious way to ship it: the `kubelet` writes the
+/// payload into a timestamped directory, points `..data` at it, and leaves one
+/// symlink per key. The target never leaves the mount, so following it grants
+/// no reach the caller did not already have by naming that directory.
 ///
 /// A link resolving anywhere else stays refused, which is the case the check
-/// was written for: a hostile link dropped in a CI working tree, aimed at a
+/// guards against: a hostile link dropped in a CI working tree, aimed at a
 /// sensitive file elsewhere on the host. Both sides are canonicalized first,
 /// so a `..` segment in the target cannot walk back out.
 fn symlink_stays_in_its_directory(path: &Path) -> bool {
@@ -170,7 +170,7 @@ fn symlink_stays_in_its_directory(path: &Path) -> bool {
 /// Load acknowledgments from a TOML file.
 ///
 /// Returns `Ok(default)` when the file does not exist, so a project
-/// without any acks observes the legacy behavior with zero error noise.
+/// without any acks runs unfiltered, with zero error noise.
 /// Returns `Err` on TOML parse failure or on a malformed `expires_at`
 /// date so a typo in the ack file fails the run loud rather than
 /// silently widening the matched set.
@@ -211,7 +211,7 @@ pub fn load_from_file_if_present(
     // Use symlink_metadata so a symlink at the configured path does not
     // redirect the read to a sensitive file (e.g. a hostile collaborator
     // landing a symlink to /etc/passwd in a CI runner working tree). The
-    // daemon JSONL store applies the same discipline at write time, this
+    // daemon JSONL store applies the same discipline at write time. This
     // mirrors it for the read-side baseline.
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -271,7 +271,7 @@ pub fn load_from_file_if_present(
 /// 2. Filters `report.findings`, moving acked entries into
 ///    `report.acknowledged_findings`.
 /// 3. Re-evaluates the quality gate on the surviving set so an ack can
-///    flip a previously failing gate to green (the entire point of
+///    flip a previously failing gate to green (the purpose of
 ///    "won't fix / accepted" semantics). Re-evaluation runs even when no
 ///    ack matched, so the gate field is always self-consistent with the
 ///    final `findings` slice.
@@ -291,10 +291,9 @@ pub fn apply_to_report(
     now: DateTime<Utc>,
     origin: ReportOrigin,
 ) {
-    // Drop any prior ack pairs from the source Report. The caller may
-    // have loaded a baseline that already carried `acknowledged_findings`
-    // from a previous `--show-acknowledged` run, which we do not want to
-    // double-count or treat as authoritative.
+    // The caller may have loaded a baseline that already carried
+    // `acknowledged_findings` from a previous `--show-acknowledged` run,
+    // which we do not want to double-count or treat as authoritative.
     report.acknowledged_findings.clear();
     // Same reasoning for the warnings this function owns: a baseline
     // loaded from a previous run may already carry them.
@@ -371,7 +370,7 @@ pub fn apply_to_report(
 /// The lone kept finding whose signature shares the ack's
 /// `<type>:<service>:<endpoint>` prefix with a different template hash:
 /// the signature of a template drift rather than a fix. `None` with zero
-/// or several candidates, naming one among several would be a guess.
+/// or several candidates, since naming one among several would be a guess.
 ///
 /// The prefix is not injective: service and endpoint may contain `:`,
 /// so two distinct pairs can collide on it. When the ack names its
@@ -381,7 +380,7 @@ pub fn apply_to_report(
 ///
 /// Never transfers the ack itself: a signature is a suppression
 /// boundary, and carrying an ack across a template change could silence
-/// a genuinely new problem. The operator re-acknowledges deliberately.
+/// a new problem. The operator re-acknowledges by hand.
 fn drifted_successor<'a>(
     ack: &Acknowledgment,
     kept: &'a [(Cow<'a, str>, &'a Finding)],
@@ -535,7 +534,7 @@ pub(crate) fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
         return true;
     };
     let Ok(parsed) = NaiveDate::parse_from_str(expires, "%Y-%m-%d") else {
-        // Malformed dates are rejected at load time; defensively treat a
+        // Malformed dates are rejected at load time. Defensively treat a
         // bad value as inactive rather than ack-everything.
         return false;
     };
@@ -764,7 +763,7 @@ mod tests {
         f.source_endpoint = "POST /api/orders".to_string();
         f.pattern.template = "SELECT 1".to_string();
         let sig = compute_signature(&f);
-        // Format: redundant_sql:order-service:POST_/api/orders → after sanitization
+        // Format: redundant_sql:order-service:POST_/api/orders. After sanitization,
         // POST_/api/orders becomes POST__api_orders.
         let mut parts = sig.splitn(4, ':');
         assert_eq!(parts.next(), Some("redundant_sql"));
@@ -1032,7 +1031,7 @@ expires_at = "not-a-date"
         assert!(report.acknowledged_findings.is_empty());
     }
 
-    /// The signal a fix produces: the entry is still active, nothing in
+    /// The signal a fix produces: the entry is still active and nothing in
     /// the run carries its signature, so it is reported as removable.
     #[test]
     fn apply_to_report_reports_an_ack_that_matched_nothing() {
@@ -1100,7 +1099,7 @@ expires_at = "not-a-date"
     }
 
     /// With service and endpoint on the entry, an exercised endpoint that
-    /// produced no finding reads as fixed, an absent one proves nothing.
+    /// produced no finding reads as fixed, while an absent one proves nothing.
     #[test]
     fn apply_to_report_unmatched_ack_splits_fixed_from_not_run() {
         let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
@@ -1434,7 +1433,7 @@ expires_at = "not-a-date"
     }
 
     /// Re-applying over a baseline that already carries the warnings must
-    /// not stack them, the same reason ack pairs are cleared on entry.
+    /// not stack them, for the same reason ack pairs are cleared on entry.
     #[test]
     fn apply_to_report_does_not_accumulate_unmatched_warnings() {
         let mut report = empty_report(vec![]);

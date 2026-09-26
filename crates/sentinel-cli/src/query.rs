@@ -482,7 +482,7 @@ impl IncidentSlim {
     }
 
     /// Findings first detected after the incident started: they fired
-    /// only after the restart, not before it.
+    /// only after the restart.
     pub(crate) fn fired_after_restart(&self) -> usize {
         self.findings
             .iter()
@@ -651,8 +651,7 @@ fn print_incidents_text(body: &[u8], daemon_url: &str) {
     }
 }
 
-/// The header block of one incident: what happened to which service and
-/// `1 finding`, otherwise `N findings`.
+/// Finding count of an incident: `1 finding`, otherwise `N findings`.
 pub(crate) fn finding_count_label(n: usize) -> String {
     if n == 1 {
         "1 finding".to_string()
@@ -661,10 +660,10 @@ pub(crate) fn finding_count_label(n: usize) -> String {
     }
 }
 
-/// One incident's header: its kind and `ns/service`, when it started and
-/// when, whether it still fires, how much of the window the ring still
-/// held, and how many findings fired only after the restart. Every
-/// daemon string goes through `sanitize_for_terminal`.
+/// One incident's header: its kind and `ns/service`, when it started,
+/// when it ended or whether it still fires, how much of the window the
+/// ring still held, and how many findings fired only after the restart.
+/// Every daemon string goes through `sanitize_for_terminal`.
 fn incident_header_block(index: usize, inc: &IncidentSlim, colors: AnsiColors) -> String {
     use sentinel_core::text_safety::sanitize_for_terminal;
     use std::fmt::Write as _;
@@ -869,8 +868,8 @@ async fn run_inspect_action(
     // `event::read` is blocking) call `Handle::current().block_on(...)`
     // from inside `submit_ack_modal` without panicking the multi-thread
     // tokio runtime. The UI freezes for the ~100-300ms duration of the
-    // ack write. Acceptable scope-minimal tradeoff, an async event loop
-    // is a candidate followup.
+    // ack write, an accepted tradeoff. An async event loop would remove
+    // the freeze.
     let result = tokio::task::block_in_place(|| crate::tui::run(&mut app));
     if let Err(e) = result {
         eprintln!("TUI error: {e}");
@@ -880,9 +879,9 @@ async fn run_inspect_action(
 
 /// GET `{base_url}{path}` and deserialize the JSON body. Returns `None`
 /// on any failure (bad URL, transport error, non-2xx, parse error), the
-/// graceful-degrade contract every TUI fetch in this crate shares. The
-/// canonical fetch idiom: `query monitor` reuses it for its polling,
-/// with its `X-API-Key` as `auth` when the operator gave one.
+/// graceful-degrade contract every TUI fetch in this crate shares.
+/// `query monitor` reuses this canonical fetch for its polling, with its
+/// `X-API-Key` as `auth` when the operator gave one.
 #[cfg(feature = "tui")]
 pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
     client: &sentinel_core::http_client::HttpClient,
@@ -900,10 +899,10 @@ pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
 /// flattening it to `None`.
 ///
 /// Used for `/api/export/report`, the one payload whose size an operator
-/// controls: a body over the client's limit there means the daemon's
-/// export knobs were raised past what its own clients can read, and
-/// reporting that as a plain unreachable daemon sends the reader looking
-/// at the network for a configuration problem.
+/// controls. A body over the client's limit there means the daemon's
+/// export knobs were raised past what its own clients can read.
+/// Reporting that as a plain unreachable daemon would send the reader to
+/// the network for a configuration problem.
 #[cfg(feature = "tui")]
 pub(crate) async fn fetch_json_reporting<T: serde::de::DeserializeOwned>(
     client: &sentinel_core::http_client::HttpClient,

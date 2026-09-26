@@ -21,7 +21,7 @@ sector = "62.01"
 
 [organisation.identifiers]
 # Every identifier here is optional. Populate the ones that exist for
-# your jurisdiction; they help downstream consumers cross-reference the
+# your jurisdiction. They help downstream consumers cross-reference the
 # disclosure with public registries.
 siren = "123456789"
 vat = "FR12123456789"
@@ -54,7 +54,7 @@ enabled_patterns = [
 # pattern for an `intent = "official"` disclosure.
 disabled_patterns = []
 # `core-required` is the minimum bar for publishable disclosures.
-# `extended` indicates broader coverage; `partial` is informational only
+# `extended` indicates broader coverage. `partial` is informational only
 # and not publishable.
 conformance = "core-required"
 

@@ -1,8 +1,6 @@
 //! Integration tests that cross the sub-module boundaries (parser,
-//! ops, state, scraper). Per-sub-module unit tests that only touch
-//! one file could live next to their code, but keeping everything in
-//! one place makes the test module layout match the pre-split
-//! organization exactly so git blame still works.
+//! ops, state, scraper). Unit tests that only touch one sub-module
+//! stay here too, so git blame keeps their history.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -71,7 +69,7 @@ fn parse_defaults_cmdline_to_empty_when_absent() {
 
 #[test]
 fn parse_skips_other_metrics() {
-    // Only the per-process metric should be extracted; host and
+    // Only the per-process metric should be extracted. Host and
     // socket metrics must be filtered out.
     let body = r#"scaph_host_power_microwatts 50000000.0
 scaph_socket_power_microwatts{socket_id="0"} 25000000.0
@@ -117,14 +115,14 @@ scaph_process_power_consumption_microwatts{exe="dotnet"} 5000000.0
 
 #[test]
 fn parse_unmatched_brace_is_skipped() {
-    // Opening brace but no closing brace → line is skipped.
+    // Opening brace but no closing brace: the line is skipped.
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\",cmdline=\"broken 100.0\n";
     assert!(parse_scaphandre_metrics(body).is_empty());
 }
 
 #[test]
 fn parse_unescapes_newline_escape() {
-    // Prometheus spec lists \n as a valid escape; ensure we handle it.
+    // Prometheus spec lists \n as a valid escape.
     let body = "scaph_process_power_consumption_microwatts{exe=\"multi\\nline\"} 1.0\n";
     let parsed = parse_scaphandre_metrics(body);
     assert_eq!(parsed.len(), 1);
@@ -134,7 +132,7 @@ fn parse_unescapes_newline_escape() {
 #[test]
 fn compute_energy_per_op_basic() {
     // 12W × 5s = 60J = 60 / 3.6e6 kWh ≈ 1.667e-5 kWh.
-    // Over 8000 ops → 2.083e-9 kWh/op.
+    // Over 8000 ops, that is 2.083e-9 kWh/op.
     let got = compute_energy_per_op_kwh(12_000_000.0, 5.0, 8000).unwrap();
     let expected = (12.0 * 5.0 / 3_600_000.0) / 8000.0;
     assert!((got - expected).abs() < 1e-18);
@@ -205,8 +203,8 @@ fn ops_snapshot_diff_counter_reset_produces_zero_delta() {
     assert!(!deltas.contains_key("order-svc"));
 }
 
-/// Build a standard test fixture: one Java process reading, one
-/// "order-svc" → "java" process map, and a 5s scrape interval.
+/// Build a standard test fixture: one Java process reading, a process
+/// map from "order-svc" to "java", and a 5s scrape interval.
 fn test_scrape_fixture(
     power_microwatts: f64,
     ops: u64,
@@ -297,7 +295,7 @@ fn apply_scrape_disambiguates_three_jvms_via_cmdline() {
     let account = *snap.get("account").unwrap();
     let chat = *snap.get("chat").unwrap();
     let game = *snap.get("game").unwrap();
-    // Power × interval / ops / 3.6e6 → kWh/op; ratios preserve the
+    // Power × interval / ops / 3.6e6 gives kWh/op. Ratios preserve the
     // 6/9/12 ordering and the three coefficients are distinct.
     assert!(account < chat, "account {account} should be < chat {chat}");
     assert!(chat < game, "chat {chat} should be < game {game}");
@@ -305,7 +303,7 @@ fn apply_scrape_disambiguates_three_jvms_via_cmdline() {
 
 #[test]
 fn apply_scrape_matches_on_exe_only_when_cmdline_unset() {
-    // Native binary, exe is already unique → no cmdline_contains.
+    // Native binary: exe is already unique, so no cmdline_contains.
     let state = ScaphandreState::default();
     let readings = vec![ProcessPower {
         exe: "/opt/native-svc/bin/native-svc".to_string(),
@@ -336,7 +334,7 @@ fn apply_scrape_matches_on_exe_only_when_cmdline_unset() {
 fn apply_scrape_skips_on_ambiguous_matcher() {
     // Misconfigured matcher: two JVMs share the runtime AND the
     // cmdline_contains substring is loose enough to match both
-    // (operator forgot to add jar name). The matcher must refuse to
+    // (operator forgot to add jar name). The matcher must not
     // attribute power, leaving the previous state intact.
     let state = ScaphandreState::default();
     let readings = vec![
@@ -419,16 +417,16 @@ fn apply_scrape_ambiguous_warn_latch_persists_then_clears_on_clean_match() {
     };
     let mut warned: HashSet<String> = HashSet::new();
 
-    // Tick 1: ambiguous → latch inserts "svc".
+    // Tick 1: ambiguous, so the latch inserts "svc".
     apply_scrape(&state, &ambiguous_readings, &deltas, &cfg, &mut warned, 100);
     assert!(warned.contains("svc"), "first ambiguous tick must latch");
 
-    // Tick 2: still ambiguous → latch unchanged, no re-insert.
+    // Tick 2: still ambiguous, latch unchanged, no re-insert.
     apply_scrape(&state, &ambiguous_readings, &deltas, &cfg, &mut warned, 200);
     assert!(warned.contains("svc"));
     assert_eq!(warned.len(), 1);
 
-    // Tick 3: config corrected (only one matching process) → latch
+    // Tick 3: config corrected (only one matching process), latch
     // cleared so a future flap re-warns.
     apply_scrape(&state, &unique_reading, &deltas, &cfg, &mut warned, 300);
     assert!(
@@ -442,7 +440,7 @@ fn apply_scrape_updates_mapped_service() {
     let (state, readings, deltas, cfg) = test_scrape_fixture(12_000_000.0, 8000);
     apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
 
-    // 12W × 5s / 8000 ops → 7.5e-9 kWh/op
+    // 12 W × 5 s / 8000 ops = 7.5e-3 J/op, about 2.08e-9 kWh/op
     let snap = state.snapshot(100, 60_000);
     let got = *snap.get("order-svc").unwrap();
     let expected = (12.0 * 5.0 / 3_600_000.0) / 8000.0;
@@ -452,7 +450,7 @@ fn apply_scrape_updates_mapped_service() {
 #[test]
 fn apply_scrape_keeps_previous_when_ops_zero() {
     // First scrape: 5000 ops, coefficient X.
-    // Second scrape: 0 ops → state must NOT be updated (prevents
+    // Second scrape: 0 ops, so state must NOT be updated (prevents
     // model-tag flapping for idle services).
     let (state, readings, _, cfg) = test_scrape_fixture(10_000_000.0, 5000);
     let mut deltas = HashMap::new();
@@ -478,10 +476,10 @@ fn apply_scrape_keeps_previous_when_ops_zero() {
 fn scaphandre_state_snapshot_filters_stale() {
     let state = ScaphandreState::default();
     state.insert_for_test("order-svc".to_string(), 1e-7, 100);
-    // staleness_threshold = 500ms, now = 1000ms → age = 900 > 500 → drop
+    // staleness_threshold = 500ms, now = 1000ms: age = 900 > 500, so the entry is dropped
     let snap = state.snapshot(1000, 500);
     assert!(snap.is_empty());
-    // staleness_threshold = 2000ms, now = 1000ms → age = 900 < 2000 → keep
+    // staleness_threshold = 2000ms, now = 1000ms: age = 900 < 2000, so the entry is kept
     let snap = state.snapshot(1000, 2000);
     assert_eq!(snap.len(), 1);
 }
@@ -501,11 +499,11 @@ fn scaphandre_state_snapshot_clock_skew_kept_as_fresh() {
 /// serve a canned Scaphandre Prometheus response, point
 /// `fetch_metrics_once` at it, and verify the parsed readings match.
 ///
-/// The fake server is intentionally hand-rolled (no axum, no tonic)
-/// so this test is the single integration point that exercises the
-/// real hyper-util legacy client against a real TCP socket. It covers
-/// the full path: URI parse -> connect -> GET -> read bounded body
-/// -> parse Prometheus text -> `ProcessPower`.
+/// The fake server is hand-rolled (no axum, no tonic) so this test is
+/// the single integration point that exercises the real hyper-util
+/// legacy client against a real TCP socket. It covers the full path:
+/// URI parse, connect, GET, read bounded body, then parse the Prometheus
+/// text into `ProcessPower`.
 #[tokio::test]
 async fn fetch_metrics_once_reads_from_fake_server() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -583,7 +581,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
     apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 1_000);
     let snap = state.snapshot(1_000, 60_000);
     let got = *snap.get("order-svc").unwrap();
-    // 12 W × 5 s / 10_000 ops → 6e-9 kWh/op
+    // 12 W × 5 s / 10_000 ops = 6e-3 J/op, about 1.67e-9 kWh/op
     let expected = (12.0 * 5.0 / 3_600_000.0) / 10_000.0;
     assert!(
         (got - expected).abs() < 1e-18,
@@ -591,7 +589,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
     );
 }
 
-/// End-to-end negative test: the fake server returns a 500 error,
+/// End-to-end negative test: the fake server returns a 500 error and
 /// `fetch_metrics_once` must surface it as `ScraperError::Fetch`.
 #[tokio::test]
 async fn fetch_metrics_once_surfaces_http_error_status() {
@@ -668,8 +666,8 @@ fn parse_extracts_exe_when_not_first_label() {
 /// guard inside the value-collection loop of `extract_exe_label`.
 #[test]
 fn parse_rejects_label_with_unterminated_value() {
-    // Note: we emit the `{`/`}` to pass the label-block guard, then
-    // build a label value that starts `exe="` without a closing quote.
+    // We emit the `{`/`}` to pass the label-block guard, then build a
+    // label value that starts `exe="` without a closing quote.
     let body = "scaph_process_power_consumption_microwatts{exe=\"unclosed} 100\n";
     // The unmatched inner `}` will be consumed by find_label_block_end,
     // leaving an incomplete labels string that extract_exe_label cannot
@@ -696,7 +694,8 @@ fn parse_skips_line_with_non_numeric_value() {
 
 /// `unescape_prometheus_value` handles `\"`, `\\`, `\n`, and unknown
 /// escapes. These cases are only reachable via a label value that
-/// contains backslashes, exercise them through the public parser.
+/// contains backslashes, so the test exercises them through the
+/// public parser.
 #[test]
 fn parse_unescapes_quote_backslash_and_newline_in_exe_label() {
     // JVM-style command lines can embed quotes via `\"`. Scaphandre
@@ -748,8 +747,8 @@ fn parse_value_with_trailing_timestamp() {
 /// Spawn the scraper against a mock endpoint that serves a valid
 /// Scaphandre response. After ~2 ticks, abort the task and verify the
 /// shared state received a reading. This exercises the full hot path
-/// in `run_scraper_loop`: URI parse → client build → ticker → fetch
-/// → parse → `apply_scrape` → gauge update.
+/// in `run_scraper_loop`: URI parse, client build, ticker, fetch,
+/// parse, `apply_scrape`, then gauge update.
 #[tokio::test]
 async fn spawn_scraper_happy_path_updates_state() {
     use std::sync::Arc;
@@ -758,7 +757,7 @@ async fn spawn_scraper_happy_path_updates_state() {
 
     // The mock serves one reading per connection. The scraper task
     // ticks at 50ms, so during a 200ms test window we expect ~3-4
-    // successful scrapes, we spawn a loop of accepted connections
+    // successful scrapes. We spawn a loop of accepted connections
     // that all respond with the same canned body.
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} 10000000\n";
     let response = format!(
@@ -826,7 +825,7 @@ async fn spawn_scraper_happy_path_updates_state() {
     let _ = server.await;
 
     // The state must now contain a coefficient for `order-svc`. Its
-    // exact value is parser-dependent and tested elsewhere; here we
+    // exact value is parser-dependent and tested elsewhere. Here we
     // only assert that the full pipeline ran at least once.
     let snap = state.snapshot(crate::score::scaphandre::state::monotonic_ms(), 60_000);
     assert!(
@@ -885,7 +884,7 @@ async fn spawn_scraper_500_keeps_running_and_state_empty() {
     server.abort();
     let _ = server.await;
 
-    // State must remain empty, no successful scrape means no readings.
+    // State must remain empty: no successful scrape means no readings.
     let snap = state.snapshot(crate::score::scaphandre::state::monotonic_ms(), 60_000);
     assert!(snap.is_empty(), "500 scrapes must not populate state");
 }
@@ -942,7 +941,7 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
 // --- Additional fetch_metrics_once error path tests ---
 
 /// The body limit is 8 MiB. Serve a response with a bogus
-/// `Content-Length` > 8 MiB but minimal actual body, the hyper client
+/// `Content-Length` > 8 MiB but minimal actual body. The hyper client
 /// will try to read up to Content-Length and hit the Limited guard.
 #[tokio::test]
 async fn fetch_metrics_once_rejects_oversized_body() {

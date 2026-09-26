@@ -139,7 +139,7 @@ pub(crate) fn rank_with_trace_match(
 
 /// Scrape a `postgres_exporter` endpoint one-shot and produce the
 /// ranking report. Exits `EXIT_TOOLING_ERROR` on transport/parse
-/// failure, `pg-stat` has no quality gate to breach.
+/// failure, since `pg-stat` has no quality gate to breach.
 #[cfg(feature = "daemon")]
 pub(crate) async fn load_pg_stat_from_prometheus(
     url: &str,
@@ -242,10 +242,9 @@ fn cmd_pg_stat_from_entries(
     run_pg_stat_pipeline(entries, top_n, traces, baseline, &config, format);
 }
 
-/// Shared pipeline for the two `pg-stat` entry points (file input and
-/// Prometheus scrape): optional trace cross-reference, ranking, then
-/// text or JSON output. Extracted to avoid duplicating the 20+ lines
-/// between `cmd_pg_stat` and `cmd_pg_stat_from_entries`.
+/// Shared pipeline for the two `pg-stat` entry points, `cmd_pg_stat`
+/// (file input) and `cmd_pg_stat_from_entries` (Prometheus scrape):
+/// optional trace cross-reference, ranking, then text or JSON output.
 fn run_pg_stat_pipeline(
     mut entries: Vec<sentinel_core::ingest::pg_stat::PgStatEntry>,
     top_n: usize,
@@ -331,10 +330,11 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
     if let Some(tm) = &report.trace_match {
         // Spelled out rather than labelled: the share of statements and the
         // share of calls are different figures, and a reader who meets
-        // "trace-matched" cold has nothing to anchor either to. Still never
-        // "coverage", hence the second line: pg_stat counters are cumulative
-        // since the last stats reset while the traces cover one window, so
-        // this understates tracing instead of measuring a sampling rate.
+        // "trace-matched" cold has nothing to anchor either to. Neither
+        // figure is called "coverage". The second line says why: pg_stat
+        // counters are cumulative since the last stats reset while the
+        // traces cover one window, so this understates tracing instead of
+        // measuring a sampling rate.
         println!(
             "{dim}Also seen in the traces: {} of {} statement(s) here, \
              accounting for {:.1}% of the calls the database counted.{reset}",

@@ -112,7 +112,7 @@ fn resize_drag_vertical_changes_rows_from_the_row_coord() {
             boundary: 0,
         })
     );
-    // Drag to row 15 -> top grows to 75%. Columns untouched.
+    // Dragging to row 15 grows the top to 75%. Columns untouched.
     app.apply_drag(50, 15);
     assert_eq!(app.inspect_rows, [75, 25]);
     assert_eq!(app.inspect_cols, INSPECT_COLS_DEFAULT);
@@ -130,7 +130,7 @@ fn resize_drag_horizontal_changes_cols_from_the_col_coord() {
             boundary: 0,
         })
     );
-    // Drag to x=30 -> Traces grows to 30%, Findings shrinks. Rows untouched.
+    // Dragging to x=30 grows Traces to 30% and shrinks Findings. Rows untouched.
     app.apply_drag(30, 5);
     assert_eq!(app.inspect_cols, [30, 20, 50]);
     assert_eq!(app.inspect_rows, INSPECT_ROWS_DEFAULT);
@@ -288,7 +288,7 @@ fn escape_goes_back() {
     app.escape();
     assert_eq!(app.active_panel, Panel::Traces);
     // At Traces (top of the inspect drill-down), escape ascends to the
-    // Analyze view; the active panel stays Traces so descending lands
+    // Analyze view. The active panel stays Traces so descending lands
     // back here.
     assert_eq!(app.view, View::Inspect);
     app.escape();
@@ -298,7 +298,7 @@ fn escape_goes_back() {
 
 #[test]
 fn escape_from_correlations_ascends_to_analyze() {
-    // Correlations is a top-level panel (Tab-reachable); Esc must ascend
+    // Correlations is a top-level panel (Tab-reachable). Esc must ascend
     // to Analyze like Traces, honoring the tab-bar "Esc up" hint rather
     // than being a dead end.
     let mut app = make_test_app();
@@ -326,9 +326,9 @@ fn detail_enter_zooms_to_explain() {
     assert_eq!(app.view, View::Explain);
 }
 
-/// Timing statistics, classification, observation window and confidence
-/// shipped on the dashboard and never reached the terminal. They are
-/// read from the same fields, so the TUI must show them too.
+/// The dashboard shows timing statistics, classification, observation
+/// window and confidence. The TUI reads the same fields, so it must show
+/// them too.
 #[test]
 fn detail_panel_shows_timing_classification_window_and_confidence() {
     let mut app = make_test_app();
@@ -356,7 +356,7 @@ fn detail_panel_shows_timing_classification_window_and_confidence() {
 }
 
 /// A batch run carries the default confidence, which says nothing worth
-/// a line, exactly as the text report already decides.
+/// a line. The text report omits it too.
 #[test]
 fn detail_panel_omits_confidence_on_a_batch_run() {
     let mut app = make_test_app();
@@ -516,8 +516,8 @@ fn interpret_band_color_matches_cli_palette() {
 
 #[test]
 fn analyze_view_gate_not_evaluated_when_rules_empty() {
-    // A daemon `/api/export/report` snapshot carries an empty rule set;
-    // the view must not paint a misleading green PASSED.
+    // A daemon `/api/export/report` snapshot carries an empty rule set,
+    // so the view must not paint a misleading green PASSED.
     let green_summary: GreenSummary = serde_json::from_str(
         r#"{"total_io_ops":10,"avoidable_io_ops":5,"io_waste_ratio":0.5,"io_waste_ratio_band":"critical","top_offenders":[]}"#,
     )
@@ -541,7 +541,7 @@ fn analyze_view_gate_not_evaluated_when_rules_empty() {
 
 #[test]
 fn analyze_enter_preserves_active_panel_for_round_trip() {
-    // Esc from Correlations ascends to Analyze keeping active_panel;
+    // Esc from Correlations ascends to Analyze keeping active_panel.
     // Enter must descend back to that same panel, not force Traces.
     let mut app = make_test_app();
     app.active_panel = Panel::Correlations;
@@ -552,8 +552,8 @@ fn analyze_enter_preserves_active_panel_for_round_trip() {
 }
 
 /// `detail_panel_line_count` is hand-maintained against `draw_detail_panel`,
-/// so this counts the metadata rows actually rendered and compares. A row
-/// added to one and not the other silently truncates the scroll.
+/// so this counts the rendered metadata rows and compares. A row added to
+/// one and not the other silently truncates the scroll.
 #[test]
 fn detail_line_count_matches_the_rendered_metadata_rows() {
     let mut app = make_test_app();
@@ -845,7 +845,7 @@ fn with_pre_rendered_trees_builder_populates_field() {
 // include the expected content, covering the render code paths
 // that a coverage tool would otherwise flag as untested.
 
-/// Rendered rows, trailing padding stripped. Six assertions needed this.
+/// Rendered rows, trailing padding stripped.
 fn buffer_rows(buf: &ratatui::buffer::Buffer) -> Vec<String> {
     (0..buf.area.height)
         .map(|y| {
@@ -992,14 +992,13 @@ fn draw_focus_changes_active_panel_border_style() {
         let mut terminal = Terminal::new(backend).unwrap();
         app.detail_tree_text();
         terminal.draw(|f| draw(f, app)).unwrap();
-        // Row 0 is the view tab bar; cell (0, 1) is the top-left corner
+        // Row 0 is the view tab bar. Cell (0, 1) is the top-left corner
         // of the Traces panel border below it.
         terminal.backend().buffer()[(0, 1)].style()
     };
     let before = render(&mut app);
     app.next_panel();
     let after = render(&mut app);
-    // The border style must differ (color change on focus).
     assert_ne!(
         before, after,
         "border style must differ when active panel changes"
@@ -1781,7 +1780,7 @@ fn ack_submit_payload_debug_redacts_api_key() {
 #[test]
 fn opening_ack_modal_with_no_finding_is_silent() {
     // Build an app with no findings: pressing `a` would call
-    // `current_finding()` which returns None, the modal stays
+    // `current_finding()` which returns None, so the modal stays
     // hidden. Mirror that path here by reading current_finding and
     // confirming we cannot dispatch an open with an empty signature.
     let app = App::new(Vec::new(), Vec::new());
@@ -2018,8 +2017,8 @@ fn analyze_view_omits_ingest_line_without_a_tally() {
 }
 
 /// Warnings say what the figures below them do not cover, so they lead
-/// the view. They must also survive the no-summary path, which is
-/// exactly the degraded case where knowing what is missing matters.
+/// the view. They must also render on the no-summary path, the degraded
+/// case where knowing what is missing matters.
 #[test]
 fn analyze_view_leads_with_the_report_warnings() {
     use sentinel_core::report::warnings::Warning;
@@ -2070,8 +2069,8 @@ fn warnings_extend_the_analyze_scroll_clamp_without_a_summary() {
 }
 
 /// "Top offenders" ranks endpoints by intensity, a different question
-/// from which problem to open first. The dashboard has had both cards
-/// since 0.9.10, the terminal only ever had the first.
+/// from which problem to open first. The dashboard has both cards, and
+/// the terminal must show both too.
 #[test]
 fn analyze_view_ranks_the_worst_findings() {
     let green_summary: GreenSummary = serde_json::from_str(
@@ -2106,16 +2105,15 @@ fn analyze_view_ranks_the_worst_findings() {
         "impact figure missing: {text}"
     );
     // `CRITICAL` is exactly as wide as the severity column, so a padding
-    // off by one ran it into the type with no space between the two.
-    // Caught on a regenerated screenshot, not by the assertions above.
+    // off by one runs it into the type with no space between the two.
+    // The assertions above miss that case.
     assert!(
         !text.contains("CRITICALN+1"),
         "the severity column must not run into the type: {text}"
     );
 }
 
-/// The dashboard has filtered findings by severity since it shipped;
-/// the terminal browser never could.
+/// The terminal browser filters findings by severity, like the dashboard.
 #[test]
 fn severity_filter_narrows_the_findings_panel() {
     let mut app = make_test_app();
@@ -2196,9 +2194,9 @@ fn severity_filter_shows_in_the_chrome() {
     );
 }
 
-/// The sort key ordered the trace list while the findings inside a
-/// trace kept detector order, so a run opened worst-first still showed
-/// whichever finding the detector emitted first.
+/// The sort key orders the findings inside a trace as well as the trace
+/// list. Otherwise a run opened worst-first would still show whichever
+/// finding the detector emitted first.
 #[test]
 fn sorting_also_ranks_the_findings_inside_a_trace() {
     let mut app = make_test_app();
@@ -2237,7 +2235,7 @@ fn the_list_opens_on_impact_and_cycles_to_severity_then_id() {
     // make_test_app: trace-1 carries the critical N+1 (5 avoidable ops),
     // trace-2 the warning redundant with no green impact.
     let mut app = make_test_app();
-    // Opening state, not a cycled one: a reader arrives on the costliest.
+    // The opening sort is impact, so a reader arrives on the costliest trace.
     assert_eq!(app.trace_sort, TraceSort::Impact);
     assert_eq!(
         app.trace_ids[0], "trace-1",

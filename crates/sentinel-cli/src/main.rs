@@ -55,7 +55,7 @@ use tracing::info;
 /// Exit code for a runtime tooling/internal failure while producing a
 /// report: a missing or unreadable input file, malformed
 /// trace/config/acknowledgments data, or a failure writing the
-/// SARIF/JSON output. Distinct from `1` (a genuine quality-gate breach,
+/// SARIF/JSON output. Distinct from `1` (a quality-gate breach,
 /// `analyze --ci` exceeding a `[thresholds]` limit) and from `2` (a CLI
 /// usage error). CI pipelines can branch on this exit code directly
 /// instead of inferring the distinction from file existence or step
@@ -241,8 +241,8 @@ enum Commands {
         /// Override the number of findings carried by one
         /// `/api/export/report` snapshot. Takes precedence over
         /// `[daemon] max_export_findings`. Raise it to report on a busy
-        /// daemon, whose store holds far more than one snapshot ships;
-        /// costs a few KB of response body per finding.
+        /// daemon, whose store holds far more than one snapshot ships.
+        /// Each finding costs a few KB of response body.
         #[arg(long, value_name = "N")]
         max_export_findings: Option<usize>,
     },
@@ -277,7 +277,7 @@ enum Commands {
         max_file_size: u64,
         /// How long to keep listening after the stop signal or the wrapped
         /// command's exit, in milliseconds. Exporters flush their last batch
-        /// at application shutdown, which is exactly that moment.
+        /// at that moment, when the application shuts down.
         #[arg(long, default_value_t = 2000)]
         grace_ms: u64,
         /// Test command to run under capture, after `--`. Its own flags are
@@ -683,7 +683,7 @@ enum Commands {
     /// `PERF_SENTINEL_DAEMON_API_KEY` environment variable,
     /// `--api-key-file <path>`, or interactive prompt on 401 when stdin
     /// is a TTY. TOML CI acks (`.perf-sentinel-acknowledgments.toml`)
-    /// are out of scope, edit the file and ship via PR review instead.
+    /// are out of scope. Edit the file and ship via PR review instead.
     #[cfg(feature = "daemon")]
     #[command(after_help = help_examples::ACK)]
     Ack {
@@ -700,7 +700,7 @@ enum Commands {
 
     /// Produce a single-file HTML dashboard for post-mortem exploration.
     ///
-    /// Pipeline identical to `analyze`, output is a self-contained HTML
+    /// Same pipeline as `analyze`. The output is a self-contained HTML
     /// file (vanilla JS, no external resources, works offline). Exits 0
     /// even when the quality gate fails (the gate status is rendered as
     /// a badge in the HTML top bar, not as a CI signal). Use `analyze
@@ -726,7 +726,7 @@ enum Commands {
         max_traces_embedded: Option<usize>,
         /// Order the findings: impact (highest aggregate avoidable I/O per
         /// signature first, the default) or severity (worst first). This
-        /// also decides which span trees survive `--max-traces-embedded`,
+        /// also decides which span trees `--max-traces-embedded` retains,
         /// since the sink keeps the trees the top findings point at.
         #[arg(long, value_enum, value_name = "KEY")]
         sort: Option<render::FindingsSort>,
@@ -1094,7 +1094,7 @@ enum Commands {
         output: PathBuf,
         /// Allow re-baking a report whose `integrity.signature` is
         /// already populated. Re-baking does not invalidate the
-        /// signature (`content_hash` blanches signature in canonical
+        /// signature (`content_hash` blanks the signature in canonical
         /// form), but the default refusal guards against unintended
         /// rewrites of signed reports.
         #[arg(long)]
@@ -1401,7 +1401,7 @@ async fn main() {
 
 /// Render the root man page plus one page per subcommand to `out`, so
 /// tuning documented only in a subcommand's long help (e.g. the `[daemon]`
-/// queue knobs on `watch`) is discoverable from `man`, not just `--help`.
+/// queue knobs on `watch`) is discoverable from `man` as well as `--help`.
 /// The root page alone lists subcommands by short description only.
 fn render_man(out: &mut impl std::io::Write) -> std::io::Result<()> {
     let cmd = Cli::command();
@@ -1417,9 +1417,8 @@ fn render_man(out: &mut impl std::io::Write) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Dispatch a parsed CLI command to its handler. Lifted out of
-/// `main()` so the binary entry point stays focused on tracing init
-/// and parsing while the per-subcommand wiring lives here.
+/// Dispatch a parsed CLI command to its handler. Kept out of `main()`
+/// so the binary entry point stays focused on tracing init and parsing.
 async fn dispatch_command(command: Commands) {
     match command {
         Commands::Analyze {
@@ -1834,7 +1833,7 @@ async fn dispatch_command(command: Commands) {
                 // `try_from` over `as` so a 16-bit target drops the
                 // flag instead of truncating silently. No supported
                 // build has `usize < 32` bits, so the only effect is
-                // to keep the cast honest.
+                // to keep the cast checked.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
                 mysql_stat.as_deref(),
                 #[cfg(feature = "daemon")]
@@ -1938,7 +1937,7 @@ async fn dispatch_command(command: Commands) {
 
 /// Resolve the final auth header string from the two mutually
 /// exclusive CLI flags. clap already rejects the "both set" case via
-/// `conflicts_with`; this helper only handles "neither / one / other"
+/// `conflicts_with`. This helper only handles "neither / one / other"
 /// and reads the env var when `--auth-header-env` is used.
 #[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 fn resolve_auth_header(
@@ -1946,7 +1945,7 @@ fn resolve_auth_header(
     env_var: Option<String>,
 ) -> Result<Option<String>, String> {
     if let Some(value) = direct {
-        // `--auth-header` is `ps`-visible; nudge operators toward
+        // `--auth-header` is `ps`-visible. Nudge operators toward
         // `--auth-header-env` to match the pg-stat helper UX.
         tracing::warn!(
             "auth header supplied via --auth-header is visible in `ps` and shell history; \
@@ -2013,7 +2012,7 @@ fn resolve_auth_header_or_exit(direct: Option<String>, env_var: Option<String>) 
 /// `report --pg-stat-prometheus`, which run the same scrape and must not drift
 /// on what their flags mean.
 ///
-/// Defaults describe the `postgres_exporter` built-in query; an exporter
+/// Defaults describe the `postgres_exporter` built-in query. An exporter
 /// running its own SQL names its own columns. An empty `calls_metric` means
 /// "do not run the second query", which is how an operator opts out of the
 /// join when their exporter has no call counter at all.
@@ -2209,16 +2208,6 @@ fn fragment_priority(name: &str) -> Option<u8> {
     priority.parse().ok()
 }
 
-/// Read a file into memory, capping the byte count at `max_size`.
-/// Exits with `EXIT_TOOLING_ERROR` on any IO error or if the file exceeds
-/// the cap: a missing or oversized file is never a quality-gate breach.
-///
-/// Uses the `.take(max + 1).read_to_end(&mut buf)` pattern to close the
-/// TOCTOU window between `metadata().len()` and `fs::read()`, and to
-/// correctly cap special files (FIFOs, `/dev/stdin`-style symlinks,
-/// block devices) whose metadata reports 0 bytes. Shared by the trace
-/// file reader and the calibrate energy-CSV reader so the capped-read
-/// logic lives in one place.
 /// The `--input` path, or exit 2 when the subcommand was given no source.
 ///
 /// Exit 2 is clap's usage-error code: no source at all is a permanent
@@ -2235,6 +2224,16 @@ pub(crate) fn require_input_path(input: Option<&std::path::Path>) -> &std::path:
     })
 }
 
+/// Read a file into memory, capping the byte count at `max_size`.
+/// Exits with `EXIT_TOOLING_ERROR` on any IO error or if the file exceeds
+/// the cap: a missing or oversized file is never a quality-gate breach.
+///
+/// Uses the `.take(max + 1).read_to_end(&mut buf)` pattern to close the
+/// TOCTOU window between `metadata().len()` and `fs::read()`, and to
+/// correctly cap special files (FIFOs, `/dev/stdin`-style symlinks,
+/// block devices) whose metadata reports 0 bytes. Shared by the trace
+/// file reader and the calibrate energy-CSV reader so the capped-read
+/// logic lives in one place.
 fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -2245,7 +2244,7 @@ fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
     };
     // Metadata pre-check: reject oversized regular files without reading
     // them. The take() below stays as the defense for special files
-    // whose metadata lies (pipes, device files).
+    // whose metadata reports a wrong size (pipes, device files).
     if let Ok(meta) = file.metadata()
         && meta.is_file()
         && meta.len() > max_size
@@ -2395,9 +2394,9 @@ fn cmd_analyze(
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
     // No embed here, unlike tempo and jaeger-query: their JSON is the only
-    // carrier of the spans they fetched, while analyze reads a local file
-    // the user still holds, and `report --input <that file>` draws the
-    // trees from it directly. Embedding would also fatten every `--ci`
+    // carrier of the spans they fetched. `analyze` reads a local file the
+    // user still holds, and `report --input <that file>` draws the trees
+    // from it directly. Embedding would also fatten every `--ci`
     // pipeline's stdout on a version bump, for output nothing reads.
     emit_report_and_gate(
         &mut report,
@@ -2481,7 +2480,7 @@ fn input_label_for(input: Option<&std::path::Path>, stdin_mode: bool) -> String 
 
 /// Strip a UTF-8 BOM prefix if present. Windows editors (Notepad, some
 /// VS Code flows) save with a leading `EF BB BF`, and the byte-peek
-/// auto-detect below would otherwise reject a perfectly valid payload.
+/// auto-detect below would otherwise reject a valid payload.
 fn strip_bom(raw: &[u8]) -> &[u8] {
     raw.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(raw)
 }
@@ -2506,7 +2505,7 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
             eprintln!("Error parsing {source_label} as Report JSON: {e}");
             std::process::exit(EXIT_TOOLING_ERROR);
         });
-    // Pre-0.5.17 baselines have no signature, fill them in so ack
+    // Pre-0.5.17 baselines have no signature. Fill them in so ack
     // matching and copy-paste workflows behave the same as on a fresh run.
     sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
     report
@@ -2537,15 +2536,15 @@ fn trace_counts_for_cross_reference(
     }
 }
 
-/// Dispatch the `--input` payload by JSON shape: a top-level array goes
+/// Dispatch the `--input` payload by JSON shape. A top-level array goes
 /// through the normalize/correlate/detect/score pipeline (native event
-/// streams, Zipkin v2), a top-level object is first tried as a
+/// streams, Zipkin v2). A top-level object is first tried as a
 /// pre-computed `Report` (daemon snapshot, baseline file) and falls
 /// back to `JsonIngest`, which auto-detects OTLP/JSON and Jaeger.
 /// Report-first guarantees a daemon snapshot is never misrouted to the
-/// Jaeger ingest even when its payload contains a `"data"` literal in
-/// the first 4 KB, at the cost of one extra Report parse on OTLP/Jaeger
-/// inputs (rare through this CLI), and an OTLP request can never parse
+/// Jaeger ingest, even when its payload contains a `"data"` literal in
+/// the first 4 KB. Report-first costs one extra Report parse on OTLP/Jaeger
+/// inputs (rare through this CLI). An OTLP request can never parse
 /// as a Report (its required fields are absent). The depth cap is enforced
 /// before the Report parse so an over-deep Report does not silently
 /// fall through to the ingest fallback. `report` accepts a wider set of
@@ -2760,7 +2759,7 @@ async fn cmd_report(
     // and before the sink so `--max-traces-embedded` keeps the trees the
     // top findings point at rather than the ones the producer wrote first.
     // Impact when the caller said nothing, because that is what the
-    // dashboard opens on: leaving the two out of step would embed the
+    // dashboard opens on. Leaving the two out of step would embed the
     // trees of one ranking and show the other, so the top row would open
     // without a tree for no reason a reader could see.
     render::sort_findings(&mut report.findings, sort.unwrap_or_default());
@@ -2861,7 +2860,7 @@ async fn cmd_report(
 }
 
 /// Stderr notice when the render kept fewer trees than the report holds.
-/// Names the cap that actually cut: prescribing the flag to the operator
+/// Names the cap that applied: prescribing the flag to the operator
 /// who just set it reads as the sink overriding them.
 fn log_embed_trim(stats: &sentinel_core::report::html::RenderStats, explicit_cap: bool) {
     if stats.kept >= stats.total {
@@ -3112,9 +3111,9 @@ async fn cmd_watch(
     // max_export_findings are checked against the same bounds the config
     // file goes through. This second pass also re-emits the daemon-limit
     // advisories, now reading the overrides rather than the file values, so
-    // a raised max_export_findings is comfort-checked against what will
-    // actually run. The non-loopback security advisory sits outside
-    // `validate()` and is re-checked separately below.
+    // a raised max_export_findings is comfort-checked against what will run.
+    // The non-loopback security advisory sits outside `validate()` and is
+    // re-checked separately below.
     if let Err(e) = config.validate() {
         eprintln!("Error: invalid daemon configuration after CLI overrides: {e}");
         std::process::exit(1);
@@ -3129,9 +3128,9 @@ async fn cmd_watch(
     );
     if let Err(e) = sentinel_core::daemon::run(config).await {
         eprintln!("Daemon error: {e}");
-        // Walk the source chain: the top-level variants name the failing
-        // resource, the cause underneath is what tells a missing file from
-        // a refused symlink, and a FROM scratch image has no shell to
+        // Walk the source chain. The top-level variants name the failing
+        // resource, and the cause underneath tells a missing file from a
+        // refused symlink. A FROM scratch image has no shell to
         // investigate with.
         let mut cause = std::error::Error::source(&e);
         while let Some(err) = cause {
@@ -3529,8 +3528,8 @@ mod tests {
     #[cfg(feature = "daemon")]
     #[test]
     fn pg_stat_auth_header_env_var_takes_precedence_over_flag() {
-        // Env-lookup returns a header → it wins over the --auth-header flag
-        // value, matching the Electricity Maps precedence.
+        // When the env lookup returns a header, it wins over the
+        // --auth-header flag value, matching the Electricity Maps precedence.
         let resolved = resolve_pg_stat_auth_header_with_env(
             Some("Authorization: Bearer from-flag".to_string()),
             || Some("Authorization: Bearer from-env".to_string()),

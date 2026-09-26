@@ -20,26 +20,26 @@ first-class product surface with a stability contract.
 
 ## Endpoint overview
 
-| Method | Path                            | Purpose                                                                           |
-|--------|---------------------------------|-----------------------------------------------------------------------------------|
-| GET    | `/api/status`                   | Daemon liveness, version, uptime, in-flight counts                                |
-| GET    | `/api/config`                   | Effective `[daemon]` configuration, read-only, secrets summarized (since 0.8.8)   |
-| GET    | `/api/energy`                   | Live health of the energy/intensity backends (since 0.8.8)                        |
-| GET    | `/api/findings`                 | Recent findings from the ring buffer, with service, type and severity filters     |
-| GET    | `/api/findings/{trace_id}`      | All findings for one trace                                                        |
-| GET    | `/api/explain/{trace_id}`       | Span tree for a trace still in daemon memory, findings annotated inline           |
-| GET    | `/api/correlations`             | Active cross-trace temporal correlations                                          |
-| GET    | `/api/export/report`            | Snapshot the live state as a Report JSON, pipe-compatible with `report --input -` |
-| POST   | `/api/findings/{signature}/ack` | Acknowledge a finding at runtime (since 0.5.20)                                   |
-| DELETE | `/api/findings/{signature}/ack` | Revoke a runtime ack                                                              |
-| GET    | `/api/acks`                     | List active runtime acks                                                          |
+| Method | Path                            | Purpose                                                                              |
+|--------|---------------------------------|--------------------------------------------------------------------------------------|
+| GET    | `/api/status`                   | Daemon liveness, version, uptime, in-flight counts                                   |
+| GET    | `/api/config`                   | Effective `[daemon]` configuration, read-only, secrets summarized (since 0.8.8)      |
+| GET    | `/api/energy`                   | Live health of the energy/intensity backends (since 0.8.8)                           |
+| GET    | `/api/findings`                 | Recent findings from the ring buffer, with service, type and severity filters        |
+| GET    | `/api/findings/{trace_id}`      | All findings for one trace                                                           |
+| GET    | `/api/explain/{trace_id}`       | Span tree for a trace still in daemon memory, findings annotated inline              |
+| GET    | `/api/correlations`             | Active cross-trace temporal correlations                                             |
+| GET    | `/api/export/report`            | Snapshot the live state as a Report JSON, pipe-compatible with `report --input -`    |
+| POST   | `/api/findings/{signature}/ack` | Acknowledge a finding at runtime (since 0.5.20)                                      |
+| DELETE | `/api/findings/{signature}/ack` | Revoke a runtime ack                                                                 |
+| GET    | `/api/acks`                     | List active runtime acks                                                             |
 | POST   | `/api/incidents`                | Record an incident from an Alertmanager webhook and freeze its window (since 0.20.0) |
 | GET    | `/api/incidents`                | List the recorded incidents with their frozen findings (since 0.20.0)                |
 
 All endpoints return `application/json`. There is no identity layer, only
-three optional shared secrets: `[daemon.ack] api_key` and
-`[daemon.incidents] api_key` gate their writes and the `GET` beside them,
-and `[daemon] read_api_key` opens those two `GET`s without the power to
+three optional shared secrets. `[daemon.ack] api_key` and
+`[daemon.incidents] api_key` gate their writes and the `GET` beside them.
+`[daemon] read_api_key` opens those two `GET`s without the power to
 write, so a dashboard never holds a key that can ack or fabricate an
 incident. The Hub reads with that key too. Only a Hub configured to
 relay acks (Hub 0.3.0 and later, one ack credential per source) also
@@ -60,11 +60,10 @@ writes (acks) and the official report export to architects or DevOps, see
 - The query API shares the same HTTP port as OTLP HTTP ingestion
   (`[daemon] listen_port_http`, default `4318`), the `/metrics`
   Prometheus scrape endpoint and the `GET /health` liveness probe.
-  One port, four surfaces.
 - The query API can be disabled at startup by setting
   `[daemon] api_enabled = false`. Useful when the daemon runs in a
   hostile multi-tenant host and you only want OTLP ingestion. In that
-  mode, `/metrics` and `/health` stay exposed, they are infrastructure
+  mode, `/metrics` and `/health` stay exposed: they are infrastructure
   surfaces, not part of the query API.
 - For Kubernetes or load-balancer probes, prefer `GET /health` over
   `GET /api/status`: `/health` is always on, holds no locks and stays
@@ -252,7 +251,7 @@ The three gauge/capacity pairs back the Headroom chart of
 `perf-sentinel query monitor`'s Trends tab: each pair reads as "how
 close is this runtime gauge to its configured cap". The settings
 advisor starts hinting at 90% of `max_active_traces`. The fields are
-additive; clients written against older daemons keep parsing.
+additive, so clients written against older daemons keep parsing.
 
 **Example:**
 
@@ -326,7 +325,7 @@ curl -sS http://127.0.0.1:4318/api/config
 }
 ```
 
-(Fields elided above for brevity; the live response carries the full
+(Fields elided above for brevity. The live response carries the full
 set listed under **Response shape**.)
 
 ### GET /api/energy
@@ -338,7 +337,7 @@ API.
 Backs the Scrapers tab of `perf-sentinel query monitor`. The effective
 mix itself (which source won the precedence chain per service, grid
 intensity per region) lives on `/api/export/report` under
-`green_summary`; this endpoint only answers "is each backend
+`green_summary`. This endpoint only answers "is each backend
 configured, fresh, and succeeding".
 
 **Query parameters:** none.
@@ -359,13 +358,13 @@ each:
 The optional fields are omitted rather than zeroed for unconfigured
 backends: the underlying Prometheus gauges are pre-registered at 0, and
 a literal `0` would read as a fresh scrape. `electricity_maps` carries
-no freshness gauge by design; its liveness shows as
+no freshness gauge. Its liveness shows as
 `intensity_source = "real_time"` entries on the report's region
 breakdown.
 
 Two age-reading caveats. A configured backend still reads
 `last_scrape_age_seconds = 0.0` during its first scrape interval after
-daemon start, before anything has actually been scraped: read it
+daemon start, before anything has been scraped: read it
 together with `scrapes_ok = 0` to tell "not scraped yet" from "fresh".
 And for `cloud_energy` the age tracks the reachability of the
 configured Prometheus endpoint, not per-service coverage: a tick counts
@@ -564,21 +563,21 @@ The `finding` object exposed by `/api/findings` and
 `/api/findings/{trace_id}` is identical to the JSON emitted by
 `perf-sentinel analyze --format json`. Stable fields as of v0.4.1:
 
-| Field             | Type              | Description                                                                                                                                                                  |
-|-------------------|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `type`            | string (enum)     | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
-| `severity`        | string (enum)     | `critical`, `warning`, `info`                                                                                                                                                |
-| `trace_id`        | string            | Trace ID where the pattern was detected                                                                                                                                      |
-| `service`         | string            | Service that emitted the anti-pattern                                                                                                                                        |
-| `source_endpoint` | string            | Normalized inbound endpoint hosting the pattern, or the code frame (`com.foo.PurgeJob.execute`) when the entry point carries no HTTP attribute                               |
-| `pattern`         | object            | `{ template, occurrences, window_ms, distinct_params }`, plus `occurrences_by_service` (`{ service: count }`, since 0.18.0) only when the matched spans come from more than one service, `service` always among its keys and the counts summing to `occurrences`                                                                                                                      |
-| `suggestion`      | string            | Human-readable remediation hint                                                                                                                                              |
-| `first_timestamp` | string (ISO 8601) | Earliest span in the detected group                                                                                                                                          |
-| `last_timestamp`  | string (ISO 8601) | Latest span in the detected group                                                                                                                                            |
-| `confidence`      | string (enum)     | `ci_batch`, `daemon_staging`, `daemon_production`                                                                                                                            |
-| `green_impact`    | object (optional) | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` when green scoring is enabled                                                                            |
-| `code_location`   | object (optional) | `{ function?, filepath?, lineno?, namespace? }` when OTel `code.*` attributes are present                                                                                    |
-| `suggested_fix`   | object (optional) | `{ pattern, framework, recommendation, reference_url? }` when the framework can be inferred (Java/JPA in v1)                                                                 |
+| Field             | Type              | Description                                                                                                                                                                                                                                                      |
+|-------------------|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `type`            | string (enum)     | `n_plus_one_sql`, `n_plus_one_http`, `n_plus_one_messaging`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `slow_messaging`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`                                           |
+| `severity`        | string (enum)     | `critical`, `warning`, `info`                                                                                                                                                                                                                                    |
+| `trace_id`        | string            | Trace ID where the pattern was detected                                                                                                                                                                                                                          |
+| `service`         | string            | Service that emitted the anti-pattern                                                                                                                                                                                                                            |
+| `source_endpoint` | string            | Normalized inbound endpoint hosting the pattern, or the code frame (`com.foo.PurgeJob.execute`) when the entry point carries no HTTP attribute                                                                                                                   |
+| `pattern`         | object            | `{ template, occurrences, window_ms, distinct_params }`, plus `occurrences_by_service` (`{ service: count }`, since 0.18.0) only when the matched spans come from more than one service, `service` always among its keys and the counts summing to `occurrences` |
+| `suggestion`      | string            | Human-readable remediation hint                                                                                                                                                                                                                                  |
+| `first_timestamp` | string (ISO 8601) | Earliest span in the detected group                                                                                                                                                                                                                              |
+| `last_timestamp`  | string (ISO 8601) | Latest span in the detected group                                                                                                                                                                                                                                |
+| `confidence`      | string (enum)     | `ci_batch`, `daemon_staging`, `daemon_production`                                                                                                                                                                                                                |
+| `green_impact`    | object (optional) | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` when green scoring is enabled                                                                                                                                                                |
+| `code_location`   | object (optional) | `{ function?, filepath?, lineno?, namespace? }` when OTel `code.*` attributes are present                                                                                                                                                                        |
+| `suggested_fix`   | object (optional) | `{ pattern, framework, recommendation, reference_url? }` when the framework can be inferred (Java/JPA in v1)                                                                                                                                                     |
 
 ### GET /api/findings/{trace_id}
 
@@ -717,18 +716,18 @@ descending. Empty array when `[daemon.correlation] enabled = false`
 
 **Response shape:** array of `CrossTraceCorrelation`. Each entry has:
 
-| Field                      | Type    | Description                                                                      |
-|----------------------------|---------|----------------------------------------------------------------------------------|
-| `source`                   | object  | Leading endpoint, the finding with the earlier first-span timestamp: `{ finding_type, service, template }` |
-| `target`                   | object  | Trailing endpoint, whose first span started after `source` within `lag_threshold_ms` |
-| `co_occurrence_count`      | number  | Number of co-occurrences within the rolling window                               |
-| `source_total_occurrences` | number  | Total occurrences of `source` over the same window buckets as `co_occurrence_count` |
-| `confidence`               | number  | Ratio `co_occurrence_count / source_total_occurrences`                           |
-| `median_lag_ms`            | number  | Median event-time lag between `source` and `target` first-span timestamps        |
-| `first_seen`               | string  | ISO 8601 timestamp of the first co-occurrence, on the daemon's analysis clock    |
-| `last_seen`                | string  | ISO 8601 timestamp of the most recent co-occurrence, on the daemon's analysis clock |
-| `sample_trace_id`          | string  | Optional: last target-side trace id, absent in batch mode and replayed baselines |
-| `source_sample_trace_id`   | string  | Optional: source-side trace id of the same co-occurrence, absent in batch mode and replayed baselines |
+| Field                      | Type   | Description                                                                                                |
+|----------------------------|--------|------------------------------------------------------------------------------------------------------------|
+| `source`                   | object | Leading endpoint, the finding with the earlier first-span timestamp: `{ finding_type, service, template }` |
+| `target`                   | object | Trailing endpoint, whose first span started after `source` within `lag_threshold_ms`                       |
+| `co_occurrence_count`      | number | Number of co-occurrences within the rolling window                                                         |
+| `source_total_occurrences` | number | Total occurrences of `source` over the same window buckets as `co_occurrence_count`                        |
+| `confidence`               | number | Ratio `co_occurrence_count / source_total_occurrences`                                                     |
+| `median_lag_ms`            | number | Median event-time lag between `source` and `target` first-span timestamps                                  |
+| `first_seen`               | string | ISO 8601 timestamp of the first co-occurrence, on the daemon's analysis clock                              |
+| `last_seen`                | string | ISO 8601 timestamp of the most recent co-occurrence, on the daemon's analysis clock                        |
+| `sample_trace_id`          | string | Optional: last target-side trace id, absent in batch mode and replayed baselines                           |
+| `source_sample_trace_id`   | string | Optional: source-side trace id of the same co-occurrence, absent in batch mode and replayed baselines      |
 
 **Example:**
 
@@ -769,15 +768,15 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 
 ### GET /api/export/report
 
-Snapshot the daemon's current in-memory state as a `Report` JSON, identical in shape to `perf-sentinel analyze --format json`. This closes the loop between the live daemon and the post-mortem `perf-sentinel report` HTML dashboard: the HTML report can ingest a daemon snapshot over HTTP via standard shell composition.
+Snapshot the daemon's current in-memory state as a `Report` JSON, identical in shape to `perf-sentinel analyze --format json`. The post-mortem `perf-sentinel report` HTML dashboard can ingest this snapshot of the live daemon over HTTP via standard shell composition.
 
-The `analysis` section reflects daemon-lifetime counters (cumulative since daemon start). The `green_summary` field is refreshed by the event loop after each batch (regions, top offenders, avoidable I/O ratio, CO2 numbers, scoring config), so the snapshot carries a live CO2 picture of that batch (see **Scope of the snapshot** below for what it does and does not cover). The chip banner and the GreenOps tab in the HTML dashboard surface naturally on Electricity-Maps-configured daemons. The quality gate is evaluated on the snapshot, against the live findings and the thresholds frozen at daemon startup, so `quality_gate.passed` carries the same verdict the batch pipeline would give on that state. See `docs/design/05-GREENOPS-AND-CARBON.md` for the full audit-trail story.
+The `analysis` section reflects daemon-lifetime counters (cumulative since daemon start). The `green_summary` field is refreshed by the event loop after each batch (regions, top offenders, avoidable I/O ratio, CO2 numbers, scoring config). The snapshot carries a live CO2 picture of that batch (see **Scope of the snapshot** below for what it does and does not cover). The chip banner and the GreenOps tab in the HTML dashboard appear on Electricity-Maps-configured daemons. The quality gate is evaluated on the snapshot, against the live findings and the thresholds frozen at daemon startup, so `quality_gate.passed` carries the same verdict the batch pipeline would give on that state. See `docs/design/05-GREENOPS-AND-CARBON.md` for the full audit-trail story.
 
 **Scope of the snapshot.** Two populations coexist in the payload, and a reader who takes them for one gets the carbon figures wrong by orders of magnitude. `findings` is capped by `[daemon] max_export_findings` (default 1000, `watch --max-export-findings` overrides it per run), the most recent ones, so a daemon retaining 46 000 findings exports 2% of its store, covering the last few minutes rather than its uptime. `green_summary` is not an aggregate over those findings: it is the latest per-batch summary the event loop wrote, so its absolute numbers (`total_io_ops`, `co2`, `energy_kwh`) describe one batch, while its ratios stay representative. `quality_gate` therefore counts finding-based rules on the exported slice and reads `io_waste_ratio` from that batch. The endpoint states both facts in `warning_details` under the `snapshot_scope` kind, which the HTML dashboard renders in its banner. Batch output carries neither warning: there every number comes from the same pass over the input.
 
 **Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `200 OK` with an empty Report envelope: `findings: []`, `green_summary: GreenSummary::disabled(0)`, and `warnings: ["daemon has not yet processed any events"]`. Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health issue. The empty envelope lets clients distinguish "cold start" from "events seen, zero findings" (the latter returns `200` with no warning string and `analysis.events_processed > 0`) without a status code mismatch. The double-counter guard (`events_processed_total > 0` AND `traces_analyzed_total > 0`) is preserved internally so the snapshot stays self-consistent during the `trace_ttl_ms / 2` window between the first event ingest and the first eviction tick.
 
-**Span trees.** The snapshot carries the masked spans of the traces its findings point at, under `embedded_traces`, so `perf-sentinel report --input <snapshot>` still draws the Explain tab's trace tree. They come from a separate ring buffer sized by `[daemon] max_retained_traces` (default 50), not from the correlation window, which drops a trace's spans seconds after it completes. That is why `/api/explain/{trace_id}` only answers on a live trace while an exported report keeps working. A finding whose trace has aged out of the buffer is exported as usual, the dashboard then reports the tree as absent. Only masked fields travel: the normalized template, never the raw statement. Set `max_retained_traces = 0` to export findings alone.
+**Span trees.** The snapshot carries the masked spans of the traces its findings point at, under `embedded_traces`, so `perf-sentinel report --input <snapshot>` still draws the Explain tab's trace tree. They come from a separate ring buffer sized by `[daemon] max_retained_traces` (default 50), not from the correlation window, which drops a trace's spans seconds after it completes. That is why `/api/explain/{trace_id}` only answers on a live trace while an exported report keeps working. A finding whose trace has aged out of the buffer is exported as usual, and the dashboard then reports the tree as absent. Only masked fields travel: the normalized template, never the raw statement. Set `max_retained_traces = 0` to export findings alone.
 
 **Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
 
@@ -846,7 +845,7 @@ row here.
 A `409` names its cause. `already acked` is lifted by a `DELETE`. A
 signature held by an active CI TOML baseline answers `signature is
 acked by the CI TOML baseline, edit the file via PR review` instead,
-and a `DELETE` answers `404` on it, only a PR against the file lifts
+and a `DELETE` answers `404` on it. Only a PR against the file lifts
 that one. See "TOML and JSONL interop" below.
 
 A `507` names its cap in the error body, and the three caps live in
@@ -865,7 +864,7 @@ fires when JSON escaping expands what is left past 4 KiB.
 
 A `500` is the catch-all for a store write the daemon could not
 complete, a filesystem error for instance. The response body stays
-`ack store write failed`, the daemon logs the underlying error.
+`ack store write failed` and the daemon logs the underlying error.
 
 **Example:**
 
@@ -902,7 +901,7 @@ A revoke never answers `507`. It appends its own line, so at
 `MAX_ACKS_FILE_BYTES` that append fails and the answer here is `500`,
 see the caps under `POST` above.
 
-Note: this endpoint only revokes daemon-side acks. CI TOML acks are
+This endpoint only revokes daemon-side acks. CI TOML acks are
 read-only at runtime and require a PR against the
 `.perf-sentinel-acknowledgments.toml` file to remove.
 
@@ -914,7 +913,7 @@ filter). Read-only, but gated when the ack writes are: when
 `X-API-Key` header or `Authorization: Bearer`, carrying the ack key or,
 since 0.20.0, `[daemon] read_api_key`, and returns `401` without it. The ack audit trail
 exposes reviewer identities, reasons, and finding signatures, so the
-configured key governs reads too, not only `POST`/`DELETE`.
+configured key governs reads too.
 
 **Query parameters:**
 
@@ -993,9 +992,9 @@ Opt-in through `[daemon.incidents]`, `503` when the section is absent.
 **Why this exists.** perf-sentinel does not detect a crash and cannot
 see an observed service's memory: it has no OTLP metrics path, and a
 service that saturates usually keeps emitting spans, more slowly. Your
-alerting owns the moment. What perf-sentinel owns is the findings of a
-period, and it is the only thing that can capture them before the ring
-evicts them, which on a busy fleet takes minutes.
+alerting owns the moment. perf-sentinel owns the findings of a period
+and is the only thing that can capture them before the ring evicts
+them, which on a busy fleet takes minutes.
 
 **Body:** the Alertmanager webhook envelope, and only that one. It is
 the only shape an operator cannot produce otherwise, `webhook_config`
@@ -1015,23 +1014,23 @@ receivers:
 
 Authentication is the `X-API-Key` header or `Authorization: Bearer`
 carrying the same key, either one, compared in constant time. The write
-key satisfies both verbs, `[daemon] read_api_key` satisfies the `GET`
+key satisfies both verbs and `[daemon] read_api_key` satisfies the `GET`
 alone, so Grafana and the Hub never hold the key that can `POST`.
 `http_headers` needs Alertmanager 0.27 or later. Below it, the same raw
 configuration carries the key as `http_config.authorization` instead,
 which this route accepts.
 
 Bearer is for server-to-server callers. The CORS layer advertises
-`x-api-key` and deliberately not `authorization`, so a cross-origin
-browser client is refused at preflight and keeps using the header.
+`x-api-key` but not `authorization`, so a cross-origin browser client
+is refused at preflight and keeps using the header.
 
 Bearer exists for the two Kubernetes operators that generate a receiver,
 because neither can send an arbitrary header. prometheus-operator's
-`AlertmanagerConfig` has none as of 0.86, and the VictoriaMetrics
+`AlertmanagerConfig` has none as of 0.86. The VictoriaMetrics
 operator's `VMAlertmanagerConfig` names none either: its `http_config` is an
 open object, so the API server takes whatever is written there and the
-operator renders only the fields it knows, which leaves a webhook going out
-with no credential and a delivery that 401s where nothing says why. Both
+operator renders only the fields it knows. A webhook then goes out with
+no credential, and the delivery 401s where nothing says why. Both
 CRDs carry a bearer token. Ready-made rules and receivers for both are in
 [`examples/incident-alerts-prometheus-operator.yaml`](../examples/incident-alerts-prometheus-operator.yaml)
 and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incident-alerts-victoriametrics-operator.yaml),
@@ -1089,14 +1088,15 @@ each is counted rather than failing the request. The status is `200` even
 when every alert was refused, which is also what Alertmanager needs to
 stop retrying. `startsAt` is RFC 3339 with any offset, the way Go
 serializes it, and anything else counts as `rejected_unparsable_time`. A
-delivery carries at most 1000 alerts, the rest count as
-`rejected_overflow`. Every alert-level rejection is logged, and every
-rejection is counted in `perf_sentinel_incidents_rejected_total{reason}`,
-the 401 included, because Alertmanager discards this body and never
-retries a 4xx (a group still firing is re-sent at the next
-`group_interval`, so the 401 repeats until the header is fixed and the
-capture is then whatever the ring still holds). Label values are trimmed,
-so a quoted YAML value with a trailing space still joins.
+delivery carries at most 1000 alerts, and the rest count as
+`rejected_overflow`. Every alert-level rejection is logged. Every
+rejection, the 401 included, is counted in
+`perf_sentinel_incidents_rejected_total{reason}`, because Alertmanager
+discards this body and never retries a 4xx. A group still firing is
+re-sent at the next `group_interval`, so the 401 repeats until the
+header is fixed, and the capture is then whatever the ring still holds.
+Label values are trimmed, so a quoted YAML value with a trailing space
+still joins.
 
 **The window closes after the incident, not at it.** A finding is stamped
 when its trace is analysed, which happens once the trace has aged out of
@@ -1104,10 +1104,10 @@ the live window, one `trace_ttl_ms` after its last span. The traces live
 at the moment of the crash, the ones a post-mortem wants most, are
 therefore stamped after `startsAt`, so the window is
 `[at_ms - lookback_ms, at_ms + 2 * trace_ttl_ms]`. The first freeze runs
-at reception, usually before those traces have been analysed, and a
-settle pass re-resolves the same window one TTL after it closes, once
-the analysis that stamps those traces has caught up, and merges the
-result by signature: rows can be added and counts raised, never removed.
+at reception, usually before those traces have been analysed. A settle
+pass then re-resolves the same window one TTL after it closes, once the
+analysis that stamps those traces has caught up, and merges the result
+by signature: rows can be added and counts raised, never removed.
 The upper bound is on the analysis clock, so for a `restart` or an
 `oom_kill` whose replacement is serving within `trace_ttl_ms` of
 `startsAt`, its first traces fold into the same rows. A pre-crash
@@ -1119,7 +1119,7 @@ Reposting is idempotent and never degrades. The id is `sha2` over
 record without a namespace keeps its id. Alertmanager repeating a firing
 alert every `repeat_interval` re-resolves a fixed window against a ring
 that only evicts, so the first capture is kept and a repeat can only add
-an end: a `resolved` delivery sets `ended_at_ms`, provided `endsAt` is
+an end. A `resolved` delivery sets `ended_at_ms`, provided `endsAt` is
 not before `startsAt`. `perf_sentinel_incidents_total{kind}` counts
 incidents, not deliveries. Two deliveries of one new alert racing each
 other record it once and archive it once.
@@ -1147,20 +1147,20 @@ and only once the key is accepted, so a caller without it still gets
 
 **Response shape:** array of objects:
 
-| Field               | Type   | Description                                                                                     |
-|---------------------|--------|---------------------------------------------------------------------------------------------------|
-| `id`                | string | 32 hex characters over `service\|kind\|at_ms`, then `\|namespace` when the alert carried one     |
-| `service`           | string | The service the incident is about                                                               |
-| `namespace`         | string | The alert's `namespace_label` value, absent when the alert had none                             |
-| `kind`              | string | One of the five kinds                                                                           |
-| `at_ms`             | number | When it started, Unix epoch milliseconds                                                        |
-| `ended_at_ms`       | number | When it ended, absent while firing                                                              |
-| `detail`            | string | The alert's `summary` or `description`, sanitized and capped at 512 bytes, absent when neither  |
-| `window_from_ms`    | number | `at_ms` minus `[daemon.incidents] lookback_ms`                                                  |
+| Field               | Type   | Description                                                                                    |
+|---------------------|--------|------------------------------------------------------------------------------------------------|
+| `id`                | string | 32 hex characters over `service\|kind\|at_ms`, then `\|namespace` when the alert carried one   |
+| `service`           | string | The service the incident is about                                                              |
+| `namespace`         | string | The alert's `namespace_label` value, absent when the alert had none                            |
+| `kind`              | string | One of the five kinds                                                                          |
+| `at_ms`             | number | When it started, Unix epoch milliseconds                                                       |
+| `ended_at_ms`       | number | When it ended, absent while firing                                                             |
+| `detail`            | string | The alert's `summary` or `description`, sanitized and capped at 512 bytes, absent when neither |
+| `window_from_ms`    | number | `at_ms` minus `[daemon.incidents] lookback_ms`                                                 |
 | `window_to_ms`      | number | `at_ms` plus two `trace_ttl_ms`, see above                                                     |
-| `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                          |
-| `findings`          | array  | `StoredFinding` objects, folded over the window alone, merged once by the settle pass           |
-| `finding_count`     | number | Number of frozen findings, in place of `findings` when `findings=false`                         |
+| `oldest_finding_ms` | number | Oldest finding the ring held at capture time, absent when it was empty                         |
+| `findings`          | array  | `StoredFinding` objects, folded over the window alone, merged once by the settle pass          |
+| `finding_count`     | number | Number of frozen findings, in place of `findings` when `findings=false`                        |
 
 **Read `oldest_finding_ms` before trusting a short `findings` array.**
 Below `window_from_ms` the capture is complete. Above it, the ring had
@@ -1185,7 +1185,7 @@ configurable via `[daemon.ack] toml_path`) at startup and unions its
 entries with the JSONL store at query time. **TOML wins on conflict**:
 when a signature is acked in both, the response carries the TOML
 metadata (`source: "toml"`). This keeps the CI baseline immutable from
-the daemon side, an SRE cannot accidentally override what the team
+the daemon side, so an SRE cannot accidentally override what the team
 agreed to in PR review.
 
 | Source | Persistence          | Audit                     | Mutable at runtime |
@@ -1202,10 +1202,10 @@ default mirrors the CLI 0.5.17 `--acknowledgments` semantics: an
 operator looking at "what is currently broken" should not be drowned
 in entries the team has already triaged.
 
-The `/api/findings/{trace_id}` and `/api/export/report` endpoints
-intentionally keep their previous shape, the per-trace and full-report
-views are diagnostic and may need to surface acked findings even in
-the default path.
+The `/api/findings/{trace_id}` and `/api/export/report` endpoints keep
+their previous shape because the per-trace and full-report views are
+diagnostic and may need to surface acked findings even in the default
+path.
 
 ## Error responses
 

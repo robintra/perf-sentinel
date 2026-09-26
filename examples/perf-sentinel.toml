@@ -24,9 +24,9 @@
 #
 # Unless a comment says otherwise, the value shown IS the default, the one
 # perf-sentinel uses when the file is absent, and you only need to list the
-# fields you want to override. Where this file deliberately departs from the
-# default, the comment on the line gives the value to restore. The `[daemon]`
-# section names its default on every line, plus the accepted range.
+# fields you want to override. Where this file departs from the default, the
+# comment on the line gives the value to restore. The `[daemon]` section names
+# its default on every line, plus the accepted range.
 #
 # Reading order: what is on by default comes first, then the settings marked
 # /!\ that expose the daemon or change what it reports, then everything that
@@ -100,10 +100,10 @@ serialized_min_sequential = 3   # default 3, min 2
 # what the simulation lab runs on all 14 of its stacks. Stay on "auto" when
 # you would rather over-report than miss one.
 #
-# Note the ceiling either way: past 3x `n_plus_one_min_occurrences` in one
-# trace (15 by default), a sanitized group is reported as N+1 under "strict"
-# too, whatever the timing and whatever the scope. "strict" changes the
-# verdict on moderate counts, not on the large ones.
+# Either way, past 3x `n_plus_one_min_occurrences` in one trace (15 by
+# default), a sanitized group is reported as N+1 under "strict" too, whatever
+# the timing and whatever the scope. "strict" changes the verdict on moderate
+# counts only.
 sanitizer_aware_classification = "auto"   # default "auto"
 # Coefficient of variation of the per-span durations above which the heuristic
 # reads a sanitized SQL group, or a repeated HTTP call, as N+1 (durations spread
@@ -157,10 +157,10 @@ per_operation_coefficients = true   # default true
 # where available). When `true`, the model tag becomes `io_proxy_v2`.
 use_hourly_profiles = true   # default true
 
-# The network-transport term has no keys here on purpose. It is always
-# computed, displayed and disclosed, with a fixed 0.04 kWh/GB coefficient
-# and a published 0.001-0.059 kWh/GB bracket, so every disclosure scales
-# it identically. It needs `response_size_bytes` on your spans and counts
+# The network-transport term has no keys here. It is always computed,
+# displayed and disclosed, with a fixed 0.04 kWh/GB coefficient and a
+# published 0.001-0.059 kWh/GB bracket, so every disclosure scales it
+# identically. It needs `response_size_bytes` on your spans and counts
 # nothing without it. The pre-0.9.25 keys `include_network_transport` and
 # `network_energy_per_byte_kwh` still parse, with a warning, and do nothing.
 
@@ -169,9 +169,9 @@ use_hourly_profiles = true   # default true
 # mix. Values are validated to be within ±5% of the embedded annual mean.
 # hourly_profiles_file = "/etc/perf-sentinel/hourly-profiles.json"   # default unset (embedded table only)
 
-# Calibration file produced by `perf-sentinel calibrate`. Tunes the I/O -> energy
-# coefficient from RAPL measurements on your real infra. The model tag gets
-# a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
+# Calibration file produced by `perf-sentinel calibrate`. Tunes the
+# I/O-to-energy coefficient from RAPL measurements on your real infra. The
+# model tag gets a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
 # calibration_file = "/etc/perf-sentinel/calibration.toml"   # default unset (no calibration)
 
 # ===========================================================================
@@ -232,8 +232,8 @@ per_service_labels = true          # default true
 per_grouping_labels = true         # default true
 
 # Stamped on every finding as `confidence`, read by downstream tooling and
-# not by the quality gate. Two values here, case-insensitive, anything else
-# is rejected at load time: "production" -> `daemon_production` (real
+# not by the quality gate. Two values here, case-insensitive (anything else
+# is rejected at load time): "production" -> `daemon_production` (real
 # patterns at real scale), "staging" -> `daemon_staging` (real patterns, not
 # production scale). The other two confidence levels belong to batch runs
 # and are not settable: `ci_batch` when `analyze` detects a CI environment,
@@ -259,9 +259,9 @@ api_enabled = true                 # default true
 # -------------------------------------------------------------------------- #
 # Still inside [daemon], because a bare key cannot be moved past a
 # sub-table. These change what the daemon reports, or what it exposes, not
-# how fast it runs. A wrong value here does not fail, it produces a daemon
-# that answers confidently with less than the truth, or one reachable by
-# more than you meant.
+# how fast it runs. A wrong value here does not fail. It produces a daemon
+# that under-reports without saying so, or one reachable by more than you
+# meant.
 #
 # Below 1.0 every count describes a sample of the traffic rather than a
 # measure of it, a rare pattern can be missed entirely, and nothing
@@ -313,15 +313,15 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #   storage and `[daemon.archive]` survive a restart, and therefore the only
 #   one where runtime acks work. On a Deployment or a DaemonSet the store
 #   path cannot even be resolved (scratch image, no HOME), the daemon logs a
-#   WARN at startup and the two ack write routes answer 503. Note that the
-#   Helm chart writes both paths itself unless you set
+#   WARN at startup and the two ack write routes answer 503. The Helm chart
+#   writes both paths itself unless you set
 #   `persistence.manageDaemonPaths: false`, and refuses to render if you
 #   declare them anyway.
 #
 # DaemonSet: one daemon per node splits the spans of a trace across pods
 #   unless an upstream collector routes by trace ID (OTel `loadbalancing`
 #   exporter, `routing_key: traceID`). Without it, N+1 groups fall under
-#   their threshold and the findings simply never appear, with no error and
+#   their threshold and the findings never appear, with no error and
 #   no metric that moves. `max_active_traces` and the queue capacities are
 #   then per pod, and `[daemon.correlation]` only ever sees one node's
 #   share of the traffic.
@@ -347,7 +347,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # api_key = "a-long-random-string"                 # default unset (NO AUTH), 12 chars min, 16 recommended
 #                                                  # PERF_SENTINEL_ACK_API_KEY wins over this line, and is
 #                                                  # how you keep the secret out of the file. There is no
-#                                                  # "env:VAR" indirection, such a value is taken literally.
+#                                                  # "env:VAR" indirection: such a value is taken literally.
 #                                                  # GET /api/acks also takes [daemon] read_api_key
 # toml_path = ".perf-sentinel-acknowledgments.toml"   # default .perf-sentinel-acknowledgments.toml
 
@@ -383,7 +383,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #                                                  # it dies with the daemon. A node-level memory event that
 #                                                  # kills the observed service often takes a co-located
 #                                                  # daemon with it, so the incident that would explain the
-#                                                  # outage is destroyed by the outage. Append-only NDJSON,
+#                                                  # outage is lost with the daemon. Append-only NDJSON,
 #                                                  # last record of an id wins, no rotation (point logrotate
 #                                                  # at it), created 0600 since detail and query templates
 #                                                  # are not world-readable. Read back into the ring at
@@ -391,7 +391,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 
 # --- /!\ Batched export to PerfSentinelHub /!\ ----------------------------
 # Coalesces repeated signatures and never blocks detection. Mount the API
-# key as a Secret-backed file; never put its value in this TOML file.
+# key as a Secret-backed file. Never put its value in this TOML file.
 # [daemon.hub_export]
 # enabled = true
 # endpoint = "https://hub.example.com/api/import/findings"
@@ -434,7 +434,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # BMC with a reverse proxy presenting a publicly-signed cert if needed.
 # /!\ `ca_bundle_path` is parsed but reserved: setting it makes the scraper
 # log an error and stop before its first poll, with the daemon otherwise
-# healthy, so leave it out until the follow-up lands.
+# healthy, so leave it out until a release supports it.
 #
 # [green.redfish]
 # scrape_interval_secs = 60                      # default 60
@@ -578,8 +578,8 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # Falls back to the embedded profile on any scrape failure. Model tag becomes
 # `electricity_maps_api` for regions with a fresh sample.
 #
-# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here, it takes
-# precedence over this file. There is no "env:VAR" indirection, a value in
+# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here. It takes
+# precedence over this file. There is no "env:VAR" indirection: a value in
 # that shape is used literally.
 #
 # [green.electricity_maps]

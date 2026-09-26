@@ -6,15 +6,15 @@
 # curves span the whole -Nm..now axis instead of hugging the right edge.
 # The window is TREND_CAPACITY (240) points wide and one point lands per
 # --refresh tick, so at --refresh 1 it takes ~4 min of polling to fill.
-# That is far too long for the demo-monitor.tape tour GIF, which is why
-# this still is captured on its own tape (same pattern as the Advisor and
-# Scrapers stills).
+# That is far too long for the demo-monitor.tape tour GIF, so this still
+# is captured on its own tape (same pattern as the Advisor and Scrapers
+# stills).
 #
 # Seeding mirrors demo-monitor.tape: a [daemon] json_socket takes the
 # native fixture directly, a short trace_ttl_ms flushes the TraceWindow
 # so green scoring runs, and scripts/demo-seed-loop.py keeps pushing
 # randomly-sized sub-batches so the energy/carbon curves and the headroom
-# gauges actually move tick after tick. [green.cloud] points at an
+# gauges move tick after tick. [green.cloud] points at an
 # unreachable loopback endpoint (offline-safe, no external destination).
 #
 # Install vhs: https://github.com/charmbracelet/vhs
@@ -66,13 +66,13 @@ Enter
 Sleep 1s
 Show
 
-# Open the monitor and Tab straight to Trends; the poller fills the window
+# Open the monitor and Tab straight to Trends. The poller fills the window
 # from empty at one point per second.
 Type "perf-sentinel query --daemon http://127.0.0.1:14318 monitor --refresh 1"
 Sleep 800ms
 Enter
 Sleep 1500ms
-# Advisor -> Energy -> Trends.
+# Advisor, then Energy, then Trends.
 Tab
 Sleep 600ms
 Tab

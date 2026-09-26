@@ -5,7 +5,7 @@
 //! source chains, and the credential-redaction helper used by every
 //! scraper log line.
 //!
-//! The public entry point is [`spawn_scraper`]; everything else is
+//! The public entry point is [`spawn_scraper`]. Everything else is
 //! either `pub(super)` (shared with `mod.rs` test re-exports) or
 //! private to this file.
 
@@ -35,14 +35,14 @@ const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 /// renames of `scaph_process_power_consumption_microwatts` or the
 /// `exe` label that the parser would silently filter out, leaving
 /// every mapped service on the proxy model with no operator signal.
-/// Same threshold as Kepler's analogous net.
+/// Same threshold as Kepler's equivalent warning.
 const ZERO_SAMPLE_WARN_THRESHOLD: u32 = 3;
 
 /// Substring grep'd by the CI wire-conformance workflow
 /// (`.github/workflows/upstream-wire-conformance.yml`) to detect that
 /// the zero-sample warn has NOT fired on a healthy run. Wired through
-/// the warn's `format_args` capture so a doc-pass rename of the warn
-/// text propagates to the constant. The unit test
+/// the warn's `format_args` capture so a rename of the warn text
+/// propagates to the constant. The unit test
 /// `zero_sample_warn_marker_is_stable` anchors the literal value so a
 /// reviewer renaming the constant has to also update the CI workflow.
 pub(super) const ZERO_SAMPLE_WARN_MARKER: &str = "no samples matched the configured metric";
@@ -55,7 +55,7 @@ pub(super) const ZERO_SAMPLE_WARN_MARKER: &str = "no samples matched the configu
 /// [`http_body_util::Limited`] with [`MAX_BODY_BYTES`] so a
 /// runaway endpoint cannot OOM the daemon. The function takes the
 /// pre-parsed `Uri` and the long-lived [`HttpClient`] by
-/// reference so connection pooling actually kicks in.
+/// reference so connection pooling kicks in.
 pub(super) async fn fetch_metrics_once(
     client: &HttpClient,
     uri: &hyper::Uri,
@@ -74,7 +74,7 @@ pub(super) async fn fetch_metrics_once(
 }
 
 /// Errors the scraper task might emit. They are never returned to the
-/// caller, the scraper task logs them via `tracing` with the
+/// caller. The scraper task logs them via `tracing` with the
 /// warn-once pattern and continues running.
 ///
 /// `#[from]` and `#[source]` attributes preserve the underlying error
@@ -117,8 +117,8 @@ pub(super) fn scraper_error_reason(err: &ScraperError) -> ScaphandreScrapeReason
 }
 
 /// Map a [`FetchError`] to the corresponding scrape failure reason.
-/// Cloud-energy keeps a parallel mapping with its own reason enum;
-/// merging would require a trait or a wider enum, kept separate today.
+/// Cloud-energy keeps a parallel mapping with its own reason enum.
+/// Merging them would require a trait or a wider enum.
 fn fetch_error_reason(err: &FetchError) -> ScaphandreScrapeReason {
     match err {
         FetchError::Transport(_) => ScaphandreScrapeReason::Unreachable,
@@ -136,8 +136,8 @@ fn fetch_error_reason(err: &FetchError) -> ScaphandreScrapeReason {
 ///
 /// Returns a `JoinHandle` that the daemon captures and aborts on
 /// Ctrl-C shutdown. The task runs until aborted or until the endpoint
-/// produces an unrecoverable error (the current implementation keeps
-/// running across failures, see the warn-once log pattern below).
+/// produces an unrecoverable error (the task keeps running across scrape
+/// failures, see the warn-once log pattern below).
 ///
 /// The task reads the per-service op counter from the `Arc<MetricsState>`
 /// (shared with the daemon's event intake path) at each tick, computes
@@ -163,8 +163,8 @@ pub fn spawn_scraper(
 ///
 /// Owns one [`HttpClient`] for the lifetime of the scraper task so
 /// hyper-util can pool the underlying TCP connection between scrapes.
-/// Parses the endpoint URI once at startup; if the URI is malformed
-/// the task logs and exits cleanly without retrying, a user-facing
+/// Parses the endpoint URI once at startup. If the URI is malformed
+/// the task logs and exits cleanly without retrying: a user-facing
 /// config error should fail loud, not warn-spam every 5 s.
 // Length sits just above the default cap because of the cumulative
 // state (auth, ticker, multiple warn-once latches) the loop has to
@@ -180,8 +180,8 @@ async fn run_scraper_loop(
 
     // Parse the URI once. The config validator at config.rs::validate_green
     // already runs the same parse at config-load time, so this should never
-    // fail in practice, but we keep the runtime guard so the scraper task
-    // exits cleanly instead of panicking on a hot-reloaded bad URL.
+    // fail in practice. The runtime guard stays so the scraper task exits
+    // cleanly instead of panicking on a hot-reloaded bad URL.
     let uri = match hyper::Uri::from_str(&cfg.endpoint) {
         Ok(u) => u,
         Err(e) => {
@@ -211,7 +211,7 @@ async fn run_scraper_loop(
     let mut ticker = tokio::time::interval(cfg.scrape_interval);
     // Skip ticks instead of bursting if the scraper falls behind.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // The first tick fires immediately; absorb it before the loop so
+    // The first tick fires immediately. Absorb it before the loop so
     // the first real scrape happens after `scrape_interval`.
     ticker.tick().await;
 
@@ -273,9 +273,8 @@ async fn run_scraper_loop(
                     &mut multi_match_warned,
                     now,
                 );
-                // Update the "last successful scrape age" gauge to 0 ,
                 // Grafana rate() / alerting rules catch hung scrapers
-                // by watching the gauge climb.
+                // by watching this gauge climb.
                 metrics.scaphandre_last_scrape_age_seconds.set(0.0);
                 last_success_ms = now;
                 metrics.scaphandre_scrape_success.inc();
@@ -348,7 +347,7 @@ async fn run_scraper_loop(
 /// Mirrors the Kepler analogue (`kepler/scraper.rs::track_zero_sample_streak`).
 /// The Scaphandre variant takes no per-call metric/label arguments
 /// because both are fixed (`scaph_process_power_consumption_microwatts`
-/// + `exe`), the warn message hard-codes them.
+/// and `exe`) and the warn message hard-codes them.
 pub(super) fn track_zero_sample_streak(
     samples_len: usize,
     services_updated: usize,

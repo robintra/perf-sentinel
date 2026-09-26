@@ -1,7 +1,7 @@
 //! Single-pass carbon scoring over a batch of traces. Produces the
 //! [`CarbonReport`], the per-region breakdown, and the multi-region flag.
 //!
-//! The main entry point is [`compute_carbon_report`]; everything else in
+//! The main entry point is [`compute_carbon_report`]. Everything else in
 //! this module is a per-span helper that keeps the hot loop in
 //! [`process_span_for_carbon`] readable.
 
@@ -79,9 +79,9 @@ pub(super) struct ServiceCarbonAccumulator {
 /// outranks cloud `SPECpower`.
 /// `None` is the absorbing identity (any `Some` wins).
 ///
-/// Note: real-time Electricity Maps intensity is intentionally absent
-/// from this ranking. It lives on the orthogonal intensity axis (`I` in
-/// `E × I`) and is selected at the aggregate report level by
+/// Real-time Electricity Maps intensity is absent from this ranking
+/// because it lives on the orthogonal intensity axis (`I` in `E × I`).
+/// It is selected at the aggregate report level by
 /// [`region_breakdown::select_co2_model_tag`], not per-span.
 #[inline]
 fn higher_fidelity_measured(
@@ -112,9 +112,9 @@ fn higher_fidelity_measured(
 /// `custom_profile` is a borrow into the user-supplied profile map
 /// (lifetime tied to `ctx.custom_hourly_profiles`). `embedded_profile`
 /// is a `HourlyProfileRef<'static>` built from the `'static` table
-/// constants in [`carbon_profiles`]. The two types
-/// expose the same `intensity_at` / `is_monthly` API but are not
-/// interchangeable: hence the two fields.
+/// constants in [`carbon_profiles`]. The two types expose the same
+/// `intensity_at` / `is_monthly` API but are not interchangeable, so
+/// each gets its own field.
 struct SpanRegionContext<'a> {
     region_key: Option<String>,
     region_ref: &'a str,
@@ -155,14 +155,14 @@ pub(super) fn compute_carbon_report(
     total_io_ops: usize,
     avoidable_io_ops: usize,
 ) -> CarbonComputeOutputs {
-    // Multi-region flag seeded from config; updated from span attributes
-    // during the main loop below.
+    // Multi-region flag seeded from config, then updated from span
+    // attributes during the main loop below.
     let mut state = CarbonRunState {
         multi_region_active: !ctx.service_regions.is_empty(),
         ..Default::default()
     };
 
-    // Empty-traces early return. No events → nothing meaningful to report.
+    // Empty-traces early return: no events means nothing meaningful to report.
     // Still propagate the config-based multi_region_active so that an empty
     // batch with a configured service_regions map is consistent with a
     // non-empty batch from the same config.
@@ -218,7 +218,7 @@ pub(super) fn compute_carbon_report(
 /// Single-span update for the main scoring loop. Resolves the region,
 /// intensity, and energy, then accumulates the per-op CO₂ into the
 /// right bucket of `state.per_region`. Unknown-region and capped-region
-/// cases bump `state.unknown_ops`; the multi-region flag is updated in
+/// cases bump `state.unknown_ops`. The multi-region flag is updated in
 /// the same pass.
 fn process_span_for_carbon(
     state: &mut CarbonRunState,
@@ -346,7 +346,7 @@ fn resolve_span_region<'a>(
     }
 
     // Single-probe: look up the profile reference once and reuse it for
-    // both the "has profile?" check, the PUE fallback, and the intensity
+    // the "has profile?" check, the PUE fallback, and the intensity
     // read, avoiding redundant `HashMap` probes on the hot path.
     let custom_profile = ctx
         .custom_hourly_profiles
@@ -399,8 +399,8 @@ struct SpanIntensity<'a> {
 }
 
 /// Pick the best-available intensity (g/kWh) + its source tag for a
-/// single span. Precedence: Electricity Maps real-time > custom hourly
-/// > embedded hourly > flat annual.
+/// single span. Precedence: Electricity Maps real-time > custom
+/// hourly > embedded hourly > flat annual.
 ///
 /// Mirrors `resolve_hourly_intensity` in carbon.rs but uses the
 /// pre-cached profile refs from [`SpanRegionContext`] to avoid
@@ -495,7 +495,7 @@ fn resolve_span_intensity<'a>(
 /// Pick the best-available energy (kWh) for a single span and report
 /// whether it came from a measured snapshot and whether a calibration
 /// factor was applied. Measured energy overrides the proxy model
-/// (calibrated or not); if no snapshot entry exists, the proxy model
+/// (calibrated or not). If no snapshot entry exists, the proxy model
 /// is used with optional per-operation weighting and optional per-service
 /// calibration factor.
 fn resolve_span_energy(
@@ -545,11 +545,11 @@ fn accumulate_span_into_region(
     } = region_ctx;
     // Obtain or insert the accumulator. Three paths to minimize
     // allocations on the hot per-span loop:
-    //   1. region_key is Some  -> already allocated the lowercase key,
-    //      use entry() which moves the owned String into the map.
-    //   2. region_key is None AND key exists -> single get_mut() with a
+    //   1. region_key is Some: the lowercase key is already allocated,
+    //      so entry() moves the owned String into the map.
+    //   2. region_key is None AND key exists: single get_mut() with a
     //      borrowed &str, zero allocation.
-    //   3. region_key is None AND key absent -> allocate once via
+    //   3. region_key is None AND key absent: allocate once via
     //      entry(region_ref.to_string()).
     let acc = if let Some(lowered) = region_key {
         per_region.entry(lowered).or_default()
@@ -568,7 +568,7 @@ fn accumulate_span_into_region(
     // RealTime. All spans of one batch share the same per-tick snapshot
     // of `ctx.real_time_intensity`, so every span for the same region
     // carries the identical metadata. Last-write-wins is therefore a
-    // degenerate equality, the loop converges immediately. We compare
+    // degenerate equality: the loop converges immediately. We compare
     // before re-allocating the `Option<String>` so the cost stays at
     // O(1 alloc) per region per batch instead of O(spans).
     if intensity.source == IntensitySource::RealTime {
@@ -593,10 +593,10 @@ fn accumulate_span_into_region(
 }
 
 /// Compute the network transport CO₂ contribution for a single span.
-/// Always accounted since 0.9.25, so this returns 0 only when the span
-/// is not an HTTP-out call with a `response_size_bytes`, the callee's
-/// region is unmapped in `ctx.service_regions`, or caller and callee
-/// share a region (cross-region traffic only).
+/// Always accounted, so this returns 0 only when the span is not an
+/// HTTP-out call with a `response_size_bytes`, the callee's region is
+/// unmapped in `ctx.service_regions`, or caller and callee share a
+/// region (cross-region traffic only).
 fn network_transport_contribution(
     span: &crate::normalize::NormalizedEvent,
     caller_region: &str,
@@ -604,8 +604,8 @@ fn network_transport_contribution(
     pue: f64,
     ctx: &CarbonContext,
 ) -> f64 {
-    // Unconditional since 0.9.25: no setting gates the term, so two
-    // reports of the same traffic always carry the same transport figure.
+    // No setting gates the term, so two reports of the same traffic
+    // always carry the same transport figure.
     if span.event.event_type != crate::event::EventType::HttpOut {
         return 0.0;
     }
@@ -634,8 +634,8 @@ fn network_transport_contribution(
     // grid intensity and PUE as a proxy for the network infrastructure's
     // actual grid mix, which is distributed and unknown. Documented in
     // LIMITATIONS.md.
-    // The constant, not the context field: no code path can make two
-    // disclosures scale the same traffic differently.
+    // Use the constant, not the context field, so no code path can make
+    // two disclosures scale the same traffic differently.
     let transport_energy = bytes as f64 * crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH;
     transport_energy * intensity_used * pue
 }

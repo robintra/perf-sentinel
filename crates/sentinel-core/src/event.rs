@@ -48,7 +48,7 @@ pub const MAX_SERVICE_LENGTH: usize = 256;
 pub const UNKNOWN_SERVICE: &str = "unknown";
 
 /// `service`, or [`UNKNOWN_SERVICE`] when blank. `sanitize_span_event`
-/// settles this for every span, the metrics library path applies it to
+/// settles this for every span. The metrics library path applies it to
 /// findings that never went through one (a pre-0.18 report).
 #[must_use]
 pub fn service_or_unknown(service: &str) -> &str {
@@ -63,7 +63,7 @@ pub fn service_or_unknown(service: &str) -> &str {
 pub const MAX_OPERATION_LENGTH: usize = 256;
 
 /// Maximum length for the `target` field (bytes).
-/// The SQL normalizer has its own 64 KB limit; this provides
+/// The SQL normalizer has its own 64 KB limit. This one provides
 /// defense-in-depth at the ingestion boundary.
 pub const MAX_TARGET_LENGTH: usize = 65_536;
 
@@ -199,12 +199,12 @@ fn sanitize_arc_str_vec(field: &mut Vec<Arc<str>>, max_len: usize, max_count: us
     }
 }
 
-/// Sanitize all string fields on a [`SpanEvent`] to enforce length limits.
-///
 /// Maximum length for the `timestamp` field (bytes).
 /// ISO 8601 with microseconds and timezone is at most ~30 chars.
 const MAX_TIMESTAMP_LENGTH: usize = 64;
 
+/// Sanitize all string fields on a [`SpanEvent`] to enforce length limits.
+///
 /// Called at every ingestion boundary (OTLP, JSON, Jaeger, Zipkin) to
 /// prevent unbounded memory growth from oversized attribute values.
 /// Also truncates IDs (`trace_id`, `span_id`, `parent_span_id`) that
@@ -258,8 +258,8 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
 
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     // A messaging destination reaches the finding template verbatim, with
-    // no tokenizer or URL parser in between. Scheme-gated on purpose, see
-    // `docs/design/02-NORMALIZATION.md`.
+    // no tokenizer or URL parser in between. Scheme-gated, see
+    // `docs/design/02-NORMALIZATION.md` for the reason.
     if event.event_type == EventType::Messaging && event.target.contains("://") {
         strip_endpoint_secrets(&mut event.target);
     }
@@ -375,7 +375,7 @@ pub struct SpanEvent {
     pub service: Arc<str>,
     /// Attributes captured for grouping, in `[detection] grouping_attributes`
     /// order, absent ones skipped. The first entry is the dimension identity
-    /// keys use, the rest are kept because a report must show the telemetry
+    /// keys use. The rest are kept because a report must show the telemetry
     /// it received, not only the value that won.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grouping: Vec<GroupingAttribute>,
@@ -515,8 +515,8 @@ mod tests {
             lineno: Some(7),
             namespace: None,
         };
-        // No function or namespace, so no parentheses wrap; filepath
-        // still emits with its line number.
+        // No function or namespace, so no parentheses wrap the filepath,
+        // which still emits with its line number.
         assert_eq!(loc.display_string(), "src/main.rs:7");
     }
 
@@ -757,8 +757,8 @@ mod tests {
     #[test]
     fn sanitize_falls_back_to_unknown_service() {
         // Zipkin and Jaeger leave the name empty when the span carries
-        // no service. An empty `service` put a blank component in the
-        // ack signature and, on the Prometheus side, an empty label a
+        // no service. An empty `service` would put a blank component in
+        // the ack signature and, on the Prometheus side, an empty label a
         // scrape re-attributes to its target.
         let mut event = make_event_with_field("service", "");
         sanitize_span_event(&mut event);
@@ -807,8 +807,8 @@ mod tests {
 
     #[test]
     fn sanitize_keeps_an_sqs_arn_intact() {
-        // The account id is deliberately preserved: it is what keeps two
-        // AWS accounts from merging into one template.
+        // The account id is preserved because it keeps two AWS accounts
+        // from merging into one template.
         let arn = "arn:aws:sqs:eu-west-3:123456789012:orders";
         let mut event = make_event_with_field("target", arn);
         event.event_type = EventType::Messaging;

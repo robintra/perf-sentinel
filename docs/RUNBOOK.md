@@ -21,7 +21,7 @@ If you are setting up perf-sentinel for the first time, see [INTEGRATION.md](INT
 - [Exemplars missing in Grafana](#exemplars-missing-in-grafana)
 - [Energy scraper stuck](#energy-scraper-stuck)
 - [`/api/correlations` returns empty](#apicorrelations-returns-empty)
-- [`/api/export/report` returns 503 or an empty report](#apiexportreport-returns-503-or-an-empty-report)
+- [`/api/export/report` returns an empty report](#apiexportreport-returns-an-empty-report)
 - [Daemon crash or restart](#daemon-crash-or-restart)
 - [Applying config changes](#applying-config-changes)
 
@@ -122,11 +122,11 @@ sum by (signature, type, severity, service) (
 )
 ```
 
-The query follows the Grafana time picker and asks nothing of the daemon. It has three costs. It stores one line per detection, so a hot N+1 weighs on the log volume the way it weighs on the ring. It carries no acknowledgment state, since a log line never changes once written. And the backend's own query limits (`max_query_length` and `max_query_series` for Loki) bound how far back and how many signatures one query reaches, so check them before counting on a long range. The Hub is the supported path to findings history, this recipe suits a fleet that already pays for log retention.
+The query follows the Grafana time picker and asks nothing of the daemon. It has three costs. It stores one line per detection, so a hot N+1 weighs on the log volume the way it weighs on the ring. It carries no acknowledgment state, since a log line never changes once written. And the backend's own query limits (`max_query_length` and `max_query_series` for Loki) bound how far back and how many signatures one query reaches, so check them before counting on a long range. The Hub is the supported path to findings history. This recipe suits a fleet that already pays for log retention.
 
 **Cross-trace correlations cannot be recovered after the fact.** The archived `Report` carries an empty `correlations` array by construction, and batch `analyze` never produces correlations at all, so a Tempo replay will not rebuild them either. If a correlation matters for an incident, it has to be captured while the daemon still holds it. Once the correlator's rolling window has moved on, that output is gone for good.
 
-**Capturing correlations on a schedule.** The rolling window is what makes a periodic scrape reliable: a correlation stays active for `[daemon.correlation] window_ms` (600000, 10 minutes by default), so polling at half that interval cannot structurally miss one.
+**Capturing correlations on a schedule.** The rolling window makes a periodic scrape reliable: a correlation stays active for `[daemon.correlation] window_ms` (600000, 10 minutes by default), so polling at half that interval cannot miss one.
 
 ```bash
 # CronJob or sidecar, every 5 minutes
@@ -139,7 +139,7 @@ Use `GET /api/export/report` instead if you want findings and correlations in on
 
 Two things to know before relying on it. `[daemon.correlation] enabled` is **`false` by default**, so without it there is never anything to capture. And `/api/correlations` truncates its response to 1000 entries while the correlator tracks up to `max_tracked_pairs` (10000): the truncation keeps the highest-confidence pairs, but a heavily correlated fleet will not be captured exhaustively. Watch `perf_sentinel_correlator_pairs_evicted_total` to know whether you are hitting the internal cap as well.
 
-Archiving correlations natively would not be the four-line change the code layout suggests. The correlator holds rolling state while the archive writes one line per analysis window, so every line would repeat the same set: at the 10000-pair cap that is roughly 2 MB per line, filling the default 100 MB `max_size_mb` in about fifty lines, nearly all of it duplication. A correct implementation would archive newly-qualifying correlations as a delta, not the running snapshot.
+Archiving correlations natively would not be the four-line change the code layout suggests. The correlator holds rolling state while the archive writes one line per analysis window, so every line would repeat the same set. At the 10000-pair cap that is roughly 2 MB per line, which fills the default 100 MB `max_size_mb` in about fifty lines, nearly all of it duplication. A correct implementation would archive newly-qualifying correlations as a delta, not the running snapshot.
 
 **A replay is not byte-identical to the live observation.** The `confidence` field is stamped by the pipeline caller, so findings the daemon produced in production carry `daemon_production` while the same traces replayed through `tempo` or `analyze` come back as `ci_batch` or `local_batch`. A consumer that weights severity on that field will read the replay as a weaker signal for identical traffic. Acknowledgment signatures are unaffected: they do not include the `trace_id`, so an ack recorded against a live finding still matches its replayed twin.
 
@@ -210,7 +210,8 @@ max_retained_findings = 50000
 question is what perf-sentinel was already reporting about it. perf-sentinel does
 not detect the crash: it has no memory signal for an observed service, and a
 service that saturates usually keeps emitting spans, more slowly. Your alerting
-owns the moment. perf-sentinel owns the window.
+gives you the moment of the crash, and perf-sentinel gives you the findings of
+the window before it.
 
 Bound the listing at both ends. Two bounds is a window query, so `seen_count`
 and `first_seen_ms` describe the window rather than the whole retained history,
@@ -224,8 +225,8 @@ curl -sf "http://perf-sentinel:4318/api/findings?service=cart-svc&since_ms=$FROM
                   template: .finding.pattern.template}'
 ```
 
-**An empty answer has two causes, and they are not the same.** Check the ring
-reaches back that far before concluding nothing was firing:
+**An empty answer has two possible causes.** Check the ring reaches back
+that far before concluding nothing was firing:
 
 ```bash
 curl -sf http://perf-sentinel:4318/api/status | jq '.oldest_finding_ms'
@@ -245,21 +246,21 @@ terminal. Ready-made rules and receivers for both Kubernetes operators are in
 and [`examples/incident-alerts-victoriametrics-operator.yaml`](../examples/incident-alerts-victoriametrics-operator.yaml).
 `GET /api/incidents`, with the write key or `[daemon]
 read_api_key` as `X-API-Key`, then returns the incident with its findings
-already attached, and `perf-sentinel query incidents --service cart-svc
+already attached. `perf-sentinel query incidents --service cart-svc
 --api-key-file <PATH>` prints the same listing from a terminal, the header
 of each incident then its findings. See [QUERY-API.md](QUERY-API.md). The ring is in memory and is
 reloaded at startup from `[daemon.incidents] archive_path` when one is set.
 Without one, scrape that endpoint if the record has to outlive the node.
 
 **Detecting the moment without an external alert.** The daemon does not judge
-whether a service is alive, but it publishes when it last heard from each one:
+whether a service is alive, but it publishes when it last heard from each one.
 `time() - perf_sentinel_service_last_span_timestamp_seconds{service="cart-svc"} > 120`
-says perf-sentinel has not received a span from it for two minutes, and unlike
-`increase(perf_sentinel_service_io_ops_total[10m]) == 0` it survives a daemon
-restart, where every counter resets and reads as a fleet-wide stop. Read it as
-a traffic signal, not a liveness one: a crash, a scale to zero, a rolling
-deploy and a quiet cron all look the same, so any alert on it needs a `for:`
-longer than that service's normal idle gap.
+says perf-sentinel has not received a span from it for two minutes. Unlike
+`increase(perf_sentinel_service_io_ops_total[10m]) == 0`, this expression
+survives a daemon restart, where every counter resets and reads as a fleet-wide
+stop. Read it as a traffic signal, not a liveness one: a crash, a scale to
+zero, a rolling deploy and a quiet cron all look the same, so any alert on it
+needs a `for:` longer than that service's normal idle gap.
 
 ## Daemon running but not reachable from clients
 
@@ -283,13 +284,13 @@ docker logs perf-sentinel 2>&1 | grep 'Starting daemon'
 **Likely causes.**
 
 1. **Daemon bound to `127.0.0.1` (the default).** The listener binds to the loopback interface for security. Inside a container, loopback is reachable only from *within* that same container, so `docker run -p 4318:4318` publishes a port at the host level but the in-container listener does not accept the forwarded connection. Same pattern on a VM accessed over SSH port-forward or on a Kubernetes pod behind a ClusterIP Service.
-2. **`--network host` combined with `-p` flags.** In host network mode, the container shares the host's network namespace; `-p` flags are ignored and Docker emits `WARNING: Published ports are discarded when using host network mode`. The daemon is reachable only on whatever IP its config binds to.
+2. **`--network host` combined with `-p` flags.** In host network mode, the container shares the host's network namespace. `-p` flags are ignored and Docker emits `WARNING: Published ports are discarded when using host network mode`. The daemon is reachable only on whatever IP its config binds to.
 3. **Port mapping reversed or incomplete.** `docker ps --format '{{.Ports}}'` shows the effective mapping. Expected pattern on a local dev run: `0.0.0.0:4317-4318->4317-4318/tcp`.
 4. **Host firewall, NetworkPolicy, or cloud Security Group dropping the traffic.** The in-container `curl` succeeds but the external one times out. If the bind address is `0.0.0.0` and the daemon log shows no error, the delta is environment-side.
 
 **Fix.**
 
-- Cause (1): launch with `watch --listen-address 0.0.0.0`, or set `[daemon] listen_address = "0.0.0.0"` in `.perf-sentinel.toml`. The daemon will emit a non-loopback warning on startup, which is expected; gate access with a reverse proxy or NetworkPolicy in shared environments. See the Docker quickstart in [README.md](../README.md) and the sidecar/collector topologies in [INTEGRATION.md](INTEGRATION.md).
+- Cause (1): launch with `watch --listen-address 0.0.0.0`, or set `[daemon] listen_address = "0.0.0.0"` in `.perf-sentinel.toml`. The daemon will emit a non-loopback warning on startup, which is expected. In shared environments, gate access with a reverse proxy or NetworkPolicy. See the Docker quickstart in [README.md](../README.md) and the sidecar/collector topologies in [INTEGRATION.md](INTEGRATION.md).
 - Cause (2): drop the `-p` flags when using `--network host` (they are ignored) and ensure the daemon listens on `0.0.0.0`. Or switch back to the default bridge network + explicit `-p`.
 - Cause (3): recreate the container with the correct `-p HOST:CONTAINER` ordering.
 - Cause (4): compare `curl` from inside the network namespace (succeeds) with the external one (fails). If the delta is infrastructure, surface the blocking rule to the infra owner.
@@ -316,7 +317,7 @@ curl -sf http://perf-sentinel:4318/metrics
 
 1. **Bind address.** The daemon defaults to `127.0.0.1`, unreachable from other containers. Set `listen_address = "0.0.0.0"` in `.perf-sentinel.toml` and restart.
 2. **Protocol mismatch.** The OTel Java Agent defaults to gRPC on port 4317. Confirm `OTEL_EXPORTER_OTLP_PROTOCOL` matches the port your service targets: `grpc` → 4317, `http/protobuf` → 4318.
-3. **Network policy.** A Kubernetes `NetworkPolicy` or security group may block cross-namespace traffic. Temporarily disable it or allow the service → daemon path explicitly.
+3. **Network policy.** A Kubernetes `NetworkPolicy` or security group may block cross-namespace traffic. Temporarily disable it or explicitly allow the path from the service to the daemon.
 4. **Service not instrumented.** Verify `OTEL_SDK_DISABLED=false` and that the service is producing spans (most OTel SDKs have internal counters or debug logs).
 5. **OTLP endpoint URL typo.** `OTEL_EXPORTER_OTLP_ENDPOINT` should be `http://<host>:4318`. No `/v1/traces` suffix, the SDK appends it.
 6. **Spans arrive but none is analyzable.** `perf_sentinel_otlp_spans_received_total` rising while `events_processed_total` stays flat means the daemon receives spans but every one is filtered out (no `db.statement`, no `http.url`). Check `perf_sentinel_otlp_spans_filtered_total` by `reason`: a dominant `missing_db_statement` points at drivers configured to omit query text (see [LIMITATIONS.md](./LIMITATIONS.md#instrumentation-quality-bounds-findings) and the per-language settings in [INSTRUMENTATION.md](./INSTRUMENTATION.md#required-span-attributes)).
@@ -333,7 +334,7 @@ The counter should tick up within seconds.
 
 ## Sudden drop in ingestion volume
 
-**Symptom.** `rate(perf_sentinel_events_processed_total[5m])` falls off a cliff or drops to zero while the daemon stays up (uptime keeps growing).
+**Symptom.** `rate(perf_sentinel_events_processed_total[5m])` drops sharply or falls to zero while the daemon stays up (uptime keeps growing).
 
 **First checks.**
 
@@ -344,10 +345,10 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 
 **Likely causes.**
 
-1. **Upstream traffic dropped.** Real traffic to your services fell; perf-sentinel is faithfully reporting reality. Cross-check with your load balancer or HTTP metrics.
+1. **Upstream traffic dropped.** Real traffic to your services fell, and perf-sentinel reports it faithfully. Cross-check with your load balancer or HTTP metrics.
 2. **OTel collector down.** If a central collector sits between services and perf-sentinel, check the collector's own health and receive metrics first.
 3. **Sampling change.** A config bump reduced the sampling rate. Audit recent commits in your OTel config repo.
-4. **Daemon backpressure.** Two distinct pressure points. If ingestion outpaces the receive loop the OTLP channel fills and events are rejected: look for `channel full` warnings (`RUST_LOG=sentinel_core::ingest=debug`) and `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. If detection can't keep up, the analysis worker queue fills and whole batches are shed: watch `perf_sentinel_analysis_queue_depth` and `perf_sentinel_analysis_shed_batches_total`. A third, quieter pressure point is the disclosure archive: when its writer falls behind on disk I/O, whole windows are dropped even though their findings were analyzed and served live, visible only on `perf_sentinel_archive_windows_dropped_total` (by `reason`), never in the archive itself. Common triggers: a pathological trace slowing detect+score; `max_active_traces` too low for current throughput; slow or full storage under the archive path.
+4. **Daemon backpressure.** Two distinct pressure points. If ingestion outpaces the receive loop the OTLP channel fills and events are rejected: look for `channel full` warnings (`RUST_LOG=sentinel_core::ingest=debug`) and `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. If detection can't keep up, the analysis worker queue fills and whole batches are shed: watch `perf_sentinel_analysis_queue_depth` and `perf_sentinel_analysis_shed_batches_total`. A third, quieter pressure point is the disclosure archive: when its writer falls behind on disk I/O, whole windows are dropped even though their findings were analyzed and served live. The drop is visible only on `perf_sentinel_archive_windows_dropped_total` (by `reason`), never in the archive itself. Common triggers: a pathological trace slowing detect+score, `max_active_traces` too low for current throughput, or slow or full storage under the archive path.
 
 Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
@@ -375,11 +376,11 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
    one per detection, so ranking by row count ranks by variety rather
    than by volume: a service whose spike is one pattern recurring on 200
    traces would sort last. Rank on `seen_count`, as above, to rank by how
-   often a problem fired; `problems` still says how many distinct ones a
+   often a problem fired. `problems` still says how many distinct ones a
    service carries. `seen_count` counts the detections still retained in
    the ring buffer, so it falls as older ones age out.
 
-2. **Grab an exemplar `trace_id`** for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:
+2. **Grab an exemplar `trace_id`** for each top pattern. In Grafana, the ◆ on the metric is clickable. From the command line:
 
    ```bash
    curl -s http://perf-sentinel:4318/metrics \
@@ -403,9 +404,9 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
 **Common root causes.**
 
-- **N+1 SQL:** ORM lazy loading; a recent feature iterating a collection without `JOIN FETCH` / `selectinload` / `Include`.
+- **N+1 SQL:** ORM lazy loading, or a recent feature iterating a collection without `JOIN FETCH` / `selectinload` / `Include`.
 - **Pool saturation:** connection pool undersized, or a downstream dependency slowed down.
-- **Slow query:** missing index; a data-volume threshold crossed (what ran in 50 ms at 10 k rows now runs in 2 s at 10 M).
+- **Slow query:** missing index, or a data-volume threshold crossed (what ran in 50 ms at 10 k rows now runs in 2 s at 10 M).
 
 ---
 
@@ -424,7 +425,7 @@ Scaling levers, in order: raise the CPU limit (the plateau is CPU-bound on proto
 
 ## Daemon memory pressure or OOM
 
-**Symptom.** RSS grows over time; Kubernetes OOMKill; `active_traces` or `stored_findings` hovering near their caps.
+**Symptom.** RSS grows over time, Kubernetes OOMKill, `active_traces` or `stored_findings` hovering near their caps.
 
 **First checks.**
 
@@ -437,7 +438,7 @@ curl -s http://perf-sentinel:4318/api/status | jq '{active_traces, stored_findin
 
 1. **Traffic exceeds defaults.** 10 000 active traces is sized for moderate load. High-throughput services fill it faster than eviction keeps up.
 2. **Widened TTL.** If you raised `trace_ttl_ms` for post-mortem convenience, every trace lives longer in memory.
-3. **Pathological traces.** A single trace with thousands of spans eats RAM. `max_events_per_trace` (default 1000) caps this, confirm it hasn't been raised. Since 0.11.2 it caps four per-trace collections independently, the event ring, the retained inbound endpoint contexts, the retained consumer destinations and the ancestry index, so the same value holds a larger envelope than it did in 0.11.1. Oversized SQL text from a hostile or verbose emitter is also bounded per field at ingestion (64 KiB per target), but 1000 such events in one trace still add up: lower `max_events_per_trace` or `max_active_traces` if a misbehaving emitter is suspected.
+3. **Pathological traces.** A single trace with thousands of spans eats RAM. `max_events_per_trace` (default 1000) caps this. Confirm it hasn't been raised. Since 0.11.2 it caps four per-trace collections independently: the event ring, the retained inbound endpoint contexts, the retained consumer destinations and the ancestry index. The same value therefore holds a larger envelope than it did in 0.11.1. Oversized SQL text from a hostile or verbose emitter is also bounded per field at ingestion (64 KiB per target), but 1000 such events in one trace still add up: lower `max_events_per_trace` or `max_active_traces` if a misbehaving emitter is suspected.
 4. **Correlator growth.** `[daemon.correlation] max_tracked_pairs` (default 10 000) bounds the cross-trace graph. Raising it multiplies memory by the pair count. `perf_sentinel_correlator_pairs_evicted_total` is the signal that the cap is active: a sustained rate means the topology exceeds the cap (correlations are recycled, not leaked).
 5. **Findings store inflated** by a runaway detection loop. Rare but worth checking `stored_findings` vs `max_retained_findings`.
 
@@ -483,13 +484,13 @@ Example output:
 
 **Likely causes.**
 
-1. **Legitimate regression.** A recent change introduced new N+1s or widened the waste ratio. Inspect `findings[]` in the same JSON: `source_endpoint` locates the code path; `pattern.template` shows the normalized SQL/HTTP call; `pattern.occurrences` tells you how bad.
+1. **Legitimate regression.** A recent change introduced new N+1s or widened the waste ratio. Inspect `findings[]` in the same JSON: `source_endpoint` locates the code path, `pattern.template` shows the normalized SQL/HTTP call, and `pattern.occurrences` tells you how bad.
 2. **Threshold too tight.** `.perf-sentinel.toml` may have zero-tolerance limits that fail on any pre-existing finding. For brownfield projects, consider a ratcheting baseline (tighten over time rather than all at once).
 3. **Test data grew.** A larger dataset in integration tests can cross a detection threshold (a 5-occurrence N+1 only fires above a certain iteration count).
 
 **Fix.** Adjust either the code or the threshold, not both under pressure. If the finding is real, fix the code. If the threshold is miscalibrated, update `.perf-sentinel.toml` and commit the change so it's reviewable.
 
-> **Note.** There are no per-service detection thresholds today; `[detection]` values apply globally across all services in the trace file.
+> **Note.** There are no per-service detection thresholds today. `[detection]` values apply globally across all services in the trace file.
 
 ---
 
@@ -517,10 +518,10 @@ git log -p .perf-sentinel-acknowledgments.toml | head -80
 
 1. **Ack matches as intended.** The signature is in the file. Read the `reason` and the PR that landed it. If the rationale no longer applies, open a PR to remove the entry.
 2. **Wrong template normalization.** The signature in the file does not match the current template. Common after a SQL refactor (parameter ordering changes, alias renames). Re-extract the current signature with the JSON output and update the entry.
-3. **Stale `expires_at`.** An ack with `expires_at = "2025-12-31"` stopped applying on 2026-01-01. The finding that re-appeared is the one that was suppressed before. Decision time: refresh the ack with a new date, make it permanent, or fix the underlying code.
+3. **Stale `expires_at`.** An ack with `expires_at = "2025-12-31"` stopped applying on 2026-01-01. The finding that re-appeared is the one that was suppressed before. Then decide whether to refresh the ack with a new date, make it permanent, or fix the underlying code.
 4. **Override path leak.** A CI job is passing `--acknowledgments /some/other/path.toml` that you did not expect. Grep CI workflow files for the flag.
 
-**Fix.** The ack file is versioned, so the fix is always a PR: edit, remove, or update the entry. Never bypass acks in CI by adding `--no-acknowledgments` to a permanent job, the audit trail is the file's git log.
+**Fix.** The ack file is versioned, so the fix is always a PR: edit, remove, or update the entry. Never bypass acks in CI by adding `--no-acknowledgments` to a permanent job. The audit trail is the file's git log.
 
 For the full ack workflow, see [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md).
 
@@ -545,8 +546,8 @@ kubectl logs -n observability deploy/tempo-query-frontend --tail=50 \
 
 **Likely causes.**
 
-1. **Wrong component in a microservices deployment.** In `tempo-distributed` Helm deployments, the HTTP query API is served exclusively by `tempo-query-frontend`. Pointing `--endpoint` at `tempo-querier` (an internal worker, no public API) or `tempo-ingester` (write path only) returns 404 on every `/api/search`. The 404 message emitted by perf-sentinel now includes the failing URL so the misconfiguration is visible at a glance.
-2. **Endpoint pointing at Grafana instead of Tempo.** Grafana defaults to port 3000, Tempo HTTP API to 3200. `http://grafana:3000/api/search` has no backing route, returns 404.
+1. **Wrong component in a microservices deployment.** In `tempo-distributed` Helm deployments, the HTTP query API is served exclusively by `tempo-query-frontend`. Pointing `--endpoint` at `tempo-querier` (an internal worker, no public API) or `tempo-ingester` (write path only) returns 404 on every `/api/search`. The 404 message emitted by perf-sentinel includes the failing URL, so the misconfiguration is visible at a glance.
+2. **Endpoint pointing at Grafana instead of Tempo.** Grafana defaults to port 3000, Tempo HTTP API to 3200. `http://grafana:3000/api/search` has no backing route and returns 404.
 3. **Reverse-proxy path prefix omitted.** If Tempo sits behind ingress with a path prefix (e.g. `https://observability.example.com/tempo/...`), `--endpoint` must include the prefix.
 4. **Tempo degraded under fetch load.** Search succeeded but per-trace fetches time out. Common triggers: long `--lookback` (24 h on a large service), under-provisioned `tempo-query-frontend` replicas, `max_concurrent_queries` hit, ingester resource limits (OOM-killed ingesters produce cascading fetch failures).
 
@@ -555,7 +556,7 @@ kubectl logs -n observability deploy/tempo-query-frontend --tail=50 \
 - Causes (1), (2), (3): point `--endpoint` at the actual query-frontend URL, validated by the `curl` above.
 - Cause (4): on the perf-sentinel side, narrow `--lookback` (start at 1 h, widen progressively) or fall back to `--trace-id <id>` for a single-trace replay. On the Tempo side, scale `tempo-query-frontend` horizontally, raise `max_concurrent_queries`, and check ingester memory/CPU caps.
 
-Perf-sentinel caps in-flight fetches at 16 concurrent by default, so the client is not itself flooding Tempo. If Tempo still collapses under a 100-trace run, capacity is the bottleneck, not the client. Hitting Ctrl-C during a long run now returns a partial result with the already-completed traces (see [LIMITATIONS.md](LIMITATIONS.md) § "Tempo ingestion"); the CLI surfaces `Tempo fetch was interrupted by Ctrl-C before any trace completed` when zero traces had completed, distinct from the generic `NoTracesFound`.
+Perf-sentinel caps in-flight fetches at 16 concurrent by default, so the client is not itself flooding Tempo. If Tempo still collapses under a 100-trace run, capacity is the bottleneck, not the client. Hitting Ctrl-C during a long run returns a partial result with the already-completed traces (see [LIMITATIONS.md](LIMITATIONS.md) § "Tempo ingestion"). When zero traces had completed, the CLI reports `Tempo fetch was interrupted by Ctrl-C before any trace completed`, distinct from the generic `NoTracesFound`.
 
 ---
 
@@ -606,7 +607,7 @@ RUST_LOG=sentinel_core::score=debug
 3. **Cloud energy API down or rate-limited.** If using Electricity Maps or a cloud-provider API, check its status and your API quota.
 4. **Service name mismatch.** `[green.cloud.services.<name>]` keys must match the `service.name` attribute on incoming spans. No match, no per-service attribution.
 
-**Impact.** The daemon falls back to the I/O proxy energy model. CO₂ figures remain directional but lose their measured-energy precision. Not a hot incident; fix at your next maintenance window unless the accuracy matters for a specific report.
+**Impact.** The daemon falls back to the I/O proxy energy model. CO₂ figures remain directional but lose their measured-energy precision. Not a hot incident. Fix it at your next maintenance window unless the accuracy matters for a specific report.
 
 ---
 
@@ -647,20 +648,20 @@ Restart the daemon to apply.
 
 ---
 
-## `/api/export/report` returns 503 or an empty report
+## `/api/export/report` returns an empty report
 
-**Symptom.** Piping the daemon into the HTML dashboard fails with HTTP 503 or produces a dashboard with zero findings on a daemon that is clearly running.
+**Symptom.** Piping the daemon into the HTML dashboard produces a dashboard with zero findings on a daemon that is clearly running.
 
 ```bash
-curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --input - --output /tmp/report.html
-# HTTP 503: {"error": "daemon has not yet processed any events"}
+curl -s http://perf-sentinel:4318/api/export/report | jq -r '.warning_details[].kind'
+# cold_start
 ```
 
 **Likely causes.**
 
-1. **Cold start.** The endpoint returns 503 until `events_processed > 0`, on purpose: rendering a dashboard with zero counters on a daemon that has not yet seen its first OTLP batch would be misleading. Wait for the first batch to land, then retry. `GET /api/status` shows the live `events_processed` counter.
-2. **`api_enabled = false`.** If the config disables the query API, `/api/export/report` is not mounted and `curl` returns a 404, not a 503. Re-enable `[daemon] api_enabled = true`.
-3. **Empty findings store, not cold start.** On a long-running daemon that has processed events but has no findings in the ring buffer (clean traffic, or `max_retained_findings = 0`), the endpoint returns 200 with an empty `findings` array. The resulting dashboard shows a "No findings" empty state, which is correct.
+1. **Cold start.** Until the daemon has processed a first batch (`events_processed` and `traces_analyzed` both above 0), the endpoint returns 200 with an empty report and a `cold_start` entry in `warning_details`. Wait for the first batch to land, then retry. `/metrics` exposes both counters as `perf_sentinel_events_processed_total` and `perf_sentinel_traces_analyzed_total`.
+2. **`api_enabled = false`.** If the config disables the query API, `/api/export/report` is not mounted and `curl` returns a 404. Re-enable `[daemon] api_enabled = true`.
+3. **Empty findings store, not cold start.** On a long-running daemon that has processed events but has no findings in the ring buffer (clean traffic, or `max_retained_findings = 0`), the endpoint returns 200 with an empty `findings` array and no `cold_start` warning. The resulting dashboard shows a "No findings" empty state, which is correct.
 
 **Operational note.** The snapshot is not atomic across `findings` and `correlations`: the two collections can be one batch apart (findings from generation N, correlations from N+1). For a post-mortem dashboard this is acceptable. If you need strict consistency, use `analyze --input traces.json` on a captured trace file instead.
 
@@ -694,7 +695,7 @@ curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --inp
 - Kubernetes `restartPolicy: Always` + memory limit headroom above observed peak RSS.
 - Alert on `perf_sentinel_active_traces` approaching `max_active_traces`. Rising pressure often precedes OOM.
 - For HA, run multiple replicas only behind trace-aware routing (consistent hashing by `trace_id` in the OTel Collector `loadbalancingexporter`). A round-robin Service splits one trace's spans across pods, which silently degrades N+1 detection. Each replica keeps independent state and there is no cross-replica correlation, so the gain is redundancy against a single-instance failure, not shared analysis.
-- Collection continuity matters for `disclose`: every restart leaves a gap in the archived windows that feed the carbon disclosure. Persist the archive (StatefulSet mode with `persistence.enabled`) so downtime does not punch holes in the disclosure history. With more than one replica each pod writes its own archive to its own PVC, so `disclose` must be run per pod and the outputs reconciled.
+- Collection continuity matters for `disclose`: every restart leaves a gap in the archived windows that feed the carbon disclosure. Persist the archive (StatefulSet mode with `persistence.enabled`) so downtime does not leave gaps in the disclosure history. With more than one replica each pod writes its own archive to its own PVC, so `disclose` must be run per pod and the outputs reconciled.
 
 ---
 
@@ -797,10 +798,10 @@ values such as counts.
   events, returned by `GET /api/export/report` until the first batch
   lands. Pre-0.5.16 this surfaced as a 503 status, which tripped
   Kubernetes probes. Wait for the first eviction tick (default 15s,
-  half of `trace_ttl_ms`); if the warning persists past 60-120 seconds
-  in a deployed environment, check that the application actually emits
-  OTLP traces and that the listen address is reachable. The warning
-  disappears automatically on the first batch, no operator action is
+  half of `trace_ttl_ms`). If the warning persists past 60-120 seconds
+  in a deployed environment, check that the application emits OTLP
+  traces and that the listen address is reachable. The warning
+  disappears automatically on the first batch. No operator action is
   required.
 
 - `ingestion_drops` (**sticky**): at least one OTLP request was
@@ -810,9 +811,10 @@ values such as counts.
   `perf_sentinel_otlp_rejected_total{reason="channel_full"}` or
   `{reason="memory_pressure"}` for the same value, then consider
   increasing daemon CPU allocation or `[daemon] max_active_traces`
-  for saturation, or the container memory limit for memory pressure. The warning persists until daemon
-  restart even after backpressure subsides, the underlying counter is
-  cumulative since process start.
+  for saturation, or the container memory limit for memory pressure.
+  The warning persists until daemon restart even after backpressure
+  subsides, because the underlying counter is cumulative since process
+  start.
 
 - `tuning` (**mixed**, since 0.8.7): the daemon's settings advisor.
   Each entry names a config knob whose current value looks undersized
@@ -830,10 +832,10 @@ values such as counts.
 
 The legacy `Report.warnings: Vec<String>` field (0.5.16+) still ships
 for backward compatibility. CLI and HTML renderers prefer
-`warning_details` when non-empty, fall back to `warnings` otherwise.
-The HTML dashboard exposes `warning_details` in the embedded JSON
-payload (`payload.report.warning_details`), a dedicated banner in the
-dashboard UI is on the roadmap.
+`warning_details` when non-empty and fall back to `warnings`
+otherwise. The HTML dashboard exposes `warning_details` in the
+embedded JSON payload (`payload.report.warning_details`). A dedicated
+banner in the dashboard UI is on the roadmap.
 
 When acknowledging findings via the daemon ack API (since 0.5.20), no
 warning kind is affected by acks: they reflect daemon state, not
@@ -869,7 +871,7 @@ When the daemon is configured with an API key
 (`[daemon.ack] api_key`), add `-H "X-API-Key: <secret>"` to `POST` and
 `DELETE` calls. That key also gates `GET /api/acks`, which since 0.20.0
 takes `[daemon] read_api_key` as well. `GET /api/findings` stays
-unauthenticated by design (loopback reads).
+unauthenticated (loopback reads).
 
 The runtime store is JSONL append-only at
 `~/.local/share/perf-sentinel/acks.jsonl` by default. Tail it for a
@@ -884,7 +886,7 @@ JSONL interop" for the conflict resolution rules.
 ## See also
 
 - [METRICS.md](METRICS.md): exhaustive reference for every metric exposed
-  on `/metrics`, including the new process metrics and OTLP rejection
+  on `/metrics`, including the process metrics and OTLP rejection
   counter (since 0.5.19).
 - [LIMITATIONS.md](LIMITATIONS.md): what the daemon does *not* persist or guarantee.
 - [QUERY-API.md](QUERY-API.md): reference for `/api/findings`, `/api/explain`, `/api/correlations`, `/api/status`.

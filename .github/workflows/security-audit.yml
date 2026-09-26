@@ -45,8 +45,8 @@ jobs:
 
   # Supply-chain policy gate driven by deny.toml: advisories, bans, license
   # compatibility (AGPL-3.0-only) and crate sources. The advisory overlap with
-  # the cargo-audit job above is intentional, cargo-deny layers the bans,
-  # license and source checks on top.
+  # the cargo-audit job above is expected: cargo-deny layers the bans, license
+  # and source checks on top.
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest

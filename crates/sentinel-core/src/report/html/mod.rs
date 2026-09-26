@@ -52,16 +52,16 @@ const FONT_FACES_PLACEHOLDER: &str = "{{FONT_FACES}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
 // DM Sans + JetBrains Mono (OFL-1.1) Latin subset, embedded as base64 woff2 so
 // the self-contained report renders the brand typefaces offline, with no network
-// fetch. Generated from the @fontsource woff2 subsets; the license text lives
+// fetch. Generated from the @fontsource woff2 subsets. The license text lives
 // in `fonts-LICENSE.txt` beside it. Base64 alphabet contains no `{` so the
 // double-brace guard below holds.
 const FONT_FACES: &str = include_str!("fonts.css");
 // Brand wordmark (horizontal lockup), embedded so the self-contained report
 // needs no network fetch. `logo-horiz-light.svg` is the dark wordmark for
-// light backgrounds; `logo-horiz-dark.svg` is the light wordmark for dark
+// light backgrounds, `logo-horiz-dark.svg` the light wordmark for dark
 // backgrounds. The template swaps them by `data-theme` in pure CSS. Kept
 // inside this crate (not referenced from the repo-root `logo/`) so
-// `cargo publish` packages them; an out-of-package `include_str!` would break
+// `cargo publish` packages them. An out-of-package `include_str!` would break
 // the published crate's compile.
 const BRAND_LOGO_LIGHT_SVG: &str = include_str!("logo-horiz-light.svg");
 const BRAND_LOGO_DARK_SVG: &str = include_str!("logo-horiz-dark.svg");
@@ -104,7 +104,7 @@ const PAYLOAD_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Options controlling HTML rendering.
 ///
 /// `#[non_exhaustive]` for SemVer-minor field additions (0.9.5 added
-/// `mysql_stat`); struct literals (including functional record update)
+/// `mysql_stat`). Struct literals (including functional record update)
 /// do not compile outside this crate, so external crates start from
 /// `RenderOptions::default()` and set the public fields one by one.
 #[derive(Debug, Clone, Default)]
@@ -164,13 +164,13 @@ pub struct RenderOptions {
 /// the private `TrimSummary` struct used inside the JSON payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderStats {
-    /// Number of traces actually embedded in the rendered HTML.
+    /// Number of traces embedded in the rendered HTML.
     pub kept: usize,
     /// Total candidate traces before the trace-level size or cap trim.
-    /// Candidates come from the findings kept in the embed, so when the
-    /// findings trim fires this is already conservative versus the full
-    /// JSON report (deliberate: every embedded trace has its finding
-    /// visible in the dashboard).
+    /// Candidates come from the findings kept in the embed, so that every
+    /// embedded trace has its finding visible in the dashboard. When the
+    /// findings trim fires, this is already conservative versus the full
+    /// JSON report.
     pub total: usize,
 }
 
@@ -226,8 +226,8 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
         trimmed_findings,
     );
     // A report handed over without its input (a daemon snapshot) carries
-    // its own masked spans. Culprit highlighting is not rebuilt here, it
-    // needs the raw `Trace`, so the browser falls back to deriving what
+    // its own masked spans. Culprit highlighting needs the raw `Trace`, so
+    // it is not rebuilt here and the browser falls back to deriving what
     // it can.
     if payload.embedded_traces.is_empty() && !report.embedded_traces.is_empty() {
         let (selected, trimmed) = select_report_carried_traces(&report_embed, report, options);
@@ -237,11 +237,10 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
     let kept = payload.embedded_traces.len();
     let total = payload.trimmed_traces.as_ref().map_or(kept, |s| s.total);
     // Serialization of our fixed-shape payload cannot fail: all nested
-    // types are `Serialize`, every map key is `&'static str`, and there
-    // are no non-string map keys anywhere in the tree. If a future
-    // refactor introduces a `HashMap<NonStringKey, _>` anywhere under
-    // `Payload`, `serde_json` will fail here at runtime. Keep the
-    // payload's map keys `&'static str` or `String` only.
+    // types are `Serialize` and every map key in the tree is a string. A
+    // `HashMap<NonStringKey, _>` added anywhere under `Payload` would make
+    // `serde_json` fail here at runtime, so keep the payload's map keys
+    // `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
     let title = derive_page_title(&sanitized_label);
     let csp = build_csp(options.daemon_url.as_deref());
@@ -249,7 +248,7 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
     (html, RenderStats { kept, total })
 }
 
-/// Render and write a rendered HTML dashboard to `output`.
+/// Render the HTML dashboard and write it to `output`.
 ///
 /// # Errors
 ///
@@ -299,8 +298,8 @@ struct Payload<'a> {
 
 /// Live-mode handle embedded in the JSON payload. Presence flips the JS
 /// boot path from "static" to "live": fetch ack data, reveal the
-/// daemon-status badge, attach Ack/Revoke handlers. Field naming kept
-/// short on purpose, the JSON is read at boot every time.
+/// daemon-status badge, attach Ack/Revoke handlers. Field names stay
+/// short because the JSON is read at boot every time.
 #[derive(Debug, Serialize)]
 struct DaemonHandle<'a> {
     url: &'a str,
@@ -319,26 +318,27 @@ struct TrimSummary {
 /// JSON string escape, so round-tripping through `JSON.parse` recovers
 /// the original value. The title is already HTML-escaped by
 /// [`derive_page_title`]. The CSP string is built by [`build_csp`] from
-/// a static prefix and the validated daemon URL, no untrusted bytes
+/// a static prefix and the validated daemon URL, so no untrusted bytes
 /// reach the meta tag.
 ///
 /// Substitution order is critical and verified by
 /// `hostile_input_label_with_json_placeholder_does_not_double_substitute`
-/// and friends:
-/// - the brand SVG is substituted first; it is trusted compile-time content
-///   guaranteed `{{`-free (see [`assert_no_double_brace`]), so it cannot lay
-///   down a fake placeholder for the later passes to match;
-/// - the JSON payload is substituted before the title, so a hostile
+/// and related tests:
+/// - The font faces and the brand SVG are substituted first. Both are
+///   trusted compile-time content guaranteed `{{`-free (see
+///   [`assert_no_double_brace`]), so neither can lay down a fake placeholder
+///   for the later passes to match.
+/// - The JSON payload is substituted before the title, so a hostile
 ///   `input_label` carrying `{{REPORT_JSON}}` (injected only at the title
-///   pass) cannot trigger a second JSON substitution;
-/// - the CSP and title markers sit in `<head>`, ahead of both the JSON block
+///   pass) cannot trigger a second JSON substitution.
+/// - The CSP and title markers sit in `<head>`, ahead of both the JSON block
 ///   and the brand marker, so a hostile title or JSON payload cannot shadow
 ///   the static `replacen(..., 1)` matches.
 fn inject(json: &str, title: &str, csp: &str) -> String {
     // Defense-in-depth: a `{{` byte sequence in the CSP would shadow a
     // template placeholder during the title substitution. `validate_url`
-    // rejects bytes `hyper::Uri` does not accept in a host so the check
-    // holds today; plain `assert!` keeps the safety net in release.
+    // rejects bytes `hyper::Uri` does not accept in a host, so the check
+    // holds today. Plain `assert!` keeps the safety net in release.
     assert!(
         !csp.contains("{{"),
         "CSP must not contain `{{{{` placeholder bytes, got: {csp}"
@@ -367,17 +367,16 @@ fn inject(json: &str, title: &str, csp: &str) -> String {
 }
 
 /// Build the Content-Security-Policy string for a render call. In
-/// static mode, returns the historical strict policy verbatim. In live
+/// static mode, returns the strict static policy verbatim. In live
 /// mode, appends `connect-src 'self' <daemon_url>` so the in-page
-/// JavaScript can `fetch()` the daemon AND any same-origin asset (a
+/// JavaScript can `fetch()` the daemon and any same-origin asset (a
 /// future template change adding a same-origin fetch will not silently
 /// break under the strict CSP). The caller validates the URL upstream
 /// (the CLI runs it through `validate_url` and rejects userinfo, paths,
 /// query strings, ASCII control characters), so no CSP-breaking byte
 /// (single quote, semicolon, whitespace, curly braces) can land in the
-/// directive value. The `inject` `debug_assert!(!csp.contains("{{"))`
-/// is the load-bearing fallback in case `validate_url` is ever
-/// relaxed.
+/// directive value. The `inject` `assert!(!csp.contains("{{"))`
+/// is the fallback in case `validate_url` is ever relaxed.
 #[must_use]
 fn build_csp(daemon_url: Option<&str>) -> String {
     match daemon_url {
@@ -416,7 +415,7 @@ fn sanitize_input_label(input_label: &str) -> String {
 
 /// Minimal HTML escape for the title text. `<title>` is a raw-text
 /// element, so only `&` and `<` strictly need escaping, but we also
-/// escape `>` and the two quote characters for belt-and-braces safety.
+/// escape `>` and the two quote characters as a precaution.
 /// Control characters (Unicode Cc, plus the known `BiDi` and
 /// line/paragraph-separator format codes that some terminals and
 /// browsers honor) are dropped so a hostile filename cannot inject
@@ -459,7 +458,7 @@ fn is_unsafe_format_char(c: char) -> bool {
 /// The signature alone is not enough: it covers a pattern rather than an
 /// occurrence, and `serialized_calls` derives both its service and its
 /// endpoint from the parent span, so two chains under two parents on the
-/// same route hash identically. The time bounds are what separate them.
+/// same route hash identically. The time bounds separate them.
 fn culprit_key(
     trace_id: &str,
     grouping: Option<&crate::event::GroupingAttribute>,
@@ -806,12 +805,10 @@ fn build_payload_with_label<'a>(
 
 /// Filter traces to those referenced by a finding and rank each by the
 /// first finding that references it, so the trees kept are the ones the
-/// top rows point at whatever order the caller ranked findings in. The
+/// top rows point at, whatever order the caller ranked findings in. The
 /// same rule as [`select_report_carried_traces`]: both render paths must
 /// keep the same trees for the same report, or the page's own claim that
-/// trees follow the ranking is only true on one of them. The previous
-/// per-endpoint IIS ranking also degenerated to input order whenever
-/// `[green]` was disabled, since `top_offenders` was empty then.
+/// trees follow the ranking is only true on one of them.
 fn order_candidates_by_findings<'a>(
     findings: &[crate::detect::Finding],
     traces: &'a [Trace],
@@ -826,7 +823,7 @@ fn order_candidates_by_findings<'a>(
 }
 
 /// Findings share of the JSON budget when the sink targets a file size.
-/// Traces get whatever remains; without this bound a large batch (tens of
+/// Traces get whatever remains. Without this bound, a large batch (tens of
 /// thousands of findings) ships a multi-MB envelope no matter how many
 /// traces are trimmed.
 const FINDINGS_BUDGET_SHARE_PCT: usize = 70;
@@ -844,8 +841,8 @@ const TOP_OFFENDERS_EMBED_CAP: usize = 25;
 /// does not bloat the self-contained file, while `analyze --format json`
 /// keeps every one of them in full:
 ///   - `findings`: trimmed critical-first when over the size budget
-///     (surfaced as a banner), full otherwise;
-///   - `per_endpoint_io_ops`: dropped entirely (no dashboard view reads it);
+///     (surfaced as a banner), full otherwise.
+///   - `per_endpoint_io_ops`: dropped entirely (no dashboard view reads it).
 ///   - `green_summary.top_offenders`: capped to [`TOP_OFFENDERS_EMBED_CAP`].
 fn slim_report_for_embed(
     report: &Report,
@@ -853,8 +850,8 @@ fn slim_report_for_embed(
 ) -> (Report, Option<TrimSummary>) {
     let (findings, trimmed_findings) = select_embedded_findings(report, options);
     // Clone-then-truncate: the transient full clone is freed immediately,
-    // and a one-shot HTML render is not a hot path. What matters is that
-    // the serialized payload carries at most the cap.
+    // and a one-shot HTML render is not a hot path. Only the serialized
+    // payload has to stay within the cap.
     let mut green_summary = report.green_summary.clone();
     green_summary
         .top_offenders
@@ -869,7 +866,7 @@ fn slim_report_for_embed(
         quality_gate: report.quality_gate.clone(),
         per_endpoint_io_ops: Vec::new(),
         correlations: report.correlations.clone(),
-        // Dropped: `Payload::embedded_traces` already carries the spans,
+        // Dropped: `Payload::embedded_traces` already carries the spans, so
         // keeping them here would ship every tree twice.
         embedded_traces: Vec::new(),
         warnings: report.warnings.clone(),
@@ -885,8 +882,8 @@ fn slim_report_for_embed(
 /// Select the findings to embed. Critical findings are kept first, then
 /// warning, then info, preserving the canonical report order inside each
 /// band. Returns the full set (and no summary) when `--max-traces-embedded`
-/// opts out of size targeting or the set already fits; otherwise the
-/// critical-first prefix that fits, with a [`TrimSummary`].
+/// opts out of size targeting or the set already fits. Otherwise returns
+/// the critical-first prefix that fits, with a [`TrimSummary`].
 fn select_embedded_findings(
     report: &Report,
     options: &RenderOptions,
@@ -990,23 +987,23 @@ fn embed_trace_ref(t: &Trace) -> EmbeddedTraceRef<'_> {
 
 /// Traces a snapshot-style report carries itself, filtered to the
 /// findings the payload shows (an acknowledged finding's tree must not
-/// ship) and ranked by the first finding that references each one, so the
-/// trees kept are the ones the top rows point at whatever order the caller
-/// ranked findings in. `report --sort impact` therefore decides which
-/// trees survive the cap, not only how the list reads. Bounded by the
-/// explicit
-/// `--max-traces-embedded` cap when set, otherwise by what the size
-/// target leaves after the rest of the payload, measured rather than
-/// assumed so the findings' own budget share cannot overlap it. A trace
-/// too large for the remaining budget is skipped, not fatal: one
-/// oversized tree must not empty the embed.
+/// ship). Each is ranked by the first finding that references it, so the
+/// trees kept are the ones the top rows point at, whatever order the
+/// caller ranked findings in. `report --sort impact` therefore decides
+/// which trees the cap keeps, not only how the list reads.
+///
+/// Bounded by the explicit `--max-traces-embedded` cap when set,
+/// otherwise by what the size target leaves after the rest of the
+/// payload, measured rather than assumed so the findings' own budget
+/// share cannot overlap it. A trace too large for the remaining budget
+/// is skipped, not fatal: one oversized tree must not empty the embed.
 fn select_report_carried_traces(
     report_embed: &Report,
     report: &Report,
     options: &RenderOptions,
 ) -> (Vec<EmbeddedTrace>, Option<TrimSummary>) {
     // The shared selection rule: the caller's own findings order decides
-    // the embed, `report.embedded_traces` arrives sorted by trace id, which
+    // the embed. `report.embedded_traces` arrives sorted by trace id, which
     // carries no information on a backend that mints random ids.
     let rank_by_trace = crate::report::embedded::first_reference_rank(&report_embed.findings);
     let mut ranked: Vec<(usize, &EmbeddedTrace)> = report
@@ -1015,7 +1012,7 @@ fn select_report_carried_traces(
         .filter_map(|t| rank_by_trace.get(t.trace_id.as_str()).map(|r| (*r, t)))
         .collect();
     let total = ranked.len();
-    // Ranks are unique per trace, so this order is total, no tie-break.
+    // Ranks are unique per trace, so the order is total without a tie-break.
     ranked.sort_by_key(|(rank, _)| *rank);
 
     let kept: Vec<EmbeddedTrace> = if let Some(cap) = options.max_traces_embedded {
@@ -1072,8 +1069,7 @@ fn trim_to_size_target<'a>(
     // comma and the 2 literal bracket bytes of the JSON array via
     // `separator_overhead` below.
     // Each trace also carries its own culprit-span entries, already
-    // computed by the caller, so they count against the budget with it
-    // rather than being unaccounted growth.
+    // computed by the caller, so they count against the budget with it.
     let per_trace_lens: Vec<usize> = ordered
         .iter()
         .copied()
@@ -1094,7 +1090,7 @@ fn trim_to_size_target<'a>(
     // overhead that every kept-trace count shares. `trimmed_traces`
     // is set to a placeholder with realistic digits so its JSON
     // length is not under-reported (the actual value is written back
-    // in `build_payload_with_label` after trimming), and the real
+    // in `build_payload_with_label` after trimming). The real
     // `trimmed_findings` rides along for the same reason.
     let envelope = Payload {
         version: PAYLOAD_VERSION,
@@ -1123,7 +1119,7 @@ fn trim_to_size_target<'a>(
 
     // Find the largest prefix of `ordered` whose combined size fits
     // under the budget. Each trace contributes `len + 1` (for the
-    // comma separator); the two empty-array bytes `[]` are already
+    // comma separator). The two empty-array bytes `[]` are already
     // included in `envelope_len`.
     let mut running = envelope_len;
     let mut keep_count: usize = 0;

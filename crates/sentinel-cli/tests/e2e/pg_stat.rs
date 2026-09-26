@@ -1,8 +1,7 @@
 //! `pg-stat` subcommand: exit-code contract for malformed input.
 //!
-//! `--pg-stat` via `report` already gets coverage in report.rs; this
-//! module covers the standalone `pg-stat` subcommand, previously
-//! untested end-to-end.
+//! `--pg-stat` via `report` already gets coverage in report.rs. This
+//! module covers the standalone `pg-stat` subcommand end to end.
 
 use crate::helpers::fixture_path;
 use std::fs;
@@ -52,7 +51,7 @@ fn cli_pg_stat_malformed_input_exits_tooling_error() {
         stderr.contains("missing required column"),
         "stderr should name the missing column, got: {stderr}"
     );
-    // pg-stat has no quality gate, every failure is a tooling error.
+    // pg-stat has no quality gate, so every failure is a tooling error.
     // See docs/CI.md "Exit codes".
     assert_eq!(
         output.status.code(),

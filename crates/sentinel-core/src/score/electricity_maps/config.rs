@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::text_safety::sanitize_for_terminal;
 
-/// Default `Electricity Maps` API endpoint. v4 is the current latest
-/// version (<https://app.electricitymaps.com/developer-hub/api/reference>).
-/// v3 is still supported by `Electricity Maps` but is in legacy mode,
-/// users with custom config pointing to `/v3` get a deprecation warning
+/// Default `Electricity Maps` API endpoint. v4 is the latest version
+/// (<https://app.electricitymaps.com/developer-hub/api/reference>).
+/// v3 is still supported by `Electricity Maps` but is in legacy mode.
+/// Users with custom config pointing to `/v3` get a deprecation warning
 /// at daemon startup via `scraper::warn_if_legacy_v3_endpoint`.
 pub const DEFAULT_ELECTRICITY_MAPS_ENDPOINT: &str = "https://api.electricitymaps.com/v4";
 
@@ -109,7 +109,7 @@ impl EmissionFactorType {
 /// Temporal aggregation requested from the API. `Hourly` (default)
 /// returns the hour-average. `FiveMinutes` and `FifteenMinutes` give
 /// sub-hour fidelity, only useful when the operator's plan also offers
-/// sub-hour granularity, the API silently coarsens otherwise. See
+/// sub-hour granularity. The API silently coarsens otherwise. See
 /// <https://app.electricitymaps.com/developer-hub/api/reference> for the
 /// per-endpoint accepted values.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -222,11 +222,10 @@ mod tests {
 
     #[test]
     fn debug_impl_redacts_auth_token() {
-        // Secret hygiene regression guard: the manual `Debug` impl must
-        // print `[REDACTED]` in place of the actual token. If someone
-        // removes the manual impl (e.g. derives `Debug` automatically),
-        // this test fails and the CI catches the leak before any log
-        // line can expose a real token.
+        // The manual `Debug` impl must print `[REDACTED]` in place of
+        // the token. If someone removes the manual impl (e.g. derives
+        // `Debug` automatically), this test fails and the CI catches the
+        // leak before any log line can expose a real token.
         let cfg = sample_config();
         crate::test_helpers::assert_debug_redacts_secret!(&cfg, "super-secret-token-do-not-log");
     }
@@ -291,9 +290,8 @@ mod tests {
     #[test]
     fn emission_factor_type_from_config_unknown_falls_back_to_lifecycle() {
         // Unknown value triggers a tracing::warn! and returns the
-        // default. Captured here without asserting on the warn (no
-        // tracing-subscriber dev-dep), the behavior is the documented
-        // graceful fallback.
+        // default. The test does not assert on the warn (no
+        // tracing-subscriber dev-dep), only on the documented fallback.
         assert_eq!(
             EmissionFactorType::from_config(Some("nonsense")),
             EmissionFactorType::Lifecycle

@@ -15,9 +15,9 @@
 
 /// Temporal range covered by the embedded grid carbon-intensity
 /// profiles. Most regions (ENTSO-E, EIA, AEMO, Hydro-Quebec) span
-/// `2022-2024`; the Electricity Maps subset (Japan, Singapore, India,
+/// `2022-2024`. The Electricity Maps subset (Japan, Singapore, India,
 /// generic fallback) is on `2023-2024`. The constant reports the
-/// hourly-shape range; profile levels are renormalized to the annual
+/// hourly-shape range. Profile levels are renormalized to the annual
 /// table whenever a dataset refresh moves an annual value beyond 5
 /// percent (the `Annual:` number in each block comment is the current
 /// level). Release procedure step 2.5 surfaces this string via `grep`.
@@ -114,7 +114,7 @@ impl HourlyProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Monthly profiles (12 x 24 values). Original 4 regions with seasonal data.
+// Monthly profiles (12 x 24 values) for the 4 regions with seasonal data.
 // ---------------------------------------------------------------------------
 
 /// Monthly x hourly profiles. 12 months x 24 UTC hours per region.
@@ -194,10 +194,9 @@ pub(crate) static MONTHLY_PROFILES: &[(&str, [[f64; 24]; 12])] = &[
     ),
     // Germany (eu-central-1): coal + renewables, strong seasonal variance.
     // Winter: more coal, less solar. Summer: more solar, less coal.
-    // Shape: ENTSO-E, Fraunhofer ISE energy-charts.info. The original
-    // 2022-vintage level (grand mean ~431, coal-crisis Germany) was
-    // rescaled to the Electricity Maps 2024 consumption-based level
-    // (341), resolving the historical divergence from the annual table.
+    // Shape: ENTSO-E, Fraunhofer ISE energy-charts.info. Level rescaled
+    // from the 2022-vintage grand mean (~431, coal-crisis Germany) to the
+    // Electricity Maps 2024 consumption-based level (341).
     // Annual mean in CARBON_TABLE: 338. Grand mean target: ~341.
     (
         "eu-central-1",
@@ -411,7 +410,7 @@ pub(crate) static MONTHLY_PROFILES: &[(&str, [[f64; 24]; 12])] = &[
 /// Each entry's arithmetic mean must be within +/-5% of the corresponding
 /// annual value in `CARBON_TABLE` (validated by tests).
 pub(crate) static FLAT_YEAR_PROFILES: &[(&str, [f64; 24])] = &[
-    // ── 4a: ENTSO-E Europe ─────────────────────────────────────────
+    // ── ENTSO-E Europe ─────────────────────────────────────────────
 
     // Ireland (eu-west-1): wind-heavy grid, flatter diurnal profile.
     // Wind availability is relatively constant across the day but demand
@@ -445,7 +444,7 @@ pub(crate) static FLAT_YEAR_PROFILES: &[(&str, [f64; 24])] = &[
         ],
     ),
     // Belgium (europe-west1): nuclear + gas. Moderate diurnal variation.
-    // Nuclear provides ~50% baseload; gas fills the rest.
+    // Nuclear provides ~50% baseload and gas fills the rest.
     // Shape: ENTSO-E, Elia. Level rescaled to the Electricity Maps
     // 2023-2024 consumption-based mean (165). Annual: 109.3.
     (
@@ -501,7 +500,7 @@ pub(crate) static FLAT_YEAR_PROFILES: &[(&str, [f64; 24])] = &[
             28.1, 28.1, 32.1, 32.1, 32.1, 32.1, 28.1, 28.1, 28.1, 24.1,
         ],
     ),
-    // ── 4b: US regions (EIA Open Data) ─────────────────────────────
+    // ── US regions (EIA Open Data) ─────────────────────────────────
 
     // Ohio (us-east-2, PJM/MISO): coal + gas + nuclear. Evening peak.
     // Source: EIA Open Data, PJM (2022-2024). Annual: 410.
@@ -536,7 +535,7 @@ pub(crate) static FLAT_YEAR_PROFILES: &[(&str, [f64; 24])] = &[
             87.0, 89.0, 93.0, 97.0, 98.0, 96.0, 93.0, 90.0, 86.0, 84.0,
         ],
     ),
-    // ── 4c: Canada + Australia ─────────────────────────────────────
+    // ── Canada + Australia ─────────────────────────────────────────
 
     // Canada / Quebec (ca-central-1): Hydro-Quebec, ~95% hydro.
     // Extremely clean and flat. Pedagogical contrast.
@@ -559,7 +558,7 @@ pub(crate) static FLAT_YEAR_PROFILES: &[(&str, [f64; 24])] = &[
             575.0, 572.0, 568.0, 562.0, 555.0, 548.0, 545.0, 540.0, 542.0, 545.0, 540.0, 535.0,
         ],
     ),
-    // ── 4d: Asia + South America (best-effort) ─────────────────────
+    // ── Asia + South America (best-effort) ─────────────────────────
 
     // Japan / Tokyo (ap-northeast-1): LNG + nuclear restart + solar.
     // Moderate evening peak. UTC+9, so local peak (18:00) = 09:00 UTC.

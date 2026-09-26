@@ -2,14 +2,14 @@
 
 Ce document décrit la procédure de release de bout en bout pour `perf-sentinel`, applicable à partir de 0.7.0. La procédure inclut un gate de validation obligatoire sur le simulation lab qui bloque le tag d'une version qui n'a pas été éprouvée de bout en bout sur un cluster k3d réel.
 
-Le gate est volontairement pre-flight et opérateur, pas un job CI. Il s'exécute contre un ledger append-only (`release-gate/lab-validations.txt`) qui enregistre chaque validation lab et son verdict. La CI ne peut pas reproduire un run de lab, donc automatiser le gate dans le workflow de release reviendrait à le vider de sa substance.
+Le gate est pre-flight et piloté par l'opérateur, pas un job CI. Il s'exécute contre un ledger append-only (`release-gate/lab-validations.txt`) qui enregistre chaque validation lab et son verdict. La CI ne peut pas reproduire un run de lab, donc automatiser le gate dans le workflow de release reviendrait à le vider de sa substance.
 
 ## Prérequis
 
 - Checkout local du repo `perf-sentinel-simulation-lab` sur un commit récent de `main`.
 - Un environnement `k3d` + Docker fonctionnel pour le lab (voir `docs/QUICKSTART.md` du lab).
-- Push access sur le repo `perf-sentinel` et une identité de signature de tag. La procédure utilise `git tag -s`, qui passe par GPG par défaut (requiert `user.signingkey` configuré). La signature SSH fonctionne aussi via `git config gpg.format ssh` avec une clé enregistrée comme signataire.
-- `gh` CLI authentifié quand vous avez besoin de requêter l'API REST GHCR.
+- Droits de push sur le repo `perf-sentinel` et une identité de signature de tag. La procédure utilise `git tag -s`, qui passe par GPG par défaut (requiert `user.signingkey` configuré). La signature SSH fonctionne aussi via `git config gpg.format ssh` avec une clé enregistrée comme signataire.
+- `gh` CLI authentifié quand vous avez besoin d'interroger l'API REST GHCR.
 
 ## Procédure
 
@@ -20,22 +20,22 @@ git checkout main && git pull
 git checkout -b release/X.Y.Z
 ```
 
-La branche est préservée après merge pour la traçabilité des commits qui constituent la release. Ne pas squasher au merge. Convention de nommage : la **branche** est `release/X.Y.Z` (sans `v` initial), le **tag** qui ship plus tard est `vX.Y.Z` (avec `v` initial). `scripts/check-tag-version.sh` accepte les deux formes en entrée.
+La branche est préservée après merge pour la traçabilité des commits qui constituent la release. Ne pas squasher au merge. Convention de nommage : la **branche** est `release/X.Y.Z` (sans `v` initial), le **tag** publié plus tard est `vX.Y.Z` (avec `v` initial). `scripts/check-tag-version.sh` accepte les deux formes en entrée.
 
 ### 2. Code, tests, bumps de version
 
-Appliquer le travail de feature, fix ou refactor pour la release. Puis bumper toutes les références de version en lockstep.
+Appliquer le travail de feature, fix ou refactor pour la release. Puis incrémenter toutes les références de version en lockstep.
 
 **Vérifié par `scripts/check-tag-version.sh`** (la CI le lance comme premier job de `release.yml`, lançable aussi en local) :
 
 - `Cargo.toml` workspace `[workspace.package].version`
-- Chaque `crates/*/Cargo.toml` : soit `version.workspace = true` (résout vers la version du workspace), soit une version explicite qui doit matcher le tag. Le pin intra-workspace `perf-sentinel-core = { version = "X.Y.Z", path = "..." }` dans `crates/sentinel-cli/Cargo.toml` est aussi vérifié ici.
+- Chaque `crates/*/Cargo.toml` : soit `version.workspace = true` (résout vers la version du workspace), soit une version explicite qui doit correspondre au tag. Le pin intra-workspace `perf-sentinel-core = { version = "X.Y.Z", path = "..." }` dans `crates/sentinel-cli/Cargo.toml` est aussi vérifié ici.
 
 **Pris en charge par l'opérateur** (pas de gate CI, à auditer à la main avec `grep -RIn "<version_précédente>" docs/ charts/ CHANGELOG.md`) :
 
 - `docs/ci-templates/*` : la constante `PERF_SENTINEL_VERSION` dans `github-actions-baseline.yml`, `github-actions-report-cleanup.yml`, `github-actions.yml`, `gitlab-ci.yml`, et `jenkinsfile.groovy`.
 - `docs/CI.md` et `docs/FR/CI-FR.md` : snippets d'exemple qui affichent `perf-sentinel@vX.Y.Z`.
-- `docs/schemas/examples/*.json` : uniquement le champ `binary_verification_url` (qui pointe toujours vers la dernière release). Les autres champs de version (`perf_sentinel_version`, `binary_version`, `binary_versions`) sont volontairement figés à la baseline historique de l'exemple.
+- `docs/schemas/examples/*.json` : uniquement le champ `binary_verification_url` (qui pointe toujours vers la dernière release). Les autres champs de version (`perf_sentinel_version`, `binary_version`, `binary_versions`) restent figés à la baseline historique de l'exemple.
 - `CHANGELOG.md` : déplacer le contenu de `[Unreleased]` sous un nouveau titre `[X.Y.Z]` daté du jour.
 
 Lancer les gates locaux :
@@ -52,12 +52,12 @@ Les deux invocations de clippy couvrent l'ensemble des features par défaut et l
 
 ### 2.5 Fraîcheur des données de référence GreenOps
 
-C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` en step 2). Les tests garantissent la correction, pas la fraîcheur. Le workflow `refresh-datasets` régénère les deux tables scriptées deux fois par an (ou via `workflow_dispatch`) et ouvre une PR. Cette étape vérifie que ces PR ont été fusionnées assez récemment. Avant de taguer, confirmer les millésimes déclarés dans :
+C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` à l'étape 2). Les tests garantissent la correction, pas la fraîcheur. Le workflow `refresh-datasets` régénère les deux tables scriptées deux fois par an (ou via `workflow_dispatch`) et ouvre une PR. Cette étape vérifie que ces PR ont été fusionnées assez récemment. Avant de taguer, confirmer les millésimes déclarés dans :
 
-- `crates/sentinel-core/src/score/cloud_energy/table_data.rs` : `SPECPOWER_VINTAGE`, estampillé avec la date du snapshot `ccf-coefficients` par `scripts/refresh-instance-power.py`. Les lignes manuelles (familles absentes des CSV CCF) restent dans `table.rs`.
+- `crates/sentinel-core/src/score/cloud_energy/table_data.rs` : `SPECPOWER_VINTAGE`, estampillé avec la date de l'instantané `ccf-coefficients` par `scripts/refresh-instance-power.py`. Les lignes manuelles (familles absentes des CSV CCF) restent dans `table.rs`.
 - `crates/sentinel-core/src/score/carbon_data.rs` : `CARBON_TABLE_VINTAGE` (`ember-<dernière année de données>`), estampillé par `scripts/refresh-carbon-data.py`. Les lignes subnationales (Amérique du Nord, Brésil BR-CS) restent manuelles dans `carbon.rs`.
-- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement et renormalisés à la main quand un refresh scripté déplace une valeur annuelle au-delà de 5 pour cent. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
-- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, OVHcloud, Scaleway, générique ; OUTSCALE n'en publie aucun et suit la valeur générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. OVHcloud et Scaleway publient sur un cycle annuel, respectivement en indicateurs d'exercice et en rapport d'impact. Millésime exposé via `PUE_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement et renormalisés à la main quand un rafraîchissement scripté déplace une valeur annuelle au-delà de 5 pour cent. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, OVHcloud, Scaleway, générique), rafraîchies quand un fournisseur publie un nouveau rapport de durabilité. OUTSCALE ne publie aucun PUE et suit la valeur générique. OVHcloud et Scaleway publient sur un cycle annuel, respectivement en indicateurs d'exercice et en rapport d'impact. Millésime exposé via `PUE_VINTAGE`.
 
 Afficher tous les millésimes en une commande :
 
@@ -65,7 +65,7 @@ Afficher tous les millésimes en une commande :
 grep -rn 'VINTAGE' crates/sentinel-core/src/score/
 ```
 
-Si la fenêtre de données ne couvre pas la date de release avec une marge confortable (typiquement : table SPECpower dans les 2 derniers trimestres, profils de réseau dans l'année en cours), soit rafraîchir les données dans cette release (en bumpant aussi la constante `_VINTAGE` correspondante), soit documenter le report dans `CHANGELOG.md` pour que la péremption soit explicite pour les utilisateurs en aval.
+La fenêtre de données devrait couvrir la date de release avec une marge confortable (typiquement : table SPECpower dans les 2 derniers trimestres, profils de réseau dans l'année en cours). Sinon, soit rafraîchir les données dans cette release (en mettant aussi à jour la constante `_VINTAGE` correspondante), soit documenter le report dans `CHANGELOG.md` pour que la péremption soit explicite pour les utilisateurs en aval.
 
 ### 3. Bumper le chart Helm en lockstep
 
@@ -83,7 +83,7 @@ Trois annotations du même fichier bougent avec `appVersion`, et seule la premi�
 - `artifacthub.io/changes` : une nouvelle entrée par release, décrivant le changement du point de vue de l'opérateur.
 - `charts/perf-sentinel/CHANGELOG.md` : la section correspondante, que `scripts/check-chart-version-bumped.sh` exige.
 
-`scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans bump de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validera le tag du chart au moment de la release.
+`scripts/check-chart-version-bumped.sh` tourne dans la CI des PR et rejette tout changement de chart sans incrément de version et sans entrée `CHANGELOG.md` sous `charts/perf-sentinel/`. `scripts/check-helm-tag-version.sh` validera le tag du chart au moment de la release.
 
 Les contrôles du chart sont tous exécutables en local, et moins coûteux qu'un aller-retour CI :
 
@@ -93,7 +93,7 @@ scripts/check-chart-version-bumped.sh main
 scripts/check-helm-tag-version.sh chart-vA.B.C
 ```
 
-**Fix chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être releasé seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés en permanence.
+**Correctif chart-only isolé (exception au lockstep) :** un bug du chart qui doit être corrigé sans aucun changement du binaire (par exemple `values.schema.json` 0.9.16, voir `charts/perf-sentinel/CHANGELOG.md`) peut être publié seul via un tag `chart-vA.B.C`, qui déclenche directement `helm-release.yml`, sans tag d'application `v*` et sans gate de validation lab. `appVersion` reste sur la dernière version applicative publiée, donc il traîne temporairement derrière le `version` du chart. **La prochaine release applicative doit faire avancer `appVersion`/`version` du chart du nombre de releases chart-only prises entre-temps.** Une release sautée de 0.9.15 vers un chart-only 0.9.16 veut dire que la prochaine release applicative est en 0.9.17, pas 0.9.16, pour que les deux numéros retombent sur la même valeur au lieu de rester décalés en permanence.
 
 ### 4. Valider sur le simulation lab
 
@@ -105,13 +105,13 @@ git push -u origin release/X.Y.Z
 
 L'image Docker est publiée sur GHCR exclusivement par `release.yml` au push d'un tag `v*`, pas par `ci.yml`. Deux options pour obtenir une image dans le cluster lab :
 
-- **Option A (recommandée pour une validation propre)** : builder l'image localement depuis le checkout de la branche release et l'importer dans le cluster k3d :
+- **Option A (recommandée pour une validation propre)** : construire l'image localement depuis le checkout de la branche release et l'importer dans le cluster k3d :
   ```bash
   docker build -t perf-sentinel:vX.Y.Z-rc .
   k3d image import perf-sentinel:vX.Y.Z-rc -c <cluster-name>
   ```
-  Puis pinner les manifests du lab sur le tag chargé localement.
-- **Option B** : pousser un pre-release tag (`vX.Y.Z-rc.1`) pour déclencher `release.yml` sur une image candidate. L'image devient disponible sur GHCR en environ 10 minutes. Pinner les manifests du lab sur le digest résultant (résolution via API REST GHCR, voir `docs/TROUBLESHOOTING.md` du lab).
+  Puis épingler les manifests du lab sur le tag chargé localement.
+- **Option B** : pousser un tag de pré-release (`vX.Y.Z-rc.1`) pour déclencher `release.yml` sur une image candidate. L'image devient disponible sur GHCR en environ 10 minutes. Épingler les manifests du lab sur le digest résultant (résolution via API REST GHCR, voir `docs/TROUBLESHOOTING.md` du lab).
 
 Lancer le lab de bout en bout :
 
@@ -125,7 +125,7 @@ make validate-findings        # attendu : 10/10 scénarios passent
 make verify-all-scenarios     # attendu : 24/24 résultats détecteurs concordent
 ```
 
-Si l'une des étapes échoue, ne pas enregistrer de PASS. Corriger le problème de fond dans `perf-sentinel`, rebuilder l'image, et relancer le lab.
+Si l'une des étapes échoue, ne pas enregistrer de PASS. Corriger le problème de fond dans `perf-sentinel`, reconstruire l'image, et relancer le lab.
 
 Si tout passe, enregistrer la validation dans le ledger :
 
@@ -152,9 +152,9 @@ de signature, sync remote, absence du tag), puis les deux gates
 (`scripts/check-tag-version.sh` et
 `release-gate/check-lab-validation.sh`), puis demande confirmation,
 puis signe le tag et pousse `main` d'abord, puis le tag. Si un seul
-pre-check ou gate refuse, rien n'est muté. Si le push du tag échoue
-après que `main` a atterri, le tag local est annulé pour ne pas
-laisser de référence orpheline sur le remote.
+pre-check ou gate refuse, rien n'est modifié. Si le push du tag échoue
+une fois `main` poussé, le tag local est annulé pour ne pas laisser de
+référence orpheline sur le remote.
 
 C'est le chemin recommandé parce qu'il rend l'oubli du gate
 structurellement impossible. Utilisez `scripts/release.sh vX.Y.Z
@@ -163,12 +163,13 @@ tagger pour de vrai. Passez `--yes` pour sauter la confirmation
 interactive en contexte scripté. Passez `--skip-lab` pour contourner
 explicitement le gate de validation lab (il émet un avertissement
 d'audit bien visible et n'écrit jamais le ledger), pour une release
-validée par d'autres moyens, par exemple un changement CLI ou docs
-seulement couvert par la suite E2E. Le flag ne saute que le gate lab,
-tous les autres pre-checks et le gate de version s'appliquent toujours.
+validée par d'autres moyens, par exemple un changement qui ne touche
+que la CLI ou la doc, couvert par la suite E2E. Le flag ne saute que
+le gate lab, tous les autres pre-checks et le gate de version
+s'appliquent toujours.
 
 La prose ci-dessous reste la référence de ce que le script automatise,
-et le fallback quand un opérateur veut piloter les étapes à la main.
+et le repli quand un opérateur veut piloter les étapes à la main.
 Le run de lab (étape 4) reste piloté par l'opérateur, le script
 vérifie uniquement que la ligne PASS de l'étape 4 est présente et
 fraîche dans le ledger.
@@ -195,7 +196,7 @@ Le gate a trois modes d'échec, chacun avec un remède actionnable :
 | Dernière entrée PASS trop ancienne        | `latest PASS for vX.Y.Z is N days old ... Threshold is 30 days.` | Relancer le lab sur la branche actuelle et ajouter une entrée PASS fraîche.                                       |
 | Fichier ledger absent                     | `ledger ... not found.`                                          | S'assurer que `release-gate/lab-validations.txt` est présent à côté du script, ou définir `LEDGER=/path/to/file`. |
 
-Le seuil d'âge est configurable pour les scénarios de backfill ou d'audit. `--max-age-days 365` accepte des entrées vieilles d'un an. La valeur par défaut de 30 jours est la valeur de travail, ne pas la modifier pour des releases normales.
+Le seuil d'âge est configurable pour les scénarios de rattrapage ou d'audit. `--max-age-days 365` accepte des entrées jusqu'à un an d'ancienneté. La valeur par défaut de 30 jours est la valeur de travail, ne pas la modifier pour des releases normales.
 
 ### 6. Merge et tag
 
@@ -208,9 +209,9 @@ git tag -s vX.Y.Z -m "vX.Y.Z"
 git push origin main vX.Y.Z
 ```
 
-Le push du tag déclenche `.github/workflows/release.yml`. Son premier job relance `scripts/check-tag-version.sh` comme gate de sanité, puis la matrice de build produit les binaires, le job de publish pousse vers crates.io strictement (pas de fallback souple en cas de rate-limit), et le job docker scanne l'image avec Trivy (exit dur sur HIGH ou CRITICAL) avant de pousser le manifest multi-arch sur GHCR et Docker Hub.
+Le push du tag déclenche `.github/workflows/release.yml`. Son premier job relance `scripts/check-tag-version.sh` comme gate de vérification, puis la matrice de build produit les binaires. Le job de publication pousse vers crates.io strictement (pas de repli souple en cas de rate-limit), et le job docker scanne l'image avec Trivy (échec bloquant sur HIGH ou CRITICAL) avant de pousser le manifest multi-arch sur GHCR et Docker Hub.
 
-La provenance de chaque binaire de release est attestée par `actions/attest-build-provenance` (Sigstore OIDC, keyless), ce qui produit des attestations SLSA Build L3 vérifiables via `gh attestation verify`. La migration depuis `slsa-framework/slsa-github-generator` vers `actions/attest-build-provenance` a atterri en 0.7.1. Chaque release publie aussi un SBOM SPDX (`perf-sentinel-sbom.spdx.json`, généré par Syft et attesté sous le prédicat SPDX) et embarque les données `cargo-auditable` dans chaque binaire, pour que `cargo audit bin` fonctionne sur l'artefact livré. Voir [docs/FR/SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#sbom-des-binaires-et-données-daudit-embarquées).
+La provenance de chaque binaire de release est attestée par `actions/attest-build-provenance` (Sigstore OIDC, keyless), ce qui produit des attestations SLSA Build L3 vérifiables via `gh attestation verify`. La migration depuis `slsa-framework/slsa-github-generator` vers `actions/attest-build-provenance` a eu lieu en 0.7.1. Chaque release publie aussi un SBOM SPDX (`perf-sentinel-sbom.spdx.json`, généré par Syft et attesté sous le prédicat SPDX) et embarque les données `cargo-auditable` dans chaque binaire, pour que `cargo audit bin` fonctionne sur l'artefact livré. Voir [docs/FR/SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#sbom-des-binaires-et-données-daudit-embarquées).
 
 ### 7. Release du chart Helm
 
@@ -220,23 +221,23 @@ Le tag du chart est enveloppé dans le même genre de commande qui échoue ferm�
 scripts/release-chart.sh chart-vA.B.C
 ```
 
-Il lance tous les pre-checks (branche, arbre propre, identité de signature, sync remote, absence du tag), le gate de version (`scripts/check-helm-tag-version.sh`), et un gate image GHCR qui refuse de tagger tant que l'image du daemon pinnée par le chart (`ghcr.io/robintra/perf-sentinel:<appVersion>`) n'est pas publiée, pour qu'un `helm install` ne tire jamais une image manquante. Attendez que `release.yml` publie cette image (typiquement 5 à 10 minutes après l'étape 6), puis lancez le script. `--dry-run` vérifie les gates, `--yes` saute la confirmation, et `--skip-image-check` contourne le gate image. Le tag est toujours signé.
+Il lance tous les pre-checks (branche, arbre propre, identité de signature, sync remote, absence du tag) et le gate de version (`scripts/check-helm-tag-version.sh`). Il lance aussi un gate image GHCR qui refuse de tagger tant que l'image du daemon épinglée par le chart (`ghcr.io/robintra/perf-sentinel:<appVersion>`) n'est pas publiée, pour qu'un `helm install` ne tire jamais une image manquante. Attendez que `release.yml` publie cette image (typiquement 5 à 10 minutes après l'étape 6), puis lancez le script. `--dry-run` vérifie les gates, `--yes` saute la confirmation, et `--skip-image-check` contourne le gate image. Le tag est toujours signé.
 
-Le fallback manuel, une fois l'image GHCR en ligne :
+Le repli manuel, une fois l'image GHCR en ligne :
 
 ```bash
 git tag -s chart-vA.B.C -m chart-vA.B.C
 git push origin chart-vA.B.C
 ```
 
-L'un ou l'autre chemin déclenche `.github/workflows/helm-release.yml`, qui valide le tag du chart contre `Chart.yaml` via `scripts/check-helm-tag-version.sh`, package le chart et le pousse sur GHCR comme artefact OCI, le signe avec cosign en keyless, atteste la provenance de build SLSA et un SBOM SPDX (tous deux vérifiables via `gh attestation verify`), et crée la GitHub Release en brouillon. Publiez le brouillon une fois que vous l'avez relu.
+L'un ou l'autre chemin déclenche `.github/workflows/helm-release.yml`. Le workflow valide le tag du chart contre `Chart.yaml` via `scripts/check-helm-tag-version.sh`, empaquette le chart et le pousse sur GHCR comme artefact OCI, et le signe avec cosign en keyless. Il atteste aussi la provenance de build SLSA et un SBOM SPDX (tous deux vérifiables via `gh attestation verify`) et crée la GitHub Release en brouillon. Publiez le brouillon une fois que vous l'avez relu.
 
 ### 8. Publier une révision du dashboard Grafana, s'il a changé
 
 Le dashboard publié sur
 [grafana.com/grafana/dashboards](https://grafana.com/grafana/dashboards)
 est une photo, pas un miroir. Il ne bouge que si quelqu'un téléverse une
-révision, une release qui touche les panneaux ou les métriques qu'ils
+révision. Une release qui touche les panneaux ou les métriques qu'ils
 lisent laisse donc le catalogue périmé tant que cette étape n'est pas
 faite.
 
@@ -267,10 +268,10 @@ daemon : un panneau qui se met à lire une métrique ajoutée par cette
 release réclame cette métrique comme nouvelle sentinelle haute. Sur
 `examples/grafana-findings-dashboard.json`, la même pastille porte le
 plancher sous forme d'expression régulière sur les mineures inférieures,
-raison pour laquelle l'oublier peint un daemon compatible plutôt que
-cassé. Ne le déplacez que si la dépendance est réelle, une route, un
-paramètre de requête, un champ ou un label dont les panneaux ne peuvent
-pas se passer, jamais à chaque release. La rangée `History (Hub)` lit
+donc oublier de le déplacer affiche comme compatible un daemon cassé. Ne
+le déplacez que si la dépendance est réelle, une route, un paramètre de
+requête, un champ ou un label dont les panneaux ne peuvent pas se passer,
+jamais à chaque release. La rangée `History (Hub)` lit
 PerfSentinelHub et non le daemon, donc un changement de ce côté ne déplace
 jamais le plancher du daemon : sa propre dépendance est la version du Hub
 que nomme la description de son panneau.
@@ -279,14 +280,14 @@ que nomme la description de son panneau.
 
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :
 
-1. **check-versions** : `scripts/check-tag-version.sh "${GITHUB_REF_NAME}"` rejette tout mismatch entre le tag et les fichiers de version du workspace (Cargo.toml uniquement, voir le header du script pour le scope exact).
+1. **check-versions** : `scripts/check-tag-version.sh "${GITHUB_REF_NAME}"` rejette toute divergence entre le tag et les fichiers de version du workspace (Cargo.toml uniquement, voir l'en-tête du script pour le périmètre exact).
 2. **build** (matrice) : construit `perf-sentinel` pour `linux-amd64-musl`, `linux-arm64-musl`, `macos-arm64` et `windows-amd64`. Le binaire Linux arm64 est construit nativement sur un runner `ubuntu-24.04-arm` (et non via l'outil Docker `cross`), et chaque binaire est produit avec `cargo auditable build` pour embarquer sa liste de dépendances et permettre `cargo audit bin`. Les variantes musl utilisent `mimalloc` comme allocateur global (voir `docs/design/07-CLI-CONFIG-RELEASE.md`).
 3. **sbom** : Syft lit la liste de dépendances depuis les données `cargo-auditable` embarquées dans le binaire Linux amd64, émet un SBOM SPDX, et l'atteste sous le prédicat SPDX, en miroir du job SBOM du chart.
 4. **release** : rassemble les artefacts (binaires plus le SBOM), calcule les checksums SHA-256, atteste la provenance de build via Sigstore (OIDC keyless), et crée la release GitHub avec tous les assets et les notes tirées de `CHANGELOG.md`.
 5. **publish-crate** : publie `perf-sentinel-core` puis `perf-sentinel` sur crates.io, attend que l'index se mette à jour, échoue strictement sur timeout au lieu d'émettre un simple avertissement.
-6. **docker** : build l'image multi-arch, la scanne avec Trivy (`exit-code: 1` sur CVE HIGH ou CRITICAL), upload le SARIF, puis push sur GHCR et Docker Hub.
+6. **docker** : construit l'image multi-arch, la scanne avec Trivy (`exit-code: 1` sur CVE HIGH ou CRITICAL), envoie le SARIF, puis la pousse sur GHCR et Docker Hub.
 
-Le release gate n'est **jamais** invoqué depuis ce workflow par design. Si une PR ajoute une étape gate à `release.yml`, la rejeter. Le gate valide contre un cluster k3d réel que la CI ne peut pas reproduire, et un check automatisé vide dégraderait silencieusement la garantie du gate.
+Le release gate n'est **jamais** invoqué depuis ce workflow. Si une PR ajoute une étape gate à `release.yml`, la rejeter. Le gate valide contre un cluster k3d réel que la CI ne peut pas reproduire, et une vérification automatisée vide dégraderait silencieusement la garantie du gate.
 
 ## Dépannage
 
@@ -294,25 +295,25 @@ Le release gate n'est **jamais** invoqué depuis ce workflow par design. Si une 
 
 **Le gate échoue avec "is N days old".** Une validation périmée signifie typiquement que la branche release a accumulé des commits depuis le run lab. Relancer le lab sur le dernier commit, ajouter une ligne PASS fraîche, et retenter le gate.
 
-**Le gate imprime `warning: ignoring malformed line N`.** Un append antérieur a été corrompu (tabs cassés, mauvais nombre de colonnes). Ouvrir le ledger, trouver la ligne N, corriger le séparateur ou le nombre de colonnes. Le gate continue de traiter le reste du fichier.
+**Le gate imprime `warning: ignoring malformed line N`.** Un ajout antérieur a été corrompu (tabulations cassées, mauvais nombre de colonnes). Ouvrir le ledger, trouver la ligne N, corriger le séparateur ou le nombre de colonnes. Le gate continue de traiter le reste du fichier.
 
-**`check-tag-version.sh` échoue sur `crates/sentinel-cli/Cargo.toml`.** Le script vérifie à la fois le `version` du workspace et le pin intra-workspace sur `perf-sentinel-core`. Les deux doivent être bumpés ensemble.
+**`check-tag-version.sh` échoue sur `crates/sentinel-cli/Cargo.toml`.** Le script vérifie à la fois le `version` du workspace et le pin intra-workspace sur `perf-sentinel-core`. Les deux doivent être incrémentés ensemble.
 
-**`publish-crate` time out en attendant l'index crates.io.** Le job échoue strictement pour éviter une release dans un état partiel. Attendre 5 minutes, puis relancer le job en échec depuis l'UI GitHub Actions. Si la crate est déjà sur l'index, le job le détectera et finira.
+**`publish-crate` expire en attendant l'index crates.io.** Le job échoue strictement pour éviter une release dans un état partiel. Attendre 5 minutes, puis relancer le job en échec depuis l'UI GitHub Actions. Si la crate est déjà sur l'index, le job le détectera et finira.
 
-**Le scan Trivy flagge un CVE HIGH ou CRITICAL.** Le job `docker` bloque. Vérifier si un rebuild de l'image de base résout le problème (`docker pull` puis relancer le workflow). Si le CVE est dans une dépendance Cargo, bumper la dépendance dans une PR de suivi et couper une release patch. Ne pas contourner le scan.
+**Le scan Trivy signale un CVE HIGH ou CRITICAL.** Le job `docker` bloque. Vérifier si une reconstruction de l'image de base résout le problème (`docker pull` puis relancer le workflow). Si le CVE est dans une dépendance Cargo, mettre à jour la dépendance dans une nouvelle PR et publier une release patch. Ne pas contourner le scan.
 
 ## Référence du format de ledger
 
-Le ledger à `release-gate/lab-validations.txt` est tab-separated, append-only, et ignore les lignes commençant par `#` ou vides. Chaque entrée a quatre colonnes :
+Le ledger à `release-gate/lab-validations.txt` est séparé par des tabulations, append-only, et ignore les lignes commençant par `#` ou vides. Chaque entrée a quatre colonnes :
 
 ```
 <version>\t<lab_commit_sha>\t<YYYY-MM-DD>\t<PASS|FAIL>
 ```
 
 - `version` : correspond à la forme du tag, avec le `v` initial (par exemple `v0.7.2`). Le gate compare cette colonne à son argument `--version` littéralement.
-- `lab_commit_sha` : short SHA de la HEAD du repo lab au moment de la validation, utilisé pour reproduire l'état du lab si une question se pose plus tard.
-- `date` : date calendaire UTC à laquelle la validation s'est terminée. Doit être strictement `YYYY-MM-DD`. Le gate rejette tout autre format (les strings floues comme `now` ne sont pas acceptées).
+- `lab_commit_sha` : SHA court de la HEAD du repo lab au moment de la validation, utilisé pour reproduire l'état du lab si une question se pose plus tard.
+- `date` : date calendaire UTC à laquelle la validation s'est terminée. Doit être strictement `YYYY-MM-DD`. Le gate rejette tout autre format (les chaînes floues comme `now` ne sont pas acceptées).
 - `verdict` : `PASS` ou `FAIL`. Le gate n'accepte que `PASS`.
 
 Les entrées FAIL ne sont pas strictement requises (le gate les traite comme une entrée manquante), mais les enregistrer dans le ledger préserve la mémoire institutionnelle des raisons pour lesquelles une version candidate a été retenue.

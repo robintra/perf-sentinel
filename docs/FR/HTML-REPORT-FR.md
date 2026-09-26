@@ -1,21 +1,21 @@
 # Rapport HTML
 
-`perf-sentinel report` produit un dashboard HTML self-contained pour
+`perf-sentinel report` produit un dashboard HTML autonome pour
 l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes :
 
 - **Statique** (par défaut, depuis 0.5.0) : le fichier HTML embarque
-  tous les panels et tous les arbres de traces en JSON. Pas d'egress
-  réseau, pas de connexion daemon. Adapté pour un upload comme
+  tous les panneaux et tous les arbres de traces en JSON. Pas de trafic
+  réseau sortant, pas de connexion daemon. Adapté à un envoi comme
   artefact CI (GitLab Pages, GitHub Pages, Artifactory, S3 static
   hosting). La sortie est identique pour tous les utilisateurs.
 - **Live** (depuis 0.5.23, opt-in via `--daemon-url`) : le fichier
   HTML contacte un daemon en runtime pour les interactions ack/revoke.
   Le dashboard ajoute des boutons `Ack`/`Revoke` par finding, un
-  indicateur de statut de connexion, un panel Acknowledgments, un
-  toggle `Show acknowledged`, et un bouton refresh manuel. Les panels
-  statiques (Findings, Explain, pg_stat, mysql_stat, Diff, Correlations, Carbon)
-  conservent leur comportement statique, le mode live est purement
-  additif.
+  indicateur de statut de connexion, un panneau Acknowledgments, une
+  bascule `Show acknowledged`, et un bouton de rafraîchissement manuel.
+  Les panneaux statiques (Findings, Explain, pg_stat, mysql_stat, Diff,
+  Correlations, Carbon) conservent leur comportement statique. Le mode
+  live est purement additif.
 
 ## Mode statique
 
@@ -26,14 +26,15 @@ open report.html
 
 C'est l'artefact que toute pipeline CI peut produire. `--sort <CLE>`
 prend `impact` (le défaut) ou `severity`, mêmes clés que
-`analyze --sort` : il ordonne la liste de findings sur laquelle la page
-s'ouvre, et avec `--max-traces-embedded <N>` il décide quels arbres de
-spans survivent au cap, le générateur gardant les arbres des findings de
-tête. Sans `--daemon-url`, le HTML généré est entièrement statique et
-déterministe pour la même entrée. La CSP (Content-Security-Policy,
-l'en-tête navigateur qui déclare quels scripts et ressources la page a
-le droit de charger) reste stricte (`default-src 'none'`),
-aucun `fetch()` n'est émis vers un host quelconque.
+`analyze --sort`. Il ordonne la liste de findings sur laquelle la page
+s'ouvre. Avec `--max-traces-embedded <N>`, il décide aussi quels arbres
+de spans le rapport embarque sous le plafond, le générateur gardant les
+arbres des findings de tête. Sans `--daemon-url`, le HTML généré est
+entièrement statique et déterministe pour la même entrée. La CSP
+(Content-Security-Policy, l'en-tête navigateur qui déclare quels scripts
+et ressources la page a le droit de charger) reste stricte
+(`default-src 'none'`), et aucun `fetch()` n'est émis vers un hôte
+quelconque.
 
 Les heures affichées sur la page (fenêtre d'un finding, heure des spans
 dans l'arbre Explain, expiration des acks en mode live) sont dans le
@@ -46,21 +47,21 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
   JSON : le dashboard gagne un onglet `pg_stat` plus la navigation
   croisée Explain vers `pg_stat` sur les spans SQL dont le template
   normalisé correspond à une ligne. `--pg-stat-prometheus <URL>`
-  scrape un `postgres_exporter` one-shot à la place d'un fichier
+  scrape une seule fois un `postgres_exporter` à la place d'un fichier
   (mutuellement exclusif, `--pg-stat-auth-header` optionnel), et
-  `--pg-stat-top <N>` dimensionne les rankings (défaut 10). Le scrape
+  `--pg-stat-top <N>` dimensionne les classements (défaut 10). Le scrape
   suppose la requête intégrée de `postgres_exporter`, qui publie
   `pg_stat_statements_seconds_total` avec un label `query`. Un exporter
   qui exécute une requête écrite à la main nomme ses propres colonnes :
   `--pg-stat-metric <SERIE>` et `--pg-stat-query-label <LABEL>` pointent
   alors le scrape vers ces noms. Sans label correspondant, l'onglet
-  retombe sur `queryid` et affiche des identifiants opaques au lieu des
+  se rabat sur `queryid` et affiche des identifiants opaques au lieu des
   requêtes, et la navigation croisée ne peut plus rien apparier.
   Deux autres options couvrent ce qu'une requête écrite à la main change
   au-delà des noms. `--pg-stat-calls-metric <SERIE>` nomme le compteur
   d'appels, récupéré par une seconde requête et joint sur `queryid`, car
   tous les exporters publient les appels comme une série à part et non
-  comme un label ; une valeur vide saute cette requête : le classement par
+  comme un label. Une valeur vide saute cette requête : le classement par
   appels reste alors à zéro et le classement par moyenne répète le total. `--pg-stat-unit
   seconds|milliseconds` déclare ce que compte la série de temps :
   `pg_stat_statements` compte en millisecondes, la requête intégrée de
@@ -69,21 +70,21 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
 - `--mysql-stat <FICHIER>` embarque un export
   `events_statements_summary_by_digest` CSV ou JSON (MySQL Performance
   Schema) : le dashboard gagne un onglet `mysql_stat` avec le même
-  sous-sélecteur de rankings (quatrième ranking : lignes examinées).
-  `--mysql-stat-top <N>` dimensionne les rankings (défaut 10).
+  sous-sélecteur de classements (quatrième classement : lignes examinées).
+  `--mysql-stat-top <N>` dimensionne les classements (défaut 10).
 - `--mysql-stat-prometheus <URL>` récupère les mêmes digests depuis un
   `mysqld_exporter` au lieu d'un fichier, avec `--mysql-stat-auth-header`
   pour un endpoint authentifié. Il faut
   `--collect.perf_schema.eventsstatements` sur l'exporteur, désactivé par
   défaut. Le scrape suppose
   `mysql_perf_schema_events_statements_seconds_total` avec un label
-  `digest_text` ; une recording rule nomme sa propre série, donc
+  `digest_text`. Une recording rule nomme sa propre série, donc
   `--mysql-stat-metric <SERIE>` et `--mysql-stat-query-label <LABEL>`
   pointent le scrape vers ces noms. Sans label correspondant, l'onglet
-  retombe sur `digest` et affiche des hachages opaques au lieu des
+  se rabat sur `digest` et affiche des hachages opaques au lieu des
   requêtes. Le collecteur publie `COUNT_STAR`, `SUM_ROWS_SENT` et
   `SUM_ROWS_EXAMINED` comme des séries à part et non comme des labels :
-  une requête chacune les récupère et les joint sur l'identité du digest,
+  une requête chacune les récupère et les joint sur l'identité du digest.
   `--mysql-stat-calls-metric <SERIE>`, `--mysql-stat-rows-sent-metric
   <SERIE>` et `--mysql-stat-rows-examined-metric <SERIE>` les nomment, et une
   valeur vide saute la requête correspondante : le classement par appels reste alors à
@@ -95,7 +96,8 @@ horodatage exact. Le JSON embarqué et les exports CSV restent en UTC.
   compte la série de temps : Performance Schema compte `SUM_TIMER_WAIT` en
   picosecondes, le collecteur convertit en secondes, et une recording rule
   transmet en général la colonne telle quelle. Un export fichier n'exige
-  aucun collecteur activé sur l'exporteur, ce qui le recommande encore.
+  aucun collecteur activé sur l'exporteur, ce qui explique qu'il reste
+  l'entrée recommandée.
 
 ## Fonctions interactives
 
@@ -144,7 +146,7 @@ les arbres des findings de tête.
 La rangée de sévérité porte une pastille par sévérité présente, chacune
 avec son compte. Elles se combinent : activez `critical` et `warnings`
 pour voir les deux, recliquez une pastille active pour la retirer. Aucune
-pastille active affiche toutes les sévérités, il n'y a donc plus de
+pastille active affiche toutes les sévérités, il n'y a donc pas de
 pastille `All`. `Clear filters`, en bout de rangée, vide toutes les
 familles d'un coup et n'apparaît qu'une fois quelque chose de filtré.
 `Échap` fait la même chose au clavier.
@@ -172,16 +174,15 @@ explique qu'un lien périmé s'ouvre sur une liste visible et non vide.
 
 ### Recherche
 
-La barre de la topbar est le seul champ de recherche, centré dans la
-barre, et une requête
-unique filtre tous les onglets filtrables à la fois : Findings, pg_stat,
-mysql_stat, Diff et Correlations. Chacun de ces onglets affiche son
-propre nombre de correspondances dans sa pastille de la barre latérale,
-si bien que vous pouvez taper depuis n'importe quel onglet, y compris
-Overview et Carbon, et voir où sont les correspondances avant de
-basculer. La requête survit au changement d'onglet, et les
-correspondances de deux caractères ou plus sont surlignées dans le
-panneau que vous regardez.
+Le champ de la barre du haut est le seul champ de recherche, centré dans
+la barre, et une requête unique filtre tous les onglets filtrables à la
+fois : Findings, pg_stat, mysql_stat, Diff et Correlations. Chacun de
+ces onglets affiche son propre nombre de correspondances dans sa
+pastille de la barre latérale, si bien que vous pouvez taper depuis
+n'importe quel onglet, y compris Overview et Carbon, et voir où sont les
+correspondances avant de basculer. La requête est conservée au
+changement d'onglet, et les correspondances de deux caractères ou plus
+sont surlignées dans le panneau que vous regardez.
 
 Les findings sont mis en correspondance sur leur sévérité, leur type
 (à la fois l'identifiant brut `n_plus_one_sql` et le libellé `N+1 SQL`
@@ -190,8 +191,8 @@ Les autres onglets sont mis en correspondance sur le texte de leurs
 lignes. Le bouton `Export CSV` d'un onglet exporte ce que la requête y a
 laissé visible.
 
-`⌘K` (macOS) ou `Ctrl+K` place le focus dans la barre, `/` également.
-La barre ayant le focus, `Esc` vide la requête et restaure les pastilles.
+`⌘K` (macOS) ou `Ctrl+K` place le focus dans le champ, `/` également.
+Le champ ayant le focus, `Esc` vide la requête et restaure les pastilles.
 Ouvrir un finding précis (une carte KPI de l'Overview, un top offender,
 un span SQL de l'arbre de trace) vide d'abord la requête, qui masquerait
 sinon la ligne même que vous ouvrez. `?` ouvre la liste complète des raccourcis.
@@ -222,7 +223,7 @@ Le daemon doit :
 1. Être joignable depuis le navigateur qui ouvre le HTML. Pour un
    poste de dev, c'est `localhost:4318`. Pour un rapport partagé via
    GitLab Pages ou GitHub Pages, le daemon doit exposer son API à un
-   host que le navigateur peut atteindre.
+   hôte que le navigateur peut atteindre.
 2. Avoir `[daemon.cors] allowed_origins` configuré pour inclure
    l'origine du document. Voir [`CONFIGURATION-FR.md`](./CONFIGURATION-FR.md)
    pour la référence de la section. Sans ça, le navigateur rejette la
@@ -232,7 +233,7 @@ Le daemon doit :
 La première fois que l'utilisateur clique sur `Ack` ou `Revoke` sur un
 daemon protégé par 401, le rapport ouvre une modale d'authentification
 et demande la `X-API-Key`. La clé est stockée en `sessionStorage`
-(une API navigateur qui stocke des paires clé-valeur scopées à
+(une API navigateur qui stocke des paires clé-valeur limitées à
 l'onglet courant et purgées à sa fermeture), donc elle ne persiste
 jamais sur disque et ne fuit jamais vers un autre onglet.
 
@@ -243,11 +244,11 @@ confirmation.
 
 ### CSP en mode live
 
-Le mode live réécrit la meta tag Content-Security-Policy rendue pour
+Le mode live réécrit la balise meta Content-Security-Policy rendue pour
 ajouter `connect-src <daemon_url>`. Toutes les autres directives
-gardent leur valeur statique. La URL du daemon est validée par le CLI
-avant d'atteindre la meta tag (pas d'autre scheme que http/https, pas
-de path, pas de userinfo, pas de query string), donc aucun byte qui
+gardent leur valeur statique. L'URL du daemon est validée par le CLI
+avant d'atteindre la balise meta (pas d'autre schéma que http/https, pas
+de chemin, pas de userinfo, pas de query string), donc aucun octet qui
 pourrait casser la CSP ne peut atterrir dans la directive.
 
 ```text
@@ -261,74 +262,74 @@ connect-src http://localhost:4318
 Le CLI rejette :
 
 - Entrée vide
-- Schemes autres que `http`/`https`
-- Host manquant (par exemple `http://`, `http://:8080`)
+- Schémas autres que `http`/`https`
+- Hôte manquant (par exemple `http://`, `http://:8080`)
 - Userinfo (par exemple `http://alice@host`, la X-API-Key n'a pas sa
   place dans une URL)
-- Path components (par exemple `https://example.com/v1/`, le rapport
+- Composants de chemin (par exemple `https://example.com/v1/`, le rapport
   construit `/api/...` lui-même)
 - Query strings et fragments
 
-Un slash final sur l'authority est silencieusement trimmé pour
-l'uniformité avec le flag existant `perf-sentinel ack --daemon`.
+Une barre oblique finale sur l'autorité est silencieusement retirée par
+souci d'uniformité avec le flag existant `perf-sentinel ack --daemon`.
 
 ### Avertissement mixed-content
 
 Depuis 0.5.27, appeler `perf-sentinel
 report --daemon-url http://...` avec un hôte non-loopback émet un
-événement de niveau `WARN` au moment du render. Héberger ensuite le
+événement de niveau `WARN` au moment du rendu. Héberger ensuite le
 HTML sur une origine HTTPS (GitLab Pages, GitHub Pages, un reverse
 proxy interne en HTTPS) fait bloquer par le navigateur chaque appel
 ack/revoke en mixed content, transformant silencieusement le panneau
-Acks en cul-de-sac. L'avertissement attrape l'incohérence avant que
+Acks en cul-de-sac. L'avertissement détecte l'incohérence avant que
 l'opérateur n'ouvre le rapport. Les URL loopback (`localhost`,
-`127.0.0.1`, `[::1]`) sont exemptées car les setups de dev font
-tourner le daemon en HTTP en clair de manière intentionnelle.
+`127.0.0.1`, `[::1]`) sont exemptées car les environnements de dev font
+tourner le daemon en HTTP en clair.
 
 ### Flow d'authentification
 
-1. Boot : GET `/api/status` pour déterminer la connectivité.
-   L'endpoint status n'est pas authentifié (read-only, pas de
-   secrets), donc le badge de la top bar peut atteindre `Connected`
+1. Démarrage : GET `/api/status` pour déterminer la connectivité.
+   L'endpoint status n'est pas authentifié (lecture seule, pas de
+   secrets), donc le badge de la barre du haut peut atteindre `Connected`
    sans clé.
 2. Premier clic `Ack`/`Revoke` : POST ou DELETE sur
    `/api/findings/<sig>/ack`. Sur un 401, la modale d'auth s'ouvre
-   avec un input password (sans echo). La clé est stockée en
+   avec un champ mot de passe (sans écho). La clé est stockée en
    `sessionStorage` sous `perf-sentinel.daemon.api-key` et la requête
    échouée est retentée.
 3. Appels suivants : chaque requête authentifiée lit la clé depuis
    `sessionStorage` et fixe l'en-tête `X-API-Key`.
 4. Fermeture de l'onglet : `sessionStorage` est purgé, le prochain
-   reload re-prompte au premier appel authentifié.
+   rechargement redemande la clé au premier appel authentifié.
 
 ### Qui vit où
 
-| Élément                              | Mode    | Détails                                                                                                            |
-|--------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------|
-| Badge statut daemon dans la top bar  | Live    | Trois états : `Connected` (vert), `Authentication required` (orange), `Disconnected` / `Unreachable` (rouge)       |
-| Bouton refresh dans la top bar       | Live    | Re-fetch `/api/status`, `/api/acks`, et re-render l'état live                                                      |
-| Boutons par row `Ack` / `Revoke`     | Live    | Cachés en mode statique via CSS, révélés sous `body.ps-live`                                                       |
-| Toggle `Show acknowledged`           | Live    | Filtre la liste statique des findings contre le set live `/api/acks`                                               |
-| Panel Acknowledgments                | Live    | Nouvel onglet `Acks` listant les acks daemon (paginé à 1000, cap daemon)                                           |
-| Modale d'authentification            | Live    | Déclenchée par le premier 401 sur un appel write, jamais sur `/api/status`                                         |
-| Modale d'acknowledgment              | Live    | Déclenchée par `Ack`. Champs : reason (requis), expires (Never / 24h / 7d / 30d), by (optionnel)                   |
+| Élément                                          | Mode | Détails                                                                                                      |
+|--------------------------------------------------|------|--------------------------------------------------------------------------------------------------------------|
+| Badge statut daemon dans la barre du haut        | Live | Trois états : `Connected` (vert), `Authentication required` (orange), `Disconnected` / `Unreachable` (rouge) |
+| Bouton de rafraîchissement dans la barre du haut | Live | Récupère à nouveau `/api/status`, `/api/acks`, et réaffiche l'état live                                      |
+| Boutons par ligne `Ack` / `Revoke`               | Live | Cachés en mode statique via CSS, révélés sous `body.ps-live`                                                 |
+| Bascule `Show acknowledged`                      | Live | Filtre la liste statique des findings contre l'ensemble live `/api/acks`                                     |
+| Panneau Acknowledgments                          | Live | Nouvel onglet `Acks` listant les acks daemon (paginé à 1000, plafond du daemon)                              |
+| Modale d'authentification                        | Live | Déclenchée par le premier 401 sur un appel en écriture, jamais sur `/api/status`                             |
+| Modale d'acquittement                            | Live | Déclenchée par `Ack`. Champs : reason (requis), expires (Never / 24h / 7d / 30d), by (optionnel)             |
 
 ### Limitations
 
-- La liste des findings côté daemon n'est pas refetchée au toggle :
-  le rapport statique est la source de vérité pour la liste des
-  findings, et le toggle filtre seulement contre l'ensemble d'acks live.
-  Pour voir les findings que le daemon a retenus au-delà du snapshot
+- La liste des findings côté daemon n'est pas récupérée à nouveau à la
+  bascule : le rapport statique est la source de vérité pour la liste des
+  findings, et la bascule filtre seulement contre l'ensemble d'acks live.
+  Pour voir les findings que le daemon a retenus au-delà de l'instantané
   statique, utilisez `perf-sentinel query findings --include-acked`
   ou l'API HTTP daemon directement.
-- Pas de timer auto-refresh. Le navigateur ne poll pas le daemon en
-  permanence, utilisez le bouton refresh manuel. Le monitoring temps
-  réel relève de Grafana, pas d'un artefact HTML par MR.
-- Pas de cross-link `Explain` par row en mode live au-delà du
+- Pas de rafraîchissement automatique. Le navigateur n'interroge pas le
+  daemon en permanence. Utilisez le bouton de rafraîchissement manuel. La
+  supervision temps réel relève de Grafana, pas d'un artefact HTML par MR.
+- Pas de lien croisé `Explain` par ligne en mode live au-delà du
   comportement statique. Ack/Revoke ne déplace pas l'utilisateur de
   l'onglet Findings.
-- Pas d'opérations en bulk. Un finding à la fois.
-- `sessionStorage` est purgé à la fermeture de l'onglet, par design.
+- Pas d'opérations en masse. Un finding à la fois.
+- `sessionStorage` est purgé à la fermeture de l'onglet.
   Ne stockez pas de secrets de longue durée dans un artefact CI
   ouvert dans un profil de navigateur partagé.
 
@@ -336,38 +337,39 @@ tourner le daemon en HTTP en clair de manière intentionnelle.
 
 La X-API-Key est stockée non chiffrée dans `sessionStorage`. C'est
 acceptable pour un opérateur sur son poste personnel, où
-`sessionStorage` est scopé à un seul onglet et purgé à la fermeture.
-Ce n'est pas acceptable sur un host partagé, puisque tout autre code
-qui tourne dans la même tab session peut lire `sessionStorage`. Le
+`sessionStorage` est limité à un seul onglet et purgé à la fermeture.
+Ce n'est pas acceptable sur un hôte partagé, puisque tout autre code
+qui tourne dans la même session d'onglet peut lire `sessionStorage`. Le
 rapport embarque une CSP stricte qui interdit le chargement de
-scripts cross-origin et les handlers d'événements inline, ce qui
-mitige le risque sans l'éliminer.
+scripts cross-origin et les gestionnaires d'événements inline, ce qui
+atténue le risque sans l'éliminer.
 
-**Caveat `script-src 'unsafe-inline'`** : le dashboard embarque son
+**Réserve sur `script-src 'unsafe-inline'`** : le dashboard embarque son
 JavaScript dans le fichier HTML (le rapport est un artefact
-self-contained, sans ressources externes). La CSP garde `script-src
+autonome, sans ressources externes). La CSP garde `script-src
 'unsafe-inline'` pour cette raison. En mode live, `connect-src` est
-limité à `'self'` plus la URL daemon passée par l'opérateur, donc même
+limité à `'self'` plus l'URL daemon passée par l'opérateur, donc même
 si un changement futur du template introduisait un vecteur XSS, les
 seules destinations sortantes disponibles sont l'origine du document
-et le daemon lui-même, pas un host attaquant arbitraire. Un hardening
-futur (hors scope pour 0.5.23) serait de livrer le JS dans un
+et le daemon lui-même, pas un hôte attaquant arbitraire. Un durcissement
+futur (hors périmètre pour 0.5.23) serait de livrer le JS dans un
 `<script>` séparé hashé via `'sha256-...'` et de retirer
-`'unsafe-inline'`.
+`'unsafe-inline'`. À suivre dans [`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)
+quand ce travail aboutira.
 
 **Surface de DoS via préflights CORS** : quand `[daemon.cors]
 allowed_origins` est positionné, le daemon répond aux requêtes
-`OPTIONS` préflight sur `/api/*` sans authentification (le check
-X-API-Key passe après CORS). Une origine compromise dans la whitelist
+`OPTIONS` préflight sur `/api/*` sans authentification (la vérification
+X-API-Key passe après CORS). Une origine compromise dans la liste d'autorisation
 (ou n'importe quelle origine en mode wildcard) peut envoyer des
 préflights illimités qui contournent la barrière d'auth ack. Le
-daemon n'embarque pas encore de rate limiter sur cette surface. Le
-cache préflight `max_age=120s` mitige le volume des navigateurs
-légitimes mais n'aide pas contre un script malveillant. Posture de
-mitigation pour 0.5.23 : déployer le daemon derrière un reverse proxy
-avec rate limiting par IP (nginx `limit_req`, Caddy `rate_limit`,
+daemon n'embarque pas encore de limiteur de débit sur cette surface. Le
+cache préflight `max_age=120s` atténue le volume des navigateurs
+légitimes mais n'aide pas contre un script malveillant. Posture
+d'atténuation pour 0.5.23 : déployer le daemon derrière un reverse proxy
+avec limitation de débit par IP (nginx `limit_req`, Caddy `rate_limit`,
 Cloudflare WAF) quand il est exposé cross-origin. Une intégration
-native `tower-governor` est tracée pour une release future.
+native `tower-governor` fait l'objet d'un suivi pour une version future.
 
 Si votre modèle de menace inclut un profil de navigateur partagé,
 générez le HTML en mode statique et utilisez le CLI (`perf-sentinel
@@ -430,14 +432,14 @@ kill $DAEMON_PID
 
 ## Choisir entre statique et live
 
-| Cas d'usage                                              | Mode      |
-| -------------------------------------------------------- | --------- |
-| Artefact CI uploadé sur chaque MR                        | Statique  |
-| Revue de MR où le reviewer veut ack ou revoke            | Live      |
-| Doc onboarding bundlée dans un tarball                   | Statique  |
-| Dashboard ops live sur un poste personnel                | Live      |
-| Profil de navigateur partagé (kiosk, machine de démo)    | Statique  |
-| Analyse offline air-gapped                               | Statique  |
+| Cas d'usage                                           | Mode     |
+|-------------------------------------------------------|----------|
+| Artefact CI envoyé sur chaque MR                      | Statique |
+| Revue de MR où le relecteur veut ack ou revoke        | Live     |
+| Doc de prise en main empaquetée dans un tarball       | Statique |
+| Dashboard ops live sur un poste personnel             | Live     |
+| Profil de navigateur partagé (kiosk, machine de démo) | Statique |
+| Analyse hors ligne air-gapped                         | Statique |
 
 ## Voir aussi
 

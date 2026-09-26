@@ -33,8 +33,8 @@ const DISTINCT: usize = 4_300;
 
 /// Production string sizes, measured on that daemon: templates average
 /// 770 bytes and Hibernate's wide selects reach 18 KB, one row in twenty
-/// or so; suggestions sit at a few hundred bytes now that
-/// `serialized_calls` no longer lists every call. The synthetic detectors
+/// or so. Suggestions sit at a few hundred bytes because
+/// `serialized_calls` does not list every call. The synthetic detectors
 /// emit far shorter strings, and the clone cost of a fold is proportional
 /// to them, so the rows are padded to those sizes.
 const TEMPLATE_BYTES: usize = 800;
@@ -55,8 +55,8 @@ fn padded(prefix: &str, bytes: usize) -> String {
 
 /// Real findings from the detectors, one per signature, then multiplied
 /// into `DISTINCT` signatures by varying the endpoint, which the signature
-/// hashes, given the grouping production rows carry, and padded to
-/// production sizes so the clone cost this benchmark exists to measure is
+/// hashes. Each one gets the grouping that production rows carry and is
+/// padded to production sizes, so the clone cost this benchmark measures is
 /// the one production pays.
 fn distinct_findings() -> Vec<Finding> {
     let raw = synth::generate_target_events(20_000, 16, &PatternMix::default(), 42);

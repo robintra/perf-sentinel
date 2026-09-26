@@ -1,8 +1,8 @@
 //! End-to-end integration tests for the `hash-bake` subcommand.
 //!
 //! Exercise the CLI binary end to end (parse, dispatch, write) and
-//! the roundtrip with `verify-hash` that this subcommand was added
-//! to unblock.
+//! the roundtrip with `verify-hash` that this subcommand exists to
+//! enable.
 
 use sentinel_core::report::periodic::compute_content_hash;
 use sentinel_core::report::periodic::schema::{PeriodicReport, SignatureMetadata};

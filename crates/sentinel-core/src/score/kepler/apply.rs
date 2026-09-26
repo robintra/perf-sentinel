@@ -40,7 +40,7 @@ pub fn joules_deltas(
     // instead of O(N × M) on Kepler endpoints exposing hundreds of
     // containers per node. Summing and per-row validation semantics
     // live in [`sum_by_label`]. On cumulative counters the sum stays
-    // monotonic while the series set is stable; a vanishing series
+    // monotonic while the series set is stable. A vanishing series
     // drops the sum (negative delta, filtered below, next tick
     // re-baselines) and a newly discovered series joins with its
     // near-zero counter.

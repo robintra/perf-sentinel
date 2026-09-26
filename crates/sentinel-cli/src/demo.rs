@@ -27,18 +27,18 @@ pub(crate) fn cmd_demo(
         config.green.default_region = Some("eu-west-3".to_string());
     }
 
-    // The TUI and HTML paths both need the correlated traces, not just the
+    // The TUI and HTML paths need the correlated traces as well as the
     // report, so go through the same loader the analyze/report commands use.
     let (mut report, traces, _) = load_report_from_input(DEMO_DATA.as_bytes(), &config);
 
-    // Cross-trace correlations are a daemon-only signal; the batch pipeline
+    // Cross-trace correlations are a daemon-only signal. The batch pipeline
     // never produces them. Seed illustrative ones so the demo can show the
     // Correlations tab (HTML) and panel (TUI) without a running daemon.
     report.correlations = demo_correlations(&report.findings);
 
     // The offline io_proxy model leaves per-region measured/estimated
     // provenance unset. Tag the demo regions the way Electricity Maps would:
-    // the larger regions are measured live, the smallest only has an estimate.
+    // the largest region is measured live, the smallest only has an estimate.
     seed_demo_region_provenance(&mut report.green_summary.regions);
 
     if let Some(path) = html {
@@ -107,8 +107,8 @@ fn seed_demo_region_provenance(regions: &mut [sentinel_core::score::carbon::Regi
 }
 
 /// Rank the embedded demo `pg_stat_statements` snapshot for the dashboard's
-/// `pg_stat` tab. The fixture deliberately overlaps the demo SQL templates so
-/// the Explain-to-`pg_stat` cross-navigation lights up.
+/// `pg_stat` tab. The fixture overlaps the demo SQL templates so the
+/// Explain-to-`pg_stat` cross-navigation lights up.
 fn demo_pg_stat(
     trace_sql_counts: &std::collections::HashMap<String, u64>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
@@ -155,12 +155,12 @@ fn demo_diff(
 /// and coherent with the demo traces rather than computed.
 ///
 /// Each side names a `(type, service)` pair and borrows the rest from the
-/// finding it points at. Hardcoding the template and the grouping instead
-/// made the dashboard unable to resolve either side: the demo findings carry
-/// a grouping attribute, the endpoints did not, and the match is strict.
+/// finding it points at. The dashboard match is strict and the demo findings
+/// carry a grouping attribute, so an endpoint without that grouping resolves
+/// to nothing.
 ///
 /// A pair whose sides name no finding is dropped rather than emitted with an
-/// empty template, which would put the same dead click zone back on the card.
+/// empty template, which would put a dead click zone on the card.
 fn demo_correlations(
     findings: &[sentinel_core::detect::Finding],
 ) -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
@@ -243,7 +243,7 @@ mod tests {
     /// The dashboard resolves each correlation side against the findings on
     /// type, service, grouping and template, and leaves a side inert when it
     /// finds nothing. An endpoint that matches no finding is therefore a dead
-    /// click zone, which is exactly what the hardcoded endpoints produced.
+    /// click zone.
     #[test]
     fn every_demo_correlation_endpoint_resolves_to_a_finding() {
         let (report, _, _) = load_report_from_input(DEMO_DATA.as_bytes(), &Config::default());

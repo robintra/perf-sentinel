@@ -4,7 +4,7 @@
 //! [`super::super::cloud_energy::state`]: an [`ArcSwap`]-backed
 //! `HashMap` of per-region carbon intensity values with
 //! monotonic-clock staleness filtering. The scraper publishes fresh
-//! data; the scoring path reads a zero-contention snapshot.
+//! data and the scoring path reads a zero-contention snapshot.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -47,7 +47,7 @@ impl ElectricityMapsState {
     /// stale rows (age >= `staleness_ms`).
     ///
     /// Returns `cloud_region -> gCO2/kWh`. Estimation metadata is
-    /// dropped, callers needing it must use [`Self::snapshot_with_metadata`].
+    /// dropped. Callers needing it must use [`Self::snapshot_with_metadata`].
     #[must_use]
     pub fn snapshot(&self, now_ms: u64, staleness_ms: u64) -> HashMap<String, f64> {
         let current = self.inner.load_full();
@@ -171,7 +171,7 @@ mod tests {
     fn stale_entry_filtered_out() {
         let state = ElectricityMapsState::new();
         state.insert_for_test("eu-west-3".into(), 56.0, 100);
-        // now=700, staleness=500 -> age 600 >= 500 -> stale
+        // now=700, staleness=500: age 600 >= 500, so the entry is stale
         let snap = state.snapshot(700, 500);
         assert!(snap.is_empty());
     }

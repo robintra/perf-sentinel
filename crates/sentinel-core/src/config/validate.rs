@@ -108,11 +108,11 @@ pub(super) const SNAPSHOT_READ_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 /// Rough serialized weight of one exported finding and one retained span
 /// tree, measured on a production daemon (~3.5 KB and ~20 KB). Orders of
 /// magnitude, not a contract: they exist to catch a configuration whose
-/// snapshot cannot be read back, not to predict a byte count.
+/// snapshot cannot be read back.
 const APPROX_FINDING_BYTES: usize = 3_500;
 const APPROX_TRACE_BYTES: usize = 20_000;
 
-/// Ceiling the exported span trees can actually reach, mirroring
+/// Ceiling the exported span trees can reach, mirroring
 /// `query_api::EMBEDDED_TRACES_BYTE_BUDGET` (half the body limit).
 /// `traces_store::snapshot_for` measures each tree and skips the ones
 /// that would cross it, so projecting `max_retained_traces` unclamped
@@ -158,8 +158,8 @@ pub(super) fn snapshot_budget_warning(findings: usize, traces: usize) -> Option<
 /// `true` if `s` contains any terminal control character: C0 (`< 0x20`),
 /// DEL (`0x7F`), or C1 (`0x80..=0x9F`). The C1 range carries the single-byte
 /// CSI (`U+009B`), ST (`U+009C`) and OSC (`U+009D`) introducers honoured by
-/// VT-family terminals when 8-bit controls are enabled, so a TOML field that
-/// reaches `tracing::warn!` on stderr must reject them at load time the same
+/// VT-family terminals when 8-bit controls are enabled. A TOML field that
+/// reaches `tracing::warn!` on stderr must reject them at load time, the same
 /// way [`crate::text_safety::sanitize_for_terminal`] rejects them at render.
 pub(crate) fn has_control_char(s: &str) -> bool {
     s.chars().any(|c| {
@@ -260,7 +260,7 @@ pub(super) fn validate_broker_static(
     }
     warn_unknown_region("[green.broker_static]", cfg.region.as_deref());
     // An unknown type still yields a provider default, so warn rather
-    // than reject: the figure stays honest, just coarser.
+    // than reject: the figure stays sound, just coarser.
     if !crate::score::cloud_energy::table::is_known_instance_type(&cfg.instance_type) {
         tracing::warn!(
             instance_type = %cfg.instance_type,
@@ -411,10 +411,10 @@ impl Config {
     /// workarounds (e.g., iptables) that are harder to audit.
     ///
     /// Kept separate from `validate()` because it must run even when the
-    /// caller never re-validates. Note that the daemon entrypoint does
-    /// call `validate()` a second time after applying its CLI overrides,
-    /// so the advisory warnings inside it are emitted twice when a config
-    /// file was loaded, the second pass reading the overridden values.
+    /// caller never re-validates. The daemon entrypoint does call
+    /// `validate()` a second time after applying its CLI overrides, so the
+    /// advisory warnings inside it are emitted twice when a config file
+    /// was loaded, the second pass reading the overridden values.
     pub fn warn_listen_addr_if_non_loopback(&self) {
         if !self.daemon_is_loopback() {
             tracing::warn!(
@@ -481,8 +481,8 @@ impl Config {
     /// Kept separate from `validate_reporting` because the daemon
     /// entrypoint re-runs `validate()` after applying CLI overrides
     /// (`--listen-address`, ports), and an advisory not affected by
-    /// those overrides must not be re-emitted, otherwise an operator
-    /// upgrading 0.6.2 -> 0.7.0 sees the same warning twice and
+    /// those overrides must not be re-emitted. Otherwise an operator
+    /// upgrading from 0.6.2 to 0.7.0 sees the same warning twice and
     /// suspects two daemon instances or a duplicated config layer.
     pub(super) fn warn_reporting_advisory(&self) {
         if self
@@ -521,9 +521,8 @@ impl Config {
     }
 
     /// Cross-section consistency checks that no individual section
-    /// can validate alone. Today this is small (CORS-vs-API), but
-    /// `validate` is intentionally extensible: any future "you set X
-    /// but Y is off" trap belongs here.
+    /// can validate alone. Today this is small (CORS-vs-API), but any
+    /// future "you set X but Y is off" trap belongs here.
     fn validate_cross_section_consistency(&self) -> Result<(), String> {
         if !self.daemon.api_enabled && !self.daemon.cors.allowed_origins.is_empty() {
             return Err(
@@ -861,8 +860,8 @@ impl Config {
     }
 
     /// Validate `[green] hourly_profiles_file`: reject control characters
-    /// in the path (log injection) and require that the file actually
-    /// loaded when the field is configured.
+    /// in the path (log injection) and require that the file loaded when
+    /// the field is configured.
     fn validate_hourly_profiles_file(&self) -> Result<(), String> {
         let Some(path) = &self.green.hourly_profiles_file else {
             return Ok(());
@@ -897,7 +896,7 @@ impl Config {
         validate_http_authority(&cfg.api_endpoint, "[green.electricity_maps] endpoint")?;
         // Warn (but do not fail) when a non-empty auth token travels to an
         // http:// endpoint. The Electricity Maps production API is served
-        // over https in practice; an http:// endpoint usually means a local
+        // over https in practice. An http:// endpoint usually means a local
         // test server or a misconfiguration. Flag it so users do not
         // silently ship credentials in cleartext.
         if cfg.api_endpoint.starts_with("http://") && !cfg.auth_token.is_empty() {
@@ -1079,8 +1078,8 @@ impl Config {
     /// two operator-supplied parser inputs (`metric_name`, `label_key`)
     /// and `energy_interval_secs`, the value that silently rescales
     /// every reading when it drifts from the Alumet-side
-    /// `poll_interval`. Neither string reaches a Prometheus label, they
-    /// are matched against the scraped body, so there is no cardinality
+    /// `poll_interval`. Neither string reaches a Prometheus label (they
+    /// are matched against the scraped body), so there is no cardinality
     /// exposure here.
     pub(super) fn validate_alumet(cfg: &AlumetConfig) -> Result<(), String> {
         if cfg.endpoint.is_empty() {
@@ -1128,7 +1127,7 @@ impl Config {
                 broker.region.as_deref(),
                 cfg,
             )?;
-            // One cgroup cannot be both workloads either, that would
+            // One cgroup cannot be both workloads either: that would
             // count the same joules in two separate figures.
             if cfg
                 .database
@@ -1178,7 +1177,7 @@ impl Config {
     /// chars are rejected before the value reaches an error message.
     fn validate_alumet_parser_field(value: &str, field: &str) -> Result<(), String> {
         /// Prometheus metric and label names are far shorter than this
-        /// in practice, the cap only bounds the memory a hostile config
+        /// in practice. The cap only bounds the memory a hostile config
         /// can pin per scrape.
         const MAX_PARSER_FIELD_LEN: usize = 256;
         if has_control_char(value) {
@@ -1339,9 +1338,9 @@ impl Config {
     ///
     /// Service names (keys), `exe_contains` substrings and optional
     /// `cmdline_contains` substrings must be 1 to 256 chars and free
-    /// of control characters. Service names are intentionally NOT run
-    /// through `is_valid_region_id` because they may legitimately
-    /// contain dots, slashes and similar.
+    /// of control characters. Service names are NOT run through
+    /// `is_valid_region_id` because they may legitimately contain dots,
+    /// slashes and similar.
     fn validate_scaphandre_process_map(cfg: &ScaphandreConfig) -> Result<(), String> {
         for (service, matcher) in &cfg.process_map {
             Self::validate_scaphandre_substring(service, "service name", service)?;
@@ -1610,7 +1609,7 @@ impl Config {
             &10_000,
         )?;
         check_range("trace_ttl_ms", &self.daemon.trace_ttl_ms, &100, &3_600_000)?;
-        // 0 would make the half window 0; 7 days is the ceiling.
+        // 0 would make the half window 0, and 7 days is the ceiling.
         if self.daemon.correlation.enabled {
             check_range(
                 "correlation.window_minutes",
@@ -1631,7 +1630,7 @@ impl Config {
             &1,
             &1_048_576,
         )?;
-        // 0 disables the memory-pressure admission guard; otherwise the
+        // 0 disables the memory-pressure admission guard. Otherwise the
         // percentage must clear the 5-point hysteresis band, else the
         // flag's low-water bound would sit at or below zero and the
         // guard could never un-reject once tripped.
@@ -1661,11 +1660,12 @@ impl Config {
     /// See design doc 07 > "Comfort-zone warnings" for the band table
     /// and the rationale.
     fn warn_unusual_daemon_limits(&self) {
-        // The 16 MiB ceiling intentionally matches the `max_payload_size`
-        // default value (see line 205). Default-at-ceiling is inclusive
-        // (`..=`), so the canonical config emits no warning. A future
-        // bump of the default must also raise this ceiling, otherwise
-        // every fresh daemon would log a startup warning.
+        // The 16 MiB ceiling matches the `max_payload_size` default value
+        // (see `impl Default for DaemonConfig` in `config/mod.rs`).
+        // Default-at-ceiling is inclusive (`..=`), so the canonical config
+        // emits no warning. A future bump of the default must also raise
+        // this ceiling, otherwise every fresh daemon would log a startup
+        // warning.
         warn_outside_comfort_zone(
             "max_payload_size",
             &self.daemon.max_payload_size,
@@ -1690,9 +1690,9 @@ impl Config {
             "complex traces will be truncated by the per-trace ring buffer",
             "very wide ring buffers rarely improve detection quality",
         );
-        // Skip the comfort-zone check when the store is intentionally
-        // disabled (max_retained_findings == 0); warning on that would
-        // be noise.
+        // Skip the comfort-zone check when the store is disabled
+        // (max_retained_findings == 0), since warning on that would be
+        // noise.
         if self.daemon.max_retained_findings > 0 {
             warn_outside_comfort_zone(
                 "max_retained_findings",
@@ -1717,7 +1717,7 @@ impl Config {
             );
         }
         if traces_store_served {
-            // The floor is not comfort, it is correctness: at 0 the export
+            // The floor guards correctness, not comfort: at 0 the export
             // carries no findings, so the gate's three finding-count rules
             // count none and pass whatever the daemon saw. The fourth rule,
             // io_waste_ratio_max, reads green_summary, which no cap empties,

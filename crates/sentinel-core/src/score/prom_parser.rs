@@ -11,15 +11,15 @@
 //! Forgiving by contract, like `scaphandre::parser`: a malformed line is
 //! skipped, never an error. This is best-effort telemetry.
 //!
-//! `scaphandre::parser` stays separate on purpose: it extracts two
-//! labels (`exe` and `cmdline`) in a single pass, so its scan loop
-//! legitimately diverges from the single-label shape here.
+//! `scaphandre::parser` stays separate because it extracts two labels
+//! (`exe` and `cmdline`) in a single pass, so its scan loop diverges
+//! from the single-label shape here.
 
 /// One parsed sample of a Prometheus exposition line.
 ///
 /// `label_value` is whatever the configured `label_key` resolved to (a
 /// container name, a kernel `comm` string, a pod name). `value` is the
-/// raw reading at the moment of the scrape, its unit and semantics are
+/// raw reading at the moment of the scrape. Its unit and semantics are
 /// the caller's business: Kepler reads it as a cumulative joule counter
 /// and derives a delta, Alumet reads it as the energy of one poll
 /// interval.
@@ -76,12 +76,12 @@ pub fn parse_metric_samples(body: &str, metric_name: &str, label_key: &str) -> V
 /// container name repeated across pods for Kepler, one row per RAPL
 /// domain or per socket for Alumet). A last-write-wins read would keep
 /// whichever row the exposition emitted last and silently understate
-/// the figure. Per-row validation happens HERE, not only on the sum:
-/// the Prometheus text format legitimately carries NaN, and one NaN row
-/// must not poison every row sharing its label, while a negative row
-/// must not subtract from an otherwise valid sum. Rejected rows still
-/// create the entry, so the label counts as present on the wire (the
-/// series exists, a mapping pointing at it is not the problem).
+/// the figure. Per-row validation happens HERE, not only on the sum.
+/// The Prometheus text format allows NaN, and one NaN row must not
+/// poison every row sharing its label. A negative row must not subtract
+/// from an otherwise valid sum. Rejected rows still create the entry,
+/// so the label counts as present on the wire (the series exists, so a
+/// mapping pointing at it is not the problem).
 #[must_use]
 pub fn sum_by_label(samples: &[PromSample]) -> HashMap<&str, f64> {
     let mut by_label: HashMap<&str, f64> = HashMap::with_capacity(samples.len());
@@ -336,7 +336,7 @@ mod tests {
     fn parse_handles_no_labels() {
         let body = "kepler_container_cpu_joules_total 99.0\n";
         let out = parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name");
-        // No label block means no label_value, sample is skipped.
+        // No label block means no label_value, so the sample is skipped.
         assert!(out.is_empty());
     }
 
@@ -357,7 +357,7 @@ mod tests {
 
     // A shorter metric name must not match a longer one that starts with
     // it: `strip_prefix` alone would let `rapl_consumed_energy_alumet`
-    // swallow a line for `rapl_consumed_energy_alumet_joules`.
+    // match a line for `rapl_consumed_energy_alumet_joules`.
     #[test]
     fn parse_does_not_match_longer_metric_name_prefix() {
         let body = "rapl_consumed_energy_alumet_joules{domain=\"package\"} 7.0\n";

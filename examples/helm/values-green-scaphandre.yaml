@@ -37,7 +37,7 @@
 # rely on before trusting the figures: that depends on your Prometheus
 # relabeling, not on this chart.
 #
-# Two deliberate differences from the .toml, both forced by the cluster:
+# Two differences from the .toml, both forced by the cluster:
 #   - `endpoint` uses in-cluster DNS instead of localhost, since it resolves
 #     from the perf-sentinel pod rather than from a shared host.
 #   - `[green] enabled` and `default_region` are not repeated here. The base
@@ -68,9 +68,9 @@ config:
       exe_contains = "/opt/native-svc/bin/native-svc"   # no default, required
 
 # Credentials, when the exporter sits behind auth. The env var wins over the
-# `auth_header` field above, which is deliberately left commented: a fragment
-# renders into a ConfigMap, readable by anyone holding `get` on the namespace.
-# Create the Secret first:
+# `auth_header` field above, which is left commented: a fragment renders into
+# a ConfigMap, readable by anyone holding `get` on the namespace. Create the
+# Secret first:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \
 #     --from-literal=PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER='Authorization: Bearer ...'
 #

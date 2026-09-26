@@ -18,7 +18,7 @@ use crate::score::cloud_energy::table::lookup_instance_power;
 const MS_PER_HOUR: f64 = 3_600_000.0;
 
 /// Longest gap one window may bill. Truncates rather than defers, so a
-/// long idle stretch is under-counted on purpose.
+/// long idle stretch is under-counted.
 const MAX_BILLABLE_MS: u64 = 3_600_000;
 
 /// Shortest gap worth billing. Below it the time accrues into the next
@@ -33,8 +33,8 @@ pub struct StaticBrokerConfig {
     /// Instance type looked up in the embedded `SPECpower` table.
     pub instance_type: String,
     /// `aws`, `gcp`, `azure`, or `generic` for an on-prem default.
-    /// Validation rejects anything else, an unrecognised value would
-    /// silently resolve to the generic watts.
+    /// Validation rejects anything else because an unrecognised value
+    /// would silently resolve to the generic watts.
     pub provider: String,
     /// Declared region, used to convert the waste energy to gCO2.
     /// `None` reports the waste in kWh only.
@@ -79,9 +79,8 @@ impl StaticBrokerState {
     }
 
     /// Whether this declaration has billed a stretch the measurement did not
-    /// cover. Non-consuming on purpose: the marker states a fact about the
-    /// timeline, not about one tick, and a tick that bills nothing must not
-    /// erase it.
+    /// cover. Non-consuming: the marker states a fact about the timeline,
+    /// not about one tick, and a tick that bills nothing must not erase it.
     pub fn outage_billed(&self) -> bool {
         self.billed_during_outage.load(Ordering::SeqCst)
     }
@@ -98,8 +97,8 @@ impl StaticBrokerState {
     /// keeps the borrowed fast path in `build_tick_ctx`.
     pub fn take_window_kwh(&self, now_ms: u64) -> Option<f64> {
         if !self.watts.is_finite() || self.watts <= 0.0 {
-            // Marker left alone on purpose: the next valid take bills this
-            // stretch rather than losing it.
+            // Marker left alone so the next valid take still bills this
+            // stretch.
             return None;
         }
         let last = self.last_ms.load(Ordering::SeqCst);

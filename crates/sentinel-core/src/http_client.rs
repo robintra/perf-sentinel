@@ -66,7 +66,7 @@ where
 }
 
 /// Build a fresh hyper-util client with TLS support. Called once per
-/// task at startup; the client is then reused for every fetch.
+/// task at startup. The client is then reused for every fetch.
 ///
 /// Uses rustls with Mozilla root certificates (webpki-roots) for
 /// HTTPS endpoints. Plain HTTP endpoints also work.
@@ -96,7 +96,7 @@ pub fn redact_endpoint(uri: &Uri) -> String {
 }
 
 /// Strip userinfo from a raw endpoint string when the URI did not parse
-/// (so [`redact_endpoint`] cannot run). Defense in depth, config-load
+/// (so [`redact_endpoint`] cannot run). Defense in depth: config-load
 /// validation already rejects `@` in the authority for every scraper.
 #[must_use]
 pub fn redact_endpoint_str(raw: &str) -> String {
@@ -110,9 +110,8 @@ pub fn redact_endpoint_str(raw: &str) -> String {
     format!("{scheme}://{host_port}{tail}")
 }
 
-/// Errors from [`fetch_get`]. Uses the same variants that the individual
-/// scrapers had independently, now unified so callers `.map_err()` into
-/// their domain-specific error type with a one-liner.
+/// Errors from [`fetch_get`], shared by every caller so each one can
+/// `.map_err()` into its domain-specific error type with a one-liner.
 ///
 /// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
@@ -230,8 +229,8 @@ pub async fn fetch_get(
 /// # Errors
 ///
 /// Returns [`FetchError`] on request build failure, transport error,
-/// timeout or body read failure. Non-2xx statuses are not errors here,
-/// they are returned to the caller as the first tuple element.
+/// timeout or body read failure. Non-2xx statuses are not errors here.
+/// They are returned to the caller as the first tuple element.
 pub async fn fetch_with_body(
     client: &HttpClientWithBody,
     method: hyper::Method,
@@ -286,15 +285,14 @@ mod tests {
         // The return type is opaque, so we cannot inspect fields, but a
         // panic-free construction is the main property we care about:
         // a regression in the hyper-rustls builder surface (renamed
-        // method, missing feature) would blow up here.
+        // method, missing feature) would fail here.
         let _client: HttpClient = build_client();
     }
 
     #[test]
     fn redact_endpoint_strips_credentials_with_default_port() {
-        // Userinfo (`user:pass@`) is dropped by `hyper::Uri::host()`,
-        // which is exactly what we want: no chance of leaking secrets
-        // into logs via the rebuilt URL.
+        // `hyper::Uri::host()` drops the userinfo (`user:pass@`), so the
+        // rebuilt URL cannot leak secrets into logs.
         let uri: Uri = "http://user:pass@example.com/metrics".parse().unwrap();
         assert_eq!(redact_endpoint(&uri), "http://example.com/metrics");
     }
@@ -318,7 +316,7 @@ mod tests {
     #[test]
     fn redact_endpoint_strips_credentials_with_explicit_port() {
         let uri: Uri = "http://admin:secret@localhost:8080/scrape".parse().unwrap();
-        // Only the userinfo must be gone; the port must stay.
+        // Only the userinfo must be gone. The port must stay.
         let redacted = redact_endpoint(&uri);
         assert_eq!(redacted, "http://localhost:8080/scrape");
         assert!(!redacted.contains("admin"));

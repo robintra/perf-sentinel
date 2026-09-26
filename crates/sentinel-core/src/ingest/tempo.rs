@@ -53,9 +53,9 @@ pub enum TempoError {
     BodyRead(String),
 
     /// Kept apart from [`TempoError::BodyRead`] because it is the one body
-    /// failure an operator can act on, and because the limit is ours: the
-    /// generic wording sent people looking at Tempo or at the network. The
-    /// remedy travels with the failing path, a search overrun shrinks with
+    /// failure an operator can act on, and because the limit is ours: a
+    /// generic wording sends people looking at Tempo or at the network. The
+    /// remedy travels with the failing path: a search overrun shrinks with
     /// `--max-traces` while a single trace past the per-trace cap cannot.
     #[error(
         "response body exceeded the {limit} byte cap perf-sentinel applies to it, \
@@ -112,26 +112,25 @@ struct TraceMeta {
 
 /// Maximum body size for search responses (16 MiB).
 ///
-/// Search responses carry trace-ID summaries, not span payloads, but a
-/// summary is not just the id: Tempo returns the root service and name,
-/// a duration and a span set, which measures around 210 bytes per trace.
-/// Sized for `MAX_SEARCH_TRACES` of those with room to spare, because the
-/// cap has to cover the largest search the flag accepts. The previous
-/// 1 MiB was sized for `limit=500` and applied to every value, so a
-/// legitimate `--max-traces 5000` failed on a limit of our own making.
+/// Search responses carry trace-ID summaries, not span payloads, but each
+/// summary also holds the root service and name, a duration and a span
+/// set. That comes to around 210 bytes per trace. Sized for
+/// `MAX_SEARCH_TRACES` of those with room to spare, because the cap has to
+/// cover the largest search the flag accepts.
 const MAX_SEARCH_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// The cap has to read back the largest search the flag accepts, with a
 /// wide margin. Measured on realistic Tempo summaries (root service,
-/// name, duration, span set): about 212 bytes per trace. A floor, not a
-/// fit: the guarantee is that a `--max-traces` at the ceiling cannot die
-/// on this cap, and only a raise well past the ceiling stops building.
+/// name, duration, span set): about 212 bytes per trace. The check is a
+/// floor, not a fit: a `--max-traces` at the ceiling cannot fail on this
+/// cap, and only raising the ceiling well past its current value breaks
+/// the build.
 const _: () = assert!(crate::ingest::MAX_SEARCH_TRACES * 212 < MAX_SEARCH_BODY_BYTES);
 
 /// Maximum body size for a full trace fetch (64 MiB).
 ///
 /// Tempo traces can legitimately carry hundreds or thousands of spans
-/// in a single OTLP protobuf; the 8 MiB cap used for Prometheus /metrics
+/// in a single OTLP protobuf. The 8 MiB cap used for Prometheus /metrics
 /// and Electricity Maps JSON is not enough. 64 MiB is large enough to
 /// cover production workloads while still bounding the worst case at a
 /// level that fits comfortably in daemon RSS (the `<20 MB loaded`
@@ -377,14 +376,14 @@ fn classify_fetch_error(error: &TempoError) -> &'static str {
 /// Picks the severity based on the mix of failures seen:
 /// - nothing logged when `fail_counts` is empty and the run was not
 ///   interrupted (the ambient `info!` lines from `search_traces` and the
-///   per-trace `debug!` lines already describe the run);
+///   per-trace `debug!` lines already describe the run)
 /// - `warn` when the only failures are `TraceNotFound` skips (an expected
 ///   occasional condition: a trace rolled out of Tempo's retention between
-///   the search and the fetch);
+///   the search and the fetch)
 /// - `error` when any hard failure (timeout, transport, HTTP 5xx, decode,
-///   panic) occurred;
+///   panic) occurred
 /// - an additional `warn` line on Ctrl-C so the operator sees explicitly
-///   that the report is based on partial results.
+///   that the report is based on partial results
 fn emit_fetch_summary(
     fail_counts: &std::collections::HashMap<&'static str, usize>,
     total_attempted: usize,
@@ -545,8 +544,8 @@ async fn ingest_from_tempo_impl(
     // `FETCH_CONCURRENCY` in-flight requests to avoid flooding Tempo's
     // query-frontend. Mirrors the pattern used by
     // `score::cloud_energy::scraper` for per-service Prometheus CPU queries.
-    // The hyper client holds an `Arc` internally, so `.clone()` is cheap;
-    // the endpoint and the parsed auth header are cloned per task so
+    // The hyper client holds an `Arc` internally, so `.clone()` is cheap.
+    // The endpoint and the parsed auth header are cloned per task so
     // each owned future is `'static` as required by `spawn`.
     let semaphore = Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
     let mut set: tokio::task::JoinSet<FetchOutcome> = tokio::task::JoinSet::new();
@@ -585,7 +584,7 @@ async fn ingest_from_tempo_impl(
 
     if drained.events.is_empty() {
         // Differentiate "Tempo returned nothing and we were not interrupted"
-        // (genuine empty result) from "the user Ctrl-C'd before anything
+        // (an empty result) from "the user Ctrl-C'd before anything
         // completed" (operator action, not a data condition). Surfacing a
         // generic `NoTracesFound` in the interrupted case would be
         // misleading, especially in a CI quality-gate context where it
@@ -593,7 +592,7 @@ async fn ingest_from_tempo_impl(
         if drained.interrupted {
             return Err(TempoError::Interrupted);
         }
-        // Keyed on spans Tempo actually returned: a batch where every fetch
+        // Keyed on the spans Tempo returned: a batch where every fetch
         // errored, or where the traces came back empty, is not an
         // instrumentation problem and must not read like one.
         if drained.received > 0 {
@@ -636,7 +635,7 @@ type FetchOutcome = (String, Result<(Vec<SpanEvent>, u64), TempoError>);
 /// Aggregate result of draining the per-trace fetch `JoinSet`.
 struct FetchLoopOutcome {
     events: Vec<SpanEvent>,
-    /// Spans Tempo actually returned, so an empty trace is not reported as
+    /// Spans Tempo returned, so an empty trace is not reported as
     /// a trace whose spans all filtered out.
     received: u64,
     fail_counts: std::collections::HashMap<&'static str, usize>,
@@ -650,7 +649,7 @@ struct FetchLoopOutcome {
 ///
 /// Intended for one-shot CLI use. Calling it from a long-running component
 /// that already owns a shutdown-signal handler is not buggy but will fire
-/// two cleanups on the same signal, revisit before reusing.
+/// two cleanups on the same signal. Revisit before reusing.
 async fn drain_fetch_set(
     mut set: tokio::task::JoinSet<FetchOutcome>,
     total: usize,
@@ -709,8 +708,8 @@ async fn drain_fetch_set(
                         );
                     }
                     Some(Err(e)) if e.is_cancelled() => {
-                        // Aborted after Ctrl-C; the user-facing warn was
-                        // already emitted by the shutdown branch above.
+                        // Aborted after Ctrl-C. The shutdown branch above
+                        // already emitted the user-facing warn.
                     }
                     Some(Err(e)) => {
                         done += 1;
@@ -752,10 +751,9 @@ mod tests {
             overrun,
             TempoError::BodyTooLarge { limit: 4096, .. }
         ));
-        // The wording is the point: the previous message sent operators
-        // looking at Tempo for a limit this client imposes, and the search
-        // remedy must not leak onto a single-trace fetch where the flag
-        // cannot shrink anything.
+        // The wording must name the cap as a limit this client imposes, so
+        // operators do not look for it in Tempo. The search remedy must not
+        // leak onto a single-trace fetch where the flag cannot shrink anything.
         let text = overrun.to_string();
         assert!(text.contains("4096"), "{text}");
         assert!(text.contains("not of the backend"), "{text}");
@@ -914,7 +912,7 @@ mod tests {
         // `?`, so the authority is `tempo.local` and the `%40` lives
         // in the query-string-only part.
         //
-        // Note: this test uses an unreachable endpoint. We don't care
+        // This test uses an unreachable endpoint. We don't care
         // whether the fetch succeeds, only that the validator does
         // NOT synchronously return `InvalidEndpoint`. Any other error
         // (transport, timeout, etc.) is acceptable.
@@ -1052,8 +1050,8 @@ mod tests {
     // (64 MiB) are compiled in, so these go through the private fetch
     // helpers with a tiny cap instead of serving the real one. The
     // constants themselves are guarded by the `const _: () = assert!`
-    // above; what is untested without these two is that an overrun
-    // survives the wire as `BodyTooLarge` rather than a parse or read
+    // above. Only these two tests check that an overrun on the wire
+    // reaches the caller as `BodyTooLarge` rather than a parse or read
     // error, and that each path binds its own remedy.
 
     #[tokio::test]
@@ -1223,9 +1221,9 @@ mod tests {
             let _ = socket.shutdown().await;
         });
 
-        // Empty-trace OTLP means the aggregated run returns NoTracesFound,
-        // which is what we want: we are asserting on wire content, not on
-        // the final event list.
+        // The empty-trace OTLP makes the aggregated run return
+        // NoTracesFound. The test ignores it and asserts on wire content,
+        // not on the final event list.
         let _ = ingest_from_tempo(
             &endpoint,
             Some("foo-svc"),
@@ -1254,8 +1252,8 @@ mod tests {
         use tokio::net::TcpListener;
 
         // The mock must handle MULTIPLE connections in sequence:
-        //   1. /api/search → return one trace ID
-        //   2. /api/traces/<id> → return an empty OTLP protobuf
+        //   1. /api/search returns one trace ID
+        //   2. /api/traces/<id> returns an empty OTLP protobuf
         let search_body = r#"{"traces":[{"traceID":"abcdef"}]}"#;
         let search_resp = http_200_json(search_body);
         let mut proto_buf = Vec::new();
@@ -1297,7 +1295,7 @@ mod tests {
         .await
         .expect_err("empty trace must surface as NoTracesFound after loop");
         // The trace was fetched successfully but contained zero spans,
-        // so the aggregated result is empty → NoTracesFound at the end.
+        // so the aggregated result is empty and the run ends with NoTracesFound.
         assert_matches!(err, TempoError::NoTracesFound);
         server.await.unwrap();
     }
@@ -1335,12 +1333,6 @@ mod tests {
 
     // --- Fetch-error classification ---
 
-    /// Sanity-check that every hard-failure variant of `TempoError` lands in a
-    /// distinct, stable bucket. Acts as a drift guard: if someone adds a new
-    /// variant later and forgets to extend `classify_fetch_error`, the new
-    /// variant silently ends up as `"other"` in the summary counts. This
-    /// test either catches it (when the new variant deserves its own bucket)
-    /// or documents that the catch-all is intentional.
     /// The Tempo path decodes protobuf then converts. Threading the
     /// configured grouping attributes through must not change which spans
     /// become events, only what identity they carry.
@@ -1395,10 +1387,10 @@ mod tests {
         assert_eq!(grouped[0].grouping_value(), Some("acme"));
     }
 
-    /// Mirrors the real lab trace that cost a validation round: a single
-    /// SERVER span for `GET /actuator/prometheus`, valid protobuf, zero
-    /// convertible spans. `NoTracesFound` sent the operator hunting a
-    /// missing trace that Tempo had returned all along.
+    /// Mirrors a real lab trace: a single SERVER span for
+    /// `GET /actuator/prometheus`, valid protobuf, zero convertible spans.
+    /// Reporting it as `NoTracesFound` sends the operator hunting a missing
+    /// trace that Tempo returned.
     #[tokio::test]
     async fn a_trace_with_no_io_span_is_not_reported_as_a_missing_trace() {
         use opentelemetry_proto::tonic::resource::v1::Resource;
@@ -1449,6 +1441,12 @@ mod tests {
         server.await.unwrap();
     }
 
+    /// Sanity-check that every hard-failure variant of `TempoError` lands in a
+    /// distinct, stable bucket. Acts as a drift guard: if someone adds a new
+    /// variant later and forgets to extend `classify_fetch_error`, the new
+    /// variant silently ends up as `"other"` in the summary counts. This
+    /// test either catches it (when the new variant deserves its own bucket)
+    /// or documents that the variant belongs in the catch-all.
     #[test]
     fn classify_fetch_error_buckets_every_hard_failure_variant() {
         assert_eq!(classify_fetch_error(&TempoError::Timeout), "timeout");
@@ -1499,8 +1497,8 @@ mod tests {
     /// and hits every error-handling branch of `drain_fetch_set` in a single
     /// run. The aggregated outcome is empty (only the 200-empty-body trace
     /// contributed 0 spans), so the outer function reports `NoTracesFound`.
-    /// This is not a log-level assertion but it does exercise the
-    /// classification code path end-to-end.
+    /// It exercises the classification code path end-to-end without
+    /// asserting on log levels.
     #[tokio::test]
     async fn ingest_from_tempo_drains_mixed_per_trace_outcomes() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1537,7 +1535,7 @@ mod tests {
             // non-deterministic because the drain loop is parallel. Match on
             // the request line to route each connection to the intended
             // response (500 for bbb222, 404 for ccc333, 200-empty for the
-            // remaining one). A single unmatched trace ID is fine too, the
+            // remaining one). A single unmatched trace ID is fine too. The
             // classifier still reports it as a 200-empty success.
             for _ in 0..3 {
                 let (mut sock, _) = listener.accept().await.unwrap();

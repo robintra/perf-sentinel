@@ -19,7 +19,7 @@ crate::score::energy_state::impl_energy_state! {
     /// Nominally distinct from
     /// [`crate::score::cloud_energy::CloudEnergyState`] so the daemon can
     /// accept one without accidentally receiving the other. Both wrap the
-    /// same [`AgedEnergyMap`] storage under the hood.
+    /// same [`AgedEnergyMap`] storage.
     #[derive(Debug, Default)]
     pub struct ScaphandreState;
 }

@@ -1,14 +1,13 @@
 # VHS script, generates docs/img/inspect/report-mode.png.
 #
-# Showcases `perf-sentinel inspect --input <Report.json>` (Phase 8.2
-# Report-shape auto-detection extended to the inspect subcommand). The
-# tape feeds the binary a pre-computed Report carrying findings,
-# cross-trace correlations and the masked span trees of its findings'
-# traces (all three of which the daemon's own export produces),
-# then drills into the Detail panel to surface the "span tree not
-# available" hint that points the viewer at the two paths that DO
-# carry raw spans (`inspect --input <events>.json`, `query inspect`
-# against a daemon).
+# Showcases `perf-sentinel inspect --input <Report.json>` (Report-shape
+# auto-detection in the inspect subcommand). The tape feeds the binary a
+# pre-computed Report carrying findings, cross-trace correlations and the
+# masked span trees of its findings' traces (all three of which the
+# daemon's own export produces). It then drills into the Detail panel to
+# surface the "span tree not available" hint that points the viewer at
+# the two paths that DO carry raw spans (`inspect --input <events>.json`,
+# `query inspect` against a daemon).
 #
 # Companion to tapes/demo-inspect.tape, which covers the events-mode
 # happy path with the full 4-panel interactive tour.
@@ -53,10 +52,10 @@ Sleep 1500ms
 Enter
 Sleep 3s
 
-# Drill into the Detail panel: Tab Tab moves Traces -> Findings -> Detail.
-# The Findings panel auto-selects the first finding when entered, so the
-# Detail panel renders the metadata block + the span-tree hint (Reports
-# don't ship raw spans, so the tree is intentionally blank with guidance).
+# Drill into the Detail panel: Tab Tab moves from Traces to Findings, then
+# to Detail. The Findings panel auto-selects the first finding when entered,
+# so the Detail panel renders the metadata block + the span-tree hint
+# (Reports don't ship raw spans, so the tree is blank with guidance).
 Tab
 Sleep 1500ms
 Tab

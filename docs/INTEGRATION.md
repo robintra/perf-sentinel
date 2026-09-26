@@ -68,7 +68,7 @@ default_region = "eu-west-3"       # optional: enables gCO2eq estimates
 # "api-asia" = "ap-southeast-1"
 ```
 
-CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, 2× multiplicative uncertainty), multi-region scoring activates automatically when spans carry the `cloud.region` attribute. See `CONFIGURATION.md` and [docs/LIMITATIONS.md](LIMITATIONS.md#carbon-estimates-accuracy).
+CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, 2× multiplicative uncertainty). Multi-region scoring activates automatically when spans carry the `cloud.region` attribute. See `CONFIGURATION.md` and [docs/LIMITATIONS.md](LIMITATIONS.md#carbon-estimates-accuracy).
 
 ### Collect traces
 
@@ -181,7 +181,7 @@ Key metrics: `perf_sentinel_findings_total{type, severity, service, grouping}`, 
 
 ## Coming from Datadog (dd-trace, no OpenTelemetry)
 
-perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Datadog adapter by design. If your services are instrumented with **dd-trace** (Datadog's proprietary tracer) and you have no OpenTelemetry instrumentation, bridge them with an OpenTelemetry Collector running the [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). The receiver implements the Datadog Agent trace intake API on port 8126, converts dd-trace spans to OTLP, and an `otlp` exporter forwards a copy to perf-sentinel. No application code changes are required: you repoint dd-trace at the Collector, and you can keep sending to Datadog in parallel.
+perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Datadog adapter. If your services are instrumented with **dd-trace** (Datadog's proprietary tracer) and you have no OpenTelemetry instrumentation, bridge them with an OpenTelemetry Collector running the [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). The receiver implements the Datadog Agent trace intake API on port 8126, converts dd-trace spans to OTLP, and an `otlp` exporter forwards a copy to perf-sentinel. No application code changes are required: you repoint dd-trace at the Collector, and you can keep sending to Datadog in parallel.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge_dark.svg">
@@ -190,11 +190,11 @@ perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Dat
 
 perf-sentinel reads the Datadog resource (`dd.span.Resource`, where dd-trace leaves the obfuscated SQL) natively, so SQL detection works as long as each span keeps a database signal: the stable `db.system.name` (what current receiver versions emit), the older `db.system`, or the dd-trace `db.type` tag. No attribute remapping in the Collector is required. If a Collector version strips all of them, add a `transform` processor that restores one so the gate can fire.
 
-**Caveat on N+1 vs redundant queries.** dd-trace pre-obfuscates SQL (literals are already `?`), so the per-query parameters that distinguish an N+1 from a legitimately repeated query are gone before perf-sentinel sees them. Under the default `auto` detection mode a genuine N+1 with uniform query timing may surface as `redundant_sql` rather than `n_plus_one_sql`. Set `[detection] sanitizer_aware_classification = "strict"` to recover high-occurrence cases (3 times the configured `n_plus_one_threshold`, so 15 or more identical queries at the default of 5). Waste and carbon scoring are the same for both finding types.
+**Caveat on N+1 vs redundant queries.** dd-trace pre-obfuscates SQL (literals are already `?`), so the per-query parameters that distinguish an N+1 from a legitimately repeated query are gone before perf-sentinel sees them. Under the default `auto` detection mode a real N+1 with uniform query timing may surface as `redundant_sql` rather than `n_plus_one_sql`. Set `[detection] sanitizer_aware_classification = "strict"` to recover high-occurrence cases (3 times the configured `n_plus_one_threshold`, so 15 or more identical queries at the default of 5). Waste and carbon scoring are the same for both finding types.
 
 **PHP (Laravel, Symfony) via dd-trace-php.** The same obfuscation caveat applies: a real Laravel or Symfony N+1 can surface as `redundant_sql` under `auto`, so use `sanitizer_aware_classification = "strict"`. The bridge also drops framework signal: the `datadogreceiver` sets a fixed `Datadog` instrumentation scope and maps no `code.*` attributes, so dd-trace-php findings get no framework-aware `suggested_fix` (they fall to `php_generic` or stay unenriched). Laravel/Eloquent and Symfony/Doctrine specific fixes require the native OpenTelemetry PHP instrumentation (`io.opentelemetry.contrib.php.*` scopes), see [INSTRUMENTATION.md](INSTRUMENTATION.md).
 
-A common misread: Datadog's "OpenTelemetry compliant" wording usually refers to the Datadog Agent **ingesting** OTLP (inbound, from OTel SDKs), which is the opposite direction. Getting dd-trace data **out** to an OTLP backend is the Collector path below.
+Datadog's "OpenTelemetry compliant" wording is often misread. It usually refers to the Datadog Agent **ingesting** OTLP (inbound, from OTel SDKs), which is the opposite direction. Getting dd-trace data **out** to an OTLP backend is the Collector path below.
 
 > **Stability.** The `datadogreceiver` traces support is **alpha** in opentelemetry-collector-contrib (as of 2026). It is suitable for evaluation and proof-of-concept runs. Monitor it if you keep it in front of production permanently.
 
@@ -234,7 +234,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service checkout --l
 perf-sentinel tempo        --endpoint http://tempo:3200   --service checkout --lookback 15m
 ```
 
-A trace exported as Jaeger JSON from the Jaeger UI ("Download JSON") works with `analyze --input` too. Whatever the batch route, the obfuscation caveat above still applies, keep `sanitizer_aware_classification = "strict"`.
+A trace exported as Jaeger JSON from the Jaeger UI ("Download JSON") works with `analyze --input` too. Whatever the batch route, the obfuscation caveat above still applies: keep `sanitizer_aware_classification = "strict"`.
 
 ---
 
@@ -307,7 +307,7 @@ No `--format` flag is needed for input: the format is detected automatically fro
 
 **OTLP JSON in batch (0.9.5+).** `analyze --input` accepts the OTLP/JSON wire shape (`ExportTraceServiceRequest`, camelCase keys, hex trace/span ids), both as a single object and as the Collector `file` exporter's NDJSON (one request per line). OTLP also reaches perf-sentinel live through the daemon listeners (`watch`) and indirectly through the `tempo` and `jaeger-query` subcommands. If you are on dd-trace, see [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry).
 
-**Database statistics inputs.** The `pg-stat` and `mysql-stat` subcommands read CSV or JSON exports of `pg_stat_statements` and `performance_schema.events_statements_summary_by_digest` respectively, with the same first-byte auto-detection (`[` or `{` means JSON, anything else CSV). Column names are matched case-insensitively; MySQL timer columns (picoseconds) convert to milliseconds at parse time. Export the MySQL view with `mysqlsh --result-format=csv` or any client CSV/JSON export, `SELECT ... INTO OUTFILE` produces backslash-escaped TSV which is not supported.
+**Database statistics inputs.** The `pg-stat` and `mysql-stat` subcommands read CSV or JSON exports of `pg_stat_statements` and `performance_schema.events_statements_summary_by_digest` respectively, with the same first-byte auto-detection (`[` or `{` means JSON, anything else CSV). Column names are matched case-insensitively. MySQL timer columns (picoseconds) convert to milliseconds at parse time. Export the MySQL view with `mysqlsh --result-format=csv` or any client CSV/JSON export. `SELECT ... INTO OUTFILE` produces backslash-escaped TSV, which is not supported.
 
 ```bash
 # Jaeger export
@@ -448,7 +448,7 @@ process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet"
 
 The `process_map` maps perf-sentinel service names to the `exe` label in Scaphandre's `scaph_process_power_consumption_microwatts` metric. The daemon scrapes this endpoint every `scrape_interval_secs` and computes a per-service energy-per-op coefficient using the formula: `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
 
-Services not present in `process_map` or when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre; the `analyze` batch command always uses the proxy model.
+Services absent from `process_map`, and every service when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre. The `analyze` batch command always uses the proxy model.
 
 #### Authenticated Scaphandre endpoint
 
@@ -465,7 +465,7 @@ The value follows the same `"Name: Value"` format as the `--auth-header` flag on
 
 The environment variable `PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER` takes precedence over the config file. Prefer the env var in production to avoid committing secrets to version control. When the value is set in the config file and the env var is not, a startup warning nudges you toward the env var.
 
-Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup, prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
+Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup. Prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
 
 ### Cloud-native energy estimation (AWS / GCP / Azure)
 
@@ -514,7 +514,7 @@ The value follows the same `"Name: Value"` format as the `--auth-header` flag on
 
 The environment variable `PERF_SENTINEL_CLOUD_AUTH_HEADER` takes precedence over the config file. Prefer the env var in production to avoid committing secrets to version control. When the value is set in the config file and the env var is not, a startup warning nudges you toward the env var.
 
-Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup, prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
+Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup. Prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
 
 ### Calibrate the proxy model from on-site measurements
 
@@ -537,7 +537,7 @@ When neither Scaphandre nor cloud energy are available but you have reference en
 
 If your infrastructure uses Grafana Tempo as the trace backend, you can query it directly with `perf-sentinel tempo` instead of exporting traces to files.
 
-> **Post-mortem workflow.** When a trace is older than the daemon's 30-second live window, Tempo becomes the replay source for `perf-sentinel tempo --trace-id …`. The full incident workflow (Grafana alert → exemplar → trace_id → replay) is documented in [RUNBOOK.md](RUNBOOK.md).
+> **Post-mortem workflow.** When a trace is older than the daemon's 30-second live window, Tempo becomes the replay source for `perf-sentinel tempo --trace-id …`. The full incident workflow, from Grafana alert to exemplar to trace_id to replay, is documented in [RUNBOOK.md](RUNBOOK.md).
 
 ### Single trace analysis
 
@@ -570,11 +570,11 @@ perf-sentinel tempo --endpoint http://tempo-query-frontend:3200 \
   --service order-svc --lookback 1h
 ```
 
-A 404 from a wrong endpoint now surfaces as `Tempo returned HTTP 404 for https://.../api/search?...` (the failing URL is included in the message) so this misconfiguration is diagnosable at a glance.
+A 404 from a wrong endpoint surfaces as `Tempo returned HTTP 404 for https://.../api/search?...` (the failing URL is included in the message), so this misconfiguration is diagnosable at a glance.
 
 ### Alternative: Tempo generic forwarding
 
-Instead of querying Tempo, you can configure Tempo to forward a copy of traces to perf-sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). This avoids querying Tempo and works in real-time with `perf-sentinel watch`.
+Instead of querying Tempo, you can configure Tempo to forward a copy of traces to perf-sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). It works in real-time with `perf-sentinel watch`.
 
 ## Jaeger query API integration (Jaeger and Victoria Traces)
 
@@ -602,8 +602,8 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Requirements
 
-- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds perf-sentinel actually sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it ran unbounded from the Unix epoch.
-- The `--endpoint` flag points to the query API base URL, the part the CLI appends `/api/traces` to. Jaeger upstream serves it at the root on port 16686, Victoria Traces serves it under `/select/jaeger` on port 10428, so the latter needs that prefix in the flag.
+- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds perf-sentinel sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it would run unbounded from the Unix epoch.
+- The `--endpoint` flag points to the query API base URL, the part the CLI appends `/api/traces` to. Jaeger upstream serves it at the root on port 16686. Victoria Traces serves it under `/select/jaeger` on port 10428, so the flag needs that prefix.
 - Traces are fetched as JSON, parsed through the same `{"data": [...]}` path as the file-mode Jaeger ingestion, then run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
 - `--lookback` accepts the same `1h / 30m / 7d / 2h30m` format as the `tempo` subcommand.
 - `--from` and `--to` replace `--lookback` with an absolute window in ISO 8601 UTC (`2026-08-20T15:00:00Z`). They must be given together and cannot be combined with `--lookback`. Use them to re-read the exact window an incident happened in: a lookback is resolved when the request is issued, so it moves every time you run it.
@@ -613,7 +613,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 - Backend search is bounded by the backend's retention (Jaeger defaults to 48h, Victoria Traces is configurable). A `--lookback` or a `--from`/`--to` window larger than retention silently trims to the retained window. perf-sentinel does not know a backend's retention, so it cannot warn you before the request.
 - A `limit=N` search returns up to N full traces in a single response body. perf-sentinel caps the response at 256 MiB, which covers typical production workloads but might need adjusting if you routinely search hundreds of large traces at once. Lower `--max-traces` if you hit the body limit. `--max-traces` is itself bounded to 10 000 by the CLI.
-- **Auth header via `--auth-header`.** Pass a single curl-style header line (`"Name: Value"`) to attach it to every backend request. Handles Bearer tokens, Basic Auth, or custom API-key headers. The parsed value is marked `sensitive` so it never shows in logs. See `docs/LIMITATIONS.md` for the full usage notes (one header max per invocation, value visible in `ps`). Since 0.5.27, picking the flag form emits a `WARN`-level event at startup nudging operators toward `--auth-header-env <NAME>` (same pattern as `pg-stat`), the env-var form keeps the value out of the process argument list and the shell history.
+- **Auth header via `--auth-header`.** Pass a single curl-style header line (`"Name: Value"`) to attach it to every backend request. Handles Bearer tokens, Basic Auth, or custom API-key headers. The parsed value is marked `sensitive` so it never shows in logs. See `docs/LIMITATIONS.md` for the full usage notes (one header max per invocation, value visible in `ps`). Since 0.5.27, picking the flag form emits a `WARN`-level event at startup nudging operators toward `--auth-header-env <NAME>` (same pattern as `pg-stat`). The env-var form keeps the value out of the process argument list and the shell history.
 - **`--endpoint` is trusted input.** The validator rejects non-http schemes and credential-embedded URLs, but it accepts loopback, RFC 1918, and link-local targets. In CI contexts where the endpoint value could come from an external PR, sanitize it upstream before invoking the subcommand.
 
 ---
@@ -629,7 +629,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 ### Events received but no findings
 
 1. **Check span attributes.** perf-sentinel only processes spans with `db.statement`/`db.query.text` (SQL) or `http.url`/`url.full` (HTTP). Other spans are skipped.
-2. **Check the span kind.** Since 0.11.2 a `SERVER` span carrying an HTTP URL is inbound work, not an outbound call, so it produces no HTTP finding even though the attribute is present. Fleets on legacy semantic conventions, which set `http.url` on the handler span too, lose the calls they used to see this way. A `CLIENT` span on the caller's side is what an outbound call looks like.
+2. **Check the span kind.** Since 0.11.2 a `SERVER` span carrying an HTTP URL is inbound work, not an outbound call, so it produces no HTTP finding even though the attribute is present. Fleets on legacy semantic conventions, which set `http.url` on the handler span too, lose the calls they used to see this way. An outbound call shows up as a `CLIENT` span on the caller's side.
 3. **Check detection thresholds.** The default N+1 threshold is 5 occurrences of the same normalized template within the same trace. If your trace has fewer than 5 repeated calls, no finding is generated.
 4. **Check URL normalization.** perf-sentinel replaces numeric path segments with `{id}` and UUIDs with `{uuid}`. If your repeated URLs differ only by a string identifier (e.g., `/account/alice`, `/account/bob`), they will not be grouped into the same template.
 

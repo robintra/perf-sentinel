@@ -114,8 +114,8 @@ fn serialized_impl<'a>(
 
 /// How many distinct templates a `serialized_calls` suggestion names, and
 /// how long each may be. The sentence ends in `-> ...` whenever the block
-/// holds more calls than it names, repeats included: the point is to
-/// recognise the block, and every call is one click away in the trace.
+/// holds more calls than it names, repeats included. The suggestion only
+/// has to identify the block, and every call is one click away in the trace.
 const SUGGESTION_MAX_TEMPLATES: usize = 3;
 const SUGGESTION_TEMPLATE_CHARS: usize = 120;
 
@@ -190,9 +190,9 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
 ///
 /// `p[i]` is the index of the rightmost span `j` (`j < i`) whose end
 /// is `<= timed[i].start`, or `None` if no such span exists. The
-/// `j < i` constraint is critical: without it, a span could be its
-/// own predecessor (e.g., zero-duration spans with identical
-/// timestamps), causing an infinite backtrack loop.
+/// `j < i` constraint keeps a span from being its own predecessor
+/// (e.g., zero-duration spans with identical timestamps), which would
+/// cause an infinite backtrack loop.
 ///
 /// Binary search runs directly on the sorted `timed` slice, so this
 /// is O(n log n) total (n binary searches).
@@ -310,11 +310,11 @@ fn evaluate_sequence(
     let total_ms = total_sequential_us / 1000;
     let parallel_ms = max_duration_us / 1000;
 
-    // The suggestion names the block, it does not carry it. Listing every
-    // call once produced a 480 KB sentence for a run of 121 Hibernate
-    // selects, and three such rows were most of a 5 MB `/api/findings`
-    // page. The first few distinct templates, each cut short, say what
-    // the block is; the trace holds the rest.
+    // The suggestion names the block without listing every call. A full
+    // listing measured 480 KB for a run of 121 Hibernate selects, and three
+    // such rows made up most of a 5 MB `/api/findings` page. The first few
+    // distinct templates, each cut short, say what the block is. The trace
+    // holds the rest.
     let mut named: HashSet<&str> = HashSet::new();
     let shown: Vec<String> = seq
         .iter()
@@ -485,7 +485,7 @@ mod tests {
         root.parent_span_id = None;
         events.push(root);
 
-        // BEGIN -> three independent reads -> COMMIT, strictly sequential.
+        // BEGIN, three independent reads, then COMMIT, strictly sequential.
         let chain = [
             "BEGIN",
             "SELECT id FROM order_item WHERE order_id = 1",
@@ -508,7 +508,7 @@ mod tests {
 
         let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
 
-        // The three reads are genuinely serialized and must still be reported.
+        // The three reads are serialized and must still be reported.
         assert_eq!(findings.len(), 1, "the real chain is still a finding");
         assert_eq!(
             findings[0].pattern.occurrences, 3,
@@ -673,7 +673,7 @@ mod tests {
     fn suggestion_names_the_block_without_carrying_it() {
         use std::fmt::Write as _;
         // Forty distinct selects of four kilobytes each, strictly
-        // sequential: listed whole, the sentence weighed 160 KB.
+        // sequential: listed whole, the sentence would weigh 160 KB.
         let mut events = Vec::new();
         let mut root = make_http_event_with_duration(
             "trace-1",
@@ -942,10 +942,9 @@ mod tests {
 
     #[test]
     fn identical_timestamps_does_not_hang() {
-        // Regression test: spans with identical timestamps could cause the
-        // predecessor to point to itself (pred[i] == i), creating an infinite
-        // backtrack loop that consumes all memory. This test verifies
-        // termination with degenerate input.
+        // Spans with identical timestamps must not make a predecessor point to
+        // itself (pred[i] == i), which would make the backtrack loop forever
+        // and consume all memory.
         let mut events = Vec::new();
 
         let mut root = make_http_event_with_duration(

@@ -12,8 +12,8 @@ Usage:
 Prints an old/new diff table on stdout and warnings on stderr. Exits 0
 even when values changed (the CI workflow decides via git diff), 1 on
 download or parse failure. Run `cargo fmt -p perf-sentinel-core`
-afterwards (rustfmt owns the trailing-comment alignment; the CI
-workflow does it). Run twice: the second run plus fmt must be a no-op.
+afterwards (rustfmt owns the trailing-comment alignment, and the CI
+workflow runs it). Run twice: the second run plus fmt must be a no-op.
 """
 
 import csv
@@ -33,8 +33,8 @@ TARGET = REPO_ROOT / "crates" / "sentinel-core" / "src" / "score" / "carbon_data
 
 # (rust_key, iso3, trailing comment) per section. Adding a region means
 # adding a line here, by hand. Subnational regions (North America,
-# Brazil BR-CS) are deliberately absent: Ember is national-only and
-# those rows live in MANUAL_CARBON_ROWS (carbon.rs).
+# Brazil BR-CS) are absent because Ember is national-only. Those rows
+# live in MANUAL_CARBON_ROWS (carbon.rs).
 SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
     ("AWS regions", "Aws", [
         ("eu-west-1", "IRL", "Ireland"),
@@ -107,8 +107,8 @@ SECTIONS: "list[tuple[str, str, list[tuple[str, str, str]]]]" = [
         ("pl-waw-1", "POL", ""),
         ("pl-waw-2", "POL", ""),
         ("pl-waw-3", "POL", ""),
-        # it-mil is listed on the availability page; its AZ identifier is
-        # not confirmed by a primary source, so only the region is keyed.
+        # it-mil is listed on the availability page, but no primary source
+        # confirms its AZ identifier, so only the region is keyed.
         ("it-mil", "ITA", "Milan"),
     ]),
     # 3DS OUTSCALE reuses AWS region identifiers for different places:

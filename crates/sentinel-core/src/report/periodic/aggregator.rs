@@ -38,8 +38,8 @@ const MAX_ENERGY_MODEL_LEN: usize = super::schema::MODEL_TAG_MAX_LEN;
 /// Cardinality cap on distinct `binary_version` strings tracked in
 /// `Builder.binary_versions`. Overflow entries are silently dropped.
 /// Sized for multi-team async-release environments where a quarter can
-/// span more than a dozen patch versions; 256 × 64 bytes = 16 KB worst
-/// case, negligible memory budget.
+/// span more than a dozen patch versions. The worst case,
+/// 256 × 64 bytes = 16 KB, is a negligible memory budget.
 const MAX_BINARY_VERSIONS: usize = 256;
 
 /// Per-string length cap on `binary_version` entries.
@@ -182,7 +182,7 @@ pub type ArchiveTimeRange = (DateTime<Utc>, DateTime<Utc>);
 /// without folding the (heavy) report bodies. Each NDJSON line is parsed
 /// for its `ts` field only. Returns `None` when no parseable window is
 /// found. Used by the interactive `disclose --tui` preview to pick a
-/// sensible default period and show the archive's covered range; the
+/// sensible default period and show the archive's covered range. The
 /// canonical aggregation stays in [`aggregate_from_paths`].
 ///
 /// # Errors
@@ -209,7 +209,8 @@ pub fn archive_time_range(paths: &[PathBuf]) -> Result<Option<ArchiveTimeRange>,
                 continue;
             }
             // Malformed lines are silently skipped here (diagnostics are
-            // the aggregation path's job); we only need the time bounds.
+            // the aggregation path's job). This scan only needs the time
+            // bounds.
             if let Ok(TsOnly { ts }) = serde_json::from_str::<TsOnly>(trimmed) {
                 range = Some(match range {
                     None => (ts, ts),
@@ -269,8 +270,8 @@ fn fold_waste_block(acc: &mut DbWasteAccumulator, block: &crate::report::Disclos
     acc.energy_kwh += energy;
     acc.operational_kwh += sanitize_f64(operational_kwh);
     acc.canonical_kwh += sanitize_f64(canonical_kwh);
-    // Keep None-vs-zero: sums stay None until a window actually carried
-    // a carbon conversion.
+    // Keep None-vs-zero: sums stay None until a window carried a carbon
+    // conversion.
     if let Some(g) = operational_gco2 {
         acc.operational_g = Some(acc.operational_g.unwrap_or(0.0) + sanitize_f64(g));
     }
@@ -409,7 +410,6 @@ struct Builder {
 /// The chain anchor: the previous line's hash and its sequence number.
 type ChainAnchor = Option<(String, u64)>;
 
-/// One line's worth of chain state, threaded through [`Builder::walk_chain_line`].
 /// One archive line handed to [`Builder::fold_window`]. Grouped like
 /// [`ChainStep`]: the mutable `warned_fallback` has to travel with the
 /// read-only per-line context, and seven loose arguments would sit on
@@ -424,6 +424,7 @@ struct WindowStep<'a> {
     warned_fallback: &'a mut bool,
 }
 
+/// One line's worth of chain state, threaded through [`Builder::walk_chain_line`].
 struct ChainStep<'a> {
     parsed: Option<&'a mut serde_json::Value>,
     expected: &'a mut ChainAnchor,
@@ -441,8 +442,8 @@ impl Builder {
     /// `process_file` so that loop stays under the complexity gate.
     fn walk_chain_line(&mut self, step: ChainStep<'_>) {
         // An unparseable line is a crash-truncated fragment, not an edit.
-        // The anchor is kept, a destroyed window still surfaces as a break
-        // through its successor's `prev`.
+        // The anchor is kept, so a destroyed window still surfaces as a
+        // break through its successor's `prev`.
         let outcome = step.parsed.map_or(ChainOutcome::Malformed, |value| {
             verify_chain_value(value, step.expected.as_ref())
         });
@@ -459,8 +460,8 @@ impl Builder {
             }
             // Unchained is benign only before the file's chain starts:
             // those lines predate chaining. Once a line has verified, a
-            // later one without a `hash` is a field that was removed,
-            // which is exactly the edit the chain exists to catch.
+            // later one without a `hash` had the field removed, an edit
+            // the chain exists to catch.
             ChainOutcome::Unchained if !*step.chain_started => {
                 if step.in_scope {
                     self.chain_unchained += 1;
@@ -529,10 +530,10 @@ impl Builder {
                 .and_then(|v| v.get("seq"))
                 .and_then(serde_json::Value::as_u64);
             // Every line is walked, including those outside the period, or
-            // an edit just outside the window would go unseen. What the
-            // line's own timestamp decides is which counter it lands in:
-            // one rolling archive can span several periods, and a 2024
-            // edit must not be published as this quarter's break.
+            // an edit just outside the window would go unseen. The line's
+            // own timestamp decides which counter it lands in: one
+            // rolling archive can span several periods, and a 2024 edit
+            // must not be published as this quarter's break.
             let in_scope = line_in_period(parsed.as_ref(), period);
             if let Some(drops) = parsed
                 .as_ref()
@@ -725,7 +726,7 @@ impl Builder {
         }
         // Sanitize against `+Inf` from tampered archives. NaN / -Inf /
         // negative inputs fall through the `> 0.0` check to the proxy
-        // path; the post-clamp catches the remaining `+Inf` case.
+        // path. The post-clamp catches the remaining `+Inf` case.
         let raw_energy = if report.green_summary.energy_kwh > 0.0 {
             report.green_summary.energy_kwh
         } else {
@@ -753,10 +754,10 @@ impl Builder {
 
     /// Accumulate the canonical and operational avoidable tiers. A legacy
     /// archive (no `disclosure_waste`) has no canonical figure, so it feeds
-    /// only the operational tier (best-effort from `green_summary`); the
+    /// only the operational tier (best-effort from `green_summary`). The
     /// canonical tier is left untouched rather than contaminated with
     /// operator-threshold data, so an all-legacy period fails official
-    /// validation honestly instead of presenting legacy data as canonical.
+    /// validation instead of presenting legacy data as canonical.
     fn fold_disclosure_waste(&mut self, report: &Report, m: &WindowMetrics) {
         if let Some(dw) = &report.disclosure_waste {
             fold_tier(&mut self.canonical_waste, &dw.canonical);
@@ -807,9 +808,6 @@ impl Builder {
         }
     }
 
-    /// Record the coefficients one window was scored with. They scale the
-    /// published figures and appear nowhere else, so a period that changed
-    /// them shows both values rather than one.
     /// Whether the low/high bracket can be published: it only frames the
     /// fixed coefficient, so any window carrying transport under another
     /// value, or under none we can read, disqualifies the whole period.
@@ -833,6 +831,9 @@ impl Builder {
         }
     }
 
+    /// Record the coefficients one window was scored with. They scale the
+    /// published figures and appear nowhere else, so a period that changed
+    /// them shows both values rather than one.
     fn fold_scoring_coefficients(&mut self, cfg: Option<&crate::score::carbon::ScoringConfig>) {
         let Some(cfg) = cfg else { return };
         let mut push = |entry: String| {
@@ -858,8 +859,8 @@ impl Builder {
 
     /// Collect the methodology tag and the three terms of one window's
     /// total: operational, embodied, transport. Only the first carries an
-    /// avoidable share, so the split is what tells a reader how much of
-    /// the published total is reducible at all.
+    /// avoidable share, so the split tells a reader how much of the
+    /// published total is reducible at all.
     fn fold_carbon_methodology(&mut self, co2: Option<&crate::score::carbon::CarbonReport>) {
         let Some(co2) = co2 else { return };
         self.embodied_gco2_total += sanitize_f64(co2.embodied_gco2);
@@ -1044,7 +1045,7 @@ impl Builder {
             }
             // The finding counts once, on its owner. Its avoidable ops go
             // to the services whose spans they are, the owner first so a
-            // refused owner drops the finding whole, as before the split.
+            // refused owner drops the finding whole.
             for (service, ops) in finding.avoidable_by_service() {
                 let counted = u64::from(service == finding.service);
                 let admitted =
@@ -1288,7 +1289,7 @@ enum ChainOutcome {
     /// line's own hash, which the next line must reference.
     Verified(String),
     /// No `hash` field: written before archives were chained. Not a break,
-    /// simply not attestable.
+    /// though not attestable.
     Unchained,
     /// Edited, removed or reordered. Carries this line's own hash so the
     /// walk can resynchronise.
@@ -1362,7 +1363,7 @@ fn service_io_distribution(
 /// Fold one window's avoidable tier into the period accumulator, sanitizing
 /// the energy/carbon against tampered archives.
 fn fold_tier(acc: &mut WasteTierAccumulator, tier: &crate::report::AvoidableTier) {
-    // saturating_add: the counts come from untrusted archive JSON; a wrapping
+    // saturating_add: the counts come from untrusted archive JSON. A wrapping
     // sum would be a silent under-reporting primitive in a release binary.
     acc.avoidable_io_ops = acc
         .avoidable_io_ops
@@ -1378,7 +1379,7 @@ fn make_waste_tier(acc: &WasteTierAccumulator, total_io_ops: u64) -> WasteTier {
     // An accumulator that received no data (threshold 0 and no avoidable ops,
     // i.e. an all-legacy canonical tier) is the all-zero default, not "100%
     // efficient". Returning the default lets `skip_serializing_if` omit it,
-    // signalling "no data" rather than a misleading perfect score.
+    // signalling "no data".
     if acc.n_plus_one_threshold == 0 && acc.avoidable_io_ops == 0 {
         return WasteTier::default();
     }
@@ -1470,7 +1471,7 @@ fn naive_to_utc_start(d: NaiveDate) -> DateTime<Utc> {
 /// Build the v1.2 temporal-continuity signal from the set of distinct
 /// observed days and the declared period. `observed_days` only ever holds
 /// in-period days (the `in_period` filter runs before a window is folded),
-/// so the ratio cannot exceed 1; it is clamped defensively anyway.
+/// so the ratio cannot exceed 1. It is clamped defensively anyway.
 ///
 /// This measures days with OBSERVED TRAFFIC, not daemon uptime: archiving is
 /// traffic-gated, so legitimately quiet days lower it. See
@@ -1898,8 +1899,8 @@ mod tests {
             "archive.ndjson",
             &[(ts(2, 10), plain_window(), 8)],
         );
-        // Reversed on purpose: `resolve_files` sorts, and that sort is
-        // what makes the cross-rotation delta correct.
+        // Passed in reverse order: `resolve_files` sorts them, and that
+        // sort makes the cross-rotation delta correct.
         let inputs = aggregate_from_paths(&[active, rotated], &q1_2026(), false).unwrap();
         assert_eq!(inputs.windows_dropped, Some(3));
         assert_eq!(inputs.drop_counter_resets, Some(0));
@@ -1942,7 +1943,7 @@ mod tests {
         let outside = Utc.with_ymd_and_hms(2025, 6, 15, 0, 0, 0).unwrap();
         let inside = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let dir = TempDir::new().unwrap();
-        // The period's own window predates the counter; only an
+        // The period's own window predates the counter. Only an
         // out-of-period line carries one.
         let carrying = write_drops_file(
             dir.path(),
@@ -2123,9 +2124,9 @@ mod tests {
 
     #[test]
     fn stripping_the_hash_field_is_a_break_not_a_pre_chain_line() {
-        // Deleting `hash` used to read as "written before chaining
-        // existed", the benign bucket, which handed an editor a way to
-        // rewrite a window and publish breaks: 0.
+        // After a chained line, a deleted `hash` must not read as
+        // "written before chaining existed" (the benign bucket), or an
+        // editor could rewrite a window and publish breaks: 0.
         let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
         let (_dir, path) = write_chained_archive(&[(ts1, plain_window()), (ts2, plain_window())]);
@@ -2218,7 +2219,7 @@ mod tests {
     fn a_break_outside_the_period_is_counted_apart() {
         // One rolling archive can cover years. A window edited in 2025
         // must not be published as a break in the 2026 Q1 disclosure, and
-        // the verified count must match what the period actually folded.
+        // the verified count must match what the period folded.
         let old_ts = Utc.with_ymd_and_hms(2025, 6, 15, 0, 0, 0).unwrap();
         let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
         let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
@@ -2651,7 +2652,7 @@ mod tests {
         assert_eq!(out.aggregate.total_requests, 100 + 200 + 150);
         assert!(out.aggregate.total_energy_kwh > 0.0);
         // These windows are legacy (no disclosure_waste), so the avoidable
-        // figures land only in the operational tier; the canonical tier stays
+        // figures land only in the operational tier. The canonical tier stays
         // the all-zero default (omitted on the wire, not "100% efficient")
         // rather than being fed legacy data, and the flat aliases stay zero.
         assert!(out.aggregate.operational_waste.waste_ratio > 0.0);
@@ -2988,7 +2989,7 @@ mod tests {
 
     #[test]
     fn aggregator_clamps_negative_energy_and_carbon_from_tampered_archive() {
-        // JSON allows negative numbers; a tampered archive could carry
+        // JSON allows negative numbers. A tampered archive could carry
         // them to skew the period downward. Without the clamp, per-service
         // sums would go negative and propagate to `total_energy_kwh`.
         let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
@@ -3325,7 +3326,7 @@ mod tests {
             0.0001,
             "scaphandre_rapl",
         );
-        // Negative -> 0.0 (sanitize_f64), overshoot -> 1.0 (.min(1.0)).
+        // Negative maps to 0.0 (sanitize_f64), overshoot to 1.0 (.min(1.0)).
         // Symmetric: both produce a mean entry instead of dropping.
         r.green_summary
             .per_service_measured_ratio

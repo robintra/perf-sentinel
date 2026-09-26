@@ -66,8 +66,8 @@ pub enum JaegerQueryError {
 
     /// Kept apart from [`JaegerQueryError::BodyRead`] because it is the
     /// one body failure an operator can act on, and because the limit is
-    /// ours: the generic wording sent people looking at Jaeger or at the
-    /// network. Same shape as the Tempo twin.
+    /// ours: the generic wording would send people looking at Jaeger or at
+    /// the network. Same shape as the Tempo twin.
     #[error(
         "response body exceeded the {limit} byte cap perf-sentinel applies to it, \
          which is a limit of this client and not of the backend, {remedy}"
@@ -102,8 +102,8 @@ const RESPONSE_BYTES_LOG_THRESHOLD: usize = 16 * 1024 * 1024;
 /// End-to-end request timeout bounding both header receive and body
 /// read. Kept generous because `/api/traces` may scan a non-trivial
 /// index on the backend. `from_mins` is enforced here by the
-/// `duration_suboptimal_units` clippy lint, the `tempo` module uses
-/// `from_secs` for its sub-minute timeouts where the lint stays quiet.
+/// `duration_suboptimal_units` clippy lint. The `tempo` module uses
+/// `from_secs` for its sub-minute timeouts, where the lint stays quiet.
 const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Upper bound on the trace-ID length accepted by the hex-only check.
@@ -199,9 +199,9 @@ async fn fetch_json(
 // ---------------------------------------------------------------
 
 /// What every request to one backend shares, as opposed to what is being
-/// asked of it. Grouped because threading these positionally put `limit` and
-/// `max_bytes` in the same signature, two `usize` a call site could swap with
-/// no type error and no test to see it.
+/// asked of it. Grouped because passing these positionally would put `limit`
+/// and `max_bytes` in the same signature, two `usize` a call site could swap
+/// with no type error and no test to see it.
 struct Backend<'a> {
     client: &'a HttpClient,
     endpoint: &'a str,
@@ -211,11 +211,10 @@ struct Backend<'a> {
 }
 
 impl<'a> Backend<'a> {
-    /// Grouping is a parameter and not a default, because it was a mandatory
-    /// argument before these five were grouped: a path that forgot it would
+    /// Grouping is a parameter and not a default: a path that forgot it would
     /// return findings with no grouping and no test would say so. The cap has
-    /// no such hazard, it is the same value on every production path, which is
-    /// what lets it sit in the struct and out of reach of a positional swap.
+    /// no such hazard. It is the same value on every production path, which
+    /// lets it sit in the struct and out of reach of a positional swap.
     fn new(
         client: &'a HttpClient,
         endpoint: &'a str,
@@ -272,9 +271,9 @@ async fn search_and_fetch_traces_on(
     let endpoint = backend.endpoint;
     let encoded_service = percent_encode_query_value(service);
     // Both window kinds send explicit bounds, in the microseconds this API
-    // counts in. `lookback` is deliberately not sent: Victoria Traces reads
-    // it only on its service-graph endpoint, never on this search, so a
-    // relative window used to be dropped and the query ran from the epoch.
+    // counts in. `lookback` is not sent: Victoria Traces reads it only on
+    // its service-graph endpoint, never on this search, so a relative window
+    // sent as `lookback` is dropped and the query runs from the epoch.
     let (start_ms, end_ms) = window.resolve()?;
     let start_us = start_ms.saturating_mul(1000);
     let end_us = end_ms.saturating_mul(1000);
@@ -567,7 +566,7 @@ mod tests {
     }
 
     /// Victoria Traces reads `lookback` only on its service-graph endpoint,
-    /// never on this search, so sending it left the query running from the
+    /// never on this search, so sending it leaves the query running from the
     /// Unix epoch. A relative window must send bounds like any other.
     #[tokio::test]
     async fn a_lookback_window_also_sends_explicit_bounds() {
@@ -617,7 +616,7 @@ mod tests {
             request.contains("&start=1787838000000000&"),
             "got: {request}"
         );
-        // The trailing 500 ms survives as microseconds: this API counts finer
+        // The trailing 500 ms is kept as microseconds: this API counts finer
         // than Tempo, and the window is not rounded down to it.
         assert!(request.contains("&end=1787839200500000&"), "got: {request}");
         assert!(!request.contains("lookback="), "got: {request}");
@@ -850,15 +849,15 @@ mod tests {
     //
     // `MAX_RESPONSE_BYTES` (256 MiB) cannot be served from a test, so
     // these go through the private path helpers with a tiny cap. Both
-    // serve `SAMPLE_TRACE`, valid JSON: what is untested otherwise is
-    // that an overrun survives the wire as `BodyTooLarge` rather than
-    // the parse or read error a truncated body would look like, and
-    // that each path binds its own remedy.
+    // serve `SAMPLE_TRACE`, valid JSON. Nothing else tests that an
+    // overrun reaches the caller as `BodyTooLarge` rather than the parse
+    // or read error a truncated body would look like, or that each path
+    // binds its own remedy.
 
     /// The two tests below inject a small cap, which is the only way to reach
     /// the overrun branch without serving 256 MiB. That leaves the binding
     /// itself unasserted, so this pins it on the source text rather than on
-    /// behaviour: no run can observe which constant a call site named, so the
+    /// behaviour. No run can observe which constant a call site named, so the
     /// module reads itself, ignoring comments, and counts where the cap is
     /// bound.
     #[test]

@@ -71,7 +71,7 @@ jobs:
       # its RUSTFLAGS=-D warnings default from applying, and empty
       # build-warnings does the same for the CARGO_BUILD_WARNINGS=deny that
       # v2.0.0 added: the action only exports either one when the input is not
-      # empty. Denying build warnings breaks the macOS build, where Apple's ld
+      # empty. Denying build warnings breaks the macOS build. Apple's ld
       # reports on stderr that the object cargo-auditable embeds carries no
       # platform load command, rustc's `linker_messages` lint turns that into a
       # warning, and deny turns it into a failed release.
@@ -95,8 +95,8 @@ jobs:
 
       # The target must land on the toolchain `rust-toolchain.toml` pins
       # (1.98.1). `rustup target add` applies to the active toolchain.
-      # The two musl targets add a cross-libc target onto their host toolchain;
-      # the macOS and Windows entries add their own host triple, a harmless
+      # The two musl targets add a cross-libc target onto their host toolchain.
+      # The macOS and Windows entries add their own host triple, a harmless
       # no-op.
       - name: Add build target to the pinned toolchain
         run: |
@@ -108,14 +108,14 @@ jobs:
       # repo's Cargo.lock. Installed from prebuilt releases by
       # taiki-e/install-action (the same action ci.yml uses), version-pinned to
       # match the repo's pinning discipline. All four targets build natively
-      # (the aarch64-musl build moved off the `cross` Docker tool onto an arm64
-      # runner), so every released binary carries the embedded data.
+      # (aarch64-musl on an arm64 runner), so every released binary carries
+      # the embedded data.
       - name: Install cargo-auditable
         uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2.87.15
         with:
           tool: cargo-auditable@0.7.5
 
-      # Belt-and-suspenders for the native arm64 musl build: point ring's
+      # Extra safeguard for the native arm64 musl build: point ring's
       # build.rs (via the cc crate) at the musl wrapper rather than letting it
       # fall back to the glibc gcc the runner ships by default. `musl-gcc` comes
       # from the musl-tools package installed above. The cc crate only reads
@@ -141,8 +141,8 @@ jobs:
           path: ${{ matrix.artifact }}
 
   # SPDX SBOM for the release binary, attested under the SPDX predicate, in the
-  # same shape as the chart's SBOM job in helm-release.yml so the whole project
-  # tells one SBOM story. Syft reads the dependency list straight from the
+  # same shape as the chart's SBOM job in helm-release.yml, so the project's
+  # SBOMs stay consistent. Syft reads the dependency list straight from the
   # cargo-auditable data embedded in the Linux amd64 binary (the most-downloaded
   # artifact and the base of the amd64 container image). The four binaries share
   # their Rust dependency closure bar a few platform-shim crates, so this one
@@ -183,9 +183,10 @@ jobs:
   # SLSA Build L3 provenance attestation for every release binary.
   # Stored in the GitHub attestations API (no release asset), queryable
   # via `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.
-  # Migrated in 0.7.1 from `slsa-framework/slsa-github-generator` (in
-  # de-facto maintenance since v2.1.0, 2025-02-24) to the GitHub-native
-  # `actions/attest-build-provenance` (maintained under the actions/ org).
+  # Uses the GitHub-native `actions/attest-build-provenance` (maintained
+  # under the actions/ org) since 0.7.1, instead of
+  # `slsa-framework/slsa-github-generator` (in de-facto maintenance since
+  # v2.1.0, 2025-02-24).
   release:
     name: Create GitHub Release
     needs: [build, sbom]
@@ -245,9 +246,9 @@ jobs:
 
       # Strict publish: succeed on a real upload, succeed on an idempotent
       # re-run (crate version already on crates.io), fail loudly on any
-      # other error. The previous `|| echo warning` pattern hid a real
-      # compile failure during `cargo publish --verify` behind a green job
-      # See post-mortem on https://github.com/robintra/perf-sentinel/releases/tag/v0.4.0.
+      # other error. An `|| echo warning` fallback would hide a real compile
+      # failure during `cargo publish --verify` behind a green job. See the
+      # post-mortem on https://github.com/robintra/perf-sentinel/releases/tag/v0.4.0.
       - name: Publish perf-sentinel-core
         shell: bash
         run: |
@@ -269,8 +270,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       # Fail hard after the retry budget is exhausted so the next step
-      # doesn't silently compound the error. The previous loop always
-      # exited 0 whether or not the crate showed up in the index.
+      # doesn't silently compound the error.
       #
       # Uses the crates.io REST API (refreshed on publish) instead of
       # `cargo search` (which reads the sparse index and can lag for

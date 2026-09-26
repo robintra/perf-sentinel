@@ -5,8 +5,8 @@ Côté CI : comment exécuter perf-sentinel en mode batch contre un fixture de t
 ## Sommaire
 
 - [Mode CI (analyse batch)](#mode-ci-analyse-batch) : l'invocation CLI sous-jacente et la sémantique des codes de sortie derrière chaque recette ci-dessous.
-- [Recettes d'intégration CI](#recettes-dintégration-ci) : templates copier-coller pour GitHub Actions, GitLab CI et Jenkins, plus la philosophie du quality gate et le chemin du rapport HTML interactif pour chaque provider.
-- [Détection de régressions sur PR (sous-commande `diff`)](#détection-de-régressions-sur-pr-sous-commande-diff) : compare un set de traces de PR à un set de traces baseline pour signaler les régressions.
+- [Recettes d'intégration CI](#recettes-dintégration-ci) : templates copier-coller pour GitHub Actions, GitLab CI et Jenkins, plus la philosophie du quality gate et le chemin du rapport HTML interactif pour chaque fournisseur.
+- [Détection de régressions sur PR (sous-commande `diff`)](#détection-de-régressions-sur-pr-sous-commande-diff) : compare un ensemble de traces de PR à un ensemble de traces baseline pour signaler les régressions.
 
 ## Mode CI (analyse batch)
 
@@ -22,7 +22,7 @@ Le mode batch a besoin d'un fichier de traces, et la façon dont une
 suite de tests en fournit un dépend entièrement du langage. Seuls C++,
 PHP et, à partir de l'agent 2.32.0 via la configuration déclarative,
 Java implémentent un exporteur OTLP qui écrit dans un fichier au chemin
-de votre choix, et une JVM de test forkée par Maven ne peut même pas
+de votre choix. Une JVM de test forkée par Maven ne peut même pas
 vous donner sa sortie standard, que Surefire utilise comme canal de
 commande. La réponse portable consiste à laisser l'application exporter
 par le réseau, comme elle le fait en production, et à écouter :
@@ -59,16 +59,16 @@ Les sous-commandes batch (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, 
 - `1` : quality gate FAILED. Émis uniquement par `analyze --ci` (ou
   `tempo --ci` / `jaeger-query --ci`, qui partagent le même chemin de
   gate via `emit_report_and_gate`) quand un seuil de `[thresholds]` est
-  dépassé. L'analyse elle-même a réussi, c'est une vraie régression.
+  dépassé. L'analyse elle-même a réussi et a trouvé une régression.
   Un dépassement du gate a la priorité sur un échec d'écriture du rapport
   simultané, donc une vraie régression sur un pipe cassé ou un disque
   plein sort quand même en `1`, jamais le `75` tolérable. Toute autre
-  commande batch n'a pas de flag `--ci` ni de quality gate du tout, aucune
-  n'émet jamais `1`.
-- `2` : une erreur d'usage CLI. Émise à la fois par `clap` pour les erreurs au niveau du parsing (un flag requis manquant, ex. `mysql-stat` sans `--input`) et par la validation post-parse de perf-sentinel pour les combinaisons de flags que `clap` ne peut pas exprimer (ex. `report --pg-stat-top` sans `--pg-stat`, ou `bench --iterations 0`). Une erreur d'usage est une faute d'invocation permanente qui bloque toujours, volontairement gardée hors du panier tolérable `75`.
+  commande batch n'a ni flag `--ci` ni quality gate, donc aucune n'émet
+  jamais `1`.
+- `2` : une erreur d'usage CLI. Émise à la fois par `clap` pour les erreurs au niveau du parsing (un flag requis manquant, ex. `mysql-stat` sans `--input`) et par la validation post-parse de perf-sentinel pour les combinaisons de flags que `clap` ne peut pas exprimer (ex. `report --pg-stat-top` sans `--pg-stat`, ou `bench --iterations 0`). Une erreur d'usage est une faute d'invocation permanente, donc elle bloque toujours et reste hors du panier tolérable `75`.
 - `75` : erreur d'outillage/interne (alignée sur `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), la valeur sentinelle que le template GitLab CI utilise déjà au niveau shell). Couvre tout échec runtime qui atteint le code propre de perf-sentinel et n'est ni une erreur d'usage ni un dépassement du quality gate : un fichier `--input`/`--config`/acquittements/baseline manquant ou illisible, des données de traces/config/acquittements malformées, un échec de récupération pour `tempo`/`jaeger-query`, un trace-not-found d'`explain`, ou un échec d'écriture du rapport SARIF/JSON/HTML. Jamais émis pour un dépassement de seuil, et ne signifie jamais que l'analyse a tourné et a été en désaccord avec votre config.
 
-Les deux codes d'échec au-dessus du plancher `clap` sont volontairement distincts pour qu'un pipeline CI puisse brancher sur le code exact plutôt que d'inférer la cause depuis l'existence d'un fichier ou l'outcome d'un step, voir [Échecs d'outillage vs dépassements du quality gate](#échecs-doutillage-vs-dépassements-du-quality-gate) plus bas pour la façon dont chacun des trois templates officiels utilise ça. Avant la 0.9.17, les échecs d'outillage sortaient aussi en `1`. Les pipelines qui vérifient seulement un code de sortie non-zéro ne sont pas affectés.
+Les deux codes d'échec au-dessus du plancher `clap` sont distincts pour qu'un pipeline CI puisse brancher sur le code exact plutôt que d'inférer la cause depuis l'existence d'un fichier ou le résultat d'un step. Voir [Échecs d'outillage vs dépassements du quality gate](#échecs-doutillage-vs-dépassements-du-quality-gate) plus bas pour la façon dont chacun des trois templates officiels utilise ça. Avant la 0.9.17, les échecs d'outillage sortaient aussi en `1`. Les pipelines qui vérifient seulement un code de sortie non-zéro ne sont pas affectés.
 
 ---
 
@@ -78,7 +78,7 @@ Des templates prêts à copier pour les trois principaux fournisseurs CI sont
 disponibles dans [`docs/ci-templates/`](../ci-templates/). Choisissez celui
 qui correspond à votre fournisseur, déposez-le dans votre dépôt, adaptez
 les trois variables identifiées dans le bloc de commentaire en tête du
-template (version pinnée, chemin du fichier de traces, chemin de la
+template (version épinglée, chemin du fichier de traces, chemin de la
 config) et c'est terminé.
 
 La colonne "Ce qui apparaît" ci-dessous référence trois formats côté CI : **SARIF** (Static Analysis Results Interchange Format, le schéma JSON standard OASIS que GitHub et GitLab utilisent pour les annotations inline sur les PR, [spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)), **GitHub Code Scanning** (la surface où GitHub affiche les findings SARIF sur les PR, anciennement l'onglet "Security"), et **Warnings Next Generation** (un plugin Jenkins qui agrège les findings d'analyse statique de plusieurs plugins dans un arbre unifié et une courbe de tendance, [projet](https://plugins.jenkins.io/warnings-ng/)).
@@ -86,26 +86,26 @@ La colonne "Ce qui apparaît" ci-dessous référence trois formats côté CI : *
 | Fournisseur    | Template                                                   | Ce qui apparaît                                                 |
 |----------------|------------------------------------------------------------|-----------------------------------------------------------------|
 | GitHub Actions | [`github-actions.yml`](../ci-templates/github-actions.yml) | SARIF dans GitHub Code Scanning + commentaire sticky sur la PR  |
-| GitLab CI      | [`gitlab-ci.yml`](../ci-templates/gitlab-ci.yml)           | Artifact SARIF + widget Code Quality sur la MR                  |
+| GitLab CI      | [`gitlab-ci.yml`](../ci-templates/gitlab-ci.yml)           | Artefact SARIF + widget Code Quality sur la MR                  |
 | Jenkins        | [`jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy) | Arbre de findings Warnings Next Generation + courbe de tendance |
 
 ### Philosophie du quality gate
 
 Les trois templates exécutent `perf-sentinel analyze --ci` comme étape
-de gating. Le flag `--ci` ne fait qu'une seule chose : si l'un des
-seuils définis dans la section `[thresholds]` de `.perf-sentinel.toml`
-est dépassé, le processus sort avec le code `1`. Les trois templates
-traduisent ensuite ce code de sortie en un résultat de build qui
-dépend du **déclencheur** du run :
+de gate. Sous le flag `--ci`, le processus sort avec le code `1` si
+l'un des seuils définis dans la section `[thresholds]` de
+`.perf-sentinel.toml` est dépassé. Les trois templates traduisent
+ensuite ce code de sortie en un résultat de build qui dépend du
+**déclencheur** du run :
 
-| Déclencheur     | Comportement                                                        | Justification                                                                          |
-|-----------------|---------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| Pull request    | Le gate bloque (build rouge)                                        | L'auteur est encore dans le contexte, le coût de correction est le plus faible         |
-| Push vers trunk | Le gate est informatif seulement, le SARIF est tout de même remonté | Un commit mergé ne doit pas être retenu par perf-sentinel entre le merge et la release |
+| Déclencheur     | Comportement                                                        | Justification                                                                             |
+|-----------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| Pull request    | Le gate bloque (build rouge)                                        | L'auteur est encore dans le contexte, le coût de correction est le plus faible            |
+| Push vers trunk | Le gate est informatif seulement, le SARIF est tout de même remonté | Un commit fusionné ne doit pas être retenu par perf-sentinel entre le merge et la release |
 
-Ce split évite le mode d'échec classique des gates PR qui enforcent
-aussi sur trunk : main reste rouge plus longtemps que prévu,
-l'équipe contourne, et l'outil finit par être désactivé.
+Cette séparation évite le mode d'échec classique des gates PR qui
+bloquent aussi sur trunk : main reste rouge, l'équipe contourne, et
+l'outil finit par être désactivé.
 
 La configuration recommandée produit le rapport une seule fois par
 job, sans `--ci` (SARIF + JSON, toujours disponibles pour inspection),
@@ -113,22 +113,23 @@ puis décide du pass/fail séparément. Jenkins et GitLab CI le font en
 relançant `perf-sentinel analyze --ci` une seconde fois et en lisant
 son code de sortie. GitHub Actions lit directement `quality_gate.passed`
 dans le rapport JSON déjà sur disque, puisque le résultat du gate est
-calculé à chaque run quel que soit `--ci`, seul le code de sortie
-diffère. Dans les deux cas, la décision du gate ne s'exécute qu'une
-fois le run report-only déjà réussi.
+calculé à chaque run quel que soit `--ci`. Seul le code de sortie
+diffère. Dans les deux cas, la décision du gate ne s'exécute qu'après
+la réussite du run report-only.
 
-Mécaniques par fournisseur pour le split PR vs trunk :
+Mécaniques par fournisseur pour la séparation PR vs trunk :
 
-- **GitHub Actions** découpe l'enforcement en deux steps. Le step PR
-  tourne quand `github.event_name == 'pull_request'` et appelle
-  `exit 1` sur breach. Le step trunk tourne sur le trigger push et
-  émet une annotation `::warning::` sans faire fail le job.
+- **GitHub Actions** découpe l'application du gate en deux steps. Le
+  step PR tourne quand `github.event_name == 'pull_request'` et
+  appelle `exit 1` sur dépassement. Le step trunk tourne sur le
+  déclencheur push et émet une annotation `::warning::` sans faire
+  échouer le job.
 - **GitLab CI** utilise `allow_failure: true` sur la règle
   `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH`. Le job tourne toujours
-  et retourne toujours exit code 1 sur breach, mais le badge de
-  pipeline reste vert et le job apparaît avec une icône
+  et retourne toujours le code de sortie 1 sur dépassement, mais le
+  badge de pipeline reste vert et le job apparaît avec une icône
   d'avertissement jaune.
-- **Jenkins** utilise un garde `when { expression { env.CHANGE_ID !=
+- **Jenkins** utilise une garde `when { expression { env.CHANGE_ID !=
   null } }` sur le stage `Quality gate (PR only)`. `CHANGE_ID` est
   renseigné par MultiBranch Pipeline uniquement sur les builds de
   pull request. Sur les builds de branche, le stage est sauté
@@ -138,32 +139,32 @@ Mécaniques par fournisseur pour le split PR vs trunk :
 
 ### Échecs d'outillage vs dépassements du quality gate
 
-Un exit code `1` de `--ci` est ambigu à lui seul : il peut signifier
-un vrai dépassement de seuil, ou il peut signifier que perf-sentinel
-n'a tout simplement pas tourné (téléchargement bloqué, release
+Un code de sortie `1` de `--ci` est ambigu à lui seul : il peut
+signifier un dépassement de seuil, ou il peut signifier que
+perf-sentinel n'a pas tourné (téléchargement bloqué, release
 corrompue, crash sur des traces malformées). Traiter les deux cas de
-la même façon est pire que ça n'en a l'air. Un simple accroc réseau
-un vendredi après-midi ne devrait pas bloquer toutes les PR du repo
-jusqu'à ce que quelqu'un s'en aperçoive et relance la CI. Les trois
-templates isolent maintenant les deux modes d'échec pour que seul un
-vrai dépassement puisse faire rougir une PR :
+la même façon permet à un accroc réseau passager survenu un vendredi
+après-midi de bloquer toutes les PR du dépôt jusqu'à ce que quelqu'un
+s'en aperçoive et relance la CI. Les trois templates isolent les deux
+modes d'échec pour que seul un dépassement de seuil puisse faire
+rougir une PR :
 
 - **GitHub Actions** : le step de téléchargement tolère l'échec
   (`continue-on-error: true`), mais le step de vérification du
   checksum juste après ne le tolère pas. Une release corrompue ou
   altérée doit toujours faire échouer le job, jamais rejoindre le
   panier tolérant à l'outillage. Le step d'analyse report-only porte
-  lui aussi `continue-on-error: true`. Chaque step en aval (upload
+  lui aussi `continue-on-error: true`. Chaque step en aval (envoi
   SARIF, commentaire de PR, les deux steps de gate) vérifie
   `steps.analyze.outcome == 'success'` plutôt que l'existence d'un
-  fichier : la redirection shell `>` crée son fichier cible avant même
-  que la commande tourne, donc un analyze qui crashe laisserait quand
+  fichier. La redirection shell `>` crée son fichier cible avant même
+  que la commande tourne, donc un analyze qui plante laisserait quand
   même un `findings.sarif` vide derrière lui et mettrait en défaut un
   test `hashFiles()`. Le step d'analyse écrit aussi dans un chemin
   `.tmp` puis renomme au succès, un second garde-fou indépendant
   contre ce même piège. Un dernier step `Report tooling failure` émet
   un `::warning::` quand analyze n'a pas réussi, pour qu'un souci
-  d'outillage reste visible plutôt que d'être avalé silencieusement.
+  d'outillage reste visible.
 - **GitLab CI** : chaque commande de téléchargement sort
   explicitement avec le code `75` (`EX_TEMPFAIL`,
   [sysexits.h](https://man.openbsd.org/sysexits)) au lieu de
@@ -173,14 +174,13 @@ vrai dépassement puisse faire rougir une PR :
   sur le job et non dans la règle merge request parce que
   `rules:allow_failure` n'accepte qu'un booléen : le lint CI de
   GitLab rejette le fichier entier si une règle porte la forme
-  mapping. La
-  vérification du checksum et la conversion `jq` vers Code Quality
-  sont volontairement exclues de cette convention exit-75 : un
-  mauvais checksum signifie une release altérée, et un échec `jq`
-  signifie un bug dans le filtre de conversion, ni l'un ni l'autre
-  n'est un accroc d'outillage à tolérer. Le re-run final `--ci` garde
-  son propre code de sortie (normalement `1` sur un vrai dépassement),
-  qui bloque toujours comme avant.
+  mapping. La vérification du checksum et la conversion `jq` vers
+  Code Quality sont exclues de cette convention exit-75 : un mauvais
+  checksum signifie une release altérée, et un échec `jq` signifie un
+  bug dans le filtre de conversion. Ni l'un ni l'autre n'est un accroc
+  d'outillage à tolérer. La relance finale avec `--ci` garde son propre
+  code de sortie (normalement `1` sur un vrai dépassement), qui continue
+  de bloquer.
 - **Jenkins** : la moitié téléchargement du stage
   `Install perf-sentinel` est enrobée dans un
   `catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE')`. La
@@ -191,55 +191,58 @@ vrai dépassement puisse faire rougir une PR :
   GitHub Actions ci-dessus : sans ça, `fileExists()` ne pourrait pas
   distinguer un crash d'un vrai rapport. Le stage
   `Quality gate (PR only)` ajoute une condition
-  `fileExists('perf-sentinel-results.sarif')` en plus du garde
-  `CHANGE_ID` existant, pour ne lancer un vrai contrôle de seuil
-  qu'une fois le stage report-only ayant réellement produit un SARIF.
+  `fileExists('perf-sentinel-results.sarif')` en plus de la garde
+  `CHANGE_ID` existante, pour ne lancer le contrôle de seuil qu'une
+  fois que le stage report-only a produit un SARIF.
 
-Dans les trois cas, un souci d'outillage se manifeste maintenant par
-un avertissement visible ou un build unstable/jaune, clairement
-distinct du build rouge produit par un vrai dépassement, et il ne
-bloque jamais une merge ni un push sur trunk à lui seul.
+Dans les trois cas, un souci d'outillage se manifeste par un
+avertissement visible ou un build unstable/jaune, distinct du build
+rouge produit par un dépassement de seuil, et il ne bloque jamais un
+merge ni un push sur trunk à lui seul. Un échec de checksum ou de
+logique de conversion, à l'inverse, bloque toujours, quel que soit le
+déclencheur, parce que ce n'est pas le genre d'échec que cette
+isolation doit tolérer.
 
 ### Rapport interactif via GitHub Pages
 
 Le sticky comment de PR (bloc markdown avec comptage des findings et
 statut du quality gate) donne aux reviewers une vue d'ensemble
 immédiate. Pour une inspection plus approfondie (arbre des spans avec
-les N+1 surlignés, suggested fix framework-specific, drill-down
+les N+1 surlignés, correctifs suggérés propres au framework, drill-down
 pg_stat, Diff complet contre trunk), le template GitHub Actions publie
-optionnellement un **dashboard HTML complet** sur GitHub Pages à
-chaque PR, lié depuis le sticky comment sous la forme :
+en option un **dashboard HTML complet** sur GitHub Pages à chaque PR,
+lié depuis le sticky comment sous la forme :
 
 > 📊 **Rapport interactif (vue Diff)** → `https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/index.html#diff`
 
-Cliquer sur le lien ouvre le rapport sur la tab Diff, qui est la vue
+Cliquer sur le lien ouvre le rapport sur l'onglet Diff, qui est la vue
 naturelle pour un reviewer : nouveaux findings introduits par la PR,
 findings résolus (régressions corrigées), changements de sévérité et
-deltas des métriques I/O par endpoint. Les autres tabs (Findings,
+deltas des métriques I/O par endpoint. Les autres onglets (Findings,
 Explain, pg_stat, Correlations, GreenOps) sont à un clic via la barre
 d'onglets.
 
-Les rapports sont des HTML single-file auto-contenus avec routing par
-hash, donc partager un finding précis revient à copier l'URL depuis
+Chaque rapport tient dans un seul fichier HTML autonome avec routage
+par hash, donc partager un finding précis revient à copier l'URL depuis
 la barre d'adresse.
 
-**Tier GitHub Pages requis**. Sur un compte GitHub Free personnel,
+**Offre GitHub Pages requise**. Sur un compte GitHub Free personnel,
 Pages n'est disponible que pour les dépôts publics. Les dépôts privés
 nécessitent GitHub Pro, Team ou Enterprise Cloud. Voir
 [les plans GitHub](https://docs.github.com/en/get-started/learning-about-github/githubs-products)
 pour la liste à jour. Activer Pages sur un dépôt privé avec un compte
 Free laisse le push de branche réussir, mais Pages sert du 404 en
-permanence sans erreur dans le log Actions. Il faut soit upgrader le
-compte, soit rendre le dépôt public, soit sauter le bloc Pages et
+permanence sans erreur dans le log Actions. Il faut soit mettre à niveau
+le compte, soit rendre le dépôt public, soit sauter le bloc Pages et
 rester sur le mode SARIF + sticky comment markdown.
 
 **Mise en place** (opt-in, nécessite GitHub Pages sur le dépôt) :
 
-1. Créer une branche `gh-pages` vide dans le dépôt (bootstrap standard
+1. Créer une branche `gh-pages` vide dans le dépôt (amorçage standard
    GitHub Pages, à faire une seule fois).
 2. Activer GitHub Pages dans `Settings -> Pages`, source = branche
    `gh-pages`, dossier = `/ (root)`.
-3. Copier le workflow baseline companion depuis
+3. Copier le workflow baseline compagnon depuis
    [`docs/ci-templates/github-actions-baseline.yml`](../ci-templates/github-actions-baseline.yml)
    vers `.github/workflows/perf-sentinel-baseline.yml`. Il tourne sur
    chaque push vers `main` et stocke le rapport baseline sous
@@ -247,7 +250,7 @@ rester sur le mode SARIF + sticky comment markdown.
 4. Copier le workflow de cleanup depuis
    [`docs/ci-templates/github-actions-report-cleanup.yml`](../ci-templates/github-actions-report-cleanup.yml)
    vers `.github/workflows/perf-sentinel-report-cleanup.yml`. Il
-   tourne à la fermeture de PR et supprime le répertoire par-PR.
+   tourne à la fermeture de PR et supprime le répertoire de la PR.
 5. Décommenter les blocs `Download baseline from gh-pages`, `Generate
    interactive HTML report`, `Checkout gh-pages worktree` et `Publish
    report to gh-pages` dans votre workflow principal (le commentaire
@@ -257,10 +260,10 @@ rester sur le mode SARIF + sticky comment markdown.
 6. Dans ce même workflow principal, passer `contents: read` à
    `contents: write` dans le bloc `permissions:`. Le step de
    publication pousse le rapport HTML vers la branche `gh-pages`, ce
-   qu'un `GITHUB_TOKEN` read-only ne peut pas faire (le push échoue
-   avec un 403). Les workflows baseline et cleanup déclarent déjà
-   `contents: write`, donc seul le workflow principal nécessite ce
-   changement.
+   qu'un `GITHUB_TOKEN` en lecture seule ne peut pas faire (le push
+   échoue avec un 403). Les workflows baseline et cleanup déclarent
+   déjà `contents: write`, donc seul le workflow principal nécessite
+   ce changement.
 
 Une fois les trois workflows en place, chaque PR obtient son propre
 rapport interactif à une URL stable :
@@ -269,8 +272,8 @@ rapport interactif à une URL stable :
 https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
 ```
 
-Le baseline est rafraîchi à chaque push vers `main`, donc la tab Diff
-compare toujours les traces de la PR contre le dernier état mergé.
+Le baseline est rafraîchi à chaque push vers `main`, donc l'onglet Diff
+compare toujours les traces de la PR contre le dernier état fusionné.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/baseline-flow_dark.svg">
@@ -278,8 +281,8 @@ compare toujours les traces de la PR contre le dernier état mergé.
 </picture>
 
 Deux propriétés découlent de ce flux. Le premier passage sur le tronc
-est l'événement d'amorçage : avant lui, le fetch renvoie 404 et le
-rapport se rend sans tab Diff, et un scénario tout neuf reste en
+est l'événement d'amorçage : avant lui, la récupération renvoie 404 et
+le rapport s'affiche sans onglet Diff, et un scénario tout neuf reste en
 Nouveau jusqu'à son premier run de tronc. Et rien n'est transporté
 entre deux pushes d'une même PR : chaque exécution se compare au
 baseline du tronc, donc le Diff montre tout le delta qu'introduit la
@@ -294,67 +297,68 @@ publication. Les deux étapes répondent à des questions différentes :
 - le gate vérifie qu'un état est acceptable, sur des seuils absolus,
   sans aucun baseline.
 
-Sans gate sur le tronc, une régression mergée est invisible dans tous
+Sans gate sur le tronc, une régression fusionnée est invisible dans tous
 les Diff et ressort comme le gate rouge de la prochaine PR sans rapport
-qui exerce le même endpoint. Poser le gate sur l'état mergé ramène
+qui exerce le même endpoint. Poser le gate sur l'état fusionné ramène
 l'alarme sur le merge fautif. La publication tourne toujours d'abord :
 un tronc rouge doit continuer à rafraîchir le baseline, sinon toutes
-les PRs suivantes perdent leur tab Diff en plus d'être bloquées.
+les PRs suivantes perdent leur onglet Diff en plus d'être bloquées.
 
 Le temps que le correctif arrive, acquittez le finding avec un
 `expires_at`, ce qui débloque la file sans toucher à un seuil. Posez
 aussi son `service` et son `source_endpoint`, pour que le run de tronc
-rapporte l'entrée comme supprimable une fois la correction mergée. Voir
+rapporte l'entrée comme supprimable une fois la correction fusionnée. Voir
 [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
-Si GitHub Pages n'est pas activé, le template retombe sur le sticky
+Si GitHub Pages n'est pas activé, le template se rabat sur le sticky
 comment markdown seulement. Aucun changement de comportement pour les
 adoptants existants.
 
 **Limitations des PRs fork**. Le step `Post PR comment` est marqué
 `continue-on-error: true` parce que les PRs fork reçoivent un
-`GITHUB_TOKEN` read-only quelles que soient les `permissions:`
+`GITHUB_TOKEN` en lecture seule quelles que soient les `permissions:`
 déclarées au niveau workflow. Sans la tolérance, chaque PR fork
-ferait passer le CI en rouge au step sticky-comment même quand le
+ferait passer la CI en rouge au step sticky-comment même quand le
 reste de la pipeline a réussi. Avec la tolérance en place, les PRs
-fork uploadent quand même leur SARIF dans l'onglet Security et l'UI
+fork envoient quand même leur SARIF dans l'onglet Security et l'UI
 Checks montre le résultat du quality gate, mais aucun sticky comment
 n'apparaît dans la conversation de la PR. Les PRs internes au même
 dépôt (contributeurs internes, même org) gardent l'expérience
 complète, sticky comment inclus. Les projets pour qui le sticky
-comment sur PRs fork est un requis dur doivent migrer vers le
+comment sur PRs fork est une exigence ferme doivent migrer vers le
 pattern `pull_request_target` + `workflow_run` documenté par
 [GitHub Security Lab](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
-Ce pattern sépare la pipeline en un workflow read-only qui build et
-upload des artefacts, et un workflow write-enabled déclenché par
-`workflow_run` qui download ces artefacts et poste le commentaire.
-Il n'est pas le défaut du template parce qu'il double la surface YAML
-et demande un passage d'artefacts soigné, pas proportionné pour un
-template starter. Le step `Publish report to gh-pages` est gardé de la
-même façon (il ne tourne que si
+Ce pattern sépare la pipeline en un workflow en lecture seule qui
+construit et envoie des artefacts, et un workflow avec droits
+d'écriture déclenché par `workflow_run` qui télécharge ces artefacts
+et poste le commentaire. Il n'est pas le défaut du template parce
+qu'il double la surface YAML et demande un passage d'artefacts soigné,
+ce qui est disproportionné pour un template de démarrage. Le step
+`Publish report to gh-pages` est gardé de la même façon (il ne tourne
+que si
 `github.event.pull_request.head.repo.full_name == github.repository`),
-pour qu'une PR fork n'échoue jamais sur un push que le token read-only
-ne pourrait pas faire.
+pour qu'une PR fork n'échoue jamais sur un push que le token en lecture
+seule ne pourrait pas faire.
 
-**Trade-off de concurrency**. Le guard `concurrency.group:
+**Compromis sur la concurrence**. La garde `concurrency.group:
 gh-pages-deploy` sérialise les runs de ce workflow avec les workflows
 baseline et cleanup, pour que trois PRs fermées dans la même minute
-ne se marchent pas dessus sur gh-pages. Comme le guard est déclaré
-au niveau workflow, il sérialise aussi les runs qui ne toucheraient
+ne se marchent pas dessus sur gh-pages. Comme la garde est déclarée
+au niveau workflow, elle sérialise aussi les runs qui ne toucheraient
 pas Pages (par exemple quand les blocs Pages sont commentés). Les
-dépôts à fort débit de PRs peuvent splitter les étapes Pages dans un
-job dédié et restreindre la concurrency à ce job. Sauté ici pour
+dépôts à fort débit de PRs peuvent isoler les étapes Pages dans un
+job dédié et restreindre la concurrence à ce job. Sauté ici pour
 garder le template compact.
 
-**Dépendances**. Le deploy utilise du `git` en clair contre la branche
-`gh-pages`, authentifié par le `GITHUB_TOKEN` intégré et une permission
-`contents: write`. Les workflows baseline et cleanup la déclarent par
-défaut. Le workflow principal est livré en `contents: read` et vous
-la passez à `write` en activant les blocs de publication (étape 6
-ci-dessus). Aucune action tierce de deploy n'est requise, ce qui garde
-le template exempt de surface supply-chain pour le chemin d'upload.
-Seule `actions/checkout` (pinnée) est réutilisée dans les trois
-workflows.
+**Dépendances**. Le déploiement utilise `git` directement contre la
+branche `gh-pages`, authentifié par le `GITHUB_TOKEN` intégré et une
+permission `contents: write`. Les workflows baseline et cleanup la
+déclarent par défaut. Le workflow principal est livré en
+`contents: read` et vous la passez à `write` en activant les blocs de
+publication (étape 6 ci-dessus). Aucune action tierce de déploiement
+n'est requise, ce qui garde le template exempt de surface supply-chain
+pour le chemin d'envoi. Seule `actions/checkout` (épinglée) est
+réutilisée dans les trois workflows.
 
 **Empreinte de stockage**. Un rapport part d'environ 450 Ko quel que
 soit son contenu, les polices et logos embarqués qui rendent le fichier
@@ -372,23 +376,23 @@ et "Rapport interactif via Jenkins HTML Publisher" ci-dessous.
 ### Rapport interactif via GitLab Pages
 
 Équivalent du chemin GitHub Pages ci-dessus, adapté à la surface de
-deployment native de GitLab. Deux blocs de template sont fournis dans
+déploiement native de GitLab. Deux blocs de template sont fournis dans
 [`docs/ci-templates/gitlab-ci.yml`](../ci-templates/gitlab-ci.yml),
-choisir celui qui correspond au tier GitLab.
+choisir celui qui correspond à l'offre GitLab.
 
-**Note sur le tier**. Le mode deployment par MR (`pages.path_prefix`)
+**Note sur l'offre**. Le mode de déploiement par MR (`pages.path_prefix`)
 est documenté comme [Experiment, Tier: Premium ou
 Ultimate](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments),
-et n'est pas disponible sur gitlab.com Free. En Free, le deployment
-MR apparaît comme "Success" dans la liste des environments mais n'est
-pas réellement servi. Un fallback compatible Free est fourni à côté.
+et n'est pas disponible sur gitlab.com Free. En Free, le déploiement
+MR apparaît comme "Success" dans la liste des environnements mais n'est
+pas servi. Un repli compatible Free est fourni à côté.
 
-| Bloc | Tier | Comportement |
-| --- | --- | --- |
-| `perf-sentinel-pages-simple` | Free | Un seul deployment sur la branche par défaut. Publie le snapshot trunk du rapport ET le baseline JSON à la racine des Pages du projet. Les reviewers de MR voient la vue trunk, pas l'analyse de leur MR. |
-| `perf-sentinel-pages` | Premium ou Ultimate | Un deployment par MR sous le path prefix `mr-<IID>`, expiration auto 30 jours via `expire_in`. Baseline sur la branche par défaut à la racine Pages. Bouton natif "View deployment" sur l'UI MR. |
+| Bloc                         | Offre               | Comportement                                                                                                                                                                                               |
+|------------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf-sentinel-pages-simple` | Free                | Un seul déploiement sur la branche par défaut. Publie le snapshot trunk du rapport ET le baseline JSON à la racine des Pages du projet. Les reviewers de MR voient la vue trunk, pas l'analyse de leur MR. |
+| `perf-sentinel-pages`        | Premium ou Ultimate | Un déploiement par MR sous le path prefix `mr-<IID>`, expiration auto 30 jours via `expire_in`. Baseline sur la branche par défaut à la racine Pages. Bouton natif "View deployment" sur l'UI MR.          |
 
-Choisir un bloc, pas les deux (ils se disputeraient le deployment racine).
+Choisir un bloc, pas les deux (ils se disputeraient le déploiement racine).
 
 **Mise en place** (opt-in, nécessite GitLab Pages activé sur le
 projet) :
@@ -407,19 +411,19 @@ projet) :
 job différencie deux chemins de déclenchement via son bloc `rules:` :
 
 - **Sur merge request** (`$CI_PIPELINE_SOURCE == "merge_request_event"`),
-  fetch le baseline de trunk depuis la racine Pages du projet (strip
+  récupère le baseline de trunk depuis la racine Pages du projet (retire
   le préfixe MR de `CI_PAGES_URL` via `${CI_PAGES_URL%/mr-[0-9]*}`,
-  fallback 404 silencieux quand absent), produit `public/index.html`
+  repli 404 silencieux quand absent), produit `public/index.html`
   via `perf-sentinel report --output public/index.html`, déploie avec
   `path_prefix: "mr-${CI_MERGE_REQUEST_IID}"` et
   `pages.expire_in: 30 days`. `environment.url` pointe vers le
-  `${CI_PAGES_URL}` actif, que GitLab résout vers l'URL de
-  deployment MR-scoped au runtime.
+  `${CI_PAGES_URL}` actif, que GitLab résout vers l'URL du
+  déploiement propre à la MR au runtime.
 - **Sur push vers la branche par défaut**, produit
   `public/perf-sentinel-reports/baseline.json` via
   `perf-sentinel analyze --format json`, déploie avec un
   `path_prefix` vide pour que le fichier atterrisse à la racine du
-  site et que les deployments MR futurs puissent le fetcher.
+  site et que les futurs déploiements de MR puissent le récupérer.
 
 **Comportement de `perf-sentinel-pages-simple` (Free)**. Tourne
 uniquement sur la branche par défaut. Écrit à la fois
@@ -428,36 +432,36 @@ uniquement sur la branche par défaut. Écrit à la fois
 déploie un seul site Pages à la racine du projet.
 
 **Rétention**. `perf-sentinel-pages` délègue la rétention à GitLab.
-Les deployments parallèles sont supprimés immédiatement quand la MR
-est fermée ou mergée. Le `pages.expire_in: 30 days` du template sert
+Les déploiements parallèles sont supprimés immédiatement quand la MR
+est fermée ou fusionnée. Le `pages.expire_in: 30 days` du template sert
 de filet pour les MRs ouvertes qui stagnent (le défaut GitLab est de
 24 heures quand non renseigné, nous l'élargissons pour qu'une MR
 longue garde son rapport en ligne). Mettre `expire_in: never`
 désactive l'expiration temporelle et ne s'appuie que sur les
-événements de close/merge. N'utiliser `never` que si l'équipe ferme
-ou merge ses MRs de façon fiable, sinon les MRs abandonnées
+événements de fermeture/fusion. N'utiliser `never` que si l'équipe ferme
+ou fusionne ses MRs de façon fiable, sinon les MRs abandonnées
 s'accumulent jusqu'à saturer le quota. `perf-sentinel-pages-simple`
-n'a pas de question de rétention, il garde un seul deployment écrasé
+n'a pas de question de rétention, il garde un seul déploiement écrasé
 à chaque push sur la branche par défaut.
 
-**Quota**. gitlab.com autorise jusqu'à 100 deployments parallèles
+**Quota**. gitlab.com autorise jusqu'à 100 déploiements parallèles
 supplémentaires sur Premium et 500 sur Ultimate, par namespace en
-plus du deployment principal. Les instances self-managed exposent la
+plus du déploiement principal. Les instances self-managed exposent la
 limite via la configuration admin. `perf-sentinel-pages-simple` étant
-un deployment unique, il n'est pas concerné. Pour les projets
+un déploiement unique, il n'est pas concerné. Pour les projets
 proches du plafond sur `perf-sentinel-pages`, `expire_in` peut être
-réduit, ou les MRs doivent être fermées/mergées rapidement pour
-libérer des slots.
+réduit, ou les MRs doivent être fermées/fusionnées rapidement pour
+libérer des emplacements.
 
 **Empreinte de stockage**. Un rapport part d'environ 450 Ko de polices
 et de logos embarqués et grossit avec les findings jusqu'au plafond
 d'élagage de 5 Mio, et un baseline JSON fait 10 à 50 Ko. Avec la rétention active sur le chemin
 Premium, seules les MRs ouvertes plus le baseline courant consomment
-de l'espace. Le chemin Free stocke un seul deployment.
+de l'espace. Le chemin Free stocke un seul déploiement.
 
 **Dépendances**. Aucun composant GitLab CI tiers. Le job utilise
-`curl` pour installer le binaire perf-sentinel pinné et le keyword
-natif `pages:` pour le deployment. Aucun deploy token ou runner
+`curl` pour installer le binaire perf-sentinel épinglé et le mot-clé
+natif `pages:` pour le déploiement. Aucun deploy token ou runner
 token au-delà du `CI_JOB_TOKEN` par défaut n'est requis.
 
 ### Rapport interactif via Jenkins HTML Publisher
@@ -466,13 +470,13 @@ token au-delà du `CI_JOB_TOKEN` par défaut n'est requis.
 [plugin HTML Publisher](https://plugins.jenkins.io/htmlpublisher/)
 pré-installé sur la plupart des Jenkins entreprise. Le plugin
 expose le rapport à une URL stable `${BUILD_URL}perf-sentinel/` et
-ajoute un lien "perf-sentinel" dans la sidebar du build, à côté du
-rapport Warnings NG déjà configuré par le template.
+ajoute un lien "perf-sentinel" dans la barre latérale du build, à côté
+du rapport Warnings NG déjà configuré par le template.
 
-Ouvrir ce lien pose le reviewer sur la tab Findings (vue de landing
+Ouvrir ce lien amène le reviewer sur l'onglet Findings (vue d'arrivée
 par défaut quand aucun baseline n'est branché, voir la note Diff
-ci-dessous). Les cinq autres tabs (Explain, pg_stat, Correlations,
-GreenOps et une tab Diff grisée) sont à un clic via la barre
+ci-dessous). Les cinq autres onglets (Explain, pg_stat, Correlations,
+GreenOps et un onglet Diff grisé) sont à un clic via la barre
 d'onglets.
 
 **Prérequis du pipeline Jenkins** :
@@ -493,11 +497,11 @@ d'onglets.
 le controller) :
 
 1. Vérifier que le plugin HTML Publisher (>= 1.10 pour la
-   compatibilité CSP) est installé. Manage Jenkins -> Plugins ->
-   Installed plugins, rechercher "HTML Publisher". Si absent,
-   installer puis redémarrer le controller. Le plugin Warnings Next
-   Generation utilisé par le reste du template doit être en
-   >= 9.11.0 pour le tool SARIF.
+   compatibilité CSP) est installé.
+   `Manage Jenkins -> Plugins -> Installed plugins`, rechercher
+   "HTML Publisher". Si absent, installer puis redémarrer le
+   controller. Le plugin Warnings Next Generation utilisé par le reste
+   du template doit être en >= 9.11.0 pour l'outil SARIF.
 2. Décommenter le stage `Generate interactive HTML report` dans
    [`docs/ci-templates/jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy),
    placé juste avant le stage `Quality gate (PR only)`.
@@ -506,10 +510,10 @@ le controller) :
    ci-dessus, donc les deux doivent être activés ensemble pour que
    le lien apparaisse.
 
-Une fois activé, chaque build (branch ou pull request) produit un
+Une fois activé, chaque build (branche ou pull request) produit un
 rapport disponible à
 `${JENKINS_URL}/job/<job-name>/<build-number>/perf-sentinel/`. La
-sidebar du build porte un lien "perf-sentinel" qui pointe toujours
+barre latérale du build porte un lien "perf-sentinel" qui pointe toujours
 vers le rapport du dernier build via `alwaysLinkToLastBuild: true`.
 L'option `keepAll: true` retient les rapports par build, les
 anciens builds restent donc navigables.
@@ -518,8 +522,8 @@ Si le rapport apparaît sans style avec une navigation par onglets
 cassée, voir **Configurer Jenkins pour rendre le rapport
 interactif** ci-dessous. Jenkins applique par défaut une Content
 Security Policy stricte qui bloque le CSS et le JavaScript inline,
-ce qui est la cause la plus fréquente d'une page sidebar
-perf-sentinel sans style.
+ce qui est la cause la plus fréquente d'une page perf-sentinel sans
+style ouverte depuis la barre latérale.
 
 **Configurer Jenkins pour rendre le rapport interactif**.
 
@@ -528,10 +532,10 @@ Jenkins applique par défaut une
 stricte au contenu servi depuis les workspaces de build. Le rapport
 HTML perf-sentinel embarque CSS et JavaScript inline dans un seul
 fichier autonome, ce que le CSP par défaut bloque. Sans relâcher la
-policy ou utiliser une Resource Root URL, cliquer sur le lien
-sidebar `${BUILD_URL}perf-sentinel/` affiche une page HTML sans
-style avec une navigation par onglets cassée, et aucun message dans
-le log du build.
+politique ou utiliser une Resource Root URL, cliquer sur le lien
+`${BUILD_URL}perf-sentinel/` de la barre latérale affiche une page
+HTML sans style avec une navigation par onglets cassée, et aucun
+message dans le log du build.
 
 Deux options pour corriger, par ordre de préférence :
 
@@ -593,8 +597,8 @@ par script, qu'une politique restrictive est la raison habituelle
 pour laquelle il n'a pas tourné, et qui renvoie ici. Un script placé
 juste après le retire pendant le parsing, un chargement normal ne
 l'affiche donc jamais. Une page qui s'explique n'est pas un dashboard
-affiché, elle remplace seulement la page blanche qui a envoyé le
-premier utilisateur fouiller ses logs de build.
+affiché. Elle remplace seulement une page blanche qui laisse le
+lecteur fouiller ses logs de build.
 
 La contrainte est propre à Jenkins. GitHub Pages et GitLab Pages
 servent le rapport sans politique à eux, et les deux chemins ci-dessus
@@ -602,48 +606,46 @@ l'affichent comme le ferait un navigateur ouvrant le fichier en local,
 navigation par onglets comprise. Rien à configurer ni sur l'un ni sur
 l'autre.
 
-**Tab Diff via le plugin Copy Artifact**. Contrairement à GitHub
-Actions et GitLab CI où un workflow baseline companion rafraîchit
+**Onglet Diff via le plugin Copy Artifact**. Contrairement à GitHub
+Actions et GitLab CI où un workflow baseline compagnon rafraîchit
 `baseline.json` à chaque push sur la branche par défaut, Jenkins n'a
 pas de dépôt d'artefacts intégré vers lequel publier une baseline de
-trunk. Les fonctions helper `baseBranchJob()` et `fetchBaseline()` du
-template (en tête de
+trunk. Les fonctions utilitaires `baseBranchJob()` et `fetchBaseline()`
+du template (en tête de
 [`docs/ci-templates/jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy))
 utilisent à la place le
 [plugin Copy Artifact](https://plugins.jenkins.io/copyartifact/) pour
 tirer `perf-sentinel-report.json` directement depuis un build
-précédent plutôt que depuis un artefact publié séparément. Même
-modèle que la "new code period" de SonarQube ("comparer vis-à-vis de
-ce dans quoi on merge"). Sur un build de PR (`env.CHANGE_TARGET`
-posé par MultiBranch Pipeline), la baseline est le dernier build
-réussi du job de la **branche cible**. Hors PR (pas de
-`CHANGE_TARGET` à résoudre, et ce stage tourne sans checkout git donc
-la base ne peut pas être déduite autrement), on retombe sur le
-dernier build réussi du job lui-même. Les deux recherches sont
-best-effort (`optional: true`) : un job qui n'a jamais buildé avec
-succès, ou un tout premier build sans historique, se contente de
-rendre le rapport sans tab Diff, comme si l'évolution était
-désactivée. À activer en décommentant le stage
-`Generate interactive HTML report`, les fonctions helper y sont déjà
-branchées.
+précédent. Même modèle que la "new code period" de SonarQube
+("comparer avec ce dans quoi on fusionne"). Sur un build de PR
+(`env.CHANGE_TARGET` posé par MultiBranch Pipeline), la baseline est
+le dernier build réussi du job de la **branche cible**. Hors PR (pas
+de `CHANGE_TARGET` à résoudre, et ce stage tourne sans checkout git
+donc la base ne peut pas être déduite autrement), on se rabat sur le
+dernier build réussi du job lui-même. Les deux recherches se font au
+mieux (`optional: true`) : un job sans aucun build réussi, ou un tout
+premier build sans historique, produit le rapport sans onglet Diff,
+comme si l'évolution était désactivée. À activer en
+décommentant le stage `Generate interactive HTML report`. Les
+fonctions utilitaires y sont déjà branchées.
 
-**Pas de posting automatique de PR comment**. Jenkins n'a pas de
-mécanisme natif de commentaire de pull request équivalent au sticky
-comment GitHub ou au widget Code Quality GitLab. Les reviewers qui
-suivent un build Jenkins consultent la page du build directement,
-comme pour les findings Warnings NG. Les équipes qui veulent un PR
-comment peuvent brancher la CLI `gh` ou une API REST spécifique
-depuis le pipeline, mais cela nécessite de gérer un token forge
-dans les credentials Jenkins et reste hors scope pour ce template.
+**Pas de publication automatique de commentaire de PR**. Jenkins n'a
+pas de mécanisme natif de commentaire de pull request équivalent au
+sticky comment GitHub ou au widget Code Quality GitLab. Les reviewers
+qui suivent un build Jenkins consultent la page du build directement,
+comme pour les findings Warnings NG. Les équipes qui veulent un
+commentaire de PR peuvent brancher la CLI `gh` ou une API REST
+spécifique depuis le pipeline, mais cela nécessite de gérer un token
+de forge dans les credentials Jenkins et reste hors du périmètre de ce
+template.
 
-**Empreinte de stockage** par-build et retenue indéfiniment
+**Empreinte de stockage** par build et retenue indéfiniment
 (`keepAll: true`). Un rapport part d'environ 450 Ko de polices et de
 logos embarqués et grossit avec les findings jusqu'au plafond
-d'élagage de 5 Mio. Pour des
-controllers Jenkins long-lived avec gros volume de builds, appairer
-`publishHTML keepAll: true` avec le build discarder dans la config
-du job (par exemple garder les N derniers builds) pour plafonner
-l'empreinte.
+d'élagage de 5 Mio. Pour des controllers Jenkins de longue durée avec
+un gros volume de builds, appairer `publishHTML keepAll: true` avec le
+build discarder dans la config du job (par exemple garder les N
+derniers builds) pour plafonner l'empreinte.
 
 ### Où SARIF apparaît selon le fournisseur
 
@@ -657,15 +659,15 @@ l'empreinte.
   info`).
 - **Jenkins Warnings Next Generation** publie un arbre de findings
   structuré avec une courbe de tendance par build. Le plugin comprend
-  nativement SARIF v2.1.0 et supporte sa propre déclaration `qualityGates`
-  comme défense en profondeur en plus du code de sortie `--ci` de
-  perf-sentinel.
+  nativement SARIF v2.1.0 et prend en charge sa propre déclaration
+  `qualityGates` comme défense en profondeur en plus du code de sortie
+  `--ci` de perf-sentinel.
 
 ---
 
 ## Détection de régressions sur PR (sous-commande `diff`)
 
-La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.
+La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est une vérification de PR qui compare les traces de la branche PR à celles de la branche de base.
 
 La comparaison est une différence d'ensembles sur les identités de findings, pas une comparaison d'exécutions de tests. Rien ne lui indique quels scénarios chaque côté a exécutés, donc le sens d'une colonne dépend de ce que les deux campagnes ont couvert :
 
@@ -680,7 +682,7 @@ Trois conséquences :
 - L'asymétrie de couverture ne fait que flatter. Un scénario renommé, retiré ou non exécuté place ses findings en Résolu sans aucun changement de code derrière.
 - Un finding acquitté est filtré des deux côtés, donc sa vraie correction ne résout rien ici. Le signal, c'est le warning `unmatched_acknowledgment`, voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
-Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` ne voit aucun churn, les deux côtés sont ré-analysés par le binaire courant.
+Note de montée de version (0.9.22) : l'identité d'un finding est indexée sur `(type, service, source_endpoint, template)`, et `source_endpoint` résout désormais des points d'entrée qui rapportaient auparavant `unknown` (voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md#format-de-signature)). L'effet sur la première comparaison après montée de version dépend de la nature de la baseline. Une baseline qui persiste des findings, comme le flux gh-pages `report --before baseline.json` ci-dessous, montre chaque finding déplacé une fois comme résolu et une fois comme nouveau, sans aucun changement applicatif derrière : re-capturez-la contre 0.9.22 d'abord. Une baseline qui est un corpus de traces passé à `diff --before` n'en subit aucun effet, car les deux côtés sont ré-analysés par le binaire courant.
 
 Note de montée de version (0.11.2) : l'identité des findings se déplace pour
 trois raisons distinctes, aussi bien sur OTLP que sur Jaeger et Zipkin. Des
@@ -698,7 +700,7 @@ spans SERVER disparaissent au lieu de se déplacer, et ressortent comme résolus
 sans aucun correctif derrière. Les baselines constituées de corpus de traces
 restent stables, car les deux côtés sont ré-analysés par le binaire courant.
 
-Cette même porte SERVER peut faire virer au rouge une gate qui passait. Les
+Cette même porte SERVER peut faire virer au rouge un gate qui passait. Les
 appels entrants fantômes comptaient comme des opérations d'I/O, et les retirer
 réduit le dénominateur du ratio de gaspillage sans qu'aucune opération évitable
 ne parte avec, donc `io_waste_ratio` monte à trafic identique. Une trace de huit
@@ -804,6 +806,6 @@ jobs:
           fi
 ```
 
-Ajustez la logique de seuil de la dernière étape selon la politique de votre équipe. Certaines équipes gatent sur tout nouveau finding, d'autres tolèrent les nouveaux findings Info et n'échouent que sur des régressions Warning ou Critical.
+Ajustez la logique de seuil de la dernière étape selon la politique de votre équipe. Certaines équipes bloquent sur tout nouveau finding, d'autres tolèrent les nouveaux findings Info et n'échouent que sur des régressions Warning ou Critical.
 
 ---

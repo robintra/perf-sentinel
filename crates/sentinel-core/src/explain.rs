@@ -12,7 +12,7 @@ pub struct SpanNode {
     pub span_id: String,
     pub parent_span_id: Option<String>,
     /// Producer trace whose message triggered this span, when it crossed a
-    /// broker. The two traces stay separate, this only lets the reader jump.
+    /// broker. The two traces stay separate. This only lets the reader jump.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_trace_id: Option<String>,
     pub service: String,
@@ -80,7 +80,7 @@ pub struct ExplainTree {
 /// Build an explain tree from a trace and its findings.
 #[must_use]
 pub fn build_tree(trace: &Trace, findings: &[Finding]) -> ExplainTree {
-    // Collect the set of span templates that actually appear in the trace.
+    // Collect the set of span templates that appear in the trace.
     // Used both to index span-anchored findings and to decide which findings
     // fall through to the trace-level bucket.
     let span_templates: HashSet<&str> = trace.spans.iter().map(|s| s.template.as_ref()).collect();
@@ -584,7 +584,6 @@ mod tests {
         let tree = build_tree(&trace, &[finding]);
 
         let text = format_tree_text(&tree, true);
-        // Should contain ANSI escape codes
         assert!(text.contains("\x1b[1m"), "should contain bold ANSI code");
         assert!(text.contains("\x1b[36m"), "should contain cyan ANSI code");
     }

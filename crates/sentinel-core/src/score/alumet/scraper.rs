@@ -151,9 +151,9 @@ async fn run_scraper_loop(
     // so an Alumet endpoint broken from boot still climbs the gauge.
     let mut last_success_ms: u64 = monotonic_ms();
 
-    // `energy_interval_secs` is echoed at startup on purpose: it is the
-    // one config value that silently rescales every reading when it
-    // drifts from the Alumet-side `poll_interval`, and it cannot be
+    // `energy_interval_secs` is echoed at startup because it is the one
+    // config value that silently rescales every reading when it drifts
+    // from the Alumet-side `poll_interval`, and it cannot be
     // cross-checked against the wire.
     tracing::info!(
         endpoint = %redacted,
@@ -232,17 +232,13 @@ async fn run_scraper_loop(
     }
 }
 
-/// Success-branch liveness and diagnostics, extracted from
-/// [`run_scraper_loop`] for the line-count limit. A successful scrape
-/// proves the chain is alive: banked database energy survives idle
-/// spells and label renames.
 /// The four independent warn-once latches of one scraper loop, reset on
 /// HTTP error so a flapping endpoint does not falsely trip them.
 ///
-/// One streak per cause on purpose: a `metric_name` matching nothing and
-/// a `service_mappings` table matching nothing are distinct
-/// misconfigurations with distinct fixes, and sharing one counter would
-/// let one cause fire another's message, or latch it away for good.
+/// Each cause has its own streak because a `metric_name` matching
+/// nothing and a `service_mappings` table matching nothing are distinct
+/// misconfigurations with distinct fixes. Sharing one counter would let
+/// one cause fire another's message, or latch it away for good.
 #[derive(Default)]
 pub(super) struct ScrapeLatches {
     no_samples: WarnOnceStreak,
@@ -262,6 +258,10 @@ impl ScrapeLatches {
     }
 }
 
+/// Success-branch liveness and diagnostics, extracted from
+/// [`run_scraper_loop`] for the line-count limit. A successful scrape
+/// proves the chain is alive, so banked database energy persists through
+/// idle spells and label renames.
 #[allow(clippy::too_many_arguments)] // per-scrape context, each one distinct
 pub(super) fn post_scrape_bookkeeping(
     samples: &[crate::score::prom_parser::PromSample],
@@ -443,13 +443,13 @@ impl WarnOnceStreak {
 ///   so it neither advances nor resets `no_match`.
 /// - `no_match` fires when samples flow but zero `service_mappings`
 ///   label values are present. That is either mistyped mapping values
-///   or every mapped workload currently absent from the exposition, the
+///   or every mapped workload currently absent from the exposition. The
 ///   message names both since the wire cannot tell them apart. Gated on
 ///   a non-empty mappings table (an empty table trivially matches
 ///   nothing and gets its own startup warning instead).
 ///
 /// A partially wrong table (some mappings match, others never do) trips
-/// neither latch, the per-tick `services_matched` debug field and the
+/// neither latch. The per-tick `services_matched` debug field and the
 /// report-level `per_service_energy_model` are the signals for that.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn track_zero_sample_streak(

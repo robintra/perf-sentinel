@@ -2,7 +2,7 @@
 
 `perf-sentinel disclose` produit un document JSON unique qui agrège les findings collectés sur une période calendaire (typiquement un trimestre) dans une forme adaptée à la transparence publique. La sortie est vérifiable par hash, versionnée par schéma, et distincte du JSON `Report` par batch consommé par le dashboard HTML.
 
-La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad hoc antérieures.
+La sous-commande est ajoutée en v0.6.x et remplace les recettes de divulgation ad hoc antérieures.
 
 ## Quel intent choisir
 
@@ -14,34 +14,34 @@ La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad h
 
 `audited` est réservé pour une release future. Le schéma JSON accepte la valeur pour la compatibilité ascendante, mais la CLI sort avec le code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") et le daemon refuse de démarrer avec `intent = "audited"` configuré.
 
-Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution énergie per-service présente) ou fallback (proxy I/O share comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution per-service, donc la part proxy commence à dominer les totaux et la revendication "official" perd une couverture per-service significative. La justification empirique du seuil exact 75% (versus 50% ou 90%) est documentée dans [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime).
+Pour l'intent `official`, le validateur refuse également les rapports sous 75% de couverture de calibration runtime. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution d'énergie par service présente) ou fallback (part I/O du proxy utilisée comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution par service, donc la part proxy commence à dominer les totaux et la revendication "official" perd une couverture par service significative. La justification empirique du seuil exact 75% (versus 50% ou 90%) est documentée dans [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime).
 
 ### Couverture temporelle et autres warnings (v1.2)
 
-`disclose` rapporte `aggregate.temporal_coverage` : la fraction des jours calendaires de la période déclarée qui ont réellement porté des mesures (`observed_days / days_in_period`). Quand elle tombe sous un seuil informatif, la CLI affiche un warning sur stderr et ajoute un disclaimer au rapport, mais elle ne bloque jamais un rapport `official`. La raison est que l'archivage est déclenché par le trafic, une fenêtre sans trafic n'écrit rien, donc un chiffre bas peut être une période légitimement calme plutôt qu'un trou de mesure. À traiter comme une borne basse de l'activité, pas comme une garantie d'uptime du daemon. Il existe pour qu'un lecteur distingue un trimestre mesuré en continu d'un trimestre où le daemon n'a tourné que quelques jours, le signal in-binary le plus proche de "l'opérateur a simplement arrêté de mesurer une partie de la période". La non-participation totale (ne jamais lancer l'outil) ne laisse aucun rapport et sort du périmètre de toute vérification in-binary, voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md).
+`disclose` rapporte `aggregate.temporal_coverage` : la fraction des jours calendaires de la période déclarée qui ont porté des mesures (`observed_days / days_in_period`). Quand elle tombe sous un seuil informatif, la CLI affiche un warning sur stderr et ajoute un disclaimer au rapport, mais elle ne bloque jamais un rapport `official`. L'archivage est déclenché par le trafic (une fenêtre sans trafic n'écrit rien), donc un chiffre bas peut être une période légitimement calme plutôt qu'un trou de mesure. À traiter comme une borne basse de l'activité, pas comme une garantie de disponibilité du daemon. Il existe pour qu'un lecteur distingue un trimestre mesuré en continu d'un trimestre où le daemon n'a tourné que quelques jours, le signal interne au binaire le plus proche de "l'opérateur a arrêté de mesurer une partie de la période". La non-participation totale (ne jamais lancer l'outil) ne laisse aucun rapport et sort du périmètre de toute vérification interne au binaire, voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md).
 
-Deux vérifications supplémentaires resserrent la cohérence. Le validator rejette en dur un `days_covered` qui ne vaut pas `(to_date - from_date) + 1` (un rapport produit par disclose le satisfait toujours, donc seul un fichier édité à la main le déclenche) et un `requests_measured` qui dépasse un `total_requests_in_period` déclaré par l'opérateur. Pour l'intent `official`, omettre `total_requests_in_period` dans l'org-config émet un warning, puisque `coverage_percentage` est alors absent du rapport.
+Deux vérifications supplémentaires resserrent la cohérence. Le validateur rejette en dur un `days_covered` qui ne vaut pas `(to_date - from_date) + 1` (un rapport produit par disclose le satisfait toujours, donc seul un fichier édité à la main le déclenche) et un `requests_measured` qui dépasse un `total_requests_in_period` déclaré par l'opérateur. Pour l'intent `official`, omettre `total_requests_in_period` dans l'org-config émet un warning, puisque `coverage_percentage` est alors absent du rapport.
 
 ## Granularité
 
-perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés par `--confidentiality`. Le validator refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1, et inversement.
+perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés par `--confidentiality`. Le validateur refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1, et inversement.
 
 - **G1** (Granularity level 1, "détail interne"). Activé par `--confidentiality internal`. Chaque entrée `applications[*]` porte un tableau `anti_patterns: [...]` complet ventilant chaque type d'anti-pattern détecté sur ce service avec occurrences, énergie gaspillée estimée et carbone gaspillé. À utiliser pour les décisions d'optimisation internes, pas pour la publication publique : le détail par pattern expose des signaux de performance internes qu'un opérateur peut ne pas vouloir diffuser.
-- **G2** (Granularity level 2, "agrégat public"). Activé par `--confidentiality public`. Chaque entrée `applications[*]` porte les mêmes totaux service-level (énergie, carbone, score d'efficacité) mais remplace le tableau par un seul entier `anti_patterns_detected_count`. Adapté à la publication sur l'URL de transparence d'une organisation.
+- **G2** (Granularity level 2, "agrégat public"). Activé par `--confidentiality public`. Chaque entrée `applications[*]` porte les mêmes totaux par service (énergie, carbone, score d'efficacité) mais remplace le tableau par un seul entier `anti_patterns_detected_count`. Adapté à la publication sur l'URL de transparence d'une organisation.
 
 ## Flags CLI
 
 `perf-sentinel disclose` accepte les flags suivants :
 
-- `--intent <internal|official|audited>` (requis). `audited` est réservé pour une release future, la CLI le refuse aujourd'hui avec exit code 2.
-- `--confidentiality <internal|public>` (requis). Pilote G1 vs G2 granularité, voir ci-dessus.
-- `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (requis). Hint sur la sémantique période pour les consommateurs downstream. `custom` utilise `--from` et `--to` tel quel, choix correct pour des fenêtres non-alignées (par exemple un pilote de 6 semaines).
+- `--intent <internal|official|audited>` (requis). `audited` est réservé pour une release future, la CLI le refuse aujourd'hui avec le code de sortie 2.
+- `--confidentiality <internal|public>` (requis). Détermine la granularité G1 ou G2, voir ci-dessus.
+- `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (requis). Indique la sémantique de la période aux consommateurs en aval. `custom` utilise `--from` et `--to` tels quels, choix correct pour des fenêtres non-alignées (par exemple un pilote de 6 semaines).
 - `--from <YYYY-MM-DD>` et `--to <YYYY-MM-DD>` (requis, inclusifs). Dates calendaires UTC.
-- `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont unionés (triés par nom), ou un glob expansé par le shell. perf-sentinel n'expanse pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion shell. Dans les runners CI qui execent le binaire directement, préférer un répertoire ou un fichier unique.
+- `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont réunis (triés par nom), ou un glob développé par le shell. perf-sentinel ne développe pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion par le shell. Dans les runners CI qui exécutent le binaire directement, préférer un répertoire ou un fichier unique.
 - `--output <PATH>` (requis). Où écrire `perf-sentinel-report.json`.
 - `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit dans la section précédente.
 - `--emit-attestation <PATH>` (optionnel). Quand fixé, écrit aussi le sidecar statement in-toto v1 à ce chemin. Nécessaire pour le workflow de signature.
-- `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce bucket contribue aux totaux agrégés mais est exclu de la ventilation per-service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, listant les timestamps offendants dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut asserter que 100% des opérations mesurées ont été correctement attribuées.
+- `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce service synthétique contribue aux totaux agrégés mais est exclu de la ventilation par service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, en listant les horodatages en cause dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut affirmer que 100% des opérations mesurées ont été correctement attribuées.
 - `--tui` (optionnel, nécessite la feature de build `tui`). Ouvre une prévisualisation en lecture seule au lieu d'écrire un rapport, voir ci-dessous. Elle rend `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to` et `--output` optionnels, puisqu'on les règle dans l'interface. Incompatible avec `--emit-attestation`.
 
 ## Prévisualisation interactive (`--tui`)
@@ -58,7 +58,7 @@ perf-sentinel disclose --tui \
 
 Seuls `--input` et `--org-config` restent requis. La période, l'intent et la confidentialité se règlent en direct :
 
-- `g` fait défiler la granularité (mois, trimestre, année, custom). Pour les trois premières, `from` et `to` se calent sur les bornes calendaires. `custom` permet d'éditer chaque borne à la main.
+- `g` fait défiler la granularité (mois, trimestre, année, `custom`). Pour les trois premières, `from` et `to` se calent sur les bornes calendaires. `custom` permet d'éditer chaque borne à la main.
 - `←` / `→` (ou `h` / `l`) avancent la période d'une unité. En `custom` elles déplacent la borne active d'un jour, `[` et `]` la déplacent d'un mois, et `Tab` bascule entre la borne `from` et la borne `to`.
 - `i` bascule l'intent (internal ou official), `c` bascule la confidentialité (G1 internal ou G2 public).
 - Le résumé indique le nombre de fenêtres, la couverture de période face au seuil officiel, les services mesurés et exclus, les totaux (requêtes, carbone, énergie, ratio de gaspillage), et le verdict du validateur officiel quand l'intent est official.
@@ -68,12 +68,12 @@ La prévisualisation nécessite un terminal interactif. Rediriger sa sortie (pas
 
 ## Gaspillage évitable : canonique versus opérationnel (1.1+)
 
-Un rapport porte l'énergie et le carbone opérationnels totaux de la charge (dérivés des spans, non réglables) plus deux tiers de gaspillage évitable :
+Un rapport porte l'énergie et le carbone opérationnels totaux de la charge (dérivés des spans, non réglables) plus deux niveaux de gaspillage évitable :
 
 - **Canonique** (`aggregate.canonical_waste`). Calculé à un seuil N+1 fixe épinglé dans le binaire (`2`), indépendamment du `[detection] n_plus_one_min_occurrences` de l'opérateur. C'est le chiffre non manipulable : relever votre propre seuil ne peut pas le réduire. C'est le chiffre évitable de référence, et au seuil opérateur par défaut de `5` il est typiquement plus grand que ce que le tableau de bord de l'opérateur affiche.
 - **Opérationnel** (`aggregate.operational_waste`). Calculé au seuil configuré par l'opérateur et enregistré avec ce seuil.
 
-Publier les deux garde la disclosure honnête : un lecteur compare les deux et voit combien de gaspillage évitable un seuil opérateur relâché masquerait. Pour `intent = official`, le validator refuse un rapport dont le `canonical_waste.n_plus_one_threshold` n'est pas la valeur canonique du binaire.
+Publier les deux permet à un lecteur de les comparer et de voir combien de gaspillage évitable un seuil opérateur relâché masquerait. Pour `intent = official`, le validateur refuse un rapport dont le `canonical_waste.n_plus_one_threshold` n'est pas la valeur canonique du binaire.
 
 ![prévisualisation disclose, vue mois : en-tête des réglages, résumé agrégé, et la commande équivalente en pied de page](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
 
@@ -86,18 +86,18 @@ Publier les deux garde la disclosure honnête : un lecteur compare les deux et v
 Chaque rapport porte `methodology.standard_crosswalk`, une correspondance interprétative de ses chiffres vers la norme européenne de reporting climat ESRS E1 (règlement délégué (UE) 2023/5303) :
 
 - `aggregate.total_energy_kwh` alimente **E1-5** (consommation et mix énergétiques), à convertir en MWh. perf-sentinel ne ventile pas ce chiffre par source fossile, nucléaire ou renouvelable.
-- le terme carbone opérationnel alimente **E1-6 Scope 2** en base location-based. ESRS exige aussi un Scope 2 market-based, que SCI exclut volontairement, c'est donc une entrée partielle.
+- le terme carbone opérationnel alimente **E1-6 Scope 2** en base location-based. ESRS exige aussi un Scope 2 market-based, que SCI exclut, c'est donc une entrée partielle.
 - le carbone embarqué (le terme SCI `M`, agrégat seulement) alimente **E1-6 Scope 3** (catégories 1 et 2). ESRS admet les estimations et données proxy pour le Scope 3.
 
-C'est une **aide à la correspondance, pas une certification**. Elle ne transforme pas un rapport en déclaration CSRD : les chiffres gardent leur intervalle d'incertitude directionnel 2x, le périmètre est l'IT compute uniquement, et un inventaire audité par un organisme qualifié reste requis. Les mêmes caveats sont publiés en bande sous `standard_crosswalk.caveats` et dans `notes.disclaimers`.
+C'est une **aide à la correspondance, pas une certification**. Elle ne transforme pas un rapport en déclaration CSRD : les chiffres gardent leur intervalle d'incertitude directionnel 2x, le périmètre est l'IT compute uniquement, et un inventaire audité par un organisme qualifié reste requis. Les mêmes mises en garde figurent dans le rapport lui-même, sous `standard_crosswalk.caveats` et dans `notes.disclaimers`.
 
 ## Entrées
 
-**Archives daemon exclusivement.** Un rapport batch `analyze --format json` ne peut pas alimenter `disclose`, pour trois raisons indépendantes : une entrée de type répertoire ne collecte que les `*.ndjson`, chaque ligne doit se désérialiser en l'enveloppe `{"ts", "report"}` ci-dessous, et un rapport batch ne porte pas de `disclosure_waste` (les tiers canoniques de gaspillage évitable sont calculés au moment de l'archivage). C'est délibéré : une divulgation publique repose sur une observation continue de la période déclarée, pas sur des runs ponctuels. Utilisez `perf-sentinel watch` avec l'archivage activé pour tout ce que vous comptez publier.
+**Archives daemon exclusivement.** Un rapport batch `analyze --format json` ne peut pas alimenter `disclose`, pour trois raisons indépendantes : une entrée de type répertoire ne collecte que les `*.ndjson`, chaque ligne doit se désérialiser en l'enveloppe `{"ts", "report"}` ci-dessous, et un rapport batch ne porte pas de `disclosure_waste` (les niveaux canoniques de gaspillage évitable sont calculés au moment de l'archivage). Les rapports batch restent exclus parce qu'une divulgation publique repose sur une observation continue de la période déclarée, pas sur des exécutions ponctuelles. Utilisez `perf-sentinel watch` avec l'archivage activé pour tout ce que vous comptez publier.
 
-Une période qui mêle des archives antérieures à la divulgation canonique et des archives plus récentes passe la validation `--intent official`, car le seuil canonique est le maximum sur les fenêtres. Le tier canonique omet alors le gaspillage des fenêtres anciennes, c'est pourquoi `disclose` indique combien de fenêtres ne portaient pas de figure canonique. Régénérez sur des fenêtres postérieures à la montée de version pour obtenir une figure complète.
+Une période qui mêle des archives antérieures à la divulgation canonique et des archives plus récentes passe la validation `--intent official`, car le seuil canonique est le maximum sur les fenêtres. Le niveau canonique omet alors le gaspillage des fenêtres anciennes, c'est pourquoi `disclose` indique combien de fenêtres ne portaient pas de chiffre canonique. Régénérez sur des fenêtres postérieures à la montée de version pour obtenir un chiffre complet.
 
-L'aggregator lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :
+L'agrégateur lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :
 
 ```json
 {"ts":"2026-01-15T14:30:00Z","report":{ ...Report complet... }}
@@ -118,7 +118,7 @@ Les opérateurs qui collectent déjà stdout du daemon via un sidecar peuvent pa
 
 ## TOML org-config
 
-Les champs statiques organisation/méthodologie/scope vivent dans un fichier TOML que vous committez dans votre repo infra à côté du reste de la config perf-sentinel. Un exemple complet est dans `docs/examples/perf-sentinel-org.toml`. Le même fichier est référencé par `[reporting] org_config_path` quand le daemon doit valider les rapports publiables au démarrage.
+Les champs statiques organisation/méthodologie/scope vivent dans un fichier TOML que vous versionnez dans votre dépôt d'infrastructure à côté du reste de la config perf-sentinel. Un exemple complet est dans `docs/examples/perf-sentinel-org.toml`. Le même fichier est référencé par `[reporting] org_config_path` quand le daemon doit valider les rapports publiables au démarrage.
 
 ## Exemple : brouillon internal (G1)
 
@@ -133,7 +133,7 @@ perf-sentinel disclose \
   --org-config /etc/perf-sentinel/org.toml
 ```
 
-La sortie passe uniquement les vérifications structurelles (pas de validator). `integrity.content_hash` est calculé et stable, mais `integrity.binary_hash` est le SHA-256 du binaire local, pas nécessairement une release publiée.
+La sortie passe uniquement les vérifications structurelles (pas de validateur). `integrity.content_hash` est calculé et stable, mais `integrity.binary_hash` est le SHA-256 du binaire local, pas nécessairement une release publiée.
 
 ## Exemple : publication officielle (G2)
 
@@ -148,7 +148,7 @@ perf-sentinel disclose \
   --org-config /etc/perf-sentinel/org.toml
 ```
 
-Le validator tourne sur l'ensemble du document. Si un champ requis manque ou sort de la plage, la CLI imprime tous les champs en cause et sort en 2. Corriger l'org-config (ou les données sous-jacentes) puis relancer.
+Le validateur tourne sur l'ensemble du document. Si un champ requis manque ou sort de la plage, la CLI affiche tous les champs en cause et sort en 2. Corriger l'org-config (ou les données sous-jacentes) puis relancer.
 
 Le chemin de publication recommandé est la racine de votre domaine de transparence :
 
@@ -160,7 +160,7 @@ L'URL de schéma dans `notes.reference_urls.schema` indique quelle version de sc
 
 ## Garde-fou côté daemon
 
-Lorsque le daemon est configuré avec `[reporting] intent = "official"`, il refuse de démarrer si le TOML org-config est absent ou échoue le validator de champs statiques. Le message d'erreur liste tous les champs manquants ou invalides en un seul passage pour que l'opérateur corrige tout d'un coup.
+Lorsque le daemon est configuré avec `[reporting] intent = "official"`, il refuse de démarrer si le TOML org-config est absent ou ne passe pas le validateur des champs statiques. Le message d'erreur liste tous les champs manquants ou invalides pour que l'opérateur les corrige en une seule passe.
 
 ```toml
 [reporting]
@@ -175,25 +175,25 @@ disclose_output_path = "/var/lib/perf-sentinel/last-disclosure.json"
 disclose_period = "calendar-quarter"
 ```
 
-`intent = "internal"` (ou l'absence de section) laisse le daemon en mode monitoring sans la barrière de rapport publiable.
+`intent = "internal"` (ou l'absence de section) laisse le daemon en mode surveillance sans la barrière de rapport publiable.
 
 ## Restreindre qui peut publier un rapport officiel
 
 Produire une divulgation officielle est une action tournée vers
-l'extérieur et difficile à revenir en arrière : le fichier atterrit à
+l'extérieur et difficile à annuler : le fichier atterrit à
 une URL de transparence publique et est signé sous l'identité de votre
-organisation. La CLI elle-même n'a pas de couche d'autorisation,
-quiconque peut exécuter le binaire avec l'org-config et les données
+organisation. La CLI elle-même n'a pas de couche d'autorisation.
+Quiconque peut exécuter le binaire avec l'org-config et les données
 d'entrée peut en produire une. Le contrôle appartient donc au pipeline
 qui publie, pas à `perf-sentinel`, le même découpage que pour les
 chemins d'écriture du daemon (voir
 [`docs/FR/QUERY-API-FR.md`](./QUERY-API-FR.md#restreindre-les-écritures-en-production-reverse-proxy)).
 
 En CI, gardez le job qui lance `disclose --intent official` derrière un
-**environnement GitHub avec reviewers requis**. Un dev peut toujours
-ouvrir la PR ou déclencher le workflow, mais le job se met en pause
-jusqu'à ce qu'un reviewer nommé (un architecte ou un responsable DevOps)
-approuve. Pas d'approbation, pas de rapport officiel.
+**environnement GitHub avec reviewers requis**. Un développeur peut
+toujours ouvrir la PR ou déclencher le workflow, mais le job se met en
+pause jusqu'à ce qu'un reviewer nommé (un architecte ou un responsable
+DevOps) approuve.
 
 À configurer une fois sous `Settings -> Environments -> official-disclosure` :
 
@@ -241,9 +241,9 @@ jobs:
 
 La permission `id-token: write` est un contrôle à part entière : la
 signature keyless lie la divulgation à l'identité du workflow,
-enregistrée dans `integrity.signature.signer_identity`. Un run depuis un
-chemin non approuvé produit un fichier dont l'identité signataire ne
-correspond pas au workflow qu'un vérifieur attend, voir
+enregistrée dans `integrity.signature.signer_identity`. Une exécution
+depuis un chemin non approuvé produit un fichier dont l'identité
+signataire ne correspond pas au workflow qu'un vérifieur attend, voir
 [Vérification d'identité](#vérification-didentité).
 
 ## Signer votre divulgation
@@ -252,41 +252,42 @@ correspond pas au workflow qu'un vérifieur attend, voir
 
 Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour comprendre les commandes qui suivent.
 
-**Pourquoi Sigstore.** Sigstore est un toolkit open source hébergé par l'Open Source Security Foundation (OpenSSF), maintenu par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Le choix retenu pour les divulgations perf-sentinel tient à trois propriétés :
+**Pourquoi Sigstore.** Sigstore est une boîte à outils open source hébergée par l'Open Source Security Foundation (OpenSSF), maintenue par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Le choix retenu pour les divulgations perf-sentinel tient à trois propriétés :
 
 1. **Signature sans clé permanente**, aucune clé privée longue durée à gérer ou risquer de divulguer côté signataire.
-2. **Un journal public infalsifiable** (Rekor), un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
+2. **Un journal public où toute altération est détectable** (Rekor), si bien qu'un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
 3. **Libre, open source, auto-hébergeable**, pas de verrouillage propriétaire ni de facturation à la signature.
 
 **Les trois composants.**
 
-- **Cosign** est l'outil CLI exécuté localement. Il ouvre un flow OIDC dans le navigateur (ou consomme un token de workflow en CI), signe le fichier, et envoie la signature à Sigstore.
+- **Cosign** est l'outil CLI exécuté localement. Il ouvre un flux OIDC dans le navigateur (ou consomme un token de workflow en CI), signe le fichier, et envoie la signature à Sigstore.
 - **Fulcio** est l'autorité de certification. Il consomme le token OIDC obtenu par cosign (preuve d'identité : email, URL d'un workflow GitHub, ...) et émet un certificat X.509 à durée courte (10 minutes) lié à cette identité. Fulcio ne voit jamais la clé privée du signataire.
-- **Rekor** est le journal de transparence public. Il enregistre la signature à côté du certificat Fulcio, retourne une preuve d'inclusion, et expose l'entrée à un log index stable. Les entrées passées ne peuvent pas être réécrites silencieusement.
+- **Rekor** est le journal de transparence public. Il enregistre la signature à côté du certificat Fulcio, retourne une preuve d'inclusion, et expose l'entrée à un index de journal stable. Les entrées passées ne peuvent pas être réécrites silencieusement.
 
-**Qui signe avec quelle clé.** Cosign génère un nouveau couple de clés éphémère juste avant la signature. Fulcio émet un certificat de 10 minutes qui lie la moitié *publique* de ce couple à l'identité OIDC. Une fois la signature uploadée vers Rekor, le couple de clés est détruit. Il ne reste que la signature, le certificat et l'entrée Rekor, ce dont un vérifieur a exactement besoin.
+**Qui signe avec quelle clé.** Cosign génère un nouveau couple de clés éphémère juste avant la signature. Fulcio émet un certificat de 10 minutes qui lie la moitié *publique* de ce couple à l'identité OIDC. Une fois la signature envoyée à Rekor, le couple de clés est détruit. Il ne reste que la signature, le certificat et l'entrée Rekor, ce dont un vérifieur a besoin.
 
 **L'identité OIDC** est le sujet du certificat Fulcio (et finit comme `integrity.signature.signer_identity` + `signer_issuer` dans la divulgation). Pour un individu qui signe avec un compte Google, l'identité est l'adresse email et l'issuer est `https://accounts.google.com`. Pour un workflow GitHub Actions, l'identité est l'URL du workflow et l'issuer est `https://token.actions.githubusercontent.com`.
 
-**Limite connue : migration de provider OIDC.** L'URL de l'issuer est inscrite dans le certificat, donc enregistrée dans Rekor et dans la divulgation. Si l'organisation change plus tard de provider d'identité (Google Workspace vers Keycloak auto-hébergé, Entra ID vers Okta, ...), les signatures passées restent valides mais les nouvelles signatures porteront une valeur `signer_issuer` différente. Les vérifieurs qui épinglent un issuer spécifique dans leur politique de vérification devront être mis à jour, sinon ils rejetteront les nouvelles signatures comme non fiables. Anticiper la politique d'épinglage en prévision des migrations de provider.
+**Limite connue : migration de fournisseur OIDC.** L'URL de l'issuer est inscrite dans le certificat, donc enregistrée dans Rekor et dans la divulgation. Si l'organisation change plus tard de fournisseur d'identité (Google Workspace vers Keycloak auto-hébergé, Entra ID vers Okta, ...), les signatures passées restent valides mais les nouvelles signatures porteront une valeur `signer_issuer` différente. Les vérifieurs qui épinglent un issuer spécifique dans leur politique de vérification devront être mis à jour, sinon ils rejetteront les nouvelles signatures comme non fiables. Anticiper la politique d'épinglage en prévision des migrations de fournisseur.
 
-**Termes connexes que vous rencontrerez dans le workflow.** Des one-liners seulement, les définitions complètes sont dans les specs liées.
+**Termes connexes que vous rencontrerez dans le workflow.** Une ligne par terme seulement, les définitions complètes sont dans les spécifications liées.
 
 - **OIDC (OpenID Connect)** est un protocole d'identité posé sur OAuth 2.0. Dans ce workflow, c'est la manière dont cosign prouve "ce signataire est `user@example.org`" à Fulcio. Cosign ouvre un onglet navigateur, vous vous connectez à votre IdP (Google, GitHub, ...), l'IdP retourne un token signé, cosign le transmet à Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
-- **in-toto v1 statement** est une spécification OpenSSF ouverte pour les attestations de chaîne d'approvisionnement logicielle. Une enveloppe JSON qui apparie le hash d'un artefact avec une *claim* typée sur celui-ci. `--emit-attestation` produit un statement de ce type, où l'artefact est votre `report.json` et le type de claim est `perf-sentinel-disclosure/v1`. Cosign signe le statement, pas le rapport directement, ce qui permet aux vérifieurs de chaîner la confiance depuis le hash du rapport, vers le statement in-toto qui déclare "ceci est une divulgation perf-sentinel", puis vers la signature cosign sur ce statement, et enfin vers le certificat Fulcio liant la signature à une identité OIDC. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
+- **in-toto v1 statement** est une spécification OpenSSF ouverte pour les attestations de chaîne d'approvisionnement logicielle. Une enveloppe JSON qui apparie le hash d'un artefact avec une *claim* typée sur celui-ci. `--emit-attestation` produit un statement de ce type, où l'artefact est votre `report.json` et le type de claim est `perf-sentinel-disclosure/v1`. Cosign signe le statement, pas le rapport directement. Les vérifieurs peuvent ainsi chaîner la confiance depuis le hash du rapport, via le statement in-toto puis la signature cosign sur ce statement, jusqu'au certificat Fulcio qui lie la signature à une identité OIDC. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
 - **Bundle (`bundle.sig`)** est le fichier que cosign écrit au moment de la signature. Il rassemble la signature, le certificat Fulcio et la preuve d'inclusion Rekor dans un seul JSON. Publier ce bundle à côté du rapport permet une vérification totalement hors ligne : un consommateur valide la signature contre la clé publique Rekor sans avoir à réinterroger Rekor en direct.
-- **Provenance SLSA** est un framework OpenSSF séparé (Supply-chain Levels for Software Artifacts) qui décrit *comment* un artefact a été construit (quel commit source, quel builder, quel workflow). Les binaires de release perf-sentinel portent une provenance SLSA Build L3 produite pendant le workflow GitHub Actions de release. Le champ `integrity.binary_attestation` de la divulgation est rempli avec cette provenance quand elle est présente, et `report_metadata.integrity_level` passe de `signed` à `signed-with-attestation`. [Spec](https://slsa.dev/spec/v1.0/).
+- **Provenance SLSA** est un cadre OpenSSF séparé (Supply-chain Levels for Software Artifacts) qui décrit *comment* un artefact a été construit (quel commit source, quel builder, quel workflow). Les binaires de release perf-sentinel portent une provenance SLSA Build L3 produite pendant le workflow GitHub Actions de release. Le champ `integrity.binary_attestation` de la divulgation est rempli avec cette provenance quand elle est présente, et `report_metadata.integrity_level` passe de `signed` à `signed-with-attestation`. [Spec](https://slsa.dev/spec/v1.0/).
 
-La même introduction est mise en miroir dans [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#introduction-à-sigstore), qui est la localisation canonique pour la stack supply-chain couvrant binaire, chart Helm et signature de divulgation.
+La même introduction est mise en miroir dans [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#introduction-à-sigstore), qui est l'emplacement canonique pour la chaîne d'approvisionnement logicielle couvrant binaire, chart Helm et signature de divulgation.
 
 ### Workflow
 
-Les divulgations `intent = "official"` doivent être signées via
+Les divulgations `intent = "official"` devraient être signées via
 Sigstore pour qu'un consommateur puisse vérifier que le fichier a
 été publié par votre organisation et n'a pas été modifié. Le
-pipeline est opt-in : passer `--emit-attestation <chemin>` à
-`disclose` pour obtenir un statement in-toto v1 sidecar, puis
-signer ce statement avec `cosign`.
+pipeline s'active explicitement : passer
+`--emit-attestation <chemin>` à `disclose` pour obtenir un
+statement in-toto v1 sidecar, puis signer ce statement avec
+`cosign`.
 
 ```bash
 # 1. Produire le rapport et l'attestation in-toto.
@@ -332,7 +333,7 @@ cosign sign-blob \
 Après que l'étape 2 réussit, `report.json` a toujours
 `integrity.signature = null`. Un consommateur qui lance
 `verify-hash` verrait "Signature: not provided" et traiterait le
-rapport comme PARTIAL. L'étape 3 remplit les champs de locator
+rapport comme PARTIAL. L'étape 3 remplit les champs de localisation
 pour que le consommateur trouve le bundle et le vérifie.
 
 Les sept champs et la source de chaque valeur :
@@ -345,9 +346,9 @@ Les sept champs et la source de chaque valeur :
 | `signer_issuer`   | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté                                                                                                                           |
 | `rekor_url`       | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée)                                          |
 | `rekor_log_index` | sortie cosign à l'étape 2, ligne `tlog entry created with index: X`. Ou via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer                                                       |
-| `signed_at`       | timestamp de l'entrée Rekor, ISO 8601 UTC                                                                                                                                                         |
+| `signed_at`       | horodatage de l'entrée Rekor, ISO 8601 UTC                                                                                                                                                        |
 
-Exemple before / after sur une divulgation fraîche :
+Exemple avant / après sur une divulgation fraîche :
 
 ```json
 // Avant l'étape 2 (état immédiatement après disclose --emit-attestation)
@@ -395,75 +396,77 @@ le binaire producteur porte aussi une provenance SLSA.)
 
 Le `content_hash`, la signature cosign et la provenance SLSA lient le
 **document publié**. Depuis la 0.9.25, le daemon chaîne aussi par
-hachage chaque fenêtre archivée au moment où il l'écrit, et `disclose`
-parcourt cette chaîne pendant l'agrégation, en publiant le résultat dans
+hachage chaque fenêtre archivée au moment où il l'écrit. `disclose`
+parcourt cette chaîne pendant l'agrégation et publie le résultat dans
 `integrity.trace_integrity_chain` : fenêtres vérifiées, fenêtres écrites
 avant l'existence du chaînage, ruptures trouvées dans la période et
-ruptures trouvées hors d'elle dans les mêmes fichiers, puisqu'une
-archive glissante peut couvrir des années et qu'un rapport ne répond que
-de sa propre période. Cela ferme l'écart
-où une fenêtre pouvait être éditée entre la mesure et la publication
-sans que rien ne le montre. Une rupture n'arrête pas le rapport, elle
-est publiée comme un compteur, si bien qu'une archive tronquée donne
-encore une divulgation partielle honnête.
+ruptures trouvées hors d'elle dans les mêmes fichiers. Les ruptures
+sont ainsi séparées parce qu'une archive glissante peut couvrir des
+années et qu'un rapport ne répond que de sa propre période. Le
+chaînage ferme l'écart où une fenêtre pouvait être éditée entre la
+mesure et la publication sans que rien ne le montre. Une rupture
+n'arrête pas le rapport. Elle est publiée comme un compteur, si bien
+qu'une archive tronquée donne encore une divulgation partielle.
 
 Depuis la v1.7, chaque ligne d'archive porte aussi le compteur cumulatif
-de pertes du daemon, et le même bloc publie `windows_dropped`, les
-fenêtres que le daemon a produites mais n'a pas pu archiver sur la
-période, plus `drop_counter_resets`, le nombre de fois où le compteur a
+de pertes du daemon. Le même bloc publie `windows_dropped`, les fenêtres
+que le daemon a produites mais n'a pas pu archiver sur la période. Il
+publie aussi `drop_counter_resets`, le nombre de fois où le compteur a
 reculé (une par redémarrage du daemon, chacune faisant du chiffre une
 borne basse sur l'intervalle qu'elle couvre). C'est le jumeau signé de
 la métrique `perf_sentinel_archive_windows_dropped_total` : le scrape
 voit les pertes en direct, le rapport en rend compte après coup. Cela ne
-dit rien des fenêtres jamais produites, un daemon à l'arrêt ne laisse
-aucun compteur à lire, ce que borne `aggregate.temporal_coverage`. Les
+dit rien des fenêtres jamais produites (un daemon à l'arrêt ne laisse
+aucun compteur à lire), ce que borne `aggregate.temporal_coverage`. Les
 deux champs sont omis sur les archives écrites avant l'existence du
 compteur, pour qu'une archive ancienne ne se lise jamais comme zéro
 perte.
 
-Une édition que la chaîne ne voit pas est une coupe nette de la fin
+Une modification que la chaîne ne voit pas est une coupe nette de la fin
 d'une archive : ce qui reste est une chaîne plus courte qui se vérifie
 selon ses propres termes, et aucun champ interne au fichier ne peut la
 contredire. La détecter demande une trace de la tête de chaîne conservée
 hors du contrôle de l'opérateur, ce à quoi `integrity.cross_period_log`
 reste réservé.
 
-Ce que rien de tout cela ne prouve, c'est la sincérité de la mesure à la
-source. Un opérateur qui contrôle le daemon et ses fichiers peut
-régénérer une chaîne cohérente, exactement comme il peut choisir un
-coefficient défavorable. Ces paramètres sont désormais publiés eux
-aussi, voir `carbon_methodologies`, `scoring_coefficients` et les champs
-embodied dans `methodology.calibration_inputs`, ce qui les rend
-contestables plutôt qu'invisibles. L'étape restante est l'ancrage de la tête de chaîne hors
-du contrôle de l'opérateur, ce à quoi `integrity.cross_period_log` reste
-réservé. À lire comme : inviolable après coup, auto-déclaré à la source.
+Rien de tout cela ne prouve la sincérité de la mesure à la source. Un
+opérateur qui contrôle le daemon et ses fichiers peut régénérer une
+chaîne cohérente, exactement comme il peut choisir un coefficient
+défavorable. Ces paramètres sont désormais publiés eux aussi, voir
+`carbon_methodologies`, `scoring_coefficients` et les champs embodied
+dans `methodology.calibration_inputs`, ce qui les rend contestables
+plutôt qu'invisibles. L'étape restante est l'ancrage de la tête de
+chaîne hors du contrôle de l'opérateur, ce à quoi
+`integrity.cross_period_log` reste réservé. La garantie permet de
+détecter une altération après coup, mais reste auto-déclarée à la
+source.
 
 ### Le content hash reste valide
 
 Le `content_hash` n'a **pas** besoin d'être recalculé après
 l'étape 3. La forme canonique utilisée par `compute_content_hash`
-blank quatre champs avant le hash : `integrity.content_hash`,
+vide quatre champs avant le hachage : `integrity.content_hash`,
 `integrity.signature`, `integrity.binary_attestation`, et
 `report_metadata.integrity_level`. La liste vit dans
 `POST_SIGN_FIELDS`
 (`crates/sentinel-core/src/report/periodic/hasher.rs`) et
 l'invariance est garantie par le test
 `hash_is_invariant_under_post_sign_locator_addition`. Donc un
-consommateur qui recompute le hash sur le rapport post-étape-3
+consommateur qui recalcule le hash sur le rapport post-étape-3
 obtient la même valeur que l'opérateur à l'étape 1.
 
-**Ne pas recompute** `content_hash` après édition. Le faire
+**Ne pas recalculer** `content_hash` après modification. Le faire
 produit un hash frais, casse la forme canonique, et un vérifieur
-verra un mismatch.
+verra un hash qui ne correspond pas.
 
 ### Helper jq
 
-**Avertissement.** Le snippet ci-dessous est indicatif, pas canonique.
+**Avertissement.** L'extrait ci-dessous est indicatif, pas canonique.
 Il diverge du schéma de [Édition de integrity.signature](#édition-de-integritysignature)
 sur quatre champs :
 
-- `signer_identity` : parse `Successfully signed by ...` depuis la
-  stdout cosign, qui est le wording émis par `cosign sign` pour les
+- `signer_identity` : analyse `Successfully signed by ...` dans la
+  stdout cosign, qui est la formulation émise par `cosign sign` pour les
   images conteneur mais pas toujours par `cosign sign-blob` (3.0+
   l'omet). La valeur canonique est le sujet OIDC embarqué dans le
   certificat de signature (lire via
@@ -472,11 +475,11 @@ sur quatre champs :
   `jq -r '.verificationMaterial.certificate.rawBytes' bundle.sig | base64 -d | openssl x509 -inform DER -noout -ext subjectAltName`).
 - `signer_issuer` : codé en dur à `https://accounts.google.com`. La
   valeur canonique est l'URL de l'issuer OIDC inscrite dans le
-  certificat de signature, à aligner avec votre provider (Google,
-  GitHub Actions, OIDC custom).
-- `rekor_log_index` : parse `tlog entry created with index` depuis la
+  certificat de signature, à aligner sur votre fournisseur (Google,
+  GitHub Actions, OIDC personnalisé).
+- `rekor_log_index` : analyse `tlog entry created with index` dans la
   stdout cosign, que `cosign sign-blob` 3.0+ n'émet plus. `LOG_INDEX`
-  est donc vide et le snippet retombe sur `rekor_log_index: 0`. La
+  est donc vide et l'extrait se rabat sur `rekor_log_index: 0`. La
   valeur canonique est dans `bundle.sig` lui-même à
   `.verificationMaterial.tlogEntries[0].logIndex`, sans appel API.
 - `signed_at` : rempli avec l'horloge locale au moment de l'exécution
@@ -490,9 +493,9 @@ que depuis l'état local. Le helper reste utile pour un essai à blanc
 interne où les quatre valeurs sont inspectées pour leur plausibilité,
 pas leur provenance.
 
-Le pattern est répétitif et facile à scripter. En attendant que
+La démarche est répétitive et facile à scripter. En attendant que
 `perf-sentinel sign` arrive (prévu 0.7.x), ce workflow jq capture
-les champs depuis la sortie cosign et patche le rapport en une
+les champs depuis la sortie cosign et met à jour le rapport en une
 passe :
 
 ```bash
@@ -535,9 +538,9 @@ jq --arg url "https://transparency.example.fr/bundle.sig" \
    report.json > report-signed.json && mv report-signed.json report.json
 ```
 
-C'est un workaround intérimaire. `perf-sentinel sign` remplacera
-la combinaison bash + jq par une seule subcommand quand elle
-shippera.
+C'est une solution de contournement provisoire. `perf-sentinel sign`
+remplacera la combinaison bash + jq par une seule sous-commande dès sa
+livraison.
 
 Les opérateurs qui font tourner une instance Rekor privée fixent
 `[reporting.sigstore] rekor_url = "..."` dans leur config
@@ -551,15 +554,15 @@ flag pour les rapports destinés à la transparence publique.
 le rapport vérifié, donc un consommateur qui télécharge une
 divulgation publique n'a besoin d'aucune config locale : l'URL
 voyage avec le rapport. Pour forcer un Rekor différent au moment
-de la vérification (par exemple cross-check une revendication
-Rekor public contre une archive privée), invoquer cosign
+de la vérification (par exemple pour une vérification croisée d'une
+revendication Rekor public contre une archive privée), invoquer cosign
 directement avec son propre flag `--rekor-url` plutôt que via
 `verify-hash`. Le rapport reste la source de vérité unique pour
 le journal de transparence qui l'a signé.
 
 Voir `docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md` pour la
-méthodologie complète, les modes d'échec, et les considérations
-privacy sur Rekor public.
+méthodologie complète, les modes d'échec, et les considérations de
+confidentialité sur Rekor public.
 
 ## Vérifier un rapport publié
 
@@ -588,38 +591,38 @@ Voir [Vérification d'identité](#vérification-didentité) plus bas pour
 les trois modes et leur sémantique. Réservez `--no-identity-check` à
 une auto-vérification interne avant publication.
 
-`verify-hash` chaîne trois vérifications : recompute déterministe
+`verify-hash` chaîne trois vérifications : recalcul déterministe
 du content hash (Rust pur, toujours lancé), signature Sigstore
 (`cosign verify-blob`), et provenance SLSA du binaire
-(résumé métadonnée plus une commande `gh attestation verify` qui
+(résumé des métadonnées plus une commande `gh attestation verify` qui
 pointe vers le binaire dans `integrity.binary_verification_url`).
 
 Codes de sortie :
 
-| Code | Signification                                                                                                                                                       |
-|------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `0`  | TRUSTED (content hash matché ET signature vérifiée ok, et l'attestation binaire pas laissée non vérifiée quand le rapport porte des métadonnées d'attestation)      |
-| `1`  | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme)                                    |
-| `2`  | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, `gh` CLI absent, métadonnée de signature absente, sidecars manquants)      |
-| `3`  | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant)                                                                            |
-| `4`  | NETWORK_ERROR (mode `--url` uniquement : fetch HTTP échoué, schéma refusé, body au-dessus du cap de taille)                                                         |
+| Code | Signification                                                                                                                                                         |
+|------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `0`  | TRUSTED (content hash correspondant ET signature vérifiée ok, et l'attestation binaire pas laissée non vérifiée quand le rapport porte des métadonnées d'attestation) |
+| `1`  | UNTRUSTED (une vérification a retourné un échec dur : hash non concordant, signature invalide, attestation invalide, identité non-conforme)                           |
+| `2`  | PARTIAL (pas d'échec dur mais au moins une vérification n'a pas pu aboutir : cosign absent, `gh` CLI absent, métadonnée de signature absente, sidecars manquants)     |
+| `3`  | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant)                                                                              |
+| `4`  | NETWORK_ERROR (mode `--url` uniquement : récupération HTTP échouée, schéma refusé, corps de réponse au-delà de la limite de taille)                                   |
 
 Un gate scripté `verify-hash && deploy` bloque sur tout code
-non-zéro et rejette donc PARTIAL aussi. Une enveloppe qui
-distingue PARTIAL (2) de UNTRUSTED (1) peut différencier un
-outil manquant d'une tentative de tamper.
+non-zéro et rejette donc PARTIAL aussi. Un script d'encapsulation
+qui distingue PARTIAL (2) de UNTRUSTED (1) peut différencier un
+outil manquant d'une tentative de falsification.
 
-Quand un rapport porte des métadonnées d'attestation binaire, ce bloc
-n'est plus vérifié en silence : sans `--verify-binary <chemin>`
-l'attestation reste non vérifiée et le résultat plafonne à PARTIAL au
-lieu de TRUSTED. Passez `--verify-binary <chemin>` pour lancer
-`gh attestation verify` sur le binaire producteur (nécessite le CLI `gh`
-et le réseau), afin que la provenance soit réellement contrôlée et que le
-code `0` le reflète.
+Quand un rapport porte des métadonnées d'attestation binaire,
+`verify-hash` n'ignore pas ce bloc en silence : sans
+`--verify-binary <chemin>` l'attestation reste non vérifiée et le
+résultat plafonne à PARTIAL au lieu de TRUSTED. Passez
+`--verify-binary <chemin>` pour lancer `gh attestation verify` sur le
+binaire producteur (nécessite le CLI `gh` et le réseau), afin que la
+provenance soit contrôlée et que le code `0` le reflète.
 
 ### Convention URL des sidecars en mode `--url`
 
-`verify-hash --url <REPORT_URL>` fetch trois fichiers depuis le
+`verify-hash --url <REPORT_URL>` récupère trois fichiers depuis le
 même répertoire, avec des **noms fixes** :
 
 ```
@@ -631,8 +634,8 @@ https://example.fr/bundle.sig                   (sidecar bundle cosign)
 Les noms de sidecars ne sont pas dérivés du nom de fichier du
 rapport : ils sont littéralement `attestation.intoto.jsonl` et
 `bundle.sig`. Un opérateur qui publie un rapport doit utiliser
-ces noms exacts au même URL prefix pour que `verify-hash --url`
-les trouve automatiquement. Une révision future pourrait surfacer
+ces noms exacts sous le même préfixe d'URL pour que `verify-hash --url`
+les trouve automatiquement. Une révision future pourrait exposer
 les URLs dans `integrity.signature.bundle_url` pour rendre la
 convention explicite par rapport, mais ce n'est pas le
 comportement actuel.
@@ -644,55 +647,55 @@ aurait dû signer le rapport. Trois modes :
 
 - `--expected-identity <ID> --expected-issuer <URL>` : cosign
   vérifie que le bundle a été émis par exactement cette identité
-  OIDC. Les valeurs viennent de la connaissance préalable de
-  l'auditeur de l'organisation publiante (le rapport déclare ces
+  OIDC. Les valeurs viennent de la connaissance préalable qu'a
+  l'auditeur de l'organisation publiante. Le rapport déclare ces
   valeurs dans `integrity.signature.signer_identity` /
-  `.signer_issuer` mais traiter ces déclarations comme
-  authoritatives serait de l'autosigning : n'importe quel
-  détenteur d'un compte GitHub ou Google peut publier un bundle
-  revendiquant une identité).
+  `.signer_issuer`, mais traiter ces déclarations comme faisant
+  autorité serait de l'autosignature : n'importe quel détenteur
+  d'un compte GitHub ou Google peut publier un bundle revendiquant
+  une identité.
 - `--no-identity-check` : cosign vérifie l'intégrité
-  cryptographique sans vérifier l'identité. Utile pour un
-  self-check interne avant publication, mais explicitement loggé
+  cryptographique sans vérifier l'identité. Utile pour une
+  auto-vérification interne avant publication, mais journalisé
   comme PARTIAL parce que le signataire n'est pas vérifié.
 - Aucun flag passé : `verify-hash` refuse d'invoquer cosign et
   retourne `Status::Fail` sur le slot signature. C'est le défaut
-  safe et force un consommateur externe à déclarer son intention.
+  sûr et force un consommateur externe à déclarer son intention.
 
 ### Provenance build du binaire
 
 `integrity.binary_hash` est le SHA-256 du binaire perf-sentinel
 qui a produit le rapport. Pour une divulgation officielle, la
-valeur devrait matcher un binaire de release officiel publié sur
-les GitHub releases du projet. Les opérateurs qui buildent
+valeur devrait correspondre à un binaire de release officiel publié
+sur les GitHub releases du projet. Les opérateurs qui compilent
 perf-sentinel depuis les sources peuvent quand même produire des
-rapports officiels, mais leur `binary_hash` ne matchera aucune
+rapports officiels, mais leur `binary_hash` ne correspondra à aucune
 release publiée. Dans ce cas `integrity.binary_attestation` est
 absent (pas de provenance SLSA pour un build local) et
-`verify-hash` reporte `[--] Binary attestation: not provided`.
+`verify-hash` affiche `[--] Binary attestation: not provided`.
 L'`integrity_level` est `signed`, pas `signed-with-attestation`.
 Pour un maximum de confiance sur une publication, utiliser le
-binaire de release qui matche le tag déclaré dans
+binaire de release qui correspond au tag déclaré dans
 `integrity.binary_verification_url`.
 
 ## Calculer un content hash canonique avec `hash-bake` (0.7.2+)
 
-Pour les fixtures de test et les workflows de debug où vous avez besoin d'un rapport dont le `content_hash` correspond déjà à ce que perf-sentinel produirait, utilisez `hash-bake` :
+Pour les fixtures de test et les workflows de débogage où vous avez besoin d'un rapport dont le `content_hash` correspond déjà à ce que perf-sentinel produirait, utilisez `hash-bake` :
 
 ```bash
 perf-sentinel hash-bake --report input.json --output output.json
 ```
 
-`hash-bake` lit le rapport à `--report`, calcule le `content_hash` canonique (en appliquant le blanchiment `POST_SIGN_FIELDS` défini pour la version du schéma), écrit le hash dans `integrity.content_hash`, et sauvegarde le résultat à `--output`. Le même chemin que `--report` est accepté pour un baking en place, avec un temp+rename atomique qui évite toute corruption partielle.
+`hash-bake` lit le rapport à `--report`, calcule le `content_hash` canonique (en appliquant le vidage des champs `POST_SIGN_FIELDS` défini pour la version du schéma), écrit le hash dans `integrity.content_hash`, et sauvegarde le résultat à `--output`. Le même chemin que `--report` est accepté pour une écriture en place, avec un temp+rename atomique qui évite toute corruption partielle.
 
 Cette commande est destinée à :
 
 - Générer des fixtures de test avec un hash canonique valide (par exemple pour des suites qui exercent `verify-hash` en sortie TRUSTED ou PARTIAL).
-- Déboguer un rapport dont le hash a divergé du canonique (typiquement après des édits manuels sur des champs hors `POST_SIGN_FIELDS`).
+- Déboguer un rapport dont le hash a divergé du canonique (typiquement après des modifications manuelles sur des champs hors `POST_SIGN_FIELDS`).
 
-Les rapports signés (`integrity.signature` non-null) sont rejetés par défaut. Le re-baking n'invalide pas la signature, puisque la forme canonique blanchit la signature de toute façon, mais l'opérateur doit confirmer l'intention via `--allow-signed`.
+Les rapports signés (`integrity.signature` non-null) sont rejetés par défaut. Relancer `hash-bake` n'invalide pas la signature, puisque la forme canonique vide la signature de toute façon, mais l'opérateur doit confirmer l'intention via `--allow-signed`.
 
-`hash-bake` ne modifie pas `integrity.signature`, ne modifie pas `integrity.binary_attestation`, et ne modifie pas `report_metadata.integrity_level`. Il n'écrit que `integrity.content_hash`.
+`hash-bake` ne modifie ni `integrity.signature`, ni `integrity.binary_attestation`, ni `report_metadata.integrity_level`. Il n'écrit que `integrity.content_hash`.
 
 Codes de sortie :
 
@@ -705,10 +708,10 @@ Codes de sortie :
 ## Erreurs courantes
 
 - `Error: audited intent is reserved for a future release, use 'internal' or 'official' instead` : basculer `--intent` sur `internal` ou `official`.
-- `no archived reports fell within the requested period` : l'archive contient des lignes mais aucune ne correspond à la fenêtre `--from`/`--to`. Vérifier les timestamps, en particulier autour des changements DST et des frontières de fuseau (l'aggregator filtre sur dates UTC).
+- `no archived reports fell within the requested period` : l'archive contient des lignes mais aucune ne correspond à la fenêtre `--from`/`--to`. Vérifier les horodatages, en particulier autour des changements DST et des frontières de fuseau (l'agrégateur filtre sur les dates UTC).
 - `Error: report validation failed` suivi d'une liste à puces : chaque ligne nomme le champ fautif. Corriger dans le TOML org-config ou dans l'archive source.
 - `strict_attribution` activé et une fenêtre sans offenders : retirer le flag ou corriger l'instrumentation par service qui masque les offenders.
 
 ## Portée et limites
 
-Le rapport est une estimation directionnelle avec un intervalle d'incertitude multiplicatif `2x`. Il n'est pas de grade réglementaire et inadapté à un reporting CSRD ou GHG Protocol Scope 3. Voir `docs/FR/METHODOLOGY-FR.md` pour la chaîne de calcul complète et les sources de calibration qui resserrent l'intervalle (Scaphandre RAPL, cloud SPECpower, Electricity Maps).
+Le rapport est une estimation directionnelle avec un intervalle d'incertitude multiplicatif `2x`. Il n'est pas de niveau réglementaire et ne convient pas à un reporting CSRD ou GHG Protocol Scope 3. Voir `docs/FR/METHODOLOGY-FR.md` pour la chaîne de calcul complète et les sources de calibration qui peuvent resserrer l'intervalle (Scaphandre RAPL, cloud SPECpower, Electricity Maps).
