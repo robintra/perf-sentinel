@@ -18,7 +18,7 @@ Points d'entrée :
 - `perf-sentinel demo --tui` : même vue sur le jeu de démonstration
   embarqué, sans fichier d'entrée.
 - `perf-sentinel inspect --input <events.json>` : ouvre sur la vue
-  Inspect, lit un fichier d'events brut ou un JSON Report pré-calculé.
+  Inspect, lit un fichier d'événements brut ou un JSON Report pré-calculé.
 - `perf-sentinel explain --tui --trace-id <id> --input <events.json>` :
   ouvre sur la vue Explain, centrée sur cette trace.
 - `perf-sentinel query --daemon <URL> inspect [--sort <CLÉ>]` : mode
@@ -28,29 +28,29 @@ Points d'entrée :
 - `perf-sentinel disclose --tui --input <archive>... --org-config <PATH>` :
   ouvre l'aperçu Disclose.
 
-En mode live (0.5.24+), le TUI permet aussi à l'opérateur d'acknowledger
+En mode live (0.5.24+), le TUI permet aussi à l'opérateur d'acquitter
 et de révoquer des findings interactivement depuis le terminal.
 
 Ce TUI est le navigateur de traces et de findings du développeur. Pour
 le monitoring d'exploitation, il existe un TUI opérateur live séparé,
-`perf-sentinel query monitor` (depuis 0.8.8) : six onglets cyclés par
-Tab, **Advisor** (les hints du conseiller de réglages du daemon),
-**Energy** (le mix énergie/carbone effectif par service et par région),
-**Trends** (courbes braille live de l'énergie/carbone par fenêtre et
-des gauges runtime en part de leur plafond configuré), **Scrapers**
-(santé live des backends énergie via `/api/energy`), **Config** (les
-paramètres du daemon en lecture seule, avec leur défaut et une
-explication par paramètre) et **Incidents** (les redémarrages et
-événements mémoire postés par l'alerting, chacun avec les findings
-figés de sa fenêtre, depuis 0.20.0), auto-rafraîchis depuis le daemon
-toutes les `--refresh` secondes (défaut 5). Quand le daemon devient
-injoignable, le dernier instantané valide reste affiché avec un
-indicateur. Lecture seule : pas d'acknowledgment. Aucune clé d'API
-n'est requise sauf pour l'onglet Incidents, qui prend `--api-key-file`
-(ou `PERF_SENTINEL_DAEMON_API_KEY`) et accepte la clé en lecture seule
-`[daemon] read_api_key`.
+`perf-sentinel query monitor` (depuis 0.8.8). Il a six onglets,
+parcourus avec Tab : **Advisor** (les indications du conseiller de
+réglages du daemon), **Energy** (le mix énergie/carbone effectif par
+service et par région), **Trends** (courbes braille live de
+l'énergie/carbone par fenêtre et des jauges runtime en part de leur
+plafond configuré), **Scrapers** (santé live des backends énergie via
+`/api/energy`), **Config** (les paramètres du daemon en lecture seule,
+avec leur défaut et une explication par paramètre) et **Incidents** (les
+redémarrages et événements mémoire postés par l'alerting, chacun avec
+les findings figés de sa fenêtre, depuis 0.20.0). Les onglets se
+rafraîchissent depuis le daemon toutes les `--refresh` secondes
+(défaut 5). Quand le daemon devient injoignable, le dernier instantané
+valide reste affiché avec un indicateur. Lecture seule : pas
+d'acquittement. Aucune clé d'API n'est requise sauf pour l'onglet
+Incidents, qui prend `--api-key-file` (ou `PERF_SENTINEL_DAEMON_API_KEY`)
+et accepte la clé en lecture seule `[daemon] read_api_key`.
 
-![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
+![TUI tout-en-un : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
 ## Vues et drill-down
 
@@ -61,30 +61,30 @@ Analyze  --Enter-->  Inspect  --Enter-->  Explain
          <---Esc---           <---Esc---
 ```
 
-- **Analyze** : la synthèse scrollable (gaspillage GreenOps, principaux
+- **Analyze** : la synthèse à défilement (gaspillage GreenOps, principaux
   postes, quality gate), le même contenu que la sortie stdout d'`analyze`.
   `Enter` descend vers Inspect.
 - **Inspect** : le navigateur multi-panneaux décrit ci-dessous. `Enter`
   parcourt les panneaux puis, depuis Detail, ouvre Explain. `Esc` remonte
   vers Analyze.
 - **Explain** : l'arbre de spans annoté de la trace sélectionnée, plein
-  écran et scrollable. `Esc` revient au panneau Detail d'Inspect.
+  écran, avec défilement. `Esc` revient au panneau Detail d'Inspect.
 
 Une barre d'onglets en haut met en évidence la vue active. Les arbres de
 spans se dessinent depuis des spans bruts (`inspect --input <events>.json`
 ou `query inspect`) ou depuis les arbres masqués qu'un Report porte (un
 instantané daemon, ou `tempo`/`jaeger-query --format json`). Une trace
-dont l'entrée ne tient pas les spans affiche un indice à la place.
+dont l'entrée ne contient pas les spans affiche une indication à la place.
 
 ![Vue Analyze : le tableau de bord de synthèse GreenOps sous la barre d'onglets](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
 
-![Vue Inspect : le navigateur à quatre panneaux, traces, findings, corrélations et detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/inspect.png)
+![Vue Inspect : le navigateur à quatre panneaux, traces, findings, corrélations et détail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/inspect.png)
 
 ![Vue Explain : l'arbre de spans annoté plein écran d'une trace](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/explain.png)
 
 ## Layout
 
-L'écran se découpe en une layout 2 lignes :
+L'écran se découpe en une disposition sur 2 lignes :
 
 ```
 ┌─ Traces ──┬─ Findings ────────────────┬─ Correlations ────┐
@@ -96,36 +96,36 @@ L'écran se découpe en une layout 2 lignes :
 └───────────────────────────────────────────────────────────┘
 ```
 
-La bordure du panel actif est cyan, le reste reste gris.
+La bordure du panneau actif est cyan, celles des autres restent grises.
 
 ## Keybindings
 
 La navigation fonctionne aux flèches partout. Dans la vue Inspect, les
 touches vim `h` / `j` / `k` / `l` s'appliquent aussi, et `j` / `k`
-scrollent les vues Analyze et Explain.
+font défiler les vues Analyze et Explain.
 
-| Touche                | Action                                                 |
-|-----------------------|--------------------------------------------------------|
-| `q`                   | Quitter                                                |
-| `↑` / `k`             | Sélection vers le haut, ou scroll (Analyze, Explain)   |
-| `↓` / `j`             | Sélection vers le bas, ou scroll (Analyze, Explain)    |
-| `→` / `Tab` / `l`     | Cycle vers le panneau suivant (Inspect)                |
-| `←` / `BackTab` / `h` | Cycle vers le panneau précédent (Inspect)              |
-| `Enter`               | Descend d'un cran dans le drill-down (voir ci-dessous) |
-| `Esc`                 | Remonte d'un cran                                      |
-| `m`                   | Bascule le mode souris pour glisser les bordures       |
-| `r`                   | Réinitialise les tailles des panneaux (Inspect)        |
-| `s`                   | Cycle le tri : impact, sévérité, id (Inspect)          |
-| `f`                   | Cycle le filtre de sévérité (Inspect)                  |
-| `a`                   | Acknowledger le finding sélectionné (mode live)        |
-| `u`                   | Révoquer l'ack existant (mode live)                    |
+| Touche                | Action                                                   |
+|-----------------------|----------------------------------------------------------|
+| `q`                   | Quitter                                                  |
+| `↑` / `k`             | Monte la sélection, ou fait défiler (Analyze, Explain)   |
+| `↓` / `j`             | Descend la sélection, ou fait défiler (Analyze, Explain) |
+| `→` / `Tab` / `l`     | Passe au panneau suivant (Inspect)                       |
+| `←` / `BackTab` / `h` | Passe au panneau précédent (Inspect)                     |
+| `Enter`               | Descend d'un cran dans le drill-down (voir ci-dessous)   |
+| `Esc`                 | Remonte d'un cran                                        |
+| `m`                   | Bascule le mode souris pour glisser les bordures         |
+| `r`                   | Réinitialise les tailles des panneaux (Inspect)          |
+| `s`                   | Passe au tri suivant : impact, sévérité, id (Inspect)    |
+| `f`                   | Passe au filtre de sévérité suivant (Inspect)            |
+| `a`                   | Acquitter le finding sélectionné (mode live)             |
+| `u`                   | Révoquer l'ack existant (mode live)                      |
 
 `s` ordonne les deux listes à la fois, les traces et les findings de la
 trace sélectionnée, sur les mêmes clés et les mêmes directions que
 `analyze --sort` et le dashboard. `--sort` sur `analyze --tui` et sur
 `query inspect` ouvre directement dans cet ordre.
 
-`f` fait défiler le panneau Findings entre toutes les sévérités, puis
+`f` fait passer le panneau Findings par toutes les sévérités, puis
 critical, warning et info isolément. Le titre du panneau et la barre
 d'onglets nomment tous deux le filtre actif, et une trace dont tous les
 findings sont filtrés garde sa ligne avec un panneau vide : la liste des
@@ -133,9 +133,9 @@ traces répond à ce qui a tourné, pas à ce qui correspond.
 
 `m` bascule la capture souris (optionnelle, le copier-coller natif du
 terminal reste donc disponible quand elle est coupée). Une fois activée,
-glisser la bordure entre deux panneaux redistribue leur espace, et
-survoler une bordure la met en évidence avec une poignée, car une
-application terminal ne peut pas changer le curseur souris de l'OS. `r`
+glisser la bordure entre deux panneaux redistribue leur espace. Survoler
+une bordure la met en évidence avec une poignée, car une application
+terminal ne peut pas changer le curseur souris de l'OS. `r`
 réinitialise la disposition par défaut. Les tailles sont propres à la
 session et non persistées.
 
@@ -145,26 +145,26 @@ le panneau Correlations, il saute vers le Detail de la trace d'exemple de
 la corrélation. `Esc` inverse chaque étape, remontant des panneaux de
 tête d'Inspect jusqu'à Analyze.
 
-`a` et `u` sont no-op en mode batch (`inspect --input`) puisque
-l'acknowledgment a besoin d'un daemon qui tourne pour persister.
+`a` et `u` sont sans effet en mode batch (`inspect --input`) puisque
+l'acquittement a besoin d'un daemon qui tourne pour persister.
 
 ## Flow d'acknowledgment (mode live)
 
-Quand le TUI est lancé via `query inspect`, il fetch les findings avec
-`?include_acked=true` pour que les findings déjà acknowledged
+Quand le TUI est lancé via `query inspect`, il récupère les findings avec
+`?include_acked=true` pour que les findings déjà acquittés
 apparaissent dans la liste avec un indicateur italique gris
 `[acked by <user>]` à droite de la ligne.
 
 ### `a` : créer un ack
 
 Presser `a` sur un finding sélectionné ouvre une modale centrée sur
-l'écran avec trois champs d'input :
+l'écran avec trois champs de saisie :
 
-| Champ   | Contrainte                      | Default                 |
+| Champ   | Contrainte                      | Défaut                  |
 |---------|---------------------------------|-------------------------|
-| Reason  | 1 à 256 chars, single-line      | vide (requis)           |
+| Reason  | 1 à 256 caractères, une ligne   | vide (requis)           |
 | Expires | vide, `24h`, `7d`, ISO8601, etc | vide (pas d'expiration) |
-| By      | 1 à 128 chars                   | env var `$USER`         |
+| By      | 1 à 128 caractères              | variable d'env `$USER`  |
 
 Plus deux boutons (`Submit` / `Cancel`).
 
@@ -173,37 +173,38 @@ Navigation modale :
 | Touche           | Action                                       |
 |------------------|----------------------------------------------|
 | `Tab`            | Focus sur le champ ou bouton suivant         |
-| `BackTab`        | Focus arrière                                |
+| `BackTab`        | Focus sur le champ ou bouton précédent       |
 | `Enter` (texte)  | Avance au champ suivant                      |
 | `Enter` (Submit) | Envoie le formulaire                         |
 | `Enter` (Cancel) | Ferme la modale sans envoyer                 |
 | `Esc`            | Annule la modale                             |
-| `Backspace`      | Supprime le dernier char du buffer focus     |
+| `Backspace`      | Supprime le dernier caractère du champ actif |
 
-Au submit, le TUI poste sur `/api/findings/<sig>/ack` et ferme la
+À l'envoi, le TUI poste sur `/api/findings/<sig>/ack` et ferme la
 modale sur 201. En cas d'erreur (4xx/5xx), la modale reste ouverte
 avec le message d'erreur en bas (texte rouge).
 
 ### `u` : révoquer un ack
 
-Presser `u` sur un finding acknowledged ouvre une modale de
+Presser `u` sur un finding acquitté ouvre une modale de
 confirmation. `Submit` / `Enter` envoie un `DELETE
 /api/findings/<sig>/ack`. `Cancel` / `Esc` ferme sans révoquer.
 
 ### Format expires
 
-Mirror du CLI ack helper (depuis 0.5.22) :
+Identique à l'utilitaire ack du CLI (depuis 0.5.22) :
 
-- Vide : pas d'expiration, l'ack persiste jusqu'à revoke manuel
-- `24h`, `7d`, `30m` : durée relative parsée par humantime
+- Vide : pas d'expiration, l'ack persiste jusqu'à révocation manuelle
+- `24h`, `7d`, `30m` : durée relative analysée par humantime
 - `2026-05-11T00:00:00Z` : datetime ISO8601 absolu
 
-Une entrée invalide affiche `expires: <erreur>` dans le footer de la
-modale sans envoyer la requête.
+Une entrée invalide affiche `expires: <erreur>` en bas de la modale
+sans envoyer la requête.
 
 ## Authentification
 
-Le TUI mirror la résolution d'auth du CLI ack helper :
+Le TUI reprend la résolution d'authentification de l'utilitaire ack du
+CLI :
 
 1. Variable d'env `PERF_SENTINEL_DAEMON_API_KEY` (priorité 1)
 2. Flag `--api-key-file <path>` sur `query inspect` (priorité 2)
@@ -218,17 +219,18 @@ perf-sentinel query --daemon http://localhost:4318 inspect \
   --api-key-file ~/.config/perf-sentinel/key
 ```
 
-Les deux sont équivalents. Le path supporte le refus de symlink via
-`O_NOFOLLOW` sur Unix et trim les newlines en fin de fichier.
+Les deux sont équivalents. Les sauts de ligne en fin de fichier sont
+supprimés et, sur Unix, le fichier est ouvert avec `O_NOFOLLOW` (les liens
+symboliques sont refusés).
 
-**Pas de prompt password interactif dans le TUI.** Le raw mode et
-l'alternate screen sont incompatibles avec l'input TTY de
-`rpassword`. Si le daemon répond 401 sans clé env ou file, la modale
-affiche "API key required: set PERF_SENTINEL_DAEMON_API_KEY or pass
---api-key-file when launching `query inspect`." Quitter, définir la clé,
-relancer.
+**Pas d'invite de mot de passe interactive dans le TUI.** Le mode raw et
+l'écran alternatif sont incompatibles avec la saisie TTY de
+`rpassword`. Si le daemon répond 401 sans clé en variable
+d'environnement ni en fichier, la modale affiche "API key required: set
+PERF_SENTINEL_DAEMON_API_KEY or pass --api-key-file when launching
+`query inspect`." Quitter, définir la clé, relancer.
 
-Quand le daemon n'a pas de `[daemon.ack] api_key` configuré (default
+Quand le daemon n'a pas de `[daemon.ack] api_key` configuré (défaut
 pour les déploiements loopback), aucune clé n'est requise et la
 modale envoie directement.
 
@@ -236,24 +238,25 @@ modale envoie directement.
 
 ### Le HTTP synchrone freeze l'UI
 
-`run_loop` est synchrone et le write daemon ack est exécuté via
+`run_loop` est synchrone et l'écriture de l'ack daemon est exécutée via
 `tokio::runtime::Handle::current().block_on(...)` depuis l'intérieur
-de la loop. L'UI freeze pour la durée de la requête, typiquement
-100-300 ms en localhost, plus long sur le réseau. Acceptable pour une
-release scope-minimal. Un refactor en async event loop est un
-followup candidat si le feedback utilisateur signale de la friction.
+de la boucle. L'UI se fige pendant la durée de la requête, typiquement
+100-300 ms en localhost, plus longtemps sur le réseau. Acceptable pour
+une version au périmètre minimal. Une refonte en boucle d'événements
+async pourra suivre si les retours utilisateurs signalent de la
+friction.
 
 ### Snapshot de la liste des findings
 
-La liste des findings est fetchée une seule fois au boot. `a`/`u`
+La liste des findings est récupérée une seule fois au démarrage. `a`/`u`
 rafraîchissent uniquement l'état des acks via un second `GET
-/api/findings?include_acked=true`, la liste des findings elle-même ne
+/api/findings?include_acked=true`. La liste des findings elle-même ne
 change pas en cours de session. Pour récupérer des traces nouvellement
 ingérées, quitter et relancer.
 
 ### Acks TOML visibles, pas modifiables
 
-Les findings ack dans `.perf-sentinel-acknowledgments.toml` (CI ack)
+Les findings acquittés dans `.perf-sentinel-acknowledgments.toml` (CI ack)
 apparaissent avec l'indicateur `[acked by <user>]` et le champ source
 positionné à `toml`. Le TUI ne peut pas promouvoir un ack daemon vers
 TOML ni éditer le fichier TOML. Pour les acks permanents, éditer le
@@ -265,24 +268,25 @@ fichier via revue PR comme décrit dans
 `perf-sentinel query monitor` (depuis 0.8.8) est le pendant côté
 exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
 contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
-défaut 5) et fonctionne en lecture seule. `Tab` cycle les six
+défaut 5) et fonctionne en lecture seule. `Tab` parcourt les six
 onglets et `BackTab` revient en arrière, `j`/`k` ou les flèches
-défilent, `q` ou `Échap` quitte. Sur l'onglet Trends, `m` bascule
+font défiler, `q` ou `Échap` quitte. Sur l'onglet Trends, `m` bascule
 le mode souris pour glisser les bordures des graphes et `r` les
-réinitialise, la même indication visuelle que le navigateur Inspect. Les données de chaque onglet
-(hints de config, provenance des sources, intensités par région) sont
-catégorielles et à haute cardinalité, ce que la règle des labels bornés
-garde précisément hors du `/metrics` Prometheus.
+réinitialise, comme dans le navigateur Inspect.
+Les données de chaque onglet (indications de config, provenance des
+sources, intensités par région) sont catégorielles et à haute
+cardinalité, donc la règle des labels bornés les garde hors du
+`/metrics` Prometheus.
 
-![query monitor cycle six onglets sur un daemon vivant : Advisor, Energy, Trends, Scrapers, Config, Incidents](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor parcourt six onglets sur un daemon vivant : Advisor, Energy, Trends, Scrapers, Config, Incidents](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
-- **Advisor** affiche les hints du conseiller de réglages du daemon
-  (`warning_details`), colorés par type. Un daemon bien dimensionné ne
-  signale aucun hint, la capture ci-dessous montre un daemon
-  sous-dimensionné dont la fenêtre de traces est bloquée près de son
-  plafond.
+- **Advisor** affiche les indications du conseiller de réglages du
+  daemon (`warning_details`), colorées par type. Un daemon bien
+  dimensionné ne signale aucune indication. La capture ci-dessous montre
+  un daemon sous-dimensionné dont la fenêtre de traces est bloquée près
+  de son plafond.
 
-  ![Onglet Advisor : un hint de réglage, traces actives à 90% de max_active_traces](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
+  ![Onglet Advisor : une indication de réglage, traces actives à 90% de max_active_traces](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
 
 - **Energy** montre le mix énergie/carbone effectif directement depuis
   le `green_summary` live : par service (source effective, part mesurée,
@@ -293,18 +297,18 @@ garde précisément hors du `/metrics` Prometheus.
 
 - **Trends** trace l'historique de sondage en courbes braille live :
   l'énergie et le carbone par fenêtre de scoring en haut, et en dessous
-  le graphe Headroom, chaque gauge runtime (`active_traces`,
+  le graphe Headroom, chaque jauge runtime (`active_traces`,
   `analysis_queue_depth`, `stored_findings`) en pourcentage de son
   plafond configuré, avec le seuil de 90 % du conseiller de réglages
   tracé en référence. Quand l'intensité de grille effective est
-  statique, les deux courbes du haut se suivent ; elles divergent dès
+  statique, les deux courbes du haut se suivent. Elles divergent dès
   que l'intensité bouge, soit par le flux temps réel Electricity Maps,
   soit par un mix régional qui se déplace (la capture ci-dessous met en
   scène ce second cas). Un point arrive par tick de rafraîchissement,
   jusqu'à 240 points (20 minutes au défaut de 5 s), et l'historique vit
   dans le moniteur seul : le relancer repart d'une fenêtre vierge. Les
-  champs de plafond demandent un daemon 0.8.8, face à un daemon plus
-  ancien le panneau Headroom se dégrade en indication.
+  champs de plafond demandent un daemon 0.8.8. Face à un daemon plus
+  ancien, le panneau Headroom se dégrade en indication.
 
   ![Onglet Trends : courbes d'énergie et de carbone sur l'historique de sondage, pourcentages de headroom sous le seuil advisor](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/trends.png)
 
@@ -318,43 +322,44 @@ garde précisément hors du `/metrics` Prometheus.
 - **Config** lit `/api/config` pour les réglages `[daemon]` effectifs
   du daemon, en lecture seule. Chaque paramètre montre sa valeur
   actuelle, le défaut compilé (calculé localement) et une explication
-  d'une ligne de ce qu'il fait ; les valeurs qui diffèrent du défaut
+  d'une ligne de ce qu'il fait. Les valeurs qui diffèrent du défaut
   sont marquées `modified`. Les secrets sont résumés côté serveur (TLS
   configured/not, clés d'API ack et de lecture set/unset, store
   d'incidents enabled/disabled) et jamais montrés en clair.
   Nécessite un daemon 0.8.8+, les plus anciens affichent une indication.
 
-  ![Onglet Config : paramètres du daemon avec valeur actuelle, défaut et description ; valeurs modifiées signalées](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/config.png)
+  ![Onglet Config : paramètres du daemon avec valeur actuelle, défaut et description, valeurs modifiées signalées](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/config.png)
 
 - **Incidents** lit `GET /api/incidents` pour les redémarrages et
   événements mémoire que votre alerting a postés au daemon (depuis
   0.20.0), du plus récent au plus ancien, chacun avec les findings figés
-  de la fenêtre qui l'a précédé. Une ligne en gras par incident (début
-  en heure locale, service en `ns/service` quand l'alerte portait un
-  namespace, genre, `firing` ou `ended`, nombre de findings, et un
-  marqueur de capture : `complete`, `partial` quand le
-  ring avait déjà évincé une partie de la fenêtre et que la liste est
-  donc en deçà de ce qui a brûlé, `empty ring`), le détail de l'alerte
-  en dessous, puis une ligne indentée par finding avec son type, sa
-  sévérité, son endpoint, son décompte sur la fenêtre et s'il a brûlé
+  de la fenêtre qui l'a précédé. Chaque incident s'affiche en une ligne
+  en gras, le détail de l'alerte en dessous, puis une ligne indentée par
+  finding. La ligne en gras porte le début en heure locale, le service
+  en `ns/service` quand l'alerte portait un namespace, le genre,
+  `firing` ou `ended`, le nombre de findings et un marqueur de capture :
+  `complete`, `partial` quand le ring avait déjà évincé une partie de la
+  fenêtre et que la liste est donc en deçà de ce qui s'est déclenché,
+  ou `empty ring`. Une ligne de finding montre son type, sa sévérité,
+  son endpoint, son décompte sur la fenêtre et s'il s'est déclenché
   `before` ou `after` le redémarrage, ce marqueur ouvrant la ligne pour
   qu'un terminal étroit ne le coupe jamais. C'est le seul onglet qui
   demande une clé d'API : passez `--api-key-file <CHEMIN>` (ou posez
   `PERF_SENTINEL_DAEMON_API_KEY`), et la clé en lecture seule
   `[daemon] read_api_key` suffit. Sans clé l'onglet nomme le 401 et
-  comment en passer une, un daemon qui tourne avec
+  comment en passer une. Un daemon qui tourne avec
   `[daemon.incidents] enabled = false` se lit comme une indication 503,
   un daemon antérieur à 0.20.0 comme une indication 404. Aucun des
   trois ne bascule `[STALE]`, qui ne suit que le sondage du rapport, et
   un échec passager garde la dernière liste à l'écran. Le moniteur
-  sonde les 20 incidents les plus récents, `perf-sentinel query
-  incidents --offset` pagine au-delà et `--namespace` restreint la liste
-  à un namespace.
+  sonde les 20 incidents les plus récents.
+  `perf-sentinel query incidents --offset` pagine au-delà et
+  `--namespace` restreint la liste à un namespace.
 
-  ![Onglet Incidents : un OOM kill de checkout-svc encore actif, sa fenêtre capturée complète, un finding qui brûlait avant le redémarrage](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
+  ![Onglet Incidents : un OOM kill de checkout-svc encore actif, sa fenêtre capturée complète, un finding qui se déclenchait avant le redémarrage](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/incidents.png)
 
 Quand le daemon devient injoignable, le dernier instantané valide reste
-affiché avec un indicateur `[STALE]` au lieu de devenir blanc.
+affiché avec un indicateur `[STALE]` au lieu de se vider.
 
 ## Thème du terminal
 
@@ -362,10 +367,10 @@ Les deux TUI (ce moniteur et le navigateur Inspect) suivent le thème
 du terminal lui-même : ils utilisent les 16 couleurs ANSI nommées et
 n'imposent jamais de fond, donc un terminal en thème clair les rend sur
 fond clair et un terminal sombre sur fond sombre. Le texte secondaire
-(titres, hints, en-têtes de colonnes) utilise l'attribut d'atténuation
-du terminal plutôt qu'un gris figé, pour rester lisible sur l'un comme
-sur l'autre fond. Il n'y a pas de flag `--theme` : configurez les
-couleurs dans votre émulateur de terminal.
+(titres, indications, en-têtes de colonnes) utilise l'attribut
+d'atténuation du terminal plutôt qu'un gris figé, pour rester lisible
+sur l'un comme sur l'autre fond. Il n'y a pas de flag `--theme` :
+configurez les couleurs dans votre émulateur de terminal.
 
 ## Voir aussi
 
@@ -374,8 +379,8 @@ couleurs dans votre émulateur de terminal.
   décision complète.
 - [`CLI-FR.md`](./CLI-FR.md) pour la référence de la sous-commande
   `perf-sentinel ack` (équivalent CLI de `a`/`u`).
-- [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md) pour le flow ack
-  navigateur via `--daemon-url`.
+- [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md) pour le flux d'ack
+  côté navigateur via `--daemon-url`.
 - [`QUERY-API-FR.md`](./QUERY-API-FR.md) pour l'endpoint `/api/energy`
   que lit l'onglet Scrapers, et la surface HTTP en lecture seule du
   daemon.

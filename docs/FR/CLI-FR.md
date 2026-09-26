@@ -15,7 +15,7 @@ perf-sentinel <subcommand> --help
 ```
 
 Les sections ci-dessous ne sont pas exhaustives pour chaque
-sous-commande, elles se concentrent sur les surfaces utilisateur qui
+sous-commande. Elles se concentrent sur les surfaces utilisateur qui
 bénéficient d'une explication en prose (workflow, valeurs par défaut,
 codes de sortie). Pour la liste complète des flags, préférez `--help`.
 
@@ -110,13 +110,12 @@ kill -TERM $CAPTURE && wait $CAPTURE
 Du NDJSON, une requête OTLP par ligne, la forme que produit l'exporteur
 `file` du Collector. `analyze`, `report` et `diff` la détectent
 automatiquement, sans flag. Les requêtes sont écrites telles que reçues,
-sans conversion, le fichier décrit donc ce que l'application a réellement
-envoyé.
+sans conversion, le fichier décrit donc ce que l'application a envoyé.
 
 Le répertoire de `--output` est créé s'il manque, de sorte que
 `--output target/traces.json` fonctionne sur un workspace CI vierge où
 l'outil de build n'a pas encore créé `target/`. En mode enveloppe, cet
-outil de build est justement celui qui n'a pas encore tourné.
+outil de build n'a pas encore tourné.
 
 La progression et le décompte final vont sur **stderr**, jamais sur
 stdout : en mode enveloppe, ce flux appartient à la commande enveloppée.
@@ -126,12 +125,12 @@ par `analyze` au lieu d'être présenté comme une gate au vert.
 
 ### Options utiles
 
-| Flag | Défaut | Pourquoi le changer |
-|---|---|---|
-| `--listen-address` | `127.0.0.1` | `0.0.0.0` quand l'application tourne dans un autre conteneur du même job |
-| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | un port est déjà pris sur l'agent |
-| `--max-file-size` | `512` (Mio) | une grosse suite. Au-delà du plafond le fichier reste valide mais incomplet, et le run sort en `2` plutôt que de faire semblant |
-| `--grace-ms` | `2000` | combien de temps continuer à écouter après la fin de la commande, pour le dernier flush de l'exporteur |
+| Flag                                        | Défaut          | Pourquoi le changer                                                                                    |
+|---------------------------------------------|-----------------|--------------------------------------------------------------------------------------------------------|
+| `--listen-address`                          | `127.0.0.1`     | `0.0.0.0` quand l'application tourne dans un autre conteneur du même job                               |
+| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | un port est déjà pris sur l'agent                                                                      |
+| `--max-file-size`                           | `512` (Mio)     | une grosse suite. Au-delà du plafond le fichier reste valide mais incomplet, et le run sort en `2`     |
+| `--grace-ms`                                | `2000`          | combien de temps continuer à écouter après la fin de la commande, pour le dernier flush de l'exporteur |
 
 ### Codes de sortie
 
@@ -195,7 +194,7 @@ Options :
 - `--expires <ISO8601_OR_DURATION>` : expiration de l'ack. Accepte un
   datetime ISO8601 (`2026-05-11T00:00:00Z`) ou une durée relative
   (`7d`, `24h`, `30m`). Omettre pour un ack permanent.
-- `--by <NOM>` : identité de la personne qui acquitte. Fallback sur
+- `--by <NOM>` : identité de la personne qui acquitte. Se rabat sur
   `$USER`, puis `"anonymous"`.
 - `--api-key-file <CHEMIN>` : voir "Authentification" plus bas.
 
@@ -230,19 +229,19 @@ config), le CLI la résout dans cet ordre :
 
 1. Variable d'environnement `PERF_SENTINEL_DAEMON_API_KEY`.
 2. `--api-key-file <CHEMIN>`. Le contenu du fichier est lu et tout
-   newline final est strippé.
-3. Prompt interactif `rpassword` (sans écho) si le daemon retourne
+   saut de ligne final est supprimé.
+3. Invite interactive `rpassword` (sans écho) si le daemon retourne
    401 et stdin est un TTY. La valeur collée est plafonnée à 1 KiB.
 
 `query inspect`, `query monitor` et `query incidents` prennent le même
 `--api-key-file <CHEMIN>` et le résolvent de la même façon (étapes 1 et
-2, pas de prompt). La clé de lecture `[daemon] read_api_key` suffit pour
-`query monitor` et `query incidents`, `ack` et `query inspect` ont
+2, pas d'invite). La clé de lecture `[daemon] read_api_key` suffit pour
+`query monitor` et `query incidents`. `ack` et `query inspect` ont
 besoin de la clé d'ack.
 
-Il n'y a pas de flag `--api-key <SECRET>` direct, par design : passer
-des secrets en ligne de commande les expose via la liste des
-processus et l'historique du shell.
+Il n'y a pas de flag `--api-key <SECRET>` direct, car passer des
+secrets en ligne de commande les expose via la liste des processus et
+l'historique du shell.
 
 Sur Unix, `--api-key-file` est ouvert avec `O_NOFOLLOW` (les liens
 symboliques sont refusés) et le CLI affiche un avertissement d'une
@@ -264,7 +263,8 @@ qui écoute sur le port standard OTLP/HTTP.
 ### Codes de sortie
 
 - `0` : succès.
-- `1` : erreur générique (réseau, parse, signature absente sur stdin).
+- `1` : erreur générique (échec réseau, erreur d'analyse syntaxique,
+  signature absente sur stdin).
 - `2` : erreur client (HTTP 4xx). Inclut 401 (non autorisé), 409
   (déjà acquitté), 404 (non acquitté sur revoke), 400 (signature
   invalide).
@@ -272,23 +272,23 @@ qui écoute sur le port standard OTLP/HTTP.
   500 (échec d'écriture) et 507 (store ack plein).
 
 Les erreurs sont écrites sur stderr avec une cause sur une ligne et
-un hint actionnable quand pertinent.
+une indication exploitable le cas échéant.
 
 ## Autres sous-commandes
 
 `perf-sentinel query incidents [--service <NOM>] [--namespace <NOM>]
 [--offset N] [--limit N] [--format text|json] [--api-key-file <CHEMIN>]`
 liste les incidents que l'alerting a postés au daemon (0.20.0+,
-`[daemon.incidents]`), du plus récent au plus ancien : un bloc d'en-tête
-par incident (genre, service en `ns/service` quand l'alerte portait un
-namespace, début et fin en heure locale, la fenêtre, un marqueur de
+`[daemon.incidents]`), du plus récent au plus ancien. Chaque incident a
+un bloc d'en-tête (genre, service en `ns/service` quand l'alerte portait
+un namespace, début et fin en heure locale, la fenêtre, un marqueur de
 capture qui dit si le ring détenait encore toute la fenêtre, combien de
-findings n'ont brûlé qu'après le redémarrage, le détail de l'alerte et
-l'identifiant), puis ses findings dans la mise en page de
+findings ne se sont déclenchés qu'après le redémarrage, le détail de
+l'alerte et l'identifiant), puis ses findings dans la mise en page de
 `query findings`. `--service` et `--namespace` restreignent la liste à
-une valeur chacun, `--limit` vaut 50 par défaut, le daemon le plafonne à
-100, `--offset` pagine au-delà des plus récents. Un 401 (passez la clé),
-un 503 (`[daemon.incidents] enabled = false`) et un 404 (daemon
+une valeur chacun. `--limit` vaut 50 par défaut et le daemon le plafonne
+à 100. `--offset` pagine au-delà des plus récents. Un 401 (passez la
+clé), un 503 (`[daemon.incidents] enabled = false`) et un 404 (daemon
 antérieur à 0.20.0) sortent chacun en 1 avec leur cause nommée.
 `query monitor --api-key-file <CHEMIN>` remet la même clé à l'onglet
 Incidents du moniteur, voir [`INSPECT-FR.md`](./INSPECT-FR.md).
@@ -297,7 +297,7 @@ Pour l'instant, voir `perf-sentinel <subcommand> --help` pour la
 liste complète des options de `analyze`, `watch`, `query`, `report`,
 `diff`, `explain`, `inspect`, `pg-stat`, `mysql-stat`, `tempo`, `jaeger-query`,
 `demo`, `bench` et `calibrate`. Les commandes elles-mêmes sont
-stables, leur documentation prose est complétée incrémentalement.
+stables. Leur documentation en prose est complétée au fur et à mesure.
 
 Le trio chaîne d'approvisionnement dispose d'une documentation
 dédiée ailleurs : `disclose`, `verify-hash` et `hash-bake` sont
@@ -324,7 +324,7 @@ fonctionne aussi.
 ## Complétion shell
 
 `perf-sentinel completions <shell>` écrit un script de complétion sur
-stdout. Shells supportés : `bash`, `zsh`, `fish`, `powershell`,
+stdout. Shells pris en charge : `bash`, `zsh`, `fish`, `powershell`,
 `elvish`. Rediriger la sortie vers le chemin de complétion du shell :
 
 ```bash
@@ -339,8 +339,8 @@ perf-sentinel completions fish > ~/.config/fish/completions/perf-sentinel.fish
 ```
 
 Recharger le shell, ou `source` le fichier, après l'installation.
-Régénérer le script après chaque upgrade de `perf-sentinel` pour que
-la complétion reste alignée avec les nouveaux flags et sous-commandes.
+Régénérer le script après chaque mise à jour de `perf-sentinel` pour
+que la complétion reste alignée sur les nouveaux flags et sous-commandes.
 
 ## Page de manuel
 
@@ -359,5 +359,5 @@ installer :
 perf-sentinel man > /tmp/perf-sentinel.1 && man /tmp/perf-sentinel.1
 ```
 
-Régénérer la page après chaque upgrade de `perf-sentinel` pour qu'elle
-reste alignée avec les nouveaux flags et sous-commandes.
+Régénérer la page après chaque mise à jour de `perf-sentinel` pour
+qu'elle reste alignée sur les nouveaux flags et sous-commandes.
