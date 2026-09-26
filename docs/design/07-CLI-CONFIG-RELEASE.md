@@ -475,7 +475,7 @@ Evaluated and not taken, with the measurements that closed them:
 
 ## Distribution strategy
 
-1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2
+1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. No binary ships for Intel Macs: install with `cargo install` there, or run the Docker image
 2. **`cargo install perf-sentinel --locked`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`): minimal image for Kubernetes deployments
 

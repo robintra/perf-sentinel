@@ -444,7 +444,7 @@ Optimisations livrées, chacune avec sa preuve criterion avant/après :
 
 ## Stratégie de distribution
 
-1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2
+1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Aucun binaire n'est publié pour les Mac Intel : installez perf-sentinel avec `cargo install`, ou lancez l'image Docker
 2. **`cargo install perf-sentinel --locked`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`) : image minimale pour les déploiements Kubernetes
 
