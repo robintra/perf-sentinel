@@ -39,7 +39,7 @@ suite d'intégration tourne deux fois. Quand l'étape ne peut pas être
 préfixée, lancez `capture` en arrière-plan et arrêtez-le par un signal
 une fois les tests terminés. Voir [`CLI-FR.md`](CLI-FR.md#capture) pour
 les deux formes et [`INSTRUMENTATION-FR.md`](INSTRUMENTATION-FR.md) pour
-la configuration par langage, Collector compris.
+la configuration par langage, y compris l'alternative du Collector.
 
 Le code de sortie est non-zéro si le **quality gate** (un ensemble configurable de seuils pass/fail, la même idée qu'un quality gate SonarQube ou un gate de couverture) échoue. Configurez les seuils dans `.perf-sentinel.toml` :
 
@@ -92,11 +92,9 @@ La colonne "Ce qui apparaît" ci-dessous référence trois formats côté CI : *
 ### Philosophie du quality gate
 
 Les trois templates exécutent `perf-sentinel analyze --ci` comme étape
-de gate. Sous le flag `--ci`, le processus sort avec le code `1` si
-l'un des seuils définis dans la section `[thresholds]` de
-`.perf-sentinel.toml` est dépassé. Les trois templates traduisent
-ensuite ce code de sortie en un résultat de build qui dépend du
-**déclencheur** du run :
+de gate. Le flag `--ci` fait sortir le processus avec le code `1` dès
+qu'un seuil de `[thresholds]` est dépassé. Les templates traduisent ce
+code de sortie différemment selon le déclencheur :
 
 | Déclencheur     | Comportement                                                        | Justification                                                                             |
 |-----------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
@@ -108,27 +106,25 @@ bloquent aussi sur trunk : main reste rouge, l'équipe contourne, et
 l'outil finit par être désactivé.
 
 La configuration recommandée produit le rapport une seule fois par
-job, sans `--ci` (SARIF + JSON, toujours disponibles pour inspection),
-puis décide du pass/fail séparément. Jenkins et GitLab CI le font en
-relançant `perf-sentinel analyze --ci` une seconde fois et en lisant
-son code de sortie. GitHub Actions lit directement `quality_gate.passed`
-dans le rapport JSON déjà sur disque, puisque le résultat du gate est
-calculé à chaque run quel que soit `--ci`. Seul le code de sortie
-diffère. Dans les deux cas, la décision du gate ne s'exécute qu'après
-la réussite du run report-only.
+job, sans `--ci` (SARIF + JSON, toujours disponibles pour la
+relecture), puis décide du pass/fail séparément. Jenkins et GitLab
+CI le font en relançant `perf-sentinel analyze --ci` une seconde fois
+et en lisant son code de sortie. GitHub Actions lit à la place
+`quality_gate.passed` directement dans le rapport JSON déjà sur
+disque, puisque le résultat du gate est calculé à chaque run quel que
+soit `--ci`. Seul le code de sortie diffère. Dans les deux cas, la
+décision du gate ne s'exécute qu'après la réussite du run report-only.
 
 Mécaniques par fournisseur pour la séparation PR vs trunk :
 
-- **GitHub Actions** découpe l'application du gate en deux steps. Le
-  step PR tourne quand `github.event_name == 'pull_request'` et
-  appelle `exit 1` sur dépassement. Le step trunk tourne sur le
-  déclencheur push et émet une annotation `::warning::` sans faire
-  échouer le job.
+- **GitHub Actions** : le step PR tourne quand
+  `github.event_name == 'pull_request'` et appelle `exit 1` sur
+  dépassement. Le step trunk émet une annotation `::warning::` sans
+  faire échouer le job.
 - **GitLab CI** utilise `allow_failure: true` sur la règle
-  `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH`. Le job tourne toujours
-  et retourne toujours le code de sortie 1 sur dépassement, mais le
-  badge de pipeline reste vert et le job apparaît avec une icône
-  d'avertissement jaune.
+  `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH`. Le job retourne quand même
+  le code de sortie 1 sur dépassement, mais le badge de pipeline reste
+  vert et le job apparaît avec une icône d'avertissement jaune.
 - **Jenkins** utilise une garde `when { expression { env.CHANGE_ID !=
   null } }` sur le stage `Quality gate (PR only)`. `CHANGE_ID` est
   renseigné par MultiBranch Pipeline uniquement sur les builds de
@@ -213,7 +209,7 @@ pg_stat, Diff complet contre trunk), le template GitHub Actions publie
 en option un **dashboard HTML complet** sur GitHub Pages à chaque PR,
 lié depuis le sticky comment sous la forme :
 
-> 📊 **Rapport interactif (vue Diff)** → `https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/index.html#diff`
+> 📊 **Interactive report (Diff view)** → `https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/index.html#diff`
 
 Cliquer sur le lien ouvre le rapport sur l'onglet Diff, qui est la vue
 naturelle pour un reviewer : nouveaux findings introduits par la PR,
@@ -223,8 +219,8 @@ Explain, pg_stat, Correlations, GreenOps) sont à un clic via la barre
 d'onglets.
 
 Chaque rapport tient dans un seul fichier HTML autonome avec routage
-par hash, donc partager un finding précis revient à copier l'URL depuis
-la barre d'adresse.
+par hash pour les liens profonds, donc partager un finding précis
+revient à copier l'URL depuis la barre d'adresse.
 
 **Offre GitHub Pages requise**. Sur un compte GitHub Free personnel,
 Pages n'est disponible que pour les dépôts publics. Les dépôts privés
@@ -282,8 +278,8 @@ compare toujours les traces de la PR contre le dernier état fusionné.
 
 Deux propriétés découlent de ce flux. Le premier passage sur le tronc
 est l'événement d'amorçage : avant lui, la récupération renvoie 404 et
-le rapport s'affiche sans onglet Diff, et un scénario tout neuf reste en
-Nouveau jusqu'à son premier run de tronc. Et rien n'est transporté
+le rapport s'affiche sans onglet Diff, et un scénario tout neuf reste de
+même en Nouveau jusqu'à son premier run de tronc. Et rien n'est transporté
 entre deux pushes d'une même PR : chaque exécution se compare au
 baseline du tronc, donc le Diff montre tout le delta qu'introduit la
 PR, pas celui de son dernier commit.
@@ -294,7 +290,7 @@ publication. Les deux étapes répondent à des questions différentes :
 - le Diff montre ce qu'une PR a changé. Un finding présent des deux
   côtés ne tombe dans aucune colonne, donc personne n'est accusé d'une
   régression héritée, et personne n'en est alerté non plus.
-- le gate vérifie qu'un état est acceptable, sur des seuils absolus,
+- le gate vérifie si un état est acceptable, sur des seuils absolus,
   sans aucun baseline.
 
 Sans gate sur le tronc, une régression fusionnée est invisible dans tous
@@ -384,7 +380,7 @@ choisir celui qui correspond à l'offre GitLab.
 est documenté comme [Experiment, Tier: Premium ou
 Ultimate](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments),
 et n'est pas disponible sur gitlab.com Free. En Free, le déploiement
-MR apparaît comme "Success" dans la liste des environnements mais n'est
+MR apparaît comme réussi dans la liste des environnements mais n'est
 pas servi. Un repli compatible Free est fourni à côté.
 
 | Bloc                         | Offre               | Comportement                                                                                                                                                                                               |
@@ -635,7 +631,7 @@ sticky comment GitHub ou au widget Code Quality GitLab. Les reviewers
 qui suivent un build Jenkins consultent la page du build directement,
 comme pour les findings Warnings NG. Les équipes qui veulent un
 commentaire de PR peuvent brancher la CLI `gh` ou une API REST
-spécifique depuis le pipeline, mais cela nécessite de gérer un token
+propre à la forge depuis le pipeline, mais cela nécessite de gérer un token
 de forge dans les credentials Jenkins et reste hors du périmètre de ce
 template.
 
@@ -730,7 +726,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Installer perf-sentinel
+      - name: Install perf-sentinel
         run: |
           set -euo pipefail
           BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
@@ -746,11 +742,11 @@ jobs:
       # sortie en argument. Voir INSTRUMENTATION-FR.md pour la façon dont
       # chaque langage en produit un, Java notamment demande `capture`, ou
       # l'agent 2.32.0+ pour un export fichier.
-      - name: Collecter les traces de la branche PR
+      - name: Collect PR-branch traces
         run: ./scripts/run-integration-tests.sh pr-traces.json
 
-      # Re-jouer sur la branche de base.
-      - name: Collecter les traces de la branche de base
+      # Rejouer sur la branche de base.
+      - name: Collect base-branch traces
         run: |
           git checkout ${{ github.event.pull_request.base.sha }} -- .
           ./scripts/run-integration-tests.sh base-traces.json
@@ -771,24 +767,24 @@ jobs:
             --format sarif \
             --output diff.sarif
 
-      - name: Uploader le SARIF
+      - name: Upload SARIF
         if: hashFiles('diff.sarif') != ''
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: diff.sarif
           category: perf-sentinel-diff
 
-      - name: Commenter le résumé de régression sur la PR
+      - name: Comment regression summary on PR
         run: |
           NEW=$(jq '.new_findings | length' diff.json)
           RESOLVED=$(jq '.resolved_findings | length' diff.json)
           REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical" or (.after_severity == "warning" and .before_severity == "info"))] | length' diff.json)
           {
-            echo "## diff perf-sentinel vs base"
+            echo "## perf-sentinel diff vs base"
             echo
-            echo "- $NEW finding(s) nouveau(x)"
-            echo "- $RESOLVED finding(s) résolu(s)"
-            echo "- $REGRESSIONS régression(s) de sévérité"
+            echo "- $NEW new finding(s)"
+            echo "- $RESOLVED resolved finding(s)"
+            echo "- $REGRESSIONS severity regression(s)"
           } > pr-comment.md
 
       - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
@@ -796,12 +792,12 @@ jobs:
           header: perf-sentinel-diff
           path: pr-comment.md
 
-      - name: Échouer sur régression
+      - name: Fail on regression
         run: |
           NEW=$(jq '.new_findings | length' diff.json)
           REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical")] | length' diff.json)
           if [ "$NEW" -gt 0 ] || [ "$REGRESSIONS" -gt 0 ]; then
-            echo "::error::le diff introduit $NEW finding(s) nouveau(x) et $REGRESSIONS régression(s) critique(s)"
+            echo "::error::diff introduces $NEW new finding(s) and $REGRESSIONS critical regression(s)"
             exit 1
           fi
 ```
