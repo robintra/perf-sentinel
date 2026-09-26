@@ -171,7 +171,7 @@ gh api repos/actions/checkout/git/ref/tags/${TAG} --jq '.object.sha'
 Puis mettez à jour le workflow :
 
 ```yaml
-- uses: actions/checkout@<le-sha-resolu>  # v6.0.2
+- uses: actions/checkout@<the-sha-you-just-resolved>  # v6.0.2
 ```
 
 Mettez toujours à jour le commentaire de fin de ligne pour qu'il
@@ -246,11 +246,11 @@ Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préal
 ### Workflow
 
 Depuis v0.7.1, chaque binaire de release officiel perf-sentinel porte
-une attestation SLSA Build L3. L'attestation est générée par GitHub
-Actions via `actions/attest-build-provenance` (maintenu sous l'org
-GitHub `actions/`) et stockée dans l'API attestations GitHub
-associée à ce dépôt. Elle **n'est pas** publiée comme asset de la
-release GitHub.
+une attestation de provenance SLSA Build L3. L'attestation est
+générée par GitHub Actions via `actions/attest-build-provenance`
+(maintenu sous l'org GitHub `actions/`) et stockée dans l'API
+attestations GitHub associée à ce dépôt. Elle **n'est pas** publiée
+comme asset de la release GitHub.
 
 La 0.7.1 migre depuis l'outillage précédent,
 `slsa-framework/slsa-github-generator@v2.1.0`, en maintenance de facto
@@ -275,9 +275,9 @@ gh attestation verify perf-sentinel-linux-amd64 \
 
 Une vérification réussie confirme que le binaire vient d'un tag de
 release de ce dépôt, construit par GitHub Actions, pas par un tiers.
-Combiner avec la sous-commande `verify-hash` sur un rapport périodique
-pour vérifier la chaîne complète :
-`source -> SLSA -> binaire -> rapport -> signature Sigstore`.
+Combiner avec la sous-commande `verify-hash` sur un rapport de
+divulgation périodique pour vérifier la chaîne complète :
+`source -> SLSA -> binary -> report -> Sigstore signature`.
 
 **Prérequis** : `gh` CLI 2.49+ côté consommateur (les versions
 antérieures n'implémentent pas `gh attestation verify`). La même
@@ -294,7 +294,8 @@ nouvelle commande.
 ## SBOM des binaires et données d'audit embarquées
 
 Au-delà de la provenance SLSA, chaque release de binaires porte deux
-artefacts supplémentaires, sous la même forme que le SBOM du chart Helm.
+artefacts supplémentaires de chaîne d'approvisionnement, sous la même
+forme que le SBOM du chart Helm.
 
 **Données `cargo-auditable` embarquées.** Chaque binaire de release est
 construit avec `cargo auditable build`, donc sa liste de dépendances résolue
