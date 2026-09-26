@@ -16,6 +16,8 @@ Le flag `--format` offre un contrôle explicite sur le format de sortie : `text`
 
 `perf-sentinel explain --input FILE --trace-id ID` construit un arbre à partir des relations `parent_span_id` et annote les findings en ligne. Il exécute uniquement les détecteurs par trace (N+1, redondant, lent, fanout). Les findings cross-trace par percentile ne sont pas inclus.
 
+Formats de sortie : `--format text` (arbre coloré avec caractères Unicode de tracé de cadres, défaut) ou `--format json` (structure JSON imbriquée). Les deux incluent une garde `MAX_TREE_DEPTH` de 256 niveaux pour éviter un débordement de pile sur les traces profondément imbriquées.
+
 ### Bench : lots pré-clonés
 
 ```rust
@@ -73,7 +75,7 @@ let (bold, cyan, red, yellow, green, dim, reset) = if is_tty {
 
 Les codes d'échappement ANSI sont supprimés quand stdout n'est pas un terminal (ex. redirigé vers un fichier ou `jq`). Le paramètre `force_color` permet aux tests d'exercer le chemin coloré sans vrai TTY. Cela suit la convention d'outils comme `ls --color=auto` et la [sortie de rustc](https://doc.rust-lang.org/rustc/command-line-arguments.html).
 
-**Surcharge pour `--output`.** La sonde `stdout().is_terminal()` ci-dessus ignore le writer réel : une CLI lancée depuis un terminal interactif avec `--output fichier.txt` redirige la sortie vers un `File`, mais la palette colorée serait quand même choisie et laisserait fuir des octets d'échappement dans le fichier. `emit_diff` se protège en forçant `no_colors()` dès que `output.is_some()`, indépendamment de l'état TTY de stdout. La palette est ensuite passée explicitement en paramètre à `write_diff_text` pour que le choix du writer et la décision de couleur restent synchronisés.
+**Surcharge pour `--output`.** La sonde `stdout().is_terminal()` ci-dessus ignore le writer réel : une CLI lancée depuis un terminal interactif avec `--output path.txt` redirige la sortie vers un `File`, mais la palette colorée serait quand même choisie et laisserait fuir des octets d'échappement dans le fichier. `emit_diff` se protège en forçant `no_colors()` dès que `output.is_some()`, indépendamment de l'état TTY de stdout. La palette est ensuite passée explicitement en paramètre à `write_diff_text` pour que le choix du writer et la décision de couleur restent synchronisés.
 
 ### PgStat : analyse de hotspots pg_stat_statements
 
@@ -89,9 +91,11 @@ Cette sous-commande est séparée d'`analyze` car les données `pg_stat_statemen
 
 **Gestion d'état :** la struct `App` contient des `findings_by_trace` pré-calculés (indexés à la construction) pour éviter de recalculer à chaque frame. L'état de navigation (selected_trace, selected_finding, active_panel, scroll_offset) est mis à jour par les événements clavier.
 
+**Chargement des données :** les événements sont ingérés une seule fois, puis clonés. Une copie pour `correlate()` (nécessaire à la construction de l'arbre) et une pour `pipeline::analyze()` (consommée par le pipeline). Cela évite de relire le fichier.
+
 ### Sous-commande `report`
 
-`perf-sentinel report --input FICHIER --output report.html` produit un dashboard HTML en un seul fichier destiné aux devs qui explorent un artefact CI en navigateur. Le pipeline est identique à `analyze` de bout en bout, seul le générateur final diffère. Implémenté dans `crates/sentinel-core/src/report/html/mod.rs` avec le template UI complet embarqué via `include_str!` depuis `crates/sentinel-core/src/report/html/html_template.html`.
+`perf-sentinel report --input FILE --output report.html` produit un dashboard HTML en un seul fichier destiné aux devs qui explorent un artefact CI en navigateur. Le pipeline est identique à `analyze` de bout en bout, seul le générateur final diffère. Implémenté dans `crates/sentinel-core/src/report/html/mod.rs` avec le template UI complet embarqué via `include_str!` depuis `crates/sentinel-core/src/report/html/html_template.html`.
 
 **Architecture : un seul fichier, vanilla JS, pas de build step, aucune dépendance externe.** La sortie est un unique fichier HTML avec tous les CSS et JS inlinés. Pas de `<link rel="stylesheet">`, pas de `<script src="...">`, pas de web fonts, pas d'images. Le fichier s'ouvre hors ligne depuis une URL `file://` avec zéro requête réseau, ce qui le rend :
 
@@ -112,22 +116,22 @@ Seul `reference_url` du `SuggestedFix` devient un lien, et uniquement quand la v
 
 **Embedding des traces et cap de taille.** Seules les traces référencées par un finding sont embarquées (l'onglet Explain s'amorce depuis Findings, et des traces en navigation libre ne feraient donc qu'alourdir le fichier). Une seule règle de sélection s'applique à tous les chemins de rendu, traces brutes comme Report JSON pré-calculé. Chaque trace candidate est classée par le premier finding qui la référence, les arbres gardés sont donc ceux que les lignes de tête désignent, quel que soit l'ordre choisi par l'appelant. `report` trie par impact quand `--sort` est absent, et transmet la clé choisie au dashboard via `initial_sort` dans le payload, la page s'ouvre donc sur l'ordre dont les arbres de tête ont été embarqués. Quand `--max-traces-embedded` n'est pas fixé, le générateur vise une sortie HTML d'environ 5 Mo et garde le préfixe classé qui tient. Un champ `trimmed_traces: { kept, total }` dans le payload embarqué alimente un bandeau dans l'onglet Findings quand la coupe se déclenche. Fixer `--max-traces-embedded` honore le cap exactement, en remplaçant l'heuristique 5 Mo.
 
-**Allègement du report embarqué.** L'objet `report` sérialisé dans le payload est une copie allégée, pas le `Report` complet. Trois sections que le dashboard ne rend pas intégralement sont bornées pour qu'un run à forte cardinalité ne gonfle pas le fichier autonome, tandis que `analyze --format json` conserve chacune en entier. Les `findings` sont coupés critiques d'abord quand ils dépassent 70 % du budget de taille (signalé par `trimmed_findings: { kept, total }`). `per_endpoint_io_ops` est supprimé entièrement (aucune vue du dashboard ne le lit, les deltas d'endpoint de l'onglet Diff viennent de la baseline `--before`, pas de ce champ). `green_summary.top_offenders` est plafonné à 25 lignes (le dashboard n'affiche que l'entrée de tête). L'ensemble des traces candidates vient des findings embarqués (éventuellement coupés) : chaque trace embarquée garde son finding visible dans le dashboard, au prix d'un `trimmed_traces.total` conservateur quand la coupe des findings se déclenche.
+**Allègement du report embarqué.** L'objet `report` sérialisé dans le payload est une copie allégée, pas le `Report` complet. Trois sections que le dashboard ne rend pas intégralement sont bornées pour qu'un run à forte cardinalité ne gonfle pas le fichier autonome, tandis que `analyze --format json` conserve chacune en entier. Quand ils dépassent 70 % du budget de taille, les `findings` sont coupés en gardant les critiques en premier (signalé par `trimmed_findings: { kept, total }`). `per_endpoint_io_ops` est supprimé entièrement (aucune vue du dashboard ne le lit, les deltas d'endpoint de l'onglet Diff viennent de la baseline `--before`, pas de ce champ). `green_summary.top_offenders` est plafonné à 25 lignes (le dashboard n'affiche que l'entrée de tête). L'ensemble des traces candidates vient des findings embarqués (éventuellement coupés) : chaque trace embarquée garde son finding visible dans le dashboard, au prix d'un `trimmed_traces.total` conservateur quand la coupe des findings se déclenche.
 
 **Sémantiques de code de sortie différentes de `analyze --ci`.** `report` sort 0 même quand la quality gate échoue. Le statut de la gate est remonté via un badge rouge/vert dans la barre supérieure du HTML. Les utilisateurs qui ont besoin d'un signal de sortie pour la CI continuent d'utiliser `analyze --ci`.
 
 **Cross-références optionnelles : pg_stat, diff, correlations.** Trois onglets optionnels sont ajoutés par des flags dédiés :
 
-- `--pg-stat <FICHIER>` ingère un export `pg_stat_statements` CSV ou JSON via le même chemin `parse_pg_stat` + `rank_pg_stat` que la sous-commande `pg-stat`. Un onglet pg_stat affiche alors le classement par temps total (Template, Calls, Total ms, Mean ms). Les deux autres classements (par calls, par mean) restent accessibles via la sous-commande texte `pg-stat` et ne sont pas dupliqués dans le HTML.
-- `--pg-stat-prometheus <URL>` interroge ponctuellement un endpoint `postgres_exporter` via `fetch_from_prometheus`, même effet que `--pg-stat` sans fichier intermédiaire. Mutuellement exclusif avec `--pg-stat` au niveau clap (`conflicts_with`). C'est un flag de `report` plutôt qu'une sous-commande séparée car un GET HTTP ponctuel n'est pas une source streaming qui mérite sa propre surface de commande. Cela correspond au reste du CLI, où une source qui ne fait pas de streaming se compose avec d'autres commandes. Le scrape suppose la requête intégrée de `postgres_exporter` (`pg_stat_statements_seconds_total`, label `query`). Un exporter qui exécute du SQL écrit à la main nomme ses propres colonnes, donc `--pg-stat-metric <SERIE>` et `--pg-stat-query-label <LABEL>` le pointent vers ces noms. La sous-commande `pg-stat` porte la même paire sous `--metric` et `--query-label`. La série arrive non encodée dans la query string, elle est donc validée contre la grammaire des noms de métriques PromQL plutôt qu'échappée : un sélecteur ou une expression à cet endroit est une erreur, pas un raccourci.
+- `--pg-stat <FILE>` ingère un export `pg_stat_statements` CSV ou JSON via le même chemin `parse_pg_stat` + `rank_pg_stat` que la sous-commande `pg-stat`. Un onglet pg_stat affiche alors le classement par temps total (Template, Calls, Total ms, Mean ms). Les deux autres classements (par calls, par mean) restent accessibles via la sous-commande texte `pg-stat` et ne sont pas dupliqués dans le HTML.
+- `--pg-stat-prometheus <URL>` interroge ponctuellement un endpoint `postgres_exporter` via `fetch_from_prometheus`, même effet que `--pg-stat` sans fichier intermédiaire. Mutuellement exclusif avec `--pg-stat` au niveau clap (`conflicts_with`). C'est un flag de `report` plutôt qu'une sous-commande séparée car un GET HTTP ponctuel n'est pas une source streaming qui mérite sa propre surface de commande. Cela correspond au reste du CLI, où une source qui ne fait pas de streaming se compose avec d'autres commandes. Le scrape suppose la requête intégrée de `postgres_exporter` (`pg_stat_statements_seconds_total`, label `query`). Un exporter qui exécute du SQL écrit à la main nomme ses propres colonnes, donc `--pg-stat-metric <SERIES>` et `--pg-stat-query-label <LABEL>` le pointent vers ces noms. La sous-commande `pg-stat` porte la même paire sous `--metric` et `--query-label`. La série arrive non encodée dans la query string, elle est donc validée contre la grammaire d'un nom de métrique PromQL nu plutôt qu'échappée : un sélecteur ou une expression à cet endroit est une erreur, pas un raccourci.
 - `--mysql-stat-prometheus <URL>` est la même forme face à `mysqld_exporter`, avec `--mysql-stat-auth-header`, `--mysql-stat-metric` et `--mysql-stat-query-label` à côté, et la sous-commande `mysql-stat` portant la paire sous `--metric` et `--query-label`. Les défauts sont `mysql_perf_schema_events_statements_seconds_total` avec un label `digest_text`, repli sur `digest`. Le collecteur correspondant est désactivé par défaut sur l'exporteur (`--collect.perf_schema.eventsstatements`). La validation d'endpoint, celle du nom de série et le transport de la requête instantanée sont partagés avec le chemin PostgreSQL dans `ingest::prometheus_scrape`, pour que les deux chemins ne puissent pas diverger sur la validation des entrées. La correspondance des labels n'est pas partagée : c'est la seule partie qui diffère entre les deux exporteurs.
-- `--before <FICHIER>` désérialise un rapport baseline JSON (la sortie de `analyze --format json`), le passe à `diff::diff_runs` contre le run courant et embarque le `DiffReport`. Un onglet Diff rend ensuite quatre sections : nouveaux findings (cliquables, ouvrent Explain), findings résolus (non cliquables, leurs traces sont dans la baseline qui n'est pas embarquée), changements de sévérité et deltas d'endpoint (données tabulaires non cliquables).
+- `--before <FILE>` désérialise un rapport baseline JSON (la sortie de `analyze --format json`), le passe à `diff::diff_runs` contre le run courant et embarque le `DiffReport`. Un onglet Diff rend ensuite quatre sections : nouveaux findings (cliquables, ouvrent Explain), findings résolus (non cliquables, leurs traces sont dans la baseline qui n'est pas embarquée), changements de sévérité et deltas de métriques par endpoint (tous deux des données tabulaires non cliquables).
 
 **Onglet Correlations.** Seuls les rapports produits par le daemon portent des `correlations`. Le pipeline batch n'en émet pas, donc l'onglet reste caché sur les sorties batch. Le JS garde sur `report.correlations?.length > 0`, donc l'onglet s'active automatiquement quand un futur JSON daemon est passé à `perf-sentinel report --input <daemon.json>`. Aucun nouveau champ n'a été ajouté au struct `Report`.
 
 **Navigation croisée.** Deux cross-navs relient les onglets :
 
-- Explain vers pg_stat : quand la trace d'un finding actif contient une span SQL dont le template normalisé correspond à une ligne de pg_stat, cette span reçoit la classe `ps-span-pgstat-link` et un handler de clic. Le clic bascule sur l'onglet pg_stat avec la ligne correspondante surlignée et un bandeau "Filtered from Explain" affiché au-dessus de la table. Le bandeau a un lien "clear" qui le masque et retire le surlignage. La span n'est pas cliquable quand pg_stat est absent du payload.
+- Explain vers pg_stat : quand la trace d'un finding actif contient un span SQL dont le template normalisé correspond à une ligne de pg_stat, ce span reçoit la classe `ps-span-pgstat-link` et un gestionnaire de clic. Le clic bascule sur l'onglet pg_stat avec la ligne correspondante surlignée et un bandeau "Filtered from Explain" affiché au-dessus de la table. Le bandeau a un lien "clear" qui le masque et retire le surlignage. Le span n'est pas cliquable quand pg_stat est absent du payload.
 - Diff vers Explain : les lignes de la section `new_findings` sont cliquables et délèguent à la fonction `openExplain` existante. Les lignes de `resolved_findings`, `severity_changes` et `endpoint_metric_deltas` ne sont pas cliquables. Pour un nouveau finding dont la `trace_id` a été coupée, le panneau Explain affiche l'avis de coupe, qui indique les chiffres gardés/total et pointe la trace id pour une relance ciblée, plutôt qu'un arbre vide.
 
 **Recherche via `/`.** Chacun de Findings, pg_stat, Diff, Correlations porte un `<input type="search">` masqué en haut du panneau. Le gestionnaire clavier global capture `/` quand aucun champ n'a le focus et que l'onglet actif accepte la recherche, révèle le champ et lui donne le focus. `esc` quand le champ a le focus efface le filtre et masque le champ. La logique de filtrage parcourt les lignes du panneau actif et bascule `display: none` selon une correspondance de sous-chaîne insensible à la casse sur `textContent`. L'état est effacé au changement d'onglet (rien n'est reporté d'un onglet à l'autre). Explain et GreenOps n'ont pas de recherche (pas de liste de lignes significative). Le plafond de 500 lignes sur Findings s'applique toujours.
@@ -136,16 +140,16 @@ Seul `reference_url` du `SuggestedFix` devient un lien, et uniquement quand la v
 
 **Ergonomie strictement côté client.** L'export CSV, le deep-link hash, la persistance limitée à la session et la modale cheatsheet `?` sont uniquement des ajouts côté client dans `html_template.html`. Pas de changement Rust côté générateur, pas de nouvel endpoint, pas de nouvelle dépendance.
 
-- **Export CSV** : chaque onglet listable (Findings, pg_stat, Diff, Correlations) porte un bouton Export CSV au-dessus de la liste/table. Le handler de clic exécute le même prédicat de filtre que celui qui rend le DOM, assemble des lignes RFC 4180 échappées par concaténation de chaînes pure (aucun risque `innerHTML`), puis déclenche le téléchargement via `Blob` + `URL.createObjectURL` + un `<a download>` temporaire. L'object URL est révoqué sur un `setTimeout` à 0ms pour éviter une fuite mémoire tout en laissant le navigateur finir le téléchargement. Explain (pas une liste) et GreenOps (résumé unique, table régions suffisamment courte pour être lue sur place) n'ont pas de bouton d'export.
+- **Export CSV** : chaque onglet listable (Findings, pg_stat, Diff, Correlations) porte un bouton Export CSV au-dessus de la liste/table. Le gestionnaire de clic exécute le même prédicat de filtre que celui qui rend le DOM, assemble des lignes RFC 4180 échappées par concaténation de chaînes pure (aucun risque `innerHTML`), puis déclenche le téléchargement via `Blob` + `URL.createObjectURL` + un `<a download>` temporaire. L'object URL est révoqué sur un `setTimeout` à 0ms pour éviter une fuite mémoire tout en laissant le navigateur finir le téléchargement. Explain (pas une liste) et GreenOps (résumé unique, table régions suffisamment courte pour être lue sur place) n'ont pas de bouton d'export.
 - **Deep-link hash** : le fragment d'URL encode `tab[&search=...][&ranking=...][&severity=...][&service=...]` à chaque changement d'onglet, clic sur puce et changement d'input de recherche. Les écritures passent par `history.replaceState` pour ne pas polluer l'historique back/forward. Repli pour les vieux navigateurs : assignation directe de `location.hash` (un push d'historique, acceptable). Les lectures sur `DOMContentLoaded` valident que l'onglet est enregistré. Une cible inconnue ou un hash malformé retombe silencieusement sur les valeurs par défaut.
 - **Persistance sessionStorage** : deux clés, `perf-sentinel:theme` (auto/light/dark, "auto" suit la préférence OS et s'affiche "System" dans le bouton, lue avant le premier rendu pour éviter le flash de thème) et `perf-sentinel:pgstat-ranking` (slug du dernier classement actif). Chaque accès est enveloppé dans un `try/catch` parce que le mode privé Safari et certaines politiques d'entreprise lèvent une exception sur `sessionStorage.setItem`. `localStorage` n'est pas utilisé : en `file://` l'origine `null` est partagée entre tous les fichiers HTML locaux, donc localStorage entrerait en collision entre rapports sans rapport entre eux, alors que sessionStorage est limité à l'onglet et sans collision. Le hash prime sur sessionStorage quand les deux portent une valeur.
-- **Modal cheatsheet** : un élément natif `<dialog>` déclenché par `?` (ouvert via `showModal()`, qui applique implicitement le rôle WAI-ARIA dialog et piège le focus) liste tous les raccourcis. La touche `?` est ignorée quand un input texte a le focus, pour que taper `?` dans le filtre marche toujours. Les raccourcis style vim préfixés `g` (`g f` / `g e` / `g p` / `g d` / `g c` / `g r`) changent d'onglet avec un timeout de 1000ms sur le `g` en attente, les onglets masqués sont un no-op silencieux. `Esc` gagne deux niveaux de priorité supplémentaires par-dessus l'échelle existante : fermer la cheatsheet (plus haute priorité) et effacer les puces de filtre actives (plus basse priorité). La pagination Findings remplace le cap dur de 500 lignes par un bouton `Show N more findings` qui révèle 500 lignes supplémentaires à la fois.
+- **Modal cheatsheet** : un élément natif `<dialog>` déclenché par `?` (ouvert via `showModal()`, qui applique implicitement le rôle WAI-ARIA dialog et piège le focus) liste tous les raccourcis. La touche `?` est ignorée quand un input texte a le focus, pour que taper `?` dans le filtre marche toujours. Les raccourcis style vim préfixés `g` (`g f` / `g e` / `g p` / `g d` / `g c` / `g r`) changent d'onglet avec un timeout de 1000ms sur le `g` en attente, les onglets masqués sont un no-op silencieux. `Esc` gagne deux niveaux de priorité supplémentaires par-dessus l'échelle existante : fermer la cheatsheet (plus haute priorité) et effacer les puces de filtre actives (plus basse priorité). La pagination Findings remplace le plafond strict de 500 lignes par un bouton `Show N more findings` qui révèle 500 lignes supplémentaires à la fois.
 
 ### Invariant `STATIC_CSP` à la compilation
 
-La Content-Security-Policy en mode statique est la même chaîne que celle livrée avant l'ajout du mode live. Elle interdit toute sortie réseau et tout vecteur d'exécution inline sauf les blocs inline `<script>` et `<style>` dont le rapport dépend.
+La `Content-Security-Policy` en mode statique est la même chaîne que celle livrée avant l'ajout du mode live. Elle interdit toute sortie réseau et tout vecteur d'exécution inline sauf les blocs inline `<script>` et `<style>` dont le rapport dépend.
 
-Le pipeline de substitution de placeholders dans `inject` réécrit trois tokens (`{{REPORT_JSON}}`, `{{PAGE_TITLE}}`, `{{CONTENT_SECURITY_POLICY}}`) dans un ordre fixe. Toute séquence d'octets `{{` qui atterrirait dans `STATIC_CSP` masquerait silencieusement ce pipeline et corromprait la substitution.
+Le pipeline de substitution de placeholders dans `inject` réécrit trois tokens (`{{REPORT_JSON}}`, `{{PAGE_TITLE}}`, `{{CONTENT_SECURITY_POLICY}}`) dans un ordre fixe. Toute séquence d'octets `{{` qui atterrirait dans `STATIC_CSP` masquerait ce pipeline et corromprait silencieusement la substitution.
 
 Un bloc `const _: () = { ... while ... assert!(...) }` à la compilation vérifie que `STATIC_CSP.as_bytes()` ne contient jamais `{{`. Le `debug_assert!` runtime dans `inject` couvre la moitié daemon-URL (validée par `validate_url`). Le bloc const couvre la moitié statique, pour qu'une modification future qui introduirait une accolade de template casse le build au lieu de corrompre silencieusement la sortie. `const _: () = ...` est le pattern canonique pour une vérification anonyme à la compilation qui ne déclenche pas d'avertissement `dead_code`.
 
@@ -163,9 +167,19 @@ Le workspace utilise des feature flags Cargo pour garder les dépendances daemon
 | `tempo`        | `sentinel-cli`  | Transmet à `sentinel-core/tempo`. Active la sous-commande `tempo`.                                                                                                                                                                                                                  |
 | `jaeger-query` | `sentinel-cli`  | Transmet à `sentinel-core/jaeger-query`. Active la sous-commande `jaeger-query`.                                                                                                                                                                                                    |
 
-### Localisation du code source dans les findings
+Le `default` du CLI est `["tui", "daemon", "tempo", "jaeger-query"]`. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
 
-Les findings peuvent inclure un champ optionnel `code_location` contenant les attributs OTel `code.*` extraits du span :
+```toml
+perf-sentinel-core = { version = "0.8", default-features = false }
+```
+
+Cela compile le pipeline batch complet (normalize, correlate, detect, score, report) sans code client HTTP. Les types de config (`ScaphandreConfig`, `CloudEnergyConfig`) sont toujours disponibles pour que le parseur TOML fonctionne quelles que soient les features activées. Seuls les scrapers runtime et les types state sont conditionnels.
+
+## Localisation du code source dans les findings
+
+### Structure `CodeLocation`
+
+Quand les spans OTel portent des attributs de code source (`code.function`, `code.filepath`, `code.lineno`, `code.namespace`), ils sont extraits pendant la conversion OTLP et stockés sur `SpanEvent` sous forme de quatre champs optionnels. Le pipeline de détection les propage vers `Finding.code_location: Option<CodeLocation>` :
 
 ```rust
 pub struct CodeLocation {
@@ -176,62 +190,80 @@ pub struct CodeLocation {
 }
 ```
 
-Ces attributs sont extraits dans `ingest/otlp/` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)"). Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) portent la localisation d'un appel représentatif, voir la section sur le détecteur de framework de `04-DETECTION-FR.md`.
+Les quatre champs sont optionnels et présents indépendamment les uns des autres. La plupart des agents OTel auto-instrumentés émettent `code.function` et `code.namespace` mais pas `code.filepath` ni `code.lineno`. Le système se dégrade proprement : les findings sans attributs source apparaissent sans ligne source, sans bruit dans la sortie. Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) portent la localisation d'un appel représentatif, voir la section sur le détecteur de framework de `04-DETECTION-FR.md`.
 
-**Intégration SARIF.** La sortie SARIF v2.1.0 traduit `code_location` en `physicalLocation` :
+### Affichage CLI
+
+Quand `code_location` est présent, le CLI affiche une ligne "Source:" sous l'endpoint du finding :
+
+```
+    Source:   com.example.OrderService.processItems (OrderService.java:42)
+```
+
+Le format est `namespace.function (filepath:lineno)`, chaque partie étant omise si elle est absente. La logique de rendu construit la chaîne par étapes : namespace et function sont joints par un point, filepath et lineno sont ajoutés entre parenthèses seulement quand la partie nom est aussi présente.
+
+### Enrichissement SARIF `physicalLocation`
+
+Quand un finding porte une `CodeLocation` avec au moins un `filepath`, la sortie SARIF inclut un tableau `locations` avec une entrée `physicalLocation` :
 
 ```json
 {
   "physicalLocation": {
-    "artifactLocation": { "uri": "src/OrderService.java" },
+    "artifactLocation": { "uri": "OrderService.java" },
     "region": { "startLine": 42 }
   }
 }
 ```
 
-Cela permet les annotations en ligne dans GitHub Code Scanning et GitLab SAST. Le champ `region` n'est émis que si `lineno` est présent.
+Le champ `region.startLine` n'est inclus que si `lineno` est disponible. Cela permet les annotations en ligne dans GitHub Code Scanning et GitLab SAST quand le rapport SARIF est envoyé comme résultat de code scanning.
 
-**Dégradation gracieuse.** La plupart des agents OTel auto-instrumentés n'émettent pas `code.lineno`. Dans ce cas, `code_location` est `None` et le finding apparaît sans ligne source, sans bruit supplémentaire.
+### Assainissement de `code.filepath`
 
-**Sanitization de `code.filepath`.** L'attribut OTel `code.filepath` est contrôlé par le client (un span hostile peut y mettre n'importe quelle chaîne). Avant de l'émettre comme `artifactLocation.uri` SARIF, `sanitize_sarif_filepath` rejette toute valeur qui pourrait hameçonner un consommateur ou contourner les résolveurs de code scanning. Le sanitizer renvoie `None` (et donc omet le `physicalLocations` array) pour :
+L'attribut OTel `code.filepath` est contrôlé par l'attaquant (un span hostile peut y mettre n'importe quelle chaîne). Avant de l'émettre comme `artifactLocation.uri` SARIF, `sanitize_sarif_filepath` rejette toute valeur qui pourrait hameçonner un lecteur ou contourner les résolveurs de code scanning. Le sanitizer abandonne entièrement l'URI (renvoie `None`) dans chacun de ces cas :
 
 - Chemins absolus (POSIX `/...`, Windows `\...`).
 - Tout deux-points. Les chemins sources légitimes dans les apps instrumentées ne contiennent pas de deux-points. Rejet inconditionnel pour éviter les contournements subtils autour de `javascript:`, `data:`, `file:`, etc.
-- Segments de path traversal. Littéral `..` et variantes percent-encodées (`%2e%2e`, `%2E%2E`, casse mixte, `.%2e`, `%2e.`).
+- Segments de path traversal. Le littéral `..` comme les variantes percent-encodées (`%2e%2e`, `%2E%2E`, casse mixte, `.%2e`, `%2e.`) sont interceptés.
 - Séquences double-encodées (`%25...`) qui décodent en `%` au premier passage puis en caractère réel au second.
 - Préfixes UTF-8 overlong (`%c0`, `%c1`) qui décodent en encodages non-canoniques de caractères ASCII dans les décodeurs laxistes.
-- Caractères de contrôle (newlines, NUL, etc.) qui pourraient casser le tokenizer du consommateur SARIF ou injecter dans les logs.
-- Caractères Unicode BiDi et invisibles (`U+061C`, `U+180E`, `U+202A..U+202E`, `U+2066..U+2069`, `U+200B..U+200F`, `U+FEFF`) qui peuvent confondre l'affichage des noms de fichier (Trojan Source, CVE-2021-42574).
+- Caractères de contrôle (retours à la ligne, NUL, etc.) qui pourraient casser le tokenizer du consommateur SARIF ou injecter dans les logs.
+- Surcharges Unicode BiDi et caractères de format invisibles (`U+061C`, `U+180E`, `U+202A..U+202E`, `U+2066..U+2069`, `U+200B..U+200F`, `U+FEFF`) qui peuvent confondre l'affichage des noms de fichier (classe d'attaque Trojan Source, CVE-2021-42574).
 
 Les findings dont le filepath est rejeté apparaissent toujours dans le rapport SARIF. Seul le tableau `physicalLocations` est omis (les `logicalLocations` et autres champs restent).
 
-### Sous-commande `query`
+## Sous-commande `query`
 
-`perf-sentinel query --daemon http://localhost:4318 <action>` interroge l'API HTTP du daemon en cours d'exécution. Cinq actions sont disponibles :
+`perf-sentinel query` interroge l'API HTTP d'un daemon en cours d'exécution. Elle nécessite le feature flag `daemon`.
 
-| Action         | Endpoint API              | Sortie                           | Description                                                                             |
+### Sous-actions
+
+| Sous-action    | Endpoint API              | Sortie                           | Description                                                                             |
 |----------------|---------------------------|----------------------------------|-----------------------------------------------------------------------------------------|
-| `findings`     | `/api/findings`           | terminal coloré (défaut) ou JSON | Lister les findings récents avec filtres `--service`, `--type`, `--severity`, `--limit` |
-| `explain`      | `/api/explain/{trace_id}` | arbre coloré (défaut) ou JSON    | Afficher l'arbre de trace avec findings en ligne (depuis la mémoire du daemon)          |
+| `findings`     | `/api/findings`           | terminal coloré (défaut) ou JSON | Lister les findings récents avec filtres `--service`, `--finding-type`, `--severity`, `--limit` |
+| `explain`      | `/api/explain/{trace_id}` | arbre coloré (défaut) ou JSON    | Afficher l'arbre explain d'une trace depuis la mémoire du daemon                        |
 | `inspect`      | `/api/findings`           | TUI ratatui                      | TUI interactif 3 panneaux alimenté par les données live du daemon                       |
 | `correlations` | `/api/correlations`       | tableau coloré (défaut) ou JSON  | Afficher les corrélations cross-trace actives                                           |
-| `status`       | `/api/status`             | résumé coloré (défaut) ou JSON   | Afficher l'état du daemon : version, uptime, traces actives, findings stockés           |
+| `status`       | `/api/status`             | résumé coloré (défaut) ou JSON   | Afficher l'état du daemon : version, uptime, traces actives, nombre de findings stockés           |
 
-Toutes les actions sauf `inspect` acceptent `--format text|json`. Le défaut est `text` (sortie colorée), comme la commande `analyze`. `--format json` produit du JSON brut pour le scripting.
+Toutes les sous-actions sauf `inspect` acceptent `--format text|json`. Le défaut est `text` (sortie colorée dans le terminal), comme le défaut de la commande `analyze`. `--format json` produit du JSON brut pour le scripting et l'automatisation.
 
-**Sortie colorée.** `findings` réutilise `print_findings()` de la commande `analyze`. `explain` désérialise la réponse en `ExplainTree` et appelle `format_tree_text()`. `inspect` récupère d'abord les findings via `/api/findings?limit=10000`, puis pour chaque `trace_id` distinct récupère l'arbre via `/api/explain/{trace_id}` et le passe au TUI via `App::with_pre_rendered_trees`. Les traces encore dans la fenêtre du daemon affichent leur vrai arbre de spans. Les traces évincées s'affichent sans arbre (omission silencieuse). `correlations` affiche un tableau avec la confiance en pourcentage coloré (rouge >= 80%, jaune >= 50%). `status` affiche les clés/valeurs avec l'uptime formaté (Xh Ym Zs).
+### Sortie colorée
 
-La sous-commande est protégée par le feature flag `daemon`. Elle utilise le client HTTP partagé (`http_client::build_client`) avec un timeout de 10 secondes.
+`findings` réutilise la fonction existante `print_findings()` de la commande `analyze`, donc la sortie colorée est identique : étiquettes colorées selon la sévérité, localisation du code source, template, suggestion, impact environnemental.
 
-Le flag `--daemon` spécifie l'URL de base du daemon (défaut `http://localhost:4318`). C'est le même port que l'endpoint OTLP HTTP, les routes `/api/*` sont servies par le même serveur axum.
+`explain` désérialise la réponse JSON du daemon en `ExplainTree` et appelle `format_tree_text()` pour l'arbre de spans coloré avec findings en ligne, identique à `perf-sentinel explain`.
 
-Le `default` du CLI est `["tui", "daemon", "tempo", "jaeger-query"]`. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
+`inspect` récupère tous les findings via `/api/findings?limit=10000`, puis, pour chaque `trace_id` distinct, récupère l'arbre explain via `/api/explain/{trace_id}` et le désérialise en `ExplainTree`. Les arbres colorés pré-rendus sont passés au TUI via `App::with_pre_rendered_trees`, donc le panneau de détail affiche de vrais arbres de spans (pas des coquilles vides) pour chaque trace encore présente dans la `TraceWindow` du daemon. Les traces évincées renvoient le panneau de détail sans arbre (omission silencieuse, pas de panneau vide déroutant).
 
-```toml
-perf-sentinel-core = { version = "0.8", default-features = false }
-```
+`correlations` affiche un tableau coloré dédié, avec le pourcentage de confiance coloré selon sa valeur (rouge >= 80%, jaune >= 50%).
 
-Cela compile le pipeline batch complet (normalize, correlate, detect, score, report) sans code client HTTP. Les types de config (`ScaphandreConfig`, `CloudEnergyConfig`) sont toujours disponibles pour que le parseur TOML fonctionne quelles que soient les features activées. Seuls les scrapers runtime et les types state sont conditionnels.
+`status` affiche des paires clé-valeur avec la version, l'uptime formaté (Xh Ym Zs), les traces actives et le nombre de findings stockés.
+
+### Implémentation
+
+La fonction `cmd_query` construit une closure autour de `http_client::fetch_get` qui gère les échecs de connexion avec un message d'erreur explicite ("Is `perf-sentinel watch` running?"). Chaque sous-action construit le chemin d'URL approprié, récupère la réponse et l'affiche selon le flag `--format`.
+
+L'URL par défaut du daemon est `http://localhost:4318`, qui correspond au port d'écoute HTTP par défaut du daemon. Les utilisateurs peuvent la remplacer avec `--daemon http://host:port`.
 
 ## Parsing de la configuration
 
@@ -262,7 +294,7 @@ désormais une `ConfigError::Validation` dont le message nomme à la
 fois la clé retirée et son remplacement sectionné, donc
 `cargo run --bin perf-sentinel watch` sur une config 0.5.x échoue
 rapidement et indique à l'opérateur exactement quoi modifier. La
-table de migration complète est dans `docs/CONFIGURATION-FR.md`.
+table de migration complète est dans `docs/FR/CONFIGURATION-FR.md`.
 
 ### Bornes de validation
 
@@ -270,7 +302,7 @@ Chaque champ numérique a des bornes explicites dans `validate()` :
 
 | Champ                                  | Min   | Max                  | Raison                                                                                              |
 |----------------------------------------|-------|----------------------|-----------------------------------------------------------------------------------------------------|
-| `max_payload_size`                     | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection                                                          |
+| `max_payload_size`                     | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection des entrées                                              |
 | `max_active_traces`                    | 1     | 1 000 000            | Empêcher la mémoire non bornée                                                                      |
 | `max_events_per_trace`                 | 1     | 100 000              | Empêcher l'OOM par trace                                                                            |
 | `max_retained_findings`                | 0     | 10 000 000           | Empêcher l'OOM sur le store de findings. `0` est documenté comme "désactiver complètement le store" |
@@ -282,7 +314,6 @@ Chaque champ numérique a des bornes explicites dans `validate()` :
 | `max_fanout`                           | 1     | 100 000              | Empêcher la désactivation de la détection                                                           |
 | `trace_ttl_ms`                         | 100   | 3 600 000 (1 h)      | Intervalle d'éviction minimum                                                                       |
 | `sampling_rate`                        | 0.0   | 1.0                  | Probabilité valide                                                                                  |
-| `io_waste_ratio_max`                   | 0.0   | 1.0                  | Ratio valide                                                                                        |
 | `ingest_queue_capacity`                | 1     | 1 048 576            | Plafond de backpressure de la file bornée                                                           |
 | `analysis_queue_capacity`              | 1     | 1 048 576            | Plafond de backpressure de la file bornée                                                           |
 | `listen_port_http`                     | 1     | 65 535               | Port TCP valide                                                                                     |
@@ -290,6 +321,7 @@ Chaque champ numérique a des bornes explicites dans `validate()` :
 | `chatty_service_min_calls`             | 1     | *(aucun)*            | Au moins 1 appel pour détecter                                                                      |
 | `pool_saturation_concurrent_threshold` | 2     | *(aucun)*            | Au moins 2 requêtes concurrentes pour saturer                                                       |
 | `serialized_min_sequential`            | 2     | *(aucun)*            | Au moins 2 appels pour former une séquence                                                          |
+| `io_waste_ratio_max`                   | 0.0   | 1.0                  | Ratio valide                                                                                        |
 
 La vérification de `listen_addr` non-loopback émet un avertissement mais ne rejette pas :
 
@@ -410,8 +442,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 Conséquences :
 
 - **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Les benchs de décision v0.4.7 le montraient combler l'écart musl et dépasser le baseline glibc d'environ 30 % (et l'allocateur Darwin de macOS d'un facteur ~2 sur le microbench), porté par sa disposition en segments/pages sur les allocations petites-à-moyennes qui dominent le chemin chaud de perf-sentinel. Re-mesuré sur 0.6.1 et 0.8.0 avec la même conclusion. Les tables par campagne vivent dans l'historique git.
-- **Sur macOS, Windows et n'importe quelle future cible `*-linux-gnu`** : le garde `cfg(target_env = "musl")` vaut faux, `mimalloc` n'est même pas compilé, l'allocateur système reste en place. Aucun changement de surface pour ces plateformes.
-- **Coût RSS** : environ +21 % sur la charge du bench. Compromis attendu pour un allocateur plus rapide qui pré-alloue ses arenas. La RSS résultante reste un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits recommandées dans les values Helm.
+- **Sur macOS, Windows et n'importe quelle future cible `*-linux-gnu`** : la garde `cfg(target_env = "musl")` vaut faux, `mimalloc` n'est même pas compilé, l'allocateur système reste en place. Aucun changement de surface pour ces plateformes.
+- **Coût RSS** : environ +21 % sur la charge du bench. Compromis attendu pour un allocateur plus rapide qui pré-alloue ses arenas. La RSS résultante reste un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits K8s recommandées dans les values Helm.
 
 La forme sans feature flag, target-gated, a été retenue plutôt qu'une feature cargo opt-in pour deux raisons. D'abord, il n'y a pas de raison plausible, sur un build musl, de garder le défaut plus lent. Ensuite, le remplacement n'a aucune surface visible utilisateur, donc l'exposer en toggle alourdirait la doc sans bénéfice correspondant.
 
@@ -432,7 +464,7 @@ Optimisations livrées, chacune avec sa preuve criterion avant/après :
 
 - Parse ISO 8601 : chemin rapide sur layout fixe plus chemin général sans allocation, 69,5 ns vers 8,4 ns par parse (−88 %), benchs détecteurs −4 % à −9 % (les horodatages sont parsés plusieurs fois par span entre la détection et le carbone).
 - ServiceMeter : enfants de counter par service pré-cachés, 11,9 ns vers 1,0 ns par événement sur le chemin de métrologie (micro bench `service_counter/`).
-- Harnais `bench` : le clone passe dans la boucle d'itération, le pic RSS tombe de `itérations x entrée` à `2 x entrée` (l'ancien ~641 Mo à 31,2k x 30 lit ~10x plus bas sur la même charge, donc annoter les comparaisons qui traversent cette frontière).
+- Harnais `bench` : le clone passe dans la boucle d'itération, le pic RSS tombe de `iterations x input` à `2 x input` (l'ancien ~641 Mo à 31,2k x 30 lit ~10x plus bas sur la même charge, donc annoter les comparaisons qui traversent cette frontière).
 - Le CLI batch libère le buffer d'entrée brut avant l'analyse (pic RSS moins la taille du fichier sur `analyze`/`diff`).
 
 Évaluées et non retenues, avec les mesures qui les ont fermées :
@@ -486,9 +518,9 @@ Le quality gate `analyze --ci` n'est pas dupliqué sur `diff` : le diff lui-mêm
 - `IIS_HIGH` (5.0) est ancré sur le `n_plus_one_threshold` par défaut du détecteur N+1. Un endpoint qui l'atteint est arithmétiquement au point où `detect_n_plus_one` commence à émettre.
 - `IIS_CRITICAL` (10.0) est mécaniquement ancré sur `detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD`, avec un test garde-fou qui casse le build si l'une des deux valeurs bouge sans l'autre.
 - `IIS_MODERATE` (2.0) est **une règle empirique**, pas une mesure : l'intuition qu'un endpoint CRUD typique fait une ou deux opérations d'I/O par requête. Attendez-vous à y voir beaucoup d'endpoints légitimes.
-- `WASTE_RATIO_HIGH` (0.30) est ancré sur l'`io_waste_ratio_max` **par défaut**, pas sur la valeur configurée par l'opérateur. La porte est une politique utilisateur, l'interprétation est une heuristique fixe, et un lecteur qui compare deux rapports a besoin que le second veuille dire la même chose dans les deux.
+- `WASTE_RATIO_HIGH` (0.30) est ancré sur l'`io_waste_ratio_max` **par défaut**, pas sur la valeur configurée par l'opérateur. La gate est une politique utilisateur, l'interprétation est une heuristique fixe, et un lecteur qui compare deux rapports a besoin que le second veuille dire la même chose dans les deux.
 
-**Le contrat JSON sépare la stabilité en deux.** Les valeurs de l'énumération (`"healthy"`, `"moderate"`, `"high"`, `"critical"`) sont stables entre versions et les consommateurs peuvent s'y fier. Les seuils derrière elles sont versionnés avec le binaire et peuvent bouger. Un consommateur qui veut une classification indépendante de la version doit lire `io_intensity_score` et `io_waste_ratio` bruts et appliquer ses propres bandes. C'est le même schéma que `co2.model`, qui évolue de `io_proxy_v1` à `v3` sans casser un consommateur qui veut seulement savoir quel modèle a tourné.
+**Le contrat JSON sépare la stabilité en deux.** Les valeurs de l'énumération (`"healthy"`, `"moderate"`, `"high"`, `"critical"`) sont stables entre versions et les consommateurs peuvent s'y fier. Les seuils derrière elles sont versionnés avec le binaire et peuvent bouger. Un consommateur qui veut une classification indépendante de la version doit lire `io_intensity_score` et `io_waste_ratio` bruts et appliquer ses propres bandes. C'est le même schéma que `co2.model`, qui évolue à travers `io_proxy_v1..v3` sans casser un consommateur qui veut seulement savoir quel modèle a tourné.
 
 `NaN` classe en `Healthy` partout, puisqu'il compare faux contre tous les seuils. C'est le sens voulu : une donnée manquante ne doit pas s'afficher en rouge.
 
@@ -496,7 +528,7 @@ Le quality gate `analyze --ci` n'est pas dupliqué sur `diff` : le diff lui-mêm
 
 Trois générateurs placent des chaînes dans l'interface de quelqu'un d'autre, et tous trois considèrent la même classe d'attaque comme dans leur périmètre : un span hostile qui met dans `service.name`, `http.url` ou `code.filepath` quelque chose qui *s'affiche* autrement qu'il ne *se lit*. L'échappement JSON côté consommateur ferme l'injection mais pas l'usurpation.
 
-**SARIF (`report/sarif.rs`)** est le plus strict, parce que GitHub et GitLab le rendent en revue de code. Toute chaîne non fiable qui atteint un message ou une logical location se voit retirer ses surcharges BiDi et ses caractères de format invisibles (Trojan Source, CVE-2021-42574) : `char::is_control` ne les attrape pas, car ce sont des caractères de format. `code.filepath` reçoit un validateur dédié qui rejette **tout** deux-points plutôt que de tailler une exception pour les lettres de lecteur Windows, car l'exception rouvre les contournements `javascript:`, `data:` et `A:B:C://` alors qu'un chemin source légitime dans une application instrumentée n'en contient pas. Les encodages UTF-8 surlongs de `.` (`%c0%ae`, `%e0%80%ae`, le bug IIS classique) sont rejetés en bloc. Un chemin qui échoue à un contrôle est abandonné plutôt qu'assaini, car un chemin à moitié réparé induit plus en erreur qu'un chemin absent. Les métadonnées d'acquittement reçoivent le même traitement à la sortie : c'est du texte libre contrôlé par l'opérateur, et `alice<RLO>@evil.com` usurpe une identité dans l'interface du relecteur.
+**SARIF (`report/sarif.rs`)** est le plus strict, parce que le code scanning de GitHub et de GitLab le rend. Toute chaîne non fiable qui atteint un message ou une logical location se voit retirer ses surcharges BiDi et ses caractères de format invisibles (Trojan Source, CVE-2021-42574) : `char::is_control` ne les attrape pas, car ce sont des caractères de format. `code.filepath` reçoit un validateur dédié qui rejette **tout** deux-points plutôt que de tailler une exception pour les lettres de lecteur Windows, car l'exception rouvre les contournements `javascript:`, `data:` et `A:B:C://` alors qu'un chemin source légitime dans une application instrumentée n'en contient pas. Les encodages UTF-8 surlongs de `.` (`%c0%ae`, `%e0%80%ae`, le bug IIS classique) sont rejetés en bloc. Un chemin qui échoue à un contrôle est abandonné plutôt qu'assaini, car un chemin à moitié réparé induit plus en erreur qu'un chemin absent. Les métadonnées d'acquittement reçoivent le même traitement à la sortie : c'est du texte libre contrôlé par l'opérateur, et `alice<RLO>@evil.com` usurpe une identité dans l'interface du relecteur.
 
 **Les warnings (`report/warnings.rs`)** portent un contrat explicite plutôt qu'un mécanisme. `Warning::new` n'assainit rien parce que tous les producteurs actuels passent un littéral en dur ou un `format!` sur un compteur. C'est une propriété des sites d'appel d'aujourd'hui, pas du type, le module énonce donc la règle : un `Warning` construit depuis quoi que ce soit touchant à des octets contrôlés par l'utilisateur (attributs OTLP, noms de spans, en-têtes, chaînes de configuration) doit passer par `Warning::from_untrusted`. Le `warning_details` structuré coexiste avec le `warnings: Vec<String>` historique, les renderers préférant le premier quand il est non vide, pour que les références plus anciennes continuent de se parser via `serde(default)`.
 
