@@ -6,10 +6,9 @@
 //! lock-free, which matters because a query holds the map for the whole
 //! filtering pass.
 //!
-//! The map was immutable and shared behind an `Arc` until the file became a
-//! mounted `ConfigMap`. An operator who edits a finding's ack expects it to
-//! apply, and telling them to restart the daemon for a text file is not an
-//! answer when that file is the sanctioned way to record a team decision.
+//! The map is swappable because the file can be a mounted `ConfigMap`. An
+//! operator who edits a finding's ack expects it to apply without a daemon
+//! restart, since that file is the sanctioned way to record a team decision.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,8 +40,8 @@ impl AckTomlState {
     }
 
     /// Replace the map. Readers already holding the previous one finish
-    /// against it, which is what we want: a query returns a coherent view
-    /// rather than one spanning two revisions of the file.
+    /// against it, so a query returns a coherent view rather than one
+    /// spanning two revisions of the file.
     pub fn store(&self, next: HashMap<String, ResolvedTomlAck>) {
         self.inner.store(Arc::new(next));
     }
