@@ -8,7 +8,7 @@
 
 # Advisory IDs to ignore with a short explanation of why. The ignore is
 # a workspace-scoped escape hatch for advisories whose affected version
-# is pulled into `Cargo.lock` transitively by a crate we do not actually
+# is pulled into `Cargo.lock` transitively by a crate we do not
 # compile. cargo-audit has no visibility into feature activation, so it
 # flags every `[[package]]` entry in the lockfile regardless of whether
 # the code ships in our binary. When the root cause is uncompiled code,
@@ -23,23 +23,23 @@ ignore = [
     # perf-sentinel pulls two distinct `rand` versions transitively:
     #
     #   1. `rand 0.9.3` via opentelemetry-proto -> opentelemetry_sdk.
-    #      This version IS in the patched range and is NOT flagged by
-    #      the advisory. No action needed for this one - it was brought
+    #      This version is in the patched range and is not flagged by
+    #      the advisory. No action is needed for this one, which came
     #      in via `cargo update -p rand`.
     #
     #   2. `rand 0.8.5` via ratatui-termwiz -> termwiz -> terminfo ->
-    #      phf_codegen -> phf_generator. `ratatui-termwiz` is an OPTIONAL
+    #      phf_codegen -> phf_generator. `ratatui-termwiz` is an optional
     #      backend of ratatui 0.30 that perf-sentinel never activates
     #      (we use the `crossterm` backend via the default feature set).
     #      The dependency lands in `Cargo.lock` because Cargo resolves
     #      every declared optional dep even when the corresponding
     #      feature is off, but the code is never compiled into the
-    #      binary - run `cargo tree --all-features -p perf-sentinel`
+    #      binary. Run `cargo tree --all-features -p perf-sentinel`
     #      to confirm neither `ratatui-termwiz` nor `phf_generator`
     #      appear in the active dependency graph.
     #
-    # Even if `rand 0.8.5` WERE compiled, the advisory only triggers
-    # when ALL FIVE of these conditions hold simultaneously:
+    # Even if `rand 0.8.5` were compiled, the advisory only triggers
+    # when all five of these conditions hold simultaneously:
     #   (a) the `log` and `thread_rng` features of `rand` are enabled,
     #   (b) a custom logger has been defined,
     #   (c) the custom logger calls `rand::rng()` and invokes `TryRng`
@@ -49,9 +49,9 @@ ignore = [
     #   (e) trace-level logging is enabled or warn-level logging is
     #       enabled while `getrandom` is unable to provide a seed.
     #
-    # perf-sentinel defines no custom logger - the CLI initializes
+    # perf-sentinel defines no custom logger. The CLI initializes
     # `tracing_subscriber::fmt()` with the default formatter, which
-    # does NOT call into `rand`. Conditions (b)(c) are therefore
+    # does not call into `rand`. Conditions (b)(c) are therefore
     # impossible to satisfy in our code path. Exposure is zero.
     #
     # Revisit this ignore when:

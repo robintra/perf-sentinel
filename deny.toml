@@ -17,10 +17,10 @@ all-features = true
 ignore = []
 
 [licenses]
-# AGPL-3.0-only is copyleft, every dependency below is license-compatible with
+# AGPL-3.0-only is copyleft. Every dependency below is license-compatible with
 # it. The list is the exact set observed across the dependency graph, all
 # permissive except MPL-2.0 (file-level weak copyleft, one-way compatible with
-# AGPL) used by option-ext. LGPL-2.1-or-later is deliberately omitted: the only
+# AGPL) used by option-ext. LGPL-2.1-or-later is omitted because the only
 # crate offering it (r-efi) is multi-licensed and resolves via MIT or Apache.
 allow = [
     "AGPL-3.0-only",          # perf-sentinel and perf-sentinel-core themselves
