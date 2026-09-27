@@ -117,7 +117,7 @@ Twelve finding types, plus cross-trace correlations in daemon mode:
 | Slow messaging   | Publish duration above configured threshold               |
 | Excessive fanout | One span has more than 20 child calls, parallel or not    |
 | Chatty service   | More than 15 outbound HTTP calls in one user request      |
-| Pool saturation  | Too many concurrent SQL queries within one trace          |
+| Pool saturation  | At least 10 concurrent SQL queries from one service       |
 | Serialized calls | Sequential I/O that could be parallelized                 |
 
 Each finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when OTel spans carry `code.*` attributes), and GreenOps impact (see below). For per-detector severity rules and tunable thresholds, see [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
