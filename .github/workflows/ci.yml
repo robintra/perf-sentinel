@@ -269,11 +269,7 @@ jobs:
 
   # Playwright smoke suite for the HTML dashboard emitted by `perf-sentinel
   # report`. Runs in parallel with `check` so the Rust-only job is not
-  # slowed by the Playwright / Chromium install (~90s). GitHub-hosted
-  # runners only: `npx playwright install --with-deps chromium` uses
-  # sudo apt-get to pull Chromium's system libraries, and the runner is
-  # ephemeral here. On a self-hosted runner, prefer a pre-built
-  # Playwright Docker image to keep the system package surface pinned.
+  # slowed by the Playwright setup.
   browser-tests:
     name: Browser tests
     runs-on: ubuntu-latest
