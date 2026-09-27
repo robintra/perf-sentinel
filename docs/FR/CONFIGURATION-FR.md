@@ -253,7 +253,7 @@ Les ops I/O sans région résolvable atterrissent dans un bucket synthétique `"
 
 Quand le scoring vert est activé et qu'au moins un événement est analysé, le `green_summary` du rapport JSON inclut :
 
-- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator+transport"` : `(E × I) + M + T` sommé sur les traces, y compris quand `T` vaut zéro) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut le carbone embarqué et le transport). Les rapports historiques peuvent porter `"sci_v1_numerator"`. Valeurs `model`, le plus précis gagne : `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté (ex. `"io_proxy_v2+cal"`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré.
+- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator+transport"` : `(E × I) + M + T` sommé sur les traces, y compris quand `T` vaut zéro) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut le carbone embarqué et le transport). Les rapports historiques peuvent porter `"sci_v1_numerator"`. Valeurs `model`, le plus précis gagne : `"electricity_maps_api"` > `"alumet_rapl"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté (ex. `"io_proxy_v2+cal"`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré.
 - **`regions[]`** : détail par région avec `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **trié par `co2_gco2` décroissant** (régions à plus fort impact en premier) avec départage alphabétique. `intensity_source` vaut `"annual"`, `"hourly"`, `"monthly_hourly"` ou `"real_time"` (API Electricity Maps) selon la source d'intensité carbone utilisée pour la région.
 
 Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie et [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#précision-des-estimations-carbone) pour l'avertissement directionnel / non-réglementaire.
@@ -907,7 +907,7 @@ Les origines qui ne se parsent pas comme une valeur d'en-tête HTTP
 valide (typiquement un copier-coller avec des caractères de contrôle)
 sont écartées au démarrage avec un log `warn!` et le reste de la
 liste est honoré. Si toutes les entrées sont invalides, la couche est
-désactivée entièrement. Si `daemon_api_enabled = false`, la couche
+désactivée entièrement. Si `[daemon] api_enabled = false`, la couche
 CORS est ignorée (le sous-router `/api/*` n'est pas monté de toute
 façon) et un `warn!` signale la config inutilisée.
 

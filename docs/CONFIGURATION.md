@@ -240,7 +240,7 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket with ze
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator+transport"`: `(E × I) + M + T` summed over traces, including when `T` is zero) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied and transport). Legacy reports can carry `"sci_v1_numerator"`. `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`). The `+cal` suffix never applies to a measured tag.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator+transport"`: `(E × I) + M + T` summed over traces, including when `T` is zero) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied and transport). Legacy reports can carry `"sci_v1_numerator"`. `model` values, most precise wins: `"electricity_maps_api"` > `"alumet_rapl"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`). The `+cal` suffix never applies to a measured tag.
 - **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, `"monthly_hourly"` or `"real_time"` (Electricity Maps API) depending on which carbon intensity source was used for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology and [docs/LIMITATIONS.md](LIMITATIONS.md#carbon-estimates-accuracy) for the directional / non-regulatory disclaimer.
@@ -884,7 +884,7 @@ client-side without a daemon-side rejection.
 Origins that fail to parse as a valid HTTP header value (typically a
 copy-paste with embedded control characters) are dropped at startup
 with a `warn!` log and the rest of the list is honored. If every entry
-is invalid, the layer is disabled entirely. If `daemon_api_enabled =
+is invalid, the layer is disabled entirely. If `[daemon] api_enabled =
 false`, the CORS layer is skipped (the `/api/*` sub-router is not
 mounted in the first place) and a `warn!` notes the unused config.
 
