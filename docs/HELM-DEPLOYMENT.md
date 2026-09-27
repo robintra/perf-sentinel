@@ -637,7 +637,7 @@ The 0.5.20 daemon adds three runtime ack endpoints
 (`POST` / `DELETE /api/findings/{signature}/ack` and `GET /api/acks`)
 on the existing query API port. They share the loopback-by-default
 posture of `/api/findings`, but they mutate state, so the deployment
-shape needs three operator decisions when the chart is rolled out on a
+shape needs five operator decisions when the chart is rolled out on a
 non-loopback `listen_address`.
 
 **Who may acknowledge findings.** The chart binds `0.0.0.0` so the Service

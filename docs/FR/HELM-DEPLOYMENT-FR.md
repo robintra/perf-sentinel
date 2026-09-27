@@ -482,7 +482,7 @@ config:
 ### Store d'acks runtime du daemon
 
 Le daemon 0.5.20 ajoute trois endpoints d'ack runtime
-(`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils modifient l'état, donc trois décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
+(`POST` / `DELETE /api/findings/{signature}/ack` et `GET /api/acks`) sur le port existant de l'API de requêtage. Ils partagent la posture loopback par défaut de `/api/findings`, mais ils modifient l'état, donc cinq décisions opérateur s'imposent quand le chart est déployé sur un `listen_address` non-loopback.
 
 **Qui peut acquitter des findings.** Le chart fait écouter le daemon sur `0.0.0.0` pour que le Service puisse router vers le pod, et garde le store d'acks actif pour que les acks (et les acks TOML commités que le daemon charge avec eux) fonctionnent. Par défaut, le daemon n'a aucune authentification applicative (une écoute hors loopback se contente de journaliser un avertissement au démarrage) : il s'attend à tourner dans un réseau de cluster non exposé, où le Service et la NetworkPolicy forment la frontière. Choisissez l'une des deux façons de restreindre qui peut acquitter :
 
