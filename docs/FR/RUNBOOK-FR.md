@@ -355,7 +355,7 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 1. **Trafic amont effondré.** Le trafic réel vers vos services a chuté, et perf-sentinel le reflète fidèlement. Recoupez avec les métriques de votre load balancer ou HTTP.
 2. **OTel collector indisponible.** Si un collector central est entre les services et perf-sentinel, vérifiez d'abord sa santé et ses métriques de réception.
 3. **Changement de sampling.** Une modification de config a baissé le taux de sampling. Auditez les commits récents dans le repo de config OTel.
-4. **Backpressure du daemon.** Deux points de pression distincts. Si l'ingestion dépasse la boucle de réception, le canal OTLP se remplit et les events sont rejetés : cherchez les avertissements `channel full` (`RUST_LOG=sentinel_core::ingest=debug`) et `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. Si la détection ne suit pas, la file du worker d'analyse se remplit et des lots entiers sont délestés : surveillez `perf_sentinel_analysis_queue_depth` et `perf_sentinel_analysis_shed_batches_total`. Un troisième point de pression, plus discret, est l'archive de divulgation : quand son écrivain prend du retard sur les I/O disque, des fenêtres entières sont perdues alors même que leurs findings ont été analysés et servis en direct. La perte n'est visible que sur `perf_sentinel_archive_windows_dropped_total` (par `reason`), jamais dans l'archive elle-même. Déclencheurs fréquents : une trace pathologique qui ralentit detect+score, `max_active_traces` trop bas pour le débit courant, ou un stockage lent ou plein sous le chemin d'archive.
+4. **Backpressure du daemon.** Trois points de pression distincts. Si l'ingestion dépasse la boucle de réception, le canal OTLP se remplit et les events sont rejetés : cherchez les avertissements `channel full` (`RUST_LOG=sentinel_core::ingest=debug`) et `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. Si la détection ne suit pas, la file du worker d'analyse se remplit et des lots entiers sont délestés : surveillez `perf_sentinel_analysis_queue_depth` et `perf_sentinel_analysis_shed_batches_total`. Un troisième point de pression, plus discret, est l'archive de divulgation : quand son écrivain prend du retard sur les I/O disque, des fenêtres entières sont perdues alors même que leurs findings ont été analysés et servis en direct. La perte n'est visible que sur `perf_sentinel_archive_windows_dropped_total` (par `reason`), jamais dans l'archive elle-même. Déclencheurs fréquents : une trace pathologique qui ralentit detect+score, `max_active_traces` trop bas pour le débit courant, ou un stockage lent ou plein sous le chemin d'archive.
 
 Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande majorité.
 
@@ -690,7 +690,7 @@ curl -s http://perf-sentinel:4318/api/export/report | jq -r '.warning_details[].
 
 **Ce qui survit.**
 
-- Rien du daemon lui-même. Pas de persistance disque.
+- Du daemon lui-même, seulement ce qu'il écrit sur disque : l'archive NDJSON des findings quand `[daemon.archive]` est défini, le stockage runtime des acks (`acks.jsonl`, rejoué au démarrage) et l'anneau d'incidents quand `[daemon.incidents] archive_path` est défini (rechargé au démarrage). Tout le reste vit en mémoire.
 - Prometheus conserve les métriques déjà scrapées (les compteurs historiques sont saufs).
 - Tempo conserve les traces, à condition que vous les y envoyiez aussi.
 

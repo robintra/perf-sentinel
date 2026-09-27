@@ -348,7 +348,7 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 1. **Upstream traffic dropped.** Real traffic to your services fell, and perf-sentinel reports it faithfully. Cross-check with your load balancer or HTTP metrics.
 2. **OTel collector down.** If a central collector sits between services and perf-sentinel, check the collector's own health and receive metrics first.
 3. **Sampling change.** A config bump reduced the sampling rate. Audit recent commits in your OTel config repo.
-4. **Daemon backpressure.** Two distinct pressure points. If ingestion outpaces the receive loop the OTLP channel fills and events are rejected: look for `channel full` warnings (`RUST_LOG=sentinel_core::ingest=debug`) and `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. If detection can't keep up, the analysis worker queue fills and whole batches are shed: watch `perf_sentinel_analysis_queue_depth` and `perf_sentinel_analysis_shed_batches_total`. A third, quieter pressure point is the disclosure archive: when its writer falls behind on disk I/O, whole windows are dropped even though their findings were analyzed and served live. The drop is visible only on `perf_sentinel_archive_windows_dropped_total` (by `reason`), never in the archive itself. Common triggers: a pathological trace slowing detect+score, `max_active_traces` too low for current throughput, or slow or full storage under the archive path.
+4. **Daemon backpressure.** Three distinct pressure points. If ingestion outpaces the receive loop the OTLP channel fills and events are rejected: look for `channel full` warnings (`RUST_LOG=sentinel_core::ingest=debug`) and `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. If detection can't keep up, the analysis worker queue fills and whole batches are shed: watch `perf_sentinel_analysis_queue_depth` and `perf_sentinel_analysis_shed_batches_total`. A third, quieter pressure point is the disclosure archive: when its writer falls behind on disk I/O, whole windows are dropped even though their findings were analyzed and served live. The drop is visible only on `perf_sentinel_archive_windows_dropped_total` (by `reason`), never in the archive itself. Common triggers: a pathological trace slowing detect+score, `max_active_traces` too low for current throughput, or slow or full storage under the archive path.
 
 Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 
@@ -680,7 +680,7 @@ curl -s http://perf-sentinel:4318/api/export/report | jq -r '.warning_details[].
 
 **What survives.**
 
-- Nothing from the daemon itself. There is no disk persistence.
+- From the daemon itself, only what it writes to disk: the NDJSON findings archive when `[daemon.archive]` is set, the runtime ack store (`acks.jsonl`, replayed at startup) and the incident ring when `[daemon.incidents] archive_path` is set (reloaded at startup). Everything else is memory-only.
 - Prometheus retains the metrics it already scraped (historical counters are safe).
 - Tempo retains the traces, assuming you also send them there.
 
