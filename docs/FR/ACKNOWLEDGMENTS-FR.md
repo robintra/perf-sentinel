@@ -141,12 +141,12 @@ Deux limites. L'avertissement ne vient que d'une analyse fraîche de traces : r�
 
 Les flags fonctionnent uniformément sur `analyze`, `report`, `inspect`, `diff`.
 
-| Flag                          | Effet                                                                                                                            |
-|-------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| (par défaut, sans flag)       | Charge `./.perf-sentinel-acknowledgments.toml` s'il existe, l'applique. Pas de fichier = no-op, comportement actuel préservé.    |
-| `--acknowledgments <path>`    | Remplace le chemin par défaut. Utile en monorepo avec un fichier d'acks par dossier de service.                                  |
-| `--no-acknowledgments`        | Désactive le filtrage complètement. Pour les vues d'audit complètes ("montre-moi tout, y compris ce que j'ai acquitté").         |
-| `--show-acknowledged`         | Applique le filtrage, mais inclut les findings acquittés dans la sortie avec leurs métadonnées d'ack. Pour la revue périodique des acks. |
+| Flag                       | Effet                                                                                                                                    |
+|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| (par défaut, sans flag)    | Charge `./.perf-sentinel-acknowledgments.toml` s'il existe, l'applique. Pas de fichier = no-op, comportement actuel préservé.            |
+| `--acknowledgments <path>` | Remplace le chemin par défaut. Utile en monorepo avec un fichier d'acks par dossier de service.                                          |
+| `--no-acknowledgments`     | Désactive le filtrage complètement. Pour les vues d'audit complètes ("montre-moi tout, y compris ce que j'ai acquitté").                 |
+| `--show-acknowledged`      | Applique le filtrage, mais inclut les findings acquittés dans la sortie avec leurs métadonnées d'ack. Pour la revue périodique des acks. |
 
 ## Comportement de la quality gate
 
