@@ -414,8 +414,8 @@ pub struct GreenSummary {
     /// Empty on pre-per-service-model baselines.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_energy_model: BTreeMap<String, String>,
-    /// Fraction of spans whose energy was resolved by Scaphandre or
-    /// cloud `SPECpower` (versus proxy fallback) per service, in `[0.0,
+    /// Fraction of spans whose energy was resolved by a measured backend
+    /// (versus proxy fallback) per service, in `[0.0,
     /// 1.0]`. `1.0` means every span had measured energy, `0.0` means
     /// the service fell back to proxy entirely. Pair with
     /// `per_service_energy_model` to assess fidelity. The aggregator
