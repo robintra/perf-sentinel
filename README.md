@@ -212,7 +212,7 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 
 ## Hub, optional but recommended
 
-A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/api/findings` answers at most 1,000 rows, which is enough for one service and thin for a fleet. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) is a separate service that collects from every daemon and records when each finding was first seen, which the daemons cannot reconstruct.
+A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/api/findings` answers at most 1,000 rows, which is enough for the current state and too little for history or for several daemons. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) is a separate service that collects from every daemon and records when each finding was first seen, which the daemons cannot reconstruct.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
