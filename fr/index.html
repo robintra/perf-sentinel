@@ -459,7 +459,7 @@
         
           <div data-dc-tpl="265" style="background: var(--surface); padding: 20px 22px;">
             <div data-dc-tpl="266" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; color: var(--dotnet);">
-              <div data-dc-tpl="267" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; letter-spacing: -0.01em;"><span class="sc-interp">.NET&nbsp;10 NativeAOT</span></div>
+              <div data-dc-tpl="267" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; letter-spacing: -0.01em;"><span class="sc-interp">NativeAOT</span></div>
               <span data-dc-tpl="268" data-ico="cpu" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="269" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">un binaire natif unique, sans runtime .NET, image chiselée non root</span></div>
@@ -1640,7 +1640,7 @@ class Component extends DCLogic {
           { icon: 'zap', value: '~130\u00a0ms', label: 'cold start to first response (median, arm64 image)' },
           { icon: 'memory', value: '20\u00a0MiB', label: 'RSS at rest, before any import' },
           { icon: 'layers', value: '38–\u206040\u00a0MB', label: 'compressed image (Hub ~11\u00a0MB, Perf Sentinel ~7\u00a0MB, chiseled base ~21\u00a0MB)' },
-          { icon: 'cpu', value: '.NET\u00a010 NativeAOT', label: 'one native executable, no .NET runtime, chiseled non-root image' },
+          { icon: 'cpu', value: 'NativeAOT', label: 'one native executable, no .NET runtime, chiseled non-root image' },
         ],
         hubBench: 'Detailed measurements in the Hub docs', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/BENCHMARKS.md',
         hubTitleA: 'A daemon keeps the present.', hubTitleB1: 'The ', hubWCs: 'C#', hubTitleB2: ' Hub keeps the history.',
@@ -1805,7 +1805,7 @@ class Component extends DCLogic {
           { icon: 'zap', value: '~130\u00a0ms', label: 'démarrage à froid jusqu\u2019à la première réponse (médiane, image arm64)' },
           { icon: 'memory', value: '20\u00a0Mio', label: 'RSS au repos, avant tout import' },
           { icon: 'layers', value: '38–\u206040\u00a0Mo', label: 'image compressée (Hub ~11\u00a0Mo, Perf Sentinel ~7\u00a0Mo, base chiselée ~21\u00a0Mo)' },
-          { icon: 'cpu', value: '.NET\u00a010 NativeAOT', label: 'un binaire natif unique, sans runtime .NET, image chiselée non root' },
+          { icon: 'cpu', value: 'NativeAOT', label: 'un binaire natif unique, sans runtime .NET, image chiselée non root' },
         ],
         hubBench: 'Mesures détaillées dans la doc du Hub', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/FR/BENCHMARKS-FR.md',
         hubTitleA: 'Un daemon garde le présent.', hubTitleB1: 'Le Hub ', hubWCs: 'C#', hubTitleB2: ' garde l\u2019historique.',
