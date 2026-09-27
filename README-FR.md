@@ -116,7 +116,7 @@ Douze types de findings, plus la corrélation cross-trace en mode daemon :
 | HTTP lent          | Durée de requête au-dessus du seuil configuré                       |
 | Messaging lent     | Durée de publication au-dessus du seuil configuré                   |
 | Fanout excessif    | Un span démarre ≥ N enfants en parallèle                            |
-| Service bavard     | Service A appelle B à répétition dans une seule requête utilisateur |
+| Service bavard     | Plus de 15 appels HTTP sortants dans une seule requête utilisateur |
 | Saturation de pool | Trop de requêtes SQL simultanées au sein d'une même trace           |
 | Appels sérialisés  | I/O séquentiels qui pourraient être parallélisés                    |
 
