@@ -8,8 +8,9 @@ use std::process::Command;
 fn cli_disclose_tui_relaxes_period_flags_and_requires_terminal() {
     // `--tui` makes --intent/--confidentiality/--period-type/--from/--to/--output
     // optional. With stdout piped (no TTY) the preview exits via the terminal
-    // guard (code 1), not a clap missing-argument error (code 2) — proving clap
-    // accepted the omitted flags. --input and --org-config stay required.
+    // guard (code 1), not a clap missing-argument error (code 2). Reaching the
+    // guard proves clap accepted the omitted flags. --input and --org-config
+    // stay required.
     let dir = tempfile::tempdir().expect("temp dir");
     let archive = dir.path().join("archive.ndjson");
     fs::write(
@@ -43,8 +44,8 @@ fn cli_disclose_tui_relaxes_period_flags_and_requires_terminal() {
 
 #[test]
 fn cli_disclose_without_tui_requires_period_flags() {
-    // Canonical (non-TUI) disclose still demands the period/intent flags;
-    // omitting them is a clap usage error (exit code 2).
+    // Canonical (non-TUI) disclose still demands the period/intent flags.
+    // Omitting them is a clap usage error (exit code 2).
     let dir = tempfile::tempdir().expect("temp dir");
     let archive = dir.path().join("archive.ndjson");
     fs::write(

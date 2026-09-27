@@ -14,7 +14,7 @@ perf-sentinel --help
 perf-sentinel <subcommand> --help
 ```
 
-The sections below are not exhaustive for every subcommand; they
+The sections below are not exhaustive for every subcommand. They
 focus on the user surfaces that benefit from prose context (workflow,
 defaults, exit codes). For exhaustive flag listings, prefer `--help`.
 
@@ -104,12 +104,12 @@ kill -TERM $CAPTURE && wait $CAPTURE
 NDJSON, one OTLP request per line, the shape the Collector `file`
 exporter produces. `analyze`, `report` and `diff` auto-detect it, no
 flag needed. Requests are written as received, unconverted, so the file
-describes what the application actually sent.
+describes what the application sent.
 
 The directory of `--output` is created if it is missing, so
 `--output target/traces.json` works on a clean CI workspace where the
 build tool has not created `target/` yet. In wrapper mode the build tool
-is precisely what has not run.
+has not run yet.
 
 Progress and the final count go to **stderr**, never stdout: in wrapper
 mode that stream belongs to the wrapped command. The summary is how you
@@ -119,12 +119,12 @@ clean gate.
 
 ### Options worth knowing
 
-| Flag | Default | Why you would change it |
-|---|---|---|
-| `--listen-address` | `127.0.0.1` | `0.0.0.0` when the application runs in another container of the same job |
-| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | a port is already taken on the agent |
-| `--max-file-size` | `512` (MiB) | a large suite. Past the cap the file stays valid but incomplete, and the run exits `2` rather than pretending |
-| `--grace-ms` | `2000` | how long to keep listening after the command exits, for the exporter's last flush |
+| Flag                                        | Default         | Why you would change it                                                                |
+|---------------------------------------------|-----------------|----------------------------------------------------------------------------------------|
+| `--listen-address`                          | `127.0.0.1`     | `0.0.0.0` when the application runs in another container of the same job               |
+| `--listen-port-grpc` / `--listen-port-http` | `4317` / `4318` | a port is already taken on the agent                                                   |
+| `--max-file-size`                           | `512` (MiB)     | a large suite. Past the cap the file stays valid but incomplete, and the run exits `2` |
+| `--grace-ms`                                | `2000`          | how long to keep listening after the command exits, for the exporter's last flush      |
 
 ### Exit codes
 
@@ -147,7 +147,7 @@ Three subactions: `create`, `revoke`, `list`.
 The CLI consumes the daemon's HTTP endpoints
 (`POST/DELETE /api/findings/{sig}/ack` and `GET /api/acks`). It does
 not edit the TOML CI baseline
-(`.perf-sentinel-acknowledgments.toml`); that file is meant to be
+(`.perf-sentinel-acknowledgments.toml`). That file is meant to be
 edited by hand and shipped via PR review. See
 [`ACK-WORKFLOW.md`](./ACK-WORKFLOW.md) for guidance on choosing
 between the two ack mechanisms.
@@ -226,11 +226,11 @@ daemon config), the CLI resolves it in priority order:
 `query inspect`, `query monitor` and `query incidents` take the same
 `--api-key-file <PATH>` and resolve it the same way (steps 1 and 2, no
 prompt). The read key `[daemon] read_api_key` suffices for `query
-monitor` and `query incidents`, `ack` and `query inspect` need the ack
+monitor` and `query incidents`. `ack` and `query inspect` need the ack
 key.
 
-There is no `--api-key <SECRET>` flag, by design: passing secrets on
-the command line leaks them via the process list and shell history.
+There is no `--api-key <SECRET>` flag because passing secrets on the
+command line leaks them via the process list and shell history.
 
 On Unix, `--api-key-file` is opened with `O_NOFOLLOW` (symlinks are
 refused) and the CLI prints a one-line warning on stderr if the file
@@ -267,14 +267,14 @@ hint when applicable.
 `perf-sentinel query incidents [--service <NAME>] [--namespace <NAME>]
 [--offset N] [--limit N] [--format text|json] [--api-key-file <PATH>]`
 lists the incidents the alerting posted to the daemon (0.20.0+,
-`[daemon.incidents]`), newest first: one header block per incident
+`[daemon.incidents]`), newest first. Each incident gets one header block
 (kind, service as `ns/service` when the alert carried a namespace, start
 and end as local time, the window, a capture marker that says whether
 the ring still held the whole window, how many findings fired only after
 the restart, the alert's detail and the id), then its findings in the
 `query findings` layout. `--service` and `--namespace` narrow the list
-to one value each, `--limit` defaults to 50, the daemon caps it at 100,
-`--offset` pages past the newest. A 401 (pass the key), a 503
+to one value each. `--limit` defaults to 50 and the daemon caps it
+at 100. `--offset` pages past the newest. A 401 (pass the key), a 503
 (`[daemon.incidents] enabled = false`) and a 404 (daemon older than
 0.20.0) each exit 1 with their cause named. `query monitor
 --api-key-file <PATH>` hands the same key to the monitor's Incidents
@@ -283,7 +283,7 @@ tab, see [`INSPECT.md`](./INSPECT.md).
 For now, see `perf-sentinel <subcommand> --help` for the exhaustive
 option lists of `analyze`, `watch`, `query`, `report`, `diff`,
 `explain`, `inspect`, `pg-stat`, `mysql-stat`, `tempo`, `jaeger-query`, `demo`,
-`bench` and `calibrate`. The commands themselves are stable; their
+`bench` and `calibrate`. The commands themselves are stable. Their
 prose documentation is being filled in incrementally.
 
 The supply-chain trio has dedicated prose documentation elsewhere:

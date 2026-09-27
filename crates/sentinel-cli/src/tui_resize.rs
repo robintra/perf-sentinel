@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn set_cut_three_segments_only_moves_the_pair() {
-        // Default inspect columns; drag the Findings|Correlations boundary
+        // Default inspect columns. Drag the Findings|Correlations boundary
         // (boundary 1) right. Traces (segment 0) must not move.
         let mut seg = [20, 30, 50];
         set_cut(&mut seg, 1, 70, MIN_PCT);
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn boundary_cell_out_of_range_returns_start() {
-        // Defensive: a bad boundary must not panic, it returns the origin.
+        // Defensive: a bad boundary must not panic. It returns the origin.
         assert_eq!(boundary_cell(&[50, 50], 5, 10, 100), 10);
     }
 

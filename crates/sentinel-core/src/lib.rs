@@ -51,7 +51,7 @@ pub(crate) mod test_helpers;
 pub use report::interpret::InterpretationLevel;
 
 // Re-export the daemon error types for consistency with `InterpretationLevel`.
-// Downstream consumers (the CLI, any library user) can now write
+// Downstream consumers (the CLI, any library user) can write
 // `sentinel_core::DaemonError` / `sentinel_core::TlsConfigError` without
 // having to know the module structure. Gated on `daemon` since the daemon
 // module itself is gated.

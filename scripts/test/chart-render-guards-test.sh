@@ -127,7 +127,7 @@ expect_fail "refuses to append on an inline table" "manageDaemonPaths" \
 archive = { path = "/var/lib/perf-sentinel/archive.ndjson" }'
 
 # 5. manageDaemonPaths=false hands the whole job over: the operator's tables
-#    survive untouched and the chart appends nothing.
+#    stay untouched and the chart appends nothing.
 expect_render "leaves both tables alone when manageDaemonPaths is false" \
   '[ "$(grep -c "^\s*\[daemon\.ack\]" <<<"$out")" = 1 ] &&
    grep -q "toml_path" <<<"$out" &&
@@ -271,8 +271,8 @@ listen_port_http = 9999')"
 
 # 24. Same for the tables the chart appends itself under persistence: TOML
 #     rejects a table defined twice, so the pod would never parse its config.
-#     Persistence is part of the scenario, not incidental to it: that is the
-#     only configuration where the chart writes those tables (see 26d).
+#     Persistence is part of the scenario because it is the only
+#     configuration where the chart writes those tables (see 26d).
 expect_fail "fails on [daemon.ack] set from a fragment" "daemon.ack" \
   "${PERSIST[@]}" --set-string "$(frag 30-ack.toml '[daemon.ack]
 storage_path = "/var/lib/perf-sentinel/acks.jsonl"')"
@@ -291,7 +291,7 @@ expect_fail "fails on green.enabled = false set from a fragment" "dotted key or 
 # 26b. TOML allows whitespace inside a table header and quotes around a key
 #      name, and an inline table replaces the header entirely. A byte-exact
 #      regex sees none of those, so the fragment content is normalised before
-#      matching. Each spelling below reached a rendered pod before that.
+#      matching. Without that, each spelling below would reach a rendered pod.
 expect_fail "fails on a spaced [ green ] header" "enabled = false" \
   --set-string "$(frag 30-green.toml '[ green ]
 enabled = false')"
@@ -379,10 +379,11 @@ fi
 # 29. Fragments alongside persistence, the one combination where two features
 #     write to the same config. The chart appends [daemon.ack] and
 #     [daemon.archive] to config.toml while the fragment mounts separately:
-#     both must survive, and the fragment must not have opened those tables.
-#     Asserting on the StatefulSet too, not just the ConfigMap: checking only
-#     the appended tables would stay green against a chart with the fragments
-#     volume and mount deleted, pinning none of the interaction.
+#     both must be present, and the fragment must not have opened those
+#     tables. This scenario asserts on the StatefulSet as well as the
+#     ConfigMap, because checking only the appended tables would stay green
+#     against a chart with the fragments volume and mount deleted, pinning
+#     none of the interaction.
 expect_render "appends the daemon tables with a fragment mounted" \
   '[ "$(grep -c "^\s*\[daemon\.ack\]" <<<"$out")" = 1 ] &&
    [ "$(grep -c "^\s*\[daemon\.archive\]" <<<"$out")" = 1 ]' \
@@ -391,7 +392,7 @@ endpoint = "http://alumet:9090/metrics"')"
 
 # 30. The fragments ConfigMap name must keep its suffix and still tell two
 #     releases apart. Suffixing before truncating drops "-fragments" on a long
-#     release name and collides with the config ConfigMap; truncating too short
+#     release name and collides with the config ConfigMap. Truncating too short
 #     makes two releases that differ late share one fragments ConfigMap and
 #     overwrite each other's energy backends. Helm caps release names at 53.
 fragments_naming() {
@@ -441,9 +442,9 @@ persist_sts
 # --- Ingress ----------------------------------------------------------------
 #
 # The Ingress publishes an API with no embedded IAM, so "off unless asked"
-# is the guard that matters most here, followed by the port allow-list: a
-# typo in servicePortName would otherwise render an Ingress pointing at a
-# port the Service never publishes, which the API server accepts and which
+# is the guard that matters most here, and the port allow-list comes next.
+# Without it, a typo in servicePortName would render an Ingress pointing at
+# a port the Service never publishes, which the API server accepts and which
 # fails as a 503 at request time.
 
 ingress_off_by_default() {
@@ -482,7 +483,7 @@ expect_render_ingress "routes to the gRPC port when asked" \
   'grep -A1 "port:" <<<"$out" | grep -q "name: otlp-grpc"' \
   --set ingress.servicePortName=otlp-grpc
 
-# A host-less rule is legal and matches every host; it must still render a
+# A host-less rule is legal and matches every host. It must still render a
 # valid rule rather than a dangling list item.
 expect_render_ingress "renders a host-less rule as a valid entry" \
   'grep -q "^    - http:" <<<"$out" && ! grep -q "host:" <<<"$out"' \

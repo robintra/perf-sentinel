@@ -13,7 +13,7 @@
 //! suffices, no re-normalization at diff time.
 //!
 //! A template mutation (schema change, renamed column, host move) shifts
-//! that identity, which used to surface as one resolved plus one new
+//! that identity, so the first pass sees one resolved plus one new
 //! finding. A second pass pairs those leftovers when the match is
 //! unambiguous and reports them as `mutated_findings` instead, so a
 //! refactor does not read as a regression.
@@ -61,7 +61,7 @@ fn identity_of(finding: &Finding, with_grouping: bool) -> IdentityKey {
 /// A baseline written before 0.11.0 carries no grouping, so keying on it
 /// would make every current finding new and every baseline one resolved: a
 /// total false regression on the first run after upgrade. Detected rather
-/// than versioned, so an operator who genuinely runs an ungrouped fleet is
+/// than versioned, so an operator who runs an ungrouped fleet is
 /// unaffected (nothing to separate on either side anyway).
 fn grouping_is_comparable(before: &[Finding], after: &[Finding]) -> bool {
     before.iter().any(|f| f.effective_grouping().is_some())
@@ -71,7 +71,7 @@ fn grouping_is_comparable(before: &[Finding], after: &[Finding]) -> bool {
 /// Delta between two analysis runs.
 ///
 /// Stable JSON shape. Field names will not be renamed or removed in a
-/// minor release; new optional fields may be added.
+/// minor release. New optional fields may be added.
 #[derive(Debug, Clone, Serialize)]
 pub struct DiffReport {
     /// Findings present in `after` but absent from `before`.
@@ -119,8 +119,8 @@ pub struct SeverityChange {
 
 impl SeverityChange {
     /// `true` when the after severity is worse than the before severity.
-    /// Used to sort regressions ahead of improvements in the output and
-    /// reused by the CLI text renderer to color regressions red.
+    /// Used to sort regressions ahead of improvements in the output, and
+    /// by the CLI text renderer to color regressions red.
     ///
     /// Severity derives `Ord` with declaration order (Critical < Warning
     /// < Info). "Worse" means numerically lower.
@@ -222,12 +222,11 @@ fn reduced_key_of(finding: &Finding, with_grouping: bool) -> ReducedKey {
 
 /// Pair resolved/new leftovers that differ only by template.
 ///
-/// Conservative by design: a pair is emitted only when it is unambiguous,
-/// either a single candidate on each side of the reduced key, or exactly
-/// one candidate per side sharing the same `code_location` anchor.
-/// Anything ambiguous stays reported as resolved plus new. Never guesses:
-/// an identity is also the acknowledgment boundary, and a wrong merge
-/// would hide a genuinely new problem.
+/// A pair is emitted only when it is unambiguous: either a single
+/// candidate on each side of the reduced key, or exactly one candidate
+/// per side sharing the same `code_location` anchor. Anything ambiguous
+/// stays reported as resolved plus new, because an identity is also the
+/// acknowledgment boundary and a wrong merge would hide a new problem.
 fn pair_mutations(
     resolved: &mut Vec<Finding>,
     new: &mut Vec<Finding>,
@@ -346,11 +345,11 @@ fn remove_indices(list: &mut Vec<Finding>, remove: &BTreeSet<usize>) {
 ///
 /// Returning owned `Finding` values (not borrowed) lets us aggregate
 /// occurrences without mutating the input slice. The aggregated
-/// occurrences mean the user sees the total amplitude of the pattern
-/// across the trace set, not just one trace's count, so a regression
-/// from "6 occurrences in trace A" to "60 occurrences in trace A AND 60
-/// in trace B" surfaces as a meaningful endpoint-delta plus (when
-/// severity escalates) a `severity_change`.
+/// occurrences show the user the total amplitude of the pattern across
+/// the trace set instead of one trace's count. A regression from "6
+/// occurrences in trace A" to "60 occurrences in trace A AND 60 in trace
+/// B" then surfaces as a meaningful endpoint-delta plus (when severity
+/// escalates) a `severity_change`.
 ///
 /// Tie-break for the kept Finding template: the first finding inserted
 /// at a key wins for `trace_id` / `first_timestamp` / `code_location` /
@@ -418,8 +417,8 @@ fn diff_per_endpoint_io_ops(
             }
             // Cast through i128 to handle the worst case (`usize::MAX`
             // on either side) without panicking. Any plausible counts
-            // fit comfortably in i64; if a future workload pushes past
-            // `i64::MAX` we clamp and warn rather than overflow silently.
+            // fit comfortably in i64. If a future workload pushes past
+            // `i64::MAX`, we clamp and warn rather than overflow silently.
             let delta = i128::from(after_io as u64) - i128::from(before_io as u64);
             let delta_i64 = i64::try_from(delta).unwrap_or_else(|_| {
                 tracing::warn!(
@@ -632,7 +631,7 @@ mod tests {
     }
 
     /// The after run's warnings (e.g. `unmatched_acknowledgment`) must
-    /// survive into the diff, which is the only output a diff-only CI
+    /// carry over into the diff, which is the only output a diff-only CI
     /// surface reads. The before run's warnings describe the baseline
     /// and stay out.
     #[test]
@@ -732,7 +731,7 @@ mod tests {
 
     #[test]
     fn severity_changes_sorted_regressions_first() {
-        // After: one regression (warning -> critical), one improvement (critical -> warning).
+        // After: one regression (warning to critical), one improvement (critical to warning).
         let before = make_report(
             vec![
                 finding(

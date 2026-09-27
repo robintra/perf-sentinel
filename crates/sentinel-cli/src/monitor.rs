@@ -7,16 +7,16 @@
 //! caps), `Scrapers` (live health of the energy backends from
 //! `/api/energy`), `Config` (the effective daemon settings) and
 //! `Incidents` (the restarts and memory events the alerting posted, each
-//! with the findings frozen from its window, the one tab that needs an
-//! API key). A background task polls the daemon on a fixed interval.
-//! When it becomes unreachable the last good snapshot stays on screen
-//! with a stale indicator instead of going blank.
+//! with the findings frozen from its window). `Incidents` is the one tab
+//! that needs an API key. A background task polls the daemon on a fixed
+//! interval. When it becomes unreachable the last good snapshot stays on
+//! screen with a stale indicator instead of going blank.
 //!
-//! Deliberately separate from the `inspect` drill-down TUI: `inspect`
-//! is the developer's trace/finding browser, this is the operator's
+//! Separate from the `inspect` drill-down TUI: `inspect` is the
+//! developer's trace/finding browser, while this is the operator's
 //! deployment monitor. The data here (config hints, source provenance,
-//! per-region intensities) is categorical and high-cardinality, which
-//! is exactly what the bounded-label rule keeps off `/metrics`.
+//! per-region intensities) is categorical and high-cardinality, so the
+//! bounded-label rule keeps it off `/metrics`.
 
 #![cfg(all(feature = "daemon", feature = "tui"))]
 
@@ -62,7 +62,7 @@ const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Per-request timeout of the background poller.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Incidents fetched per poll tick. Small on purpose: an incident can
+/// Incidents fetched per poll tick. Kept small: an incident can
 /// carry up to 1000 findings and the client reads at most 8 MiB per
 /// body. Older incidents are one `query incidents --offset` away.
 const INCIDENTS_POLL_LIMIT: usize = 20;
@@ -77,7 +77,7 @@ const INCIDENT_DETAIL_MAX_CHARS: usize = 120;
 const TREND_CAPACITY: usize = 240;
 
 /// The settings advisor flags a gauge at 90% of its cap
-/// (`TUNING_ACTIVE_TRACES_RATIO` daemon-side); the headroom chart draws
+/// (`TUNING_ACTIVE_TRACES_RATIO` daemon-side). The headroom chart draws
 /// the same threshold so the curve shows what the hint says.
 const ADVISOR_THRESHOLD_PCT: f64 = 90.0;
 
@@ -85,12 +85,12 @@ const ADVISOR_THRESHOLD_PCT: f64 = 90.0;
 /// read as.
 const CARBON_BULLET: Color = Color::Rgb(0x27, 0xBE, 0x6E);
 
-/// Carbon CURVE color, deliberately brighter and more saturated than
-/// [`CARBON_BULLET`]. VHS renders braille as sub-cell dots blended into
-/// the dark background, which drains a pure green toward gray (yellow,
-/// having two bright channels, survives; green does not). Feeding the
-/// curve an oversaturated green makes the braille dots land near the
-/// bullet's vivid green instead of a dull olive.
+/// Carbon CURVE color, brighter and more saturated than [`CARBON_BULLET`].
+/// VHS renders braille as sub-cell dots blended into the dark background,
+/// which drains a pure green toward gray. Yellow, with two bright
+/// channels, keeps its color. Feeding the curve an oversaturated green
+/// makes the braille dots land near the bullet's vivid green instead of
+/// a dull olive.
 const CARBON_CURVE: Color = Color::Rgb(0x00, 0xF5, 0x66);
 
 /// The monitor's tabs, cycled with Tab/Shift-Tab.
@@ -131,7 +131,7 @@ struct ReportSlim {
 
 /// Partial deserialization target for `/api/status`: only the gauge and
 /// capacity fields the Trends headroom chart plots. The capacity fields
-/// are 0.8.8 additions; `default` keeps older daemons parseable, and a
+/// are 0.8.8 additions. `default` keeps older daemons parseable, and a
 /// zero cap reads as "unknown" and suppresses the ratio.
 #[derive(serde::Deserialize)]
 struct StatusSlim {
@@ -268,7 +268,7 @@ fn trend_point(s: &Snapshot) -> TrendPoint {
         carbon_gco2: gs.regions.iter().map(|r| r.co2_gco2).sum(),
         traces_pct: st.and_then(|st| pct(st.active_traces as f64, st.max_active_traces)),
         queue_pct: st.and_then(|st| {
-            // The depth gauge cannot legitimately go negative; clamp
+            // The depth gauge cannot legitimately go negative. Clamp
             // defensively since it travels as a signed Prometheus value.
             pct(
                 st.analysis_queue_depth.max(0) as f64,
@@ -296,7 +296,7 @@ struct MonitorState {
     tab: Tab,
     scroll: u16,
     latest: Option<Snapshot>,
-    /// True when the most recent poll failed; `latest` then shows the
+    /// True when the most recent poll failed. `latest` then shows the
     /// last good data.
     stale: bool,
     /// Why the most recent poll failed, when naming it helps. `None`
@@ -308,7 +308,7 @@ struct MonitorState {
     /// keypress for the scroll clamp.
     line_counts: [u16; TABS.len()],
     /// Trends history ring: one [`TrendPoint`] per successful poll
-    /// tick, capped at [`TREND_CAPACITY`]. Failed polls add nothing,
+    /// tick, capped at [`TREND_CAPACITY`]. Failed polls add nothing, so
     /// the curve freezes alongside the `[STALE]` banner.
     history: VecDeque<TrendPoint>,
     /// Something visible changed (snapshot, tab, scroll): repaint on
@@ -319,7 +319,7 @@ struct MonitorState {
     /// split. Drag-adjustable in mouse mode, reset by `r`, not persisted.
     trends_rows: [u16; 2],
     trends_cols: [u16; 2],
-    /// Mouse capture toggle (`m`); off preserves native copy-paste.
+    /// Mouse capture toggle (`m`). Off preserves native copy-paste.
     mouse_mode: bool,
     /// Border being dragged, set on mouse-down over a Trends border.
     drag: Option<DragTarget>,
@@ -364,7 +364,7 @@ impl MonitorState {
             self.drag = None;
             self.hover = None;
         }
-        // Repaint so the [MOUSE] marker / Trends hint shows at once; the
+        // Repaint so the [MOUSE] marker / Trends hint shows at once. The
         // repaint is otherwise gated on `dirty` or the per-second age tick.
         self.dirty = true;
     }
@@ -382,9 +382,9 @@ impl MonitorState {
         if area.width == 0 || area.height == 0 {
             return None;
         }
-        // The horizontal border lives in the top (charts) row; checked
-        // before the vertical border so the vertical ±1 tolerance can't
-        // shadow the top row's bottom cell.
+        // The horizontal border lives in the top (charts) row. It is
+        // checked before the vertical border so the vertical ±1 tolerance
+        // can't shadow the top row's bottom cell.
         let top_h = u16::try_from(u32::from(area.height) * u32::from(self.trends_rows[0]) / 100)
             .unwrap_or(area.height);
         if in_range(row, area.y, top_h)
@@ -433,7 +433,7 @@ impl MonitorState {
     }
 
     /// Recompute the cached body line counts for all tabs. Called once
-    /// per applied snapshot. Entries follow TABS order; Trends renders
+    /// per applied snapshot. Entries follow TABS order. Trends renders
     /// charts (no scroll), so its count stays 0.
     fn refresh_line_counts(&mut self) {
         let latest = self.latest.as_ref();
@@ -455,8 +455,8 @@ impl MonitorState {
                 // A transient /api/energy failure on an otherwise good
                 // tick must not wipe the last scraper table (nor render
                 // the misleading old-daemon hint): carry the previous
-                // value forward. A genuinely old daemon never produced
-                // Some, so its hint is unaffected.
+                // value forward. A daemon that predates the endpoint never
+                // produced Some, so its hint is unaffected.
                 if s.scrapers.is_none()
                     && let Some(prev) = self.latest.as_mut().and_then(|p| p.scrapers.take())
                 {
@@ -538,7 +538,7 @@ impl MonitorState {
         self.line_counts[i]
     }
 
-    /// Scroll one line up, repainting only if the position actually moved.
+    /// Scroll one line up, repainting only if the position moved.
     fn scroll_up(&mut self) {
         let prev = self.scroll;
         self.scroll = self.scroll.saturating_sub(1);
@@ -608,8 +608,8 @@ async fn poll_loop(
     loop {
         let outcome = fetch_snapshot(&client, &base_url, auth.as_ref()).await;
         match tx.try_send(outcome) {
-            // Full: the UI stalled with a full queue, drop this
-            // snapshot, the next tick brings a fresher one anyway.
+            // Full: the UI stalled with a full queue. Drop this snapshot
+            // since the next tick brings a fresher one.
             Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
             Err(mpsc::error::TrySendError::Closed(_)) => return,
         }
@@ -625,7 +625,7 @@ async fn fetch_snapshot(
     // Concurrent: the tick latency is the slowest of the five
     // requests, not their sum. The energy and status fetches are
     // best-effort: `None` covers both a daemon predating the endpoint
-    // fields and a transient failure; `apply` carries the previous
+    // fields and a transient failure. `apply` carries the previous
     // scraper table forward so only the former shows the old-daemon
     // hint persistently. Only the report fetch decides the tick: an
     // incidents refusal is a tab-local hint, never a `[STALE]` daemon.
@@ -786,8 +786,8 @@ fn handle_event(state: &mut MonitorState, event: &Event) -> bool {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => return handle_key(state, key.code),
         // Only on the Trends tab (the only resizable layout): elsewhere the
-        // stored area is stale. Repaint only when the drag state actually
-        // changed, so bare motion events don't defeat the dirty throttle.
+        // stored area is stale. Repaint only when the drag state changed,
+        // so bare motion events don't defeat the dirty throttle.
         Event::Mouse(me) if state.mouse_mode && state.tab == Tab::Trends => {
             if handle_mouse(state, *me) {
                 state.dirty = true;
@@ -909,7 +909,7 @@ fn draw(f: &mut Frame, state: &MonitorState) {
 /// and a short stale marker when the daemon stopped answering (or sent
 /// an incompatible response). The tail after the labels shrinks to what
 /// the terminal width leaves, so six labels and the stale marker still
-/// fit 80 columns, the key hints live in the body block title.
+/// fit 80 columns. The key hints live in the body block title.
 fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
     let dim = crate::tui::dim_style();
     let mut spans = vec![Span::raw(" ")];
@@ -1046,8 +1046,8 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         ]));
     }
     if snapshot.warning_details.is_empty() {
-        // Pre-0.5.19 daemons only carry the legacy free-text field;
-        // renderers fall back to it, matching report/mod.rs.
+        // Pre-0.5.19 daemons only carry the legacy free-text field.
+        // Renderers fall back to it, matching report/mod.rs.
         for w in &snapshot.warnings {
             lines.push(Line::from(Span::raw(format!(
                 "  {}",
@@ -1329,7 +1329,7 @@ fn config_row(
 
 /// The word a boolean reads as on a config row. A helper rather than an
 /// inline `if` per row: the Config tab has a dozen of them, and each one
-/// counted against the function's complexity budget.
+/// would count against the function's complexity budget.
 const fn on_off(b: bool, on: &'static str, off: &'static str) -> &'static str {
     if b { on } else { off }
 }
@@ -1558,7 +1558,8 @@ fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 /// The `Sub-systems` block of the Config tab: TLS, the ack store, the two
 /// keys, CORS and the report archive. Split from `build_config_lines`
 /// because almost every row here reads a boolean or an option into a
-/// word, and those branches were most of that function's complexity.
+/// word, and those branches would make up most of that function's
+/// complexity.
 fn push_subsystem_rows(
     lines: &mut Vec<Line<'static>>,
     c: &ConfigSlim,
@@ -1837,11 +1838,11 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         .border_style(Style::default().fg(Color::Cyan));
     let inner = outer_block.inner(area);
     f.render_widget(outer_block, area);
-    // Default: no draggable area until the charts are actually laid out.
+    // Default: no draggable area until the charts are laid out.
     state.trends_area.set(Rect::default());
 
     if state.history.len() < 2 {
-        // A one-point curve renders as nothing; say so instead.
+        // A one-point curve renders as nothing. Say so instead.
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!(
@@ -1877,7 +1878,7 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
     // Fixed-width window so the curves scroll at a constant rate instead of
     // compressing as the ring fills: the left edge is always one full ring
     // (TREND_CAPACITY) behind "now". Before the ring fills, that left part
-    // of the window is simply empty rather than zoomed-in.
+    // of the window is empty rather than zoomed-in.
     #[allow(clippy::cast_precision_loss)]
     let x_bounds: [f64; 2] = {
         let hi = (state.history.len() - 1).max(1) as f64;
@@ -1946,7 +1947,7 @@ fn curve_style(color: Color) -> Style {
 /// the line reads as a ~2-dot-thick band instead of a faint single dot.
 fn thicken_dy(area: Rect, y_span: f64) -> f64 {
     // Chart plot area = height minus the two borders and the x-axis
-    // label row; braille packs 4 dots per cell row.
+    // label row. Braille packs 4 dots per cell row.
     let plot_rows = f64::from(area.height.saturating_sub(3)).max(1.0);
     y_span / (plot_rows * 4.0)
 }
@@ -1959,7 +1960,7 @@ fn offset_series(data: &[(f64, f64)], dy: f64) -> Vec<(f64, f64)> {
 /// Draw a chart legend by hand in the top-right of `area`, overlaying
 /// the chart's plot. ratatui's native legend forces the dataset (curve)
 /// color onto the label text, which renders darker than the thick curve
-/// itself; here the label uses the terminal's default foreground (light
+/// itself. Here the label uses the terminal's default foreground (light
 /// on a dark background, dark on a light one) and a leading colored
 /// bullet carries the curve color for identification. `area` is the
 /// chart's full rect, borders included.
@@ -2010,7 +2011,7 @@ fn draw_metric_chart(
     area: Rect,
     title: &'static str,
     data: &[(f64, f64)],
-    // (curve color, legend bullet color). Usually the same; they differ
+    // (curve color, legend bullet color). Usually the same. They differ
     // for carbon, whose braille curve is oversaturated to render as the
     // bullet's vivid green (see CARBON_CURVE).
     colors: (Color, Color),
@@ -2100,7 +2101,7 @@ fn draw_headroom_chart(
         (x_bounds[1], ADVISOR_THRESHOLD_PCT),
     ];
     let last_pct = |s: &[(f64, f64)]| s.last().map_or(0.0, |p| p.1);
-    // Thickening twins (one braille sub-row up) for the three gauges; the
+    // Thickening twins (one braille sub-row up) for the three gauges. The
     // flat threshold line needs no thickening. The Y span is the fixed
     // 0..100 axis.
     let dy = thicken_dy(area, 100.0);
@@ -2592,7 +2593,7 @@ mod tests {
 
     #[test]
     fn fmt_tiny_normalizes_negative_zero() {
-        // An empty `regions` carbon sum yields -0.0; it must not render
+        // An empty `regions` carbon sum yields -0.0, which must not render
         // as a stray "-0.000000" in the chart legend.
         assert_eq!(fmt_tiny(-0.0), "0.000000");
         let empty: Vec<f64> = Vec::new();
@@ -2750,8 +2751,8 @@ mod tests {
 
     #[test]
     fn config_never_shows_secret_values() {
-        // The slim type has no api_key/cert/key field at all; the tab can
-        // only ever render the boolean summaries.
+        // The slim type has no api_key/cert/key field at all, so the tab
+        // can only ever render the boolean summaries.
         let mut snapshot = snapshot_with_warnings(Vec::new());
         let mut cfg = full_config();
         cfg.ack_api_key_set = true;
@@ -2802,7 +2803,7 @@ mod tests {
     #[test]
     fn config_sanitizes_daemon_controlled_strings() {
         // A hostile daemon (--daemon-url can point anywhere) could embed
-        // ANSI/BiDi sequences in string-valued config fields; the Config
+        // ANSI/BiDi sequences in string-valued config fields. The Config
         // tab must strip them like every other tab.
         let mut snapshot = snapshot_with_warnings(Vec::new());
         let mut cfg = full_config();
@@ -2832,9 +2833,9 @@ mod tests {
 
     #[test]
     fn oversized_snapshot_names_its_cause_beside_the_stale_marker() {
-        // A daemon whose export knobs outgrew this client answers fine; it
-        // is the body that cannot be read. Reported as a bare STALE, the
-        // operator investigates the network instead of the configuration.
+        // A daemon whose export knobs outgrew this client answers fine, but
+        // the body cannot be read. A bare STALE would send the operator to
+        // the network instead of the configuration.
         let mut state = MonitorState::new("http://localhost:4318".into(), 5);
         // Verbatim from `query::fetch_json_reporting`: the header budget is
         // the constraint that message is written against, so asserting a
@@ -2848,8 +2849,8 @@ mod tests {
         let shown =
             stale_reason(state.last_error.as_deref()).expect("reason must reach the header");
         assert!(shown.contains("8 MiB"), "{shown}");
-        // The action, not just the symptom: a reason cut before naming the
-        // knob leaves the operator exactly where the bare marker did.
+        // The action must show too: a reason cut before naming the knob
+        // leaves the operator where the bare marker did.
         assert!(shown.contains("lower max_export_findings"), "{shown}");
         assert!(shown.chars().count() <= HEADER_REASON_MAX_CHARS);
 
@@ -2869,7 +2870,7 @@ mod tests {
         ))));
         state.tab = Tab::Advisor;
 
-        // q and Esc request quit; every other key returns false.
+        // q and Esc request quit. Every other key returns false.
         assert!(handle_key(&mut state, KeyCode::Char('q')));
         assert!(handle_key(&mut state, KeyCode::Esc));
 
@@ -3040,7 +3041,7 @@ mod tests {
             .expect("incident summary row");
         assert!(row.contains("shop/cart-svc"), "{row}");
         // A long namespace never costs the service its name: the two halves
-        // are capped apart, so both survive inside the same 24 cells.
+        // are capped apart, so both stay visible inside the same 24 cells.
         let mut wide = incident();
         wide.namespace = Some("platform-observability".to_string());
         wide.service = "order-service".to_string();
@@ -3209,7 +3210,7 @@ mod tests {
     #[test]
     fn incidents_refusal_after_a_success_replaces_the_list() {
         // A restarted daemon with a rotated key answers 401: showing the
-        // pre-restart list would be a lie the operator cannot detect.
+        // pre-restart list would be wrong in a way the operator cannot detect.
         let mut state = MonitorState::new("http://localhost:4318".into(), 5);
         state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_incidents(
             Ok(vec![incident()]),

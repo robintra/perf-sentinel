@@ -1,11 +1,10 @@
 //! Prometheus text-exposition parser for Scaphandre's per-process
 //! power metric.
 //!
-//! The parser is deliberately forgiving: malformed lines are
-//! silently skipped rather than returning an error, so a single bad
-//! line can't break the entire scrape. perf-sentinel treats
-//! Scaphandre as best-effort telemetry; invalid data falls back to
-//! the proxy model automatically.
+//! The parser is forgiving: malformed lines are silently skipped
+//! rather than returning an error, so a single bad line can't break
+//! the entire scrape. perf-sentinel treats Scaphandre as best-effort
+//! telemetry. Invalid data falls back to the proxy model automatically.
 //!
 //! Only the `scaph_process_power_consumption_microwatts` metric is
 //! extracted. Host and socket metrics, comments, and any other
@@ -21,8 +20,8 @@
 /// and only `cmdline` discriminates them. `cmdline` may be empty if
 /// the label was absent on the wire.
 ///
-/// The `pid` label is intentionally NOT retained: PIDs are unstable
-/// across restarts and serve no purpose for service-level attribution.
+/// The `pid` label is not retained: PIDs are unstable across restarts
+/// and serve no purpose for service-level attribution.
 use crate::score::prom_parser::{
     find_label_block_end, parse_next_label, unescape_prometheus_value,
 };
@@ -43,7 +42,7 @@ pub struct ProcessPower {
 /// go_*, process_*, etc.) are skipped. Comments (lines starting with
 /// `#`) are skipped. Label values may contain escaped quotes (`\"`) and
 /// escaped backslashes (`\\`), which are unescaped into the returned
-/// string, this is rare but can occur for JVM processes with quoted
+/// string. This is rare but can occur for JVM processes with quoted
 /// args in their `cmdline` label. Real Scaphandre also concatenates
 /// argv without separators: `java -jar /tmp/svc.jar` is emitted as
 /// `cmdline="java-jar/tmp/svc.jar"`, which downstream matchers must
@@ -71,15 +70,14 @@ pub fn parse_scaphandre_metrics(body: &str) -> Vec<ProcessPower> {
                 // and respecting escape sequences inside label values.
                 match find_label_block_end(rest) {
                     Some(end) => (&rest[1..end], rest[end + 1..].trim_start()),
-                    None => continue, // unmatched '{' → skip
+                    None => continue, // unmatched '{', skip
                 }
             }
             Some(b' ') => ("", rest.trim_start()),
             _ => continue, // not a matching metric (prefix collision)
         };
         // value_str now starts with the numeric value, optionally
-        // followed by a trailing timestamp. Split on whitespace and
-        // take the first token.
+        // followed by a trailing timestamp.
         let value_token = value_str.split_whitespace().next().unwrap_or("");
         let Ok(value) = value_token.parse::<f64>() else {
             continue;

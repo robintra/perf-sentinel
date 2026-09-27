@@ -98,7 +98,7 @@ latest_line="$(printf '%s\n' "${match}" | sort -s -t$'\t' -k3,3 -k2,2 | tail -1)
 # Tab-delimited read so an embedded space in column 2 cannot truncate latest_sha.
 IFS=$'\t' read -r latest_date latest_sha < <(printf '%s' "${latest_line}" | awk -F '\t' 'BEGIN{OFS="\t"} {print $3, $2}')
 
-# Defensive: regex-validate both columns the gate exposes downstream.
+# Regex-validate both columns the gate exposes downstream.
 # Date format gates date(1) below, sha format gates the operator-facing
 # message (and forces ledger producers to stay on schema).
 [[ "${latest_date}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "release-gate: invalid date format '${latest_date}' in ledger (expected YYYY-MM-DD)." >&2; exit 1; }

@@ -1,14 +1,14 @@
 # VHS script, generates docs/img/ack/fallback-default.png and
 # fallback-show.png plus a small companion GIF docs/img/ack/fallback.gif.
 #
-# Showcases the TOML-based CI ack flow (`.perf-sentinel-acknowledgments.toml`):
-# two findings from the demo fixture are acked, the default `analyze`
-# output reports them as suppressed (and the quality gate flips to
-# PASSED because the acked findings were the criticals), then
+# Showcases the TOML-based CI ack flow (`.perf-sentinel-acknowledgments.toml`).
+# Two findings from the demo fixture are acked, and the default `analyze`
+# output reports them as suppressed (the quality gate flips to PASSED
+# because the acked findings were the criticals). Then
 # `--show-acknowledged` surfaces the per-ack metadata footer
 # (signature, by, at, reason). The two analyze runs are typed
-# back-to-back without `clear`, the terminal scroll naturally pushes
-# the first run off the top as the second one streams in.
+# back-to-back without `clear`, so the terminal scroll pushes the
+# first run off the top as the second one streams in.
 #
 # Kept separate from `tapes/demo.tape` so the main analyze GIF and
 # its four still frames stay focused on the unfiltered report.
@@ -71,9 +71,9 @@ Enter
 Sleep 500ms
 Show
 
-# 1. Default analyze: the long output streams in, terminal scroll
-# naturally lands "Quality gate: PASSED" + the suppressed-acks hint
-# at the bottom of the viewport.
+# 1. Default analyze: the long output streams in and the terminal
+# scroll lands "Quality gate: PASSED" + the suppressed-acks hint at
+# the bottom of the viewport.
 Type "perf-sentinel analyze --input traces.json"
 Sleep 600ms
 Enter

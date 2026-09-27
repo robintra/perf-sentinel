@@ -2,9 +2,9 @@ import {expect, test} from "@playwright/test";
 import {resolve} from "node:path";
 import {statSync} from "node:fs";
 
-// Verify the captured PNG was actually written and has plausible
-// content. 1 KiB floor catches a write that produced a header-only
-// file (corrupt or zero-byte) without coupling to pixel-level content.
+// Verify the captured PNG was written and has plausible content. The
+// 1 KiB floor catches a write that produced a header-only file
+// (corrupt or zero-byte) without coupling to pixel-level content.
 function expectScreenshotWritten(path: string) {
   expect(statSync(path).size).toBeGreaterThan(1024);
 }
@@ -13,7 +13,7 @@ function expectScreenshotWritten(path: string) {
 // (once per dashboard-stills-* project) to produce light + dark
 // pairs that the README's <picture> tags can serve based on
 // prefers-color-scheme. Light is the un-suffixed name (slot of
-// <img src=...>); dark gets the -dark suffix (slot of
+// <img src=...>). Dark gets the -dark suffix (slot of
 // <source srcset=...>).
 
 const REPO_ROOT = resolve(__dirname, "../../../../..");
@@ -68,9 +68,9 @@ async function viewportScreenshot(
 // Size the viewport to the document, then shoot viewport-only.
 //
 // The app shell is a 100vh sticky column next to a min-height:100vh main
-// area, so the frame height must match the document exactly: a shorter
+// area, so the frame height must match the document exactly. A shorter
 // frame leaves the page scrollable and the sidebar footer lands above the
-// main footer (the two rules stop being level), a taller one strands the
+// main footer (the two rules stop being level). A taller one strands the
 // sidebar footer mid-column with bare background below. `scrollHeight` is
 // the whole document, so short tabs (diff, greenops) still fill exactly
 // 100vh with no dead space and long tabs (pg_stat) are never truncated.
@@ -85,9 +85,9 @@ async function clipScreenshot(
         document.documentElement.scrollHeight
       )
     );
-  // Resize, then wait on the page actually reporting the new height rather
-  // than on a fixed delay: `innerHeight` is the observable that every
-  // vh-based rule downstream is computed from.
+  // Resize, then wait on the page reporting the new height rather than on
+  // a fixed delay: `innerHeight` is the observable that every vh-based
+  // rule downstream is computed from.
   const resizeTo = async (h: number) => {
     await page.setViewportSize({ width, height: h });
     await page.waitForFunction((expected) => window.innerHeight === expected, h);
@@ -109,8 +109,8 @@ test("01 findings with severity + service filters", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#findings");
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
-  // The service filter lives in a disclosure now, so it opens before it ticks.
-  // Left open on purpose: the still is meant to show what the menu holds.
+  // The service filter lives in a disclosure, so it opens before it ticks.
+  // It stays open so the still shows what the menu holds.
   await page.locator('#findings-filters details[data-filter-group="svc"] summary').click();
   await page.locator('#findings-filters input[data-key="svc:order-svc"]').click();
   const path = outPath("findings", theme);
@@ -157,9 +157,9 @@ test("07 cheatsheet modal", async ({ page }, info) => {
 
 // Wait until the dashboard has finished its live-mode boot: status
 // ping returned 200 (dot turns green) AND the acks fetch landed (the
-// Acks tab badge shows the mocked count). Avoids the timing-dependent
-// `waitForTimeout` that flaked on slower runners when the chain
-// status -> acks -> render exceeded the fixed sleep.
+// Acks tab badge shows the mocked count). A fixed `waitForTimeout`
+// flakes on slower runners when the status fetch, the acks fetch and
+// the render together exceed the sleep.
 async function waitForLiveAcks(
   page: import("@playwright/test").Page,
   expectedAcks: number

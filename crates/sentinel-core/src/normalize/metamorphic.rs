@@ -48,7 +48,7 @@ fn float_lit() -> impl Strategy<Value = Lit> {
 }
 
 /// Quoted string literal. Content mixes letters, digits, spaces,
-/// backslashes, and single quotes; quotes are escaped as `''` in the
+/// backslashes, and single quotes. Quotes are escaped as `''` in the
 /// SQL text and must come back unescaped in the param.
 fn str_lit() -> impl Strategy<Value = Lit> {
     proptest::collection::vec(
@@ -151,7 +151,7 @@ proptest! {
 
     /// Literal invariance: two statements sharing a skeleton but with
     /// different literal values, types, and IN-list arities produce the
-    /// same template. This is what makes N+1 grouping by template work.
+    /// same template. N+1 grouping by template depends on this property.
     #[test]
     fn literals_never_change_the_template(
         (shape, eq_a, list_a, note_a) in statement(),

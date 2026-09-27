@@ -1,7 +1,7 @@
 # Sigstore signature and SLSA attestation
 
-This document describes the cryptographic primitives layered on top of
-the `perf-sentinel-report/v1.0` schema starting with v0.7.0. The goal
+The cryptographic primitives below are layered on top of the
+`perf-sentinel-report/v1.0` schema starting with v0.7.0. The goal
 is to let a consumer verify a published periodic disclosure end to
 end without trusting perf-sentinel or the publishing organisation
 beyond what is anchored in Sigstore public infrastructure.
@@ -27,10 +27,10 @@ source code -> SLSA attestation -> binary -> report -> Sigstore signature
 
 The two layers are independent: an operator can sign a report
 produced by a non-official binary (the signature still proves
-authorship and integrity, the binary attestation will simply be
-absent from the report). Or an official binary can produce a
-report that is never signed (hash-only). The schema makes both
-states explicit through `integrity.integrity_level`:
+authorship and integrity, the binary attestation is absent from
+the report). Or an official binary can produce a report that is
+never signed (hash-only). The schema makes both states explicit
+through `integrity.integrity_level`:
 
 | level                      | content_hash | signature | binary_attestation |
 |----------------------------|--------------|-----------|--------------------|
@@ -65,7 +65,7 @@ For an `intent = "official"` disclosure, the operator workflow is:
    `report.json` to add `integrity.signature` with the metadata
    that lets verifiers locate the bundle and Rekor entry, then
    bumps `integrity_level` from `hash-only` to `signed` or
-   `signed-with-attestation`. This step is manual today, a future
+   `signed-with-attestation`. This step is manual today. A future
    `perf-sentinel sign` subcommand may automate it.
 5. **Publish**: all three files (`report.json`,
    `attestation.intoto.jsonl`, `bundle.sig`) are published at the
@@ -118,16 +118,16 @@ single-statement in-toto v1 document. Shape:
 ```
 
 `predicateType` uses the `perf-sentinel.io` namespace by convention.
-The host is not formally owned by the project today, this is the
-standard practice for custom in-toto predicates. Verifiers identify
-the predicate by exact string match.
+The project does not formally own the host today. This convention is
+the standard practice for custom in-toto predicates. Verifiers
+identify the predicate by exact string match.
 
 The `subject.digest.sha256` is the SHA-256 of the report file as
 written on disk, not the canonical `content_hash` field. The two
 serve different purposes: the canonical hash is deterministic
-(sorted keys, one field blanked) and lives inside the document;
-the subject digest is the file's actual byte-level hash and lives in
-the attestation.
+(sorted keys, one field blanked) and lives inside the document.
+The subject digest is the file's byte-level hash and lives in the
+attestation.
 
 The three count fields (`core_patterns_count`,
 `enabled_patterns_count`, `disabled_patterns_count`) let a consumer
@@ -189,13 +189,13 @@ inclusion proof in the form `verify-blob` expects.
 
 cosign 2.4+ is required for the `--new-bundle-format` flag. Older
 cosign versions emit a legacy bundle that `cosign verify-blob`
-will reject; operators on cosign <2.4 should upgrade before
-signing for transparency.
+rejects. Operators on cosign <2.4 should upgrade before signing for
+transparency.
 
-We deliberately do not support the `--no-tlog-upload` flag in the
-verify path: a bundle without a Rekor inclusion proof is rejected
-with a clear error message. Public auditability is a property of
-the format, not an optional opt-in.
+The verify path does not support the `--no-tlog-upload` flag: a
+bundle without a Rekor inclusion proof is rejected with a clear
+error message. Public auditability is a property of the format, not
+an opt-in.
 
 ## Verification flow
 
@@ -268,7 +268,7 @@ What a consumer should conclude when each check fails:
   certificate identity does not match the claimed signer.
   Untrusted.
 - **Signature SKIP** because `cosign` is not installed: install
-  cosign and retry, the report is not necessarily untrusted but
+  cosign and retry. The report is not necessarily untrusted but
   cannot be verified at the user's current install. Content hash
   by itself is a weaker guarantee.
 - **Binary attestation NotProvided**: the report was produced by

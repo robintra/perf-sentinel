@@ -49,7 +49,7 @@
 //! say whether transport is in the numerator) and the `M` term as a period
 //! total plus a per-request mean. `[green] embodied_carbon_per_request_gco2`
 //! changes published figures and appeared nowhere in the report, and
-//! `include_network_transport` used to before it was deprecated. Same
+//! `include_network_transport` did both before it was deprecated. Same
 //! `serde(default)` + `skip_serializing_if` rule, so an older report keeps
 //! its `content_hash` when re-hashed here.
 
@@ -411,7 +411,8 @@ pub struct CalibrationInputs {
     /// SCI `M` term summed over the period, in gCO2eq, with the mean
     /// coefficient it implies per request. `[green]
     /// embodied_carbon_per_request_gco2` scales both and is published
-    /// nowhere else, so halving it used to leave no trace. v1.6.
+    /// nowhere else, so a pre-v1.6 report shows no trace of halving it.
+    /// v1.6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embodied_gco2_total: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -429,8 +430,8 @@ pub struct CalibrationInputs {
 pub struct DatabaseWasteAggregate {
     /// Energy the figure covered over the period, in kWh.
     pub energy_kwh: f64,
-    /// Share of `energy_kwh` from windows with a genuinely measured
-    /// figure (an agent reading the workload's own power), in kWh.
+    /// Share of `energy_kwh` from windows with a measured figure (an
+    /// agent reading the workload's own power), in kWh.
     #[serde(default)]
     pub measured_energy_kwh: f64,
     /// Share of `energy_kwh` from windows whose figure was declared
@@ -470,8 +471,8 @@ pub struct DatabaseWasteAggregate {
 }
 
 /// Broker-side waste summed over the period. Wire-identical to the
-/// database block by design (one accumulator feeds both), so one struct
-/// serves both fields and the two can never drift.
+/// database block (one accumulator feeds both), so one struct serves
+/// both fields and the two can never drift.
 pub type MessagingWasteAggregate = DatabaseWasteAggregate;
 
 /// Avoidable energy and carbon for one N+1 threshold, summed over the period.
@@ -501,7 +502,7 @@ impl WasteTier {
 }
 
 /// Temporal continuity of the period (v1.2). Measures how much of the declared
-/// calendar window actually carried archived measurements.
+/// calendar window carried archived measurements.
 ///
 /// Caveat: daemon archiving is traffic-gated (a window with no traffic writes
 /// nothing), so this is "days with observed traffic", a lower bound on
@@ -524,8 +525,8 @@ impl TemporalCoverage {
     /// True when all-zero: a pre-v1.2 report, or a period with no windows.
     /// Drives `skip_serializing_if` so the field stays absent on the wire and
     /// the `content_hash` of pre-v1.2 reports is unchanged. Unlike
-    /// `period_coverage`, the honest "unknown" here is zero/absent, not a
-    /// permissive 1.0.
+    /// `period_coverage`, whose "unknown" is a permissive 1.0, the "unknown"
+    /// here is zero/absent, so it never overstates coverage.
     #[must_use]
     pub fn is_default(&self) -> bool {
         *self == Self::default()
@@ -593,7 +594,7 @@ pub struct Aggregate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carbon_breakdown: Option<CarbonBreakdown>,
     /// Period efficiency. Since v1.1 this aliases `canonical_waste.efficiency_score`
-    /// (the non-manipulable tier); pre-v1.1 it carried the operator-threshold value.
+    /// (the non-manipulable tier). Pre-v1.1 it carried the operator-threshold value.
     pub aggregate_efficiency_score: f64,
     /// Period waste ratio. Since v1.1 this aliases `canonical_waste.waste_ratio`.
     pub aggregate_waste_ratio: f64,
@@ -649,7 +650,7 @@ pub struct Aggregate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messaging_waste: Option<MessagingWasteAggregate>,
     /// Per-service set of distinct energy models observed over the
-    /// period. The `+cal` suffix is stripped before insertion; see
+    /// period. The `+cal` suffix is stripped before insertion. See
     /// `calibration_inputs.calibration_applied` for the period-wide
     /// calibration flag. Empty for periods without per-service attribution.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -742,12 +743,11 @@ pub struct SourceChain {
     #[serde(default)]
     pub windows_verified: u64,
     /// Windows carrying no chain at all, written before archives were
-    /// chained. Not tampering, simply not attestable.
+    /// chained. Not attestable, which does not imply tampering.
     #[serde(default)]
     pub windows_unchained: u64,
     /// Detected breaks inside the period. Non-zero means part of it is no
-    /// longer attestable, and the report says so rather than refusing to
-    /// exist.
+    /// longer attestable. The report is still produced and says so.
     #[serde(default)]
     pub breaks: u64,
     /// Breaks found in the same archive files but outside the period. A
@@ -781,7 +781,7 @@ pub struct Integrity {
     /// Reserved and always `null` before v1.6. Kept as `Value` for source
     /// compatibility with consumers that built this public structure.
     ///
-    /// Deliberately NOT `skip_serializing_if`: this key has been emitted
+    /// No `skip_serializing_if` here, because this key has been emitted
     /// since v1.0 and every published report was hashed with it present.
     /// Dropping it when absent would change the canonical bytes of those
     /// reports and make each one fail `verify-hash`. The
@@ -804,19 +804,19 @@ pub struct Integrity {
     /// Reserved (v1.2): locator for an external append-only / Rekor-style
     /// transparency log that chains successive periodic reports, enabling
     /// INTER-period continuity verification (detecting an operator who silently
-    /// stopped publishing for several periods). Always absent in v1.2; will be
-    /// populated only under a future `intent=audited`. Part of the disclosed
+    /// stopped publishing for several periods). Always absent in v1.2. It will
+    /// be populated only under a future `intent=audited`. Part of the disclosed
     /// content, so it is NOT a post-sign field. See [`CrossPeriodLogRef`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cross_period_log: Option<CrossPeriodLogRef>,
 }
 
-/// Reserved (v1.2) locator for an inter-period transparency log. The intra-
-/// report integrity guarantees (`content_hash`, cosign signature, SLSA
+/// Reserved (v1.2) locator for an inter-period transparency log. The
+/// intra-report integrity guarantees (`content_hash`, cosign signature, SLSA
 /// provenance) bind a single published report. They cannot detect an operator
-/// who simply stops disclosing. A chained, append-only log of successive
+/// who stops disclosing. A chained, append-only log of successive
 /// `content_hash` values closes that gap for the future `audited` intent.
-/// Defined now so the field is forward-compatible; no runtime support yet.
+/// Defined now so the field is forward-compatible. No runtime support yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrossPeriodLogRef {
     /// Format identifier for the inter-period log entry.
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[test]
     fn default_waste_tiers_omitted_from_serialization() {
-        // A v1.0 / pre-canonical report has all-zero tiers; they must be
+        // A v1.0 / pre-canonical report has all-zero tiers. They must be
         // omitted so re-hashing it on a v1.1 binary keeps content_hash stable.
         let mut agg = sample_aggregate();
         assert!(
@@ -1188,8 +1188,8 @@ mod tests {
     #[test]
     fn aggregate_period_coverage_defaults_to_one_when_missing() {
         // Periodic reports produced before this field shipped omit it.
-        // Default must be 1.0 (permissive type-safety value, not a quality
-        // signal; see the field doc-comment).
+        // Default must be 1.0, a permissive type-safety value and not a
+        // quality signal (see the field doc-comment).
         let legacy = serde_json::json!({
             "total_requests": 0,
             "total_energy_kwh": 0.0,
@@ -1312,7 +1312,7 @@ mod tests {
 
     #[test]
     fn default_temporal_coverage_omitted_from_serialization() {
-        // A pre-v1.2 report has the all-zero default; it must be omitted so
+        // A pre-v1.2 report has the all-zero default. It must be omitted so
         // re-hashing it on a v1.2 binary keeps content_hash stable.
         let mut agg = sample_aggregate();
         assert!(
@@ -1328,8 +1328,9 @@ mod tests {
 
     #[test]
     fn aggregate_temporal_coverage_defaults_when_missing() {
-        // Reports produced before v1.2 omit the field; default is all-zero
-        // (the honest "unknown"), NOT the permissive 1.0 of period_coverage.
+        // Reports produced before v1.2 omit the field. The default is all-zero
+        // (an "unknown" that never overstates coverage), NOT the permissive
+        // 1.0 of period_coverage.
         let legacy = serde_json::json!({
             "total_requests": 0,
             "total_energy_kwh": 0.0,
@@ -1418,7 +1419,7 @@ mod tests {
 
     #[test]
     fn cross_period_log_reserved_and_absent_in_v1_2() {
-        // The reserved hook is None today; it must not appear on the wire so
+        // The reserved hook is None today. It must not appear on the wire so
         // the content_hash of every current report is unaffected.
         let i = sample_integrity();
         let s = serde_json::to_string(&i).unwrap();

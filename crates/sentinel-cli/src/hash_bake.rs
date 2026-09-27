@@ -322,8 +322,7 @@ mod tests {
         let in_path = tmp.path().join("huge.json");
         let out_path = tmp.path().join("out.json");
         // Reserve a virtual file just over the cap. `set_len` extends
-        // sparsely on every supported filesystem, so the bytes are not
-        // actually written.
+        // sparsely on every supported filesystem, so the bytes are not written.
         let file = fs::File::create(&in_path).unwrap();
         file.set_len(MAX_LOCAL_REPORT_BYTES + 1).unwrap();
         drop(file);
@@ -348,7 +347,7 @@ mod tests {
         let code = cmd_hash_bake(&in_path, &out_path, false);
         assert_eq!(code, EXIT_INPUT_ERROR);
         assert!(!out_path.exists(), "output must not be created");
-        // The collision file is untouched; the operator can inspect or
+        // The collision file is untouched. The operator can inspect or
         // remove it themselves.
         assert_eq!(fs::read(&collision).unwrap(), b"stale");
     }

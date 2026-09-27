@@ -1,9 +1,9 @@
 # Tests navigateur du tableau de bord perf-sentinel
 
-Suite Playwright ciblée sur le tableau de bord HTML mono-fichier
-émis par `perf-sentinel report`. Couvre les interactions que les
-tests Rust ne peuvent pas atteindre : état DOM en direct, presse-papiers,
-clavier, contenu du blob CSV.
+Suite de tests de fumée Playwright pour le tableau de bord HTML
+mono-fichier émis par `perf-sentinel report`. Couvre les interactions
+que les tests Rust ne peuvent pas atteindre : état DOM en direct,
+presse-papiers, clavier, contenu du blob CSV.
 
 ## Démarrage rapide
 
@@ -17,12 +17,12 @@ npx playwright test
 L'étape `global-setup.ts` de la suite :
 
 1. Construit le binaire release via `cargo build --release --bin
-   perf-sentinel`, à chaque exécution et pas seulement quand le binaire
-   est absent. La suite teste ce que le template embarqué produit, donc
-   un binaire périmé la ferait passer contre du code qui n'existe plus.
-   Cargo ne fait rien en quelques secondes quand rien n'a changé.
+   perf-sentinel`, à chaque exécution, même quand le binaire existe
+   déjà. La suite teste ce que le template embarqué produit, donc
+   un binaire périmé la ferait passer sur du code qui n'existe plus.
+   Quand rien n'a changé, Cargo rend la main en quelques secondes.
 2. Rend un tableau de bord HTML à partir de
-   `tests/fixtures/report_realistic.json` et du fichier pg_stat CSV
+   `tests/fixtures/report_realistic.json` et de la fixture CSV pg_stat
    vers `fixtures/dashboard.html`.
 3. Lance `http-server` sur un port libre de 127.0.0.1 avec ce
    répertoire comme racine. Le protocole `http://` est exigé par
@@ -30,34 +30,40 @@ L'étape `global-setup.ts` de la suite :
 
 ## Pourquoi un serveur HTTP
 
-Le spec `9. Copy link button` lit `navigator.clipboard` après un
+Le test `9. Copy link button` lit `navigator.clipboard` après un
 geste utilisateur. Chromium désactive silencieusement l'API
 Clipboard sur les pages `file://` même lorsque la permission est
 accordée. `http-server` fournit une petite origine HTTP locale qui
-satisfait l'API sans embarquer un framework lourd.
+satisfait l'API sans embarquer un framework de test lourd.
 
 ## CI
 
-Exécutée dans un job `browser-tests` séparé de `.github/workflows/ci.yml`
-pour ne pas ralentir le job `check` purement Rust avec l'installation
-de Playwright. Utilise `actions/setup-node@v6.4.0` avec Node 24,
-installe Chromium via `npx playwright install --with-deps chromium`,
-puis lance la suite. Le rapport HTML est conservé en artefact en cas
-d'échec.
+Exécutée comme job `browser-tests` séparé dans `.github/workflows/ci.yml`
+pour ne pas ralentir le job `check` purement Rust avec la mise en place
+de Playwright. Le job tourne dans l'image de conteneur
+`mcr.microsoft.com/playwright:v1.59.1-noble`, qui fournit Node et
+Chromium, et se contente donc de `npm ci` avant de lancer la suite. Le
+rapport HTML est conservé en artefact en cas d'échec.
 
 ## GIFs de démo et captures du tableau de bord
 
-`npm run demo` regénère trois types d'artefacts dans
+`npm run demo` régénère trois types d'artefacts dans
 `docs/img/report/` :
 
 - `dashboard_dark.gif` et `dashboard_light.gif` : le parcours scripté
   enregistré deux fois (un projet par thème primaire, ~28 s chacun,
-  palette optimisée en 1000 px / 15 fps).
+  palette optimisée en 1000 px / 20 fps).
 - `findings.png` + `findings-dark.png`, ..., `greenops.png` +
   `greenops-dark.png`, `cheatsheet.png` + `cheatsheet-dark.png` :
-  une capture light + une capture dark par onglet (sept onglets au
-  total), prises en 1280 x 720 pour que les balises `<picture>` du
-  README servent la bonne variante via `prefers-color-scheme`.
+  une capture en thème clair + une en thème sombre par onglet (sept
+  onglets au total), prises sur 1280 px de large et recadrées à la
+  hauteur du contenu de l'onglet, pour que les balises
+  `<picture>` du README servent la bonne variante via
+  `prefers-color-scheme`.
+- `ack-modal.png`, `ack-panel.png`, `ack-toggle.png` et leurs
+  variantes `-dark` : la fenêtre d'acquittement, le panneau Acks et
+  l'option d'affichage des findings acquittés, en thème clair et
+  sombre.
 
 ```sh
 cd crates/sentinel-cli/tests/browser
@@ -68,9 +74,9 @@ Nécessite ffmpeg dans le PATH. Éditer `demo/tour.spec.ts` pour le
 scénario des GIFs, `demo/stills.spec.ts` pour les captures, et
 `demo/build-gif.sh` pour le pipeline ffmpeg.
 
-Chaque run écrase tous les assets committés (~5 Mo au total : 2 GIFs
-+ 12 PNGs), donc chaque invocation crée de nouveaux blobs git.
-Re-générer uniquement quand la surface du dashboard change
-significativement (nouvel onglet, refonte du layout, rebinding de
-raccourcis) plutôt qu'à chaque retouche de doc, sinon le repo
-accumule des objets volumineux périmés.
+Chaque exécution écrase toutes les images versionnées (~18 Mo au total :
+2 GIFs + 20 PNGs), donc chaque invocation crée de nouveaux blobs git.
+Régénérer uniquement quand la surface du dashboard change
+significativement (nouvel onglet, changement de mise en page,
+réaffectation de raccourcis) plutôt qu'à chaque retouche de doc, sinon
+le dépôt accumule des objets volumineux périmés.

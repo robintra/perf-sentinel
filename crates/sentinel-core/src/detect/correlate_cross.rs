@@ -51,13 +51,12 @@ impl Default for CorrelationConfig {
 
 /// Counts pairs refused at the `max_tracked_pairs` cap within one batch.
 ///
-/// Deduplicating is the useful semantics, one refused pair counts once
-/// per batch however many horizon occurrences matched it, but the set
-/// has to be bounded: a batch on a wide topology walks the cross product
-/// of the incoming findings and the horizon, which reaches millions of
-/// distinct keys and a table far larger than the map they were refused
-/// from. Past the ceiling the count degrades to occurrences, which
-/// overstates rather than hides.
+/// Each refused pair counts once per batch, however many horizon
+/// occurrences matched it, but the set has to be bounded. A batch on a
+/// wide topology walks the cross product of the incoming findings and
+/// the horizon, which reaches millions of distinct keys and a table far
+/// larger than the map they were refused from. Past the ceiling the
+/// count degrades to occurrences, which overstates rather than hides.
 #[derive(Debug, Default)]
 struct RefusedPairs {
     seen: std::collections::HashSet<PairKey>,
@@ -127,14 +126,14 @@ pub struct CrossTraceCorrelation {
     /// ISO 8601 timestamp of the most recent observed co-occurrence.
     pub last_seen: String,
     /// Trace id of the most recent target-side finding that completed
-    /// this pair (the trailing finding in the source -> target order).
+    /// this pair (the trailing finding in the source-to-target order).
     /// Lets the dashboard jump from a correlation row to Explain and
     /// render a representative tree. `None` in batch mode and for
     /// replayed baselines that predate this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_trace_id: Option<String>,
     /// Trace id of the source-side finding of the most recent
-    /// co-occurrence (the leading finding in the source -> target order).
+    /// co-occurrence (the leading finding in the source-to-target order).
     /// Lets the dashboard open both sides of the pair in Explain.
     /// `None` in batch mode and for replayed baselines that predate this
     /// field.
@@ -200,7 +199,7 @@ impl HalfWindowCount {
         }
     }
 
-    /// Count one at grid index `idx`; indices older than the previous bucket are dropped.
+    /// Count one at grid index `idx`. Indices older than the previous bucket are dropped.
     fn add_at(&mut self, idx: u64) {
         if idx + 1 == self.idx {
             self.prev = self.prev.saturating_add(1);
@@ -231,7 +230,7 @@ struct PairState {
     rng_state: u64,
     /// Ingest time of the pair's creation.
     first_seen_ms: u64,
-    /// Ingest time of the latest match; drives the window TTL.
+    /// Ingest time of the latest match. Drives the window TTL.
     last_seen_ms: u64,
     /// Trace id of the most recent target-side finding that completed
     /// this pair. Capped at [`MAX_SAMPLE_TRACE_ID_BYTES`].
@@ -261,8 +260,8 @@ impl PairState {
     /// append while the reservoir has space, then replace slot `r`
     /// when a uniform draw `r` in `[0, n)` lands below
     /// `MAX_LAG_SAMPLES`. Driven by `SplitMix64` (no `rand`
-    /// dependency); a biased draw freezes the reservoir, see the
-    /// `reservoir_continues_to_sample_after_many_observations` test.
+    /// dependency). A biased draw freezes the reservoir (see the
+    /// `reservoir_continues_to_sample_after_many_observations` test).
     fn record_lag(&mut self, lag_ms: f64) {
         self.total_observations = self.total_observations.saturating_add(1);
         if self.lags_ms.len() < MAX_LAG_SAMPLES {
@@ -271,9 +270,9 @@ impl PairState {
         }
         // Algorithm R: draw r uniform in `[0, n)`. When `r < k`, use r
         // itself as the slot index. This is unbiased because, conditional
-        // on `r < k`, `r` is uniform in `[0, k)`, which is exactly the
-        // uniform slot we need. Saves a second PRNG draw versus sampling
-        // the slot independently.
+        // on `r < k`, `r` is uniform in `[0, k)`, the uniform slot we
+        // need. Saves a second PRNG draw versus sampling the slot
+        // independently.
         let r = splitmix64(&mut self.rng_state) % self.total_observations;
         if r < MAX_LAG_SAMPLES as u64 {
             self.lags_ms[r as usize] = lag_ms;
@@ -327,8 +326,8 @@ fn splitmix64(state: &mut u64) -> u64 {
 /// Cheap 64-bit hash of a `CorrelationEndpoint`, used only to diversify
 /// `PairState` PRNG seeds. FNV-1a rather than `DefaultHasher` because
 /// the latter's per-process `RandomState` would make reservoir samples
-/// (and median lags) differ across runs on the same replayed input;
-/// determinism is what users rely on when debugging by replay.
+/// (and median lags) differ across runs on the same replayed input.
+/// Users rely on that determinism when debugging by replay.
 fn hash_endpoint(ep: &CorrelationEndpoint) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x100_0000_01b3;
@@ -416,8 +415,8 @@ impl CrossTraceCorrelator {
     /// to the `max_tracked_pairs` cap in this batch (refusals + incumbents
     /// evicted at batch end). One pair matched by several occurrences
     /// counts once while the refused set is under its ceiling and once
-    /// per occurrence above it, and a pair refused again on a later batch
-    /// counts again: the lifetime counter reads as "pair-batches lost".
+    /// per occurrence above it. A pair refused again on a later batch
+    /// counts again, so the lifetime counter reads as "pair-batches lost".
     #[must_use = "the eviction count feeds perf_sentinel_correlator_pairs_evicted_total"]
     pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) -> usize {
         let half_window_ms = (self.config.window_ms / 2).max(1);
@@ -513,7 +512,7 @@ impl CrossTraceCorrelator {
     /// source occurrence counts once per pair, tracked on the source's
     /// `counted_targets`, so the count does not depend on arrival order.
     /// Pairs refused at the `max_tracked_pairs` cap go to `refused`
-    /// instead of being stored: this admission control is what bounds
+    /// instead of being stored. This admission control bounds
     /// intra-batch growth on wide topologies.
     fn record_co_occurrences(
         &mut self,
@@ -576,7 +575,7 @@ impl CrossTraceCorrelator {
     ///
     /// Evicting down to 90% in one pass amortizes the O(n) work over
     /// 10% of churn, and the threshold comes from `select_nth_unstable`
-    /// on a `Vec<(u32, u64)>` so only the ~10% of keys actually removed
+    /// on a `Vec<(u32, u64)>` so only the ~10% of keys that are removed
     /// pay the `PairKey` clone cost.
     fn enforce_pair_cap(&mut self) -> usize {
         // The emptiness guard matters for `max_tracked_pairs = 0`
@@ -915,9 +914,9 @@ mod tests {
 
     #[test]
     fn wide_topology_single_batch_stays_at_cap() {
-        // Regression: one batch of findings from MANY distinct services
-        // used to insert every cross-service pair before the batch-end
-        // eviction ran, exploding the map (and the process RSS) inside
+        // One batch of findings from many distinct services must not
+        // insert every cross-service pair before the batch-end eviction
+        // runs, which would explode the map (and the process RSS) inside
         // a single ingest call. Admission control bounds it at the cap.
         let mut correlator = capped_correlator(50);
         let findings = wide_batch(200);
@@ -938,7 +937,7 @@ mod tests {
     #[test]
     fn admission_pressure_frees_room_for_the_next_batch() {
         // Refused newcomers must trigger a batch-end eviction (lowest
-        // co-occurrence first) so the NEXT batch admits new pairs,
+        // co-occurrence first) so the next batch admits new pairs,
         // instead of early-window noise squatting the map until TTL.
         let mut correlator = capped_correlator(50);
         let batch = wide_batch(200);
@@ -1003,14 +1002,14 @@ mod tests {
 
     #[test]
     fn refused_pairs_stops_collecting_at_the_ceiling_but_keeps_counting() {
-        // The whole point of the type: a wide topology walks the cross
-        // product of the batch and the horizon, so the set has to stop
-        // growing while the figure it feeds stays truthful.
+        // A wide topology walks the cross product of the batch and the
+        // horizon, so the set has to stop growing while the figure it
+        // feeds still counts every refused pair.
         let mut refused = RefusedPairs::default();
         let extra = 500;
-        // Distinct keys only up to the ceiling, then the same key again:
-        // dedup below and the documented degradation above are the two
-        // halves of what this type does.
+        // Distinct keys only up to the ceiling, then the same key again,
+        // to cover both the dedup below the ceiling and the documented
+        // degradation above it.
         let key_for = |i: usize| PairKey {
             source: Arc::new(CorrelationEndpoint {
                 finding_type: FindingType::NPlusOneSql,
@@ -1066,9 +1065,10 @@ mod tests {
 
     #[test]
     fn confidence_never_exceeds_one_when_targets_outnumber_sources() {
-        // The shape that produced "conf 150%" in a live report: one source
-        // occurrence followed by several targets inside the lag window
-        // used to score one co-occurrence per (source, target) couple.
+        // One source occurrence followed by several targets inside the
+        // lag window. Scoring one co-occurrence per (source, target)
+        // couple would push confidence past 100% on this shape ("conf 150%"
+        // in a live report).
         let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         for i in 0..2 {
@@ -1104,10 +1104,10 @@ mod tests {
 
     #[test]
     fn long_lived_pair_confidence_does_not_saturate_at_one() {
-        // Lifetime counting made every mature pair report exactly 1.0:
-        // the count grew forever while the denominator only spanned the
-        // window. With window-scoped counts, a pair co-occurring on half
-        // its source occurrences stays near 0.5 however long it lives.
+        // Lifetime counting would make every mature pair report exactly
+        // 1.0: the count grows forever while the denominator only spans
+        // the window. With window-scoped counts, a pair co-occurring on
+        // half its source occurrences stays near 0.5 however long it lives.
         let window_ms = CorrelationConfig::default().window_ms;
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
             lag_threshold_ms: 1_000,
@@ -1312,7 +1312,7 @@ mod tests {
             ..Default::default()
         });
 
-        // Fire the same A -> B pair 10x MAX_LAG_SAMPLES times.
+        // Fire the same A-then-B pair 10x MAX_LAG_SAMPLES times.
         // Without the reservoir, lags_ms would grow to ~640 entries.
         let total = MAX_LAG_SAMPLES * 10;
         for i in 0..total {
@@ -1323,8 +1323,8 @@ mod tests {
             let _ = ingest_at(&mut correlator, &[fb], t + 1);
         }
 
-        // Directional pairs: A -> B, and B -> A with the next round's A
-        // (10 ms later). Both directions should have bounded reservoirs.
+        // Directional pairs: A to B, and B to the next round's A (10 ms
+        // later). Both directions should have bounded reservoirs.
         assert!(
             !correlator.pair_counts.is_empty(),
             "expected at least one tracked pair"
@@ -1346,10 +1346,10 @@ mod tests {
 
     #[test]
     fn reservoir_continues_to_sample_after_many_observations() {
-        // Regression guard for a previous implementation that used
-        // `fnv1a(total_observations) % total_observations` as the draw,
-        // which caused the reservoir to freeze after a few thousand
-        // observations (deterministic hash + modulo = biased index).
+        // Guards against a draw like
+        // `fnv1a(total_observations) % total_observations`, which freezes
+        // the reservoir after a few thousand observations (deterministic
+        // hash + modulo = biased index).
         //
         // Feeds the reservoir with monotonically increasing lag values
         // and checks two properties:

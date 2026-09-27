@@ -6,7 +6,7 @@
 #
 # Topology: receive OTLP (gRPC 4317, HTTP 4318) and Zipkin (9411), batch,
 # fan out to Tempo (storage) and perf-sentinel (analysis). Sized for a
-# local kind or single-node dev cluster, bump resources for real traffic.
+# local kind or single-node dev cluster. Bump resources for real traffic.
 
 mode: deployment
 replicaCount: 1

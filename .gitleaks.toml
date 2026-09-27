@@ -7,13 +7,14 @@
 #
 # The signature is `<finding_type>:<service>:<sanitized_endpoint>:<32-hex>`
 # (compute_signature writes digest[..16] as two hex digits per byte). The
-# regex below asks for only the first 16 of those, on purpose: with
-# `regexTarget = "line"` that still matches a real signature, and it also
+# regex below asks for only the first 16 of those, because with
+# `regexTarget = "line"` that still matches a real signature and also
 # covers the shorter literals the ack tests use. Tightening it to 32 makes
-# crates/sentinel-core/src/daemon/ack.rs trip generic-api-key. Measured.
-# (see docs/ACKNOWLEDGMENTS.md). It is a deterministic SHA-256 prefix,
-# public by design (operators copy the value from `analyze --format json`
-# into PR-reviewed ack files), not a credential.
+# crates/sentinel-core/src/daemon/ack.rs trip generic-api-key (verified).
+# The signature ends in a deterministic SHA-256 prefix. It is not a
+# credential and is meant to be public (operators copy the value from
+# `analyze --format json` into PR-reviewed ack files, see
+# docs/ACKNOWLEDGMENTS.md).
 
 title = "perf-sentinel"
 
@@ -26,18 +27,17 @@ useDefault = true
 description = "Documented finding-signature examples are public, not secrets"
 # `regexTarget = "line"` so the pattern is matched against the full
 # source line, not just the extracted secret. The leading token is
-# pinned to the actual `FindingType` discriminants (see
+# pinned to the `FindingType` discriminants (see
 # crates/sentinel-core/src/detect/mod.rs::FindingType::as_str) so an
 # attacker cannot hide a real credential by formatting it
 # `aws_secret_key:account:region:<hex>`, which would otherwise match a
 # bare `[a-z_]+:` prefix.
 #
-# What the pinning does not stop, measured rather than assumed: because
-# `regexTarget = "line"` allowlists the whole line, a credential sitting on
-# the same line as a genuine signature is silenced with it. A key on its own
-# line is still caught. Signatures appear across crates/, docs/ and tests/,
-# so scoping this allowlist by path would cover the repository and buy
-# nothing.
+# The pinning leaves one verified gap. Because `regexTarget = "line"`
+# allowlists the whole line, a credential sitting on the same line as a real
+# signature is silenced with it. A key on its own line is still caught.
+# Signatures appear across crates/, docs/ and tests/, so scoping this
+# allowlist by path would cover the repository and buy nothing.
 regexTarget = "line"
 regexes = [
   # Service and sanitized-endpoint segments only contain bytes
@@ -54,8 +54,8 @@ regexes = [
 # screenshots and kills it, all inside one run, and the same literal sits in
 # the config the tape prints a few lines above. Pinned to that exact string
 # rather than scoped to `tapes/`, so a real key pasted into a tape is still
-# caught. The tape's read key reaches the CLI through a file, which is why
-# only this one needs saying.
+# caught. The tape's read key reaches the CLI through a file, so only the
+# write key needs this entry.
 [[allowlists]]
 description = "The demo write key the monitor tape posts with, a throwaway on loopback"
 regexes = [

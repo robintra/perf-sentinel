@@ -5,17 +5,17 @@
 # any repo-side cause and succeed on a retry.
 #
 # Does NOT mask real failures: the second attempt is the last. A second
-# consecutive failure stays red and requires human triage (the cap is
-# enforced by `github.event.workflow_run.run_attempt < 2`, meaning we
-# only retry the first attempt; the rerun itself produces `run_attempt
-# == 2`, which this workflow then ignores).
+# consecutive failure stays red and requires human triage. The cap is
+# enforced by `github.event.workflow_run.run_attempt < 2`, so only the first
+# attempt is retried. The rerun itself produces `run_attempt == 2`, which
+# this workflow then ignores.
 #
-# Scoped to the workflows where transient infra failures actually
-# bite: `CI` (PR gate), `Release` (tag builds + crates.io publish) and
+# Scoped to the workflows where a transient infra failure is costly: `CI`
+# (PR gate), `Release` (tag builds + crates.io publish) and
 # `pages-build-deployment` (the GitHub-managed Pages deploy, which
 # fails with "Deployment failed, try again later" right after a
 # gh-pages push and succeeds on retry). `Security Audit` and
-# `code-scanning` are not included; they are fast, low-surface and a
+# `code-scanning` are not included: they are fast and low-surface, and a
 # transient failure there is easily noticed and rerun by hand.
 name: Auto-rerun failed workflow
 
@@ -31,14 +31,14 @@ jobs:
   rerun:
     # Only fire on the first failure of a run. `run_attempt` counts from
     # 1 for the initial run and increments on each manual or automated
-    # rerun; gating on `< 2` caps automatic retries at exactly one.
+    # rerun. Gating on `< 2` caps automatic retries at exactly one.
     if: >-
       github.event.workflow_run.conclusion == 'failure'
       && github.event.workflow_run.run_attempt < 2
     runs-on: ubuntu-latest
     permissions:
       # `actions: write` is required by `gh run rerun`. Scoped to this
-      # job only; the workflow-level floor stays `contents: read`.
+      # job only. The workflow-level floor stays `contents: read`.
       actions: write
     steps:
       - name: Rerun failed jobs

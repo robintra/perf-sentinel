@@ -53,8 +53,7 @@ pub(crate) fn cmd_bench(
     for _ in 0..iterations {
         // Clone inside the loop, before the timer starts: the clone cost
         // stays excluded from timing while the working set stays at two
-        // copies instead of `iterations` copies (the previous pre-clone
-        // harness peaked at iterations x events of RSS).
+        // copies instead of `iterations` copies.
         let batch = events.clone();
         let start = std::time::Instant::now();
         let _ = pipeline::analyze(batch, &config);
@@ -164,7 +163,7 @@ fn proc_status_bytes(field: &str) -> Option<usize> {
 }
 
 /// Process-lifetime peak RSS in bytes (high-water mark). Linux reads
-/// `VmHWM`; on macOS `ru_maxrss` already is the lifetime peak, so this
+/// `VmHWM`. On macOS `ru_maxrss` already is the lifetime peak, so this
 /// matches [`current_rss_bytes`] there. The lifetime scope means the
 /// value includes input generation/parsing before the measured loop.
 fn peak_rss_bytes() -> Option<usize> {

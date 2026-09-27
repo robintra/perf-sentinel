@@ -120,8 +120,8 @@ pub const CO2_MODEL_V3_CAL: &str = "io_proxy_v3+cal";
 pub const METHODOLOGY_SCI_NUMERATOR: &str = "sci_v1_numerator";
 
 /// Methodology tag: SCI v1.0 numerator with network transport energy added.
-/// `(E x I) + M + T` where `T` is network transport CO2. Applied on every
-/// run since the transport term became unconditional, zero included.
+/// `(E x I) + M + T` where `T` is network transport CO2. The transport term
+/// is unconditional, so this tag applies on every run, zero included.
 pub const METHODOLOGY_SCI_NUMERATOR_TRANSPORT: &str = "sci_v1_numerator+transport";
 
 /// Methodology tag: avoidable CO2 via `operational * (avoidable_ops / accounted_ops)`.
@@ -139,10 +139,9 @@ pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 
 /// Generic PUE for regions not associated with a specific cloud
 /// provider, also the fallback for out-of-table regions with a custom
-/// hourly profile. Tracks the Uptime Institute survey average,
-/// deliberately rounded to one decimal (the survey plateau spans
-/// 1.5-1.6). Sources in `docs/design/05-GREENOPS-AND-CARBON.md`
-/// § "PUE values".
+/// hourly profile. Tracks the Uptime Institute survey average, rounded
+/// to one decimal (the survey plateau spans 1.5-1.6). Sources in
+/// `docs/design/05-GREENOPS-AND-CARBON.md` § "PUE values".
 pub const GENERIC_PUE: f64 = 1.5;
 
 /// Vintage of the per-provider PUE constants embedded in `Provider::pue`.
@@ -228,7 +227,7 @@ impl EnergyEntry {
 ///
 /// `model` and `methodology` are `String` (not `&'static str`) so the
 /// struct can be round-tripped through serde. In-process construction
-/// still uses static string constants; the one-time `.to_string()` at
+/// still uses static string constants. The one-time `.to_string()` at
 /// build time is negligible next to the numeric work around it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CarbonEstimate {
@@ -297,7 +296,7 @@ pub struct CarbonReport {
     pub embodied_gco2: f64,
     /// Network transport CO₂ for cross-region HTTP calls (gCO₂eq).
     /// Present when at least one cross-region HTTP call carried response
-    /// size data. Always computed and always displayed since 0.9.25,
+    /// size data. Always computed and always displayed since 0.9.25.
     /// `[green] include_network_transport` is deprecated and ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
@@ -436,8 +435,8 @@ impl Default for DbEnergyContext {
         Self {
             window_kwh: 0.0,
             region: None,
-            // Weakest of the three tags on purpose: a caller that forgets
-            // to state its provenance must not claim a measurement.
+            // Weakest of the three tags: a caller that forgets to state its
+            // provenance must not claim a measurement.
             model: crate::report::DB_WASTE_MODEL_ESTIMATED,
         }
     }
@@ -451,7 +450,7 @@ impl Default for DbEnergyContext {
 pub struct ScoringConfig {
     /// The three fields below describe the Electricity Maps API and are
     /// meaningful only when [`ScoringConfig::electricity_maps`] is true.
-    /// They keep their defaults otherwise, they are not a claim.
+    /// They keep their defaults otherwise and are not a claim.
     pub api_version: ApiVersion,
     pub emission_factor_type: EmissionFactorType,
     pub temporal_granularity: TemporalGranularity,
@@ -553,12 +552,12 @@ impl Default for CarbonContext {
     }
 }
 
-/// Workload waste kWh → gCO₂, for the database and broker figures alike:
-/// real-time intensity when available,
-/// embedded annual otherwise, times provider PUE. A region unknown to
-/// the embedded table still converts with [`GENERIC_PUE`] when a
-/// real-time entry covers it (custom on-prem region ids), matching the
-/// per-span fallback. `None` only when no intensity exists at all.
+/// Convert workload waste kWh to gCO₂, for the database and broker figures
+/// alike: real-time intensity when available, embedded annual otherwise,
+/// times provider PUE. A region unknown to the embedded table still
+/// converts with [`GENERIC_PUE`] when a real-time entry covers it (custom
+/// on-prem region ids), matching the per-span fallback. `None` only when
+/// no intensity exists at all.
 #[must_use]
 pub(crate) fn db_waste_gco2(waste_kwh: f64, region: &str, ctx: &CarbonContext) -> Option<f64> {
     let region_lower = region.to_ascii_lowercase();
@@ -640,10 +639,9 @@ impl Provider {
             Self::Scaleway => 1.375,
             // 3DS OUTSCALE publishes no PUE: it rents capacity rather than
             // operating its own datacenters, so there is no fleet figure to
-            // cite. The variant exists to name the provider on its rows, not
-            // to carry a number we would have had to invent. Its partner
-            // Thesee advertises a design PUE of 1.2, which is neither a
-            // measured value nor OUTSCALE's own fleet.
+            // cite. The variant only names the provider on its rows. Its
+            // partner Thesee advertises a design PUE of 1.2, which is
+            // neither a measured value nor OUTSCALE's own fleet.
             Self::Outscale | Self::Generic => GENERIC_PUE,
         }
     }
@@ -655,7 +653,7 @@ impl Provider {
 /// national). Values: CCF and Electricity Maps 2023-2024
 /// consumption-based averages. The `ca` rows carry a hydro-dominant
 /// zone value and the `br` rows the BR-CS (Central-South) zone value
-/// containing Sao Paulo; both hourly profiles are normalized to those
+/// containing Sao Paulo. Both hourly profiles are normalized to those
 /// levels, not to the national average. Nationally-gridded rows live
 /// in `carbon_data.rs`.
 ///
@@ -695,7 +693,7 @@ static MANUAL_CARBON_ROWS: &[(&str, f64, Provider)] = &[
 
 /// Pre-built map for O(1) region lookup (keys are lowercase).
 /// Chains the generated rows (`carbon_data.rs`) with the manual rows
-/// above; keys are disjoint by construction.
+/// above. Keys are disjoint by construction.
 static REGION_MAP: std::sync::LazyLock<HashMap<&str, (f64, Provider)>> =
     std::sync::LazyLock::new(|| {
         super::carbon_data::GENERATED_CARBON_ROWS
@@ -807,7 +805,7 @@ pub(crate) fn resolve_hourly_intensity(
 }
 
 /// Maximum file size for custom profiles (2 MiB). A 30-region monthly
-/// file with formatting is well under 100 KB; 2 MiB is generous.
+/// file with formatting is well under 100 KB, so 2 MiB is generous.
 const MAX_PROFILE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Maximum plausible grid intensity (gCO2/kWh). No national grid
@@ -1065,9 +1063,9 @@ pub(crate) fn energy_coefficient(event: &SpanEvent) -> f64 {
             Some(_) => HTTP_SMALL_COEFF,
             None => 1.0,
         },
-        // Unweighted on purpose: the HTTP size tiers encode a web payload
-        // distribution (1 MB is Kafka's default ceiling, not a large message),
-        // so reusing them would assert a discount nothing measures.
+        // Unweighted: the HTTP size tiers encode a web payload distribution
+        // (1 MB is Kafka's default ceiling, not a large message), so reusing
+        // them would assert a discount nothing measures.
         crate::event::EventType::Messaging => 1.0,
     }
 }
@@ -1097,7 +1095,7 @@ pub(crate) fn extract_hostname(url: &str) -> Option<&str> {
 /// used by both [`io_ops_to_co2_grams`] (public convenience) and the
 /// multi-region scoring stage in `score::compute_carbon_report`.
 ///
-/// implemented as `io_ops × per_op_gco2(...)` to share the
+/// Implemented as `io_ops × per_op_gco2(...)` to share the
 /// formula with the hourly and Scaphandre paths.
 #[must_use]
 pub(crate) fn compute_operational_gco2(io_ops: usize, intensity: f64, pue: f64) -> f64 {
@@ -1124,12 +1122,12 @@ mod tests {
 
     #[test]
     fn hourly_profile_present_for_key_regions() {
-        // The original 4 regions (now Monthly) plus new FlatYear regions.
+        // The 4 Monthly regions plus FlatYear regions.
         assert!(hourly_profile_for_region_lower("eu-west-3").is_some());
         assert!(hourly_profile_for_region_lower("eu-central-1").is_some());
         assert!(hourly_profile_for_region_lower("eu-west-2").is_some());
         assert!(hourly_profile_for_region_lower("us-east-1").is_some());
-        // New FlatYear regions.
+        // FlatYear regions.
         assert!(hourly_profile_for_region_lower("eu-west-1").is_some());
         assert!(hourly_profile_for_region_lower("eu-west-4").is_some());
         assert!(hourly_profile_for_region_lower("eu-north-1").is_some());
@@ -1173,7 +1171,7 @@ mod tests {
 
     #[test]
     fn hourly_profile_original_4_are_monthly() {
-        // The original 4 regions upgraded to Monthly profiles.
+        // The 4 regions with Monthly profiles.
         assert!(
             hourly_profile_for_region_lower("eu-west-3")
                 .unwrap()
@@ -1243,7 +1241,7 @@ mod tests {
         assert!(lookup_hourly_intensity_lower("eu-west-3", 12, Some(99)).is_none());
     }
 
-    /// Helper: compute the grand mean of a profile (monthly or flat year).
+    /// Grand mean of a profile (monthly or flat year).
     fn profile_grand_mean(pr: HourlyProfileRef<'_>) -> f64 {
         match pr {
             HourlyProfileRef::FlatYear(profile) => profile.iter().sum::<f64>() / 24.0,
@@ -1292,9 +1290,8 @@ mod tests {
 
     #[test]
     fn hourly_profile_de_mean_close_to_annual() {
-        // The 2022-vintage profile level (grand mean ~431) was rescaled
-        // to the Electricity Maps 2024 level, so the historical ~31%
-        // divergence from the annual table is resolved.
+        // The profile is rescaled from its 2022-vintage level (grand mean
+        // ~431, ~31% off the annual table) to the Electricity Maps 2024 level.
         let pr = hourly_profile_for_region_lower("eu-central-1").unwrap();
         let mean = profile_grand_mean(pr);
         let annual = lookup_region_lower("eu-central-1").unwrap().0;
@@ -1305,7 +1302,7 @@ mod tests {
         );
     }
 
-    // Mean invariant for all new FlatYear regions.
+    // Mean invariant for all FlatYear regions.
     #[test]
     fn hourly_profile_mean_close_to_annual_for_all_flat_year_regions() {
         for &(key, ref profile) in crate::score::carbon_profiles::FLAT_YEAR_PROFILES {
@@ -1543,7 +1540,7 @@ mod tests {
 
     #[test]
     fn carbon_estimate_with_model_tags() {
-        // new `_with_model` constructors must carry the
+        // The `_with_model` constructors must carry the
         // supplied model tag all the way through.
         let e = CarbonEstimate::sci_numerator_with_model(0.001, CO2_MODEL_V2);
         assert_eq!(e.model, "io_proxy_v2");
@@ -1605,7 +1602,7 @@ mod tests {
             (outscale - fr_intensity).abs() < f64::EPSILON,
             "Paris, not London"
         );
-        // No published PUE: the rows carry the generic figure on purpose.
+        // No published PUE, so the rows carry the generic figure.
         assert!((pue - GENERIC_PUE).abs() < f64::EPSILON);
 
         let (aws, _) = lookup_region("eu-west-2").expect("eu-west-2");
@@ -2086,7 +2083,7 @@ mod tests {
 
     #[test]
     fn energy_coefficient_http_boundary_large_threshold() {
-        // Exactly at the large boundary (1 MB) is still medium; >1 MB is large.
+        // Exactly at the large boundary (1 MB) is still medium, and >1 MB is large.
         let event = make_http_size_event(Some(HTTP_LARGE_THRESHOLD));
         assert!((energy_coefficient(&event) - HTTP_MEDIUM_COEFF).abs() < f64::EPSILON);
         let event_over = make_http_size_event(Some(HTTP_LARGE_THRESHOLD + 1));
@@ -2163,7 +2160,7 @@ mod tests {
         assert!((energy_coefficient(&event) - SQL_OTHER_COEFF).abs() < f64::EPSILON);
     }
 
-    // --- ScoringConfig (0.5.12 audit-trail surface) ---
+    // --- ScoringConfig (audit-trail surface) ---
 
     #[test]
     fn scoring_config_default_is_v4_lifecycle_hourly() {
@@ -2240,7 +2237,7 @@ mod tests {
     #[test]
     fn scoring_config_from_electricity_maps_derives_api_version_from_endpoint() {
         // ElectricityMapsConfig has no Default impl (auth_token is
-        // mandatory), build manually. The test asserts that the
+        // mandatory), so build it manually. The test asserts that the
         // api_version field is derived from the endpoint URL and the
         // two knobs are copied through verbatim.
         let cfg = ElectricityMapsConfig {

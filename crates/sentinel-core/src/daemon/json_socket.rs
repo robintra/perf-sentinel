@@ -138,7 +138,7 @@ async fn handle_json_connection(
         // Memory-pressure admission control: this door feeds the same
         // ingest channel as the OTLP listeners and must honor the same
         // guard, else local NDJSON keeps growing RSS while the OTLP
-        // doors are closed. Dropped before parsing; warned once per
+        // doors are closed. Dropped before parsing. Warned once per
         // connection so a long-lived local producer is not spammed.
         if over_memory.load(Ordering::Relaxed) {
             if !memory_drop_warned {
@@ -169,7 +169,7 @@ async fn handle_json_connection(
 /// Build a unique Unix-socket path inside a fresh `tempfile::TempDir`
 /// rooted at `/tmp/`, not `std::env::temp_dir()`.
 ///
-/// Why `/tmp/` instead of `tempfile::tempdir()` (no arg): on macOS
+/// `tempfile::tempdir()` (no arg) is avoided because on macOS
 /// `std::env::temp_dir()` resolves to `/var/folders/<hash>/T/...`,
 /// which easily exceeds the Unix-socket `SUN_LEN` limit (104 bytes
 /// on macOS, 108 on Linux). A `tempfile::TempDir` rooted at `/tmp`
@@ -185,7 +185,7 @@ async fn handle_json_connection(
 ///   socket file and the parent dir.
 ///
 /// The returned `TempDir` must be kept alive for the duration of the
-/// test; the returned path borrows from it.
+/// test, because the returned path borrows from it.
 #[cfg(test)]
 pub(super) fn unique_socket_dir_and_path(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::Builder::new()
@@ -229,7 +229,6 @@ mod tests {
         let (client, server) = UnixStream::pair().expect("UnixStream::pair should succeed");
         let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
 
-        // Spawn the connection handler (reads from `server`).
         let handle = spawn_handler(server, tx, 1024 * 1024);
 
         // Write one NDJSON line with a minimal valid SpanEvent array,
@@ -334,8 +333,8 @@ mod tests {
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
 
-        // Keep `_dir` alive until the end of the test; drop removes the
-        // socket + parent tempdir. `path` is a PathBuf owned by us.
+        // Keep `_dir` alive until the end of the test. Dropping it removes
+        // the socket and the parent tempdir. `path` is a PathBuf owned by us.
         let (_dir, path) = unique_socket_dir_and_path("accept");
         let (tx, mut rx) = mpsc::channel::<super::super::IngestBatch>(16);
         let path_for_server = path.to_string_lossy().into_owned();
@@ -374,8 +373,9 @@ mod tests {
 
     #[tokio::test]
     async fn run_json_socket_fails_to_bind_on_invalid_path() {
-        // Path inside a non-existent directory → bind returns Err, the
-        // function emits a tracing::error and returns without panicking.
+        // With a path inside a non-existent directory, bind returns Err and
+        // the function logs at info (listener disabled), then returns
+        // without panicking.
         let path = "/nonexistent-directory-for-test/perf-sentinel.sock".to_string();
         let (tx, _rx) = mpsc::channel::<super::super::IngestBatch>(16);
         // Should return near-immediately (bind fails).
@@ -404,7 +404,6 @@ mod tests {
         let (dir, sock_path) = unique_socket_dir_and_path("symlink-guard");
         let victim = dir.path().join("victim.txt");
         std::fs::write(&victim, "important").unwrap();
-        // Replace the sock path with a symlink to the victim.
         symlink(&victim, &sock_path).expect("symlink creation");
 
         let (tx, _rx) = mpsc::channel::<super::super::IngestBatch>(16);

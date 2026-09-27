@@ -1,6 +1,6 @@
 import {defineConfig, devices} from "@playwright/test";
 
-// Demo-only Playwright config. Drives four artefact groups that
+// Demo-only Playwright config. Drives five artefact groups that
 // `npm run demo` ships to docs/img/report/:
 //   - dashboard_dark.gif  (dashboard-dark project, tour.spec.ts)
 //   - dashboard_light.gif (dashboard-light project, tour.spec.ts)
@@ -9,6 +9,8 @@ import {defineConfig, devices} from "@playwright/test";
 //   - findings.png, ..., cheatsheet.png (light baseline names to
 //     match the <img src=...> slot of a <picture> element)
 //     (dashboard-stills-light project, stills.spec.ts)
+//   - ack-modal.png, ack-panel.png, ack-toggle.png and their -dark
+//     variants (both stills projects, stills.spec.ts)
 //
 // Kept separate from playwright.config.ts so `npx playwright test`
 // (and CI) never picks up the demo as a regular test.

@@ -169,8 +169,8 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
     // The window Reports hold every finding, endpoint and normalized SQL
     // shape, so they are no more readable than the acks stored beside them.
     // Creation only: a file already there keeps the mode its operator gave
-    // it, since tightening one the daemon may not own is how the incident
-    // archive used to fail to start.
+    // it, since tightening one the daemon may not own can fail and block
+    // startup.
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
@@ -196,8 +196,8 @@ fn open_append(path: &Path) -> Result<File, ArchiveError> {
 /// The tightening is an `fchmod` on the handle already opened with
 /// `no_follow`, so no path is resolved a second time and a swap between the
 /// open and the chmod cannot land. It succeeds for the file's owner and fails
-/// for anyone else, which is exactly the line to draw: a file another user
-/// owns is one this daemon must not write its detail and templates into.
+/// for anyone else. This daemon must not write its detail and templates into
+/// a file another user owns.
 ///
 /// # Errors
 ///
@@ -218,7 +218,7 @@ pub(super) fn tighten_to_owner_only(file: &File, what: &str) -> std::io::Result<
 }
 
 /// Keep a crash-truncated record from being joined to the next window.
-/// A complete JSON value that only missed its newline stays usable; a
+/// A complete JSON value that only missed its newline stays usable. A
 /// partial value becomes one malformed line that disclosure can skip.
 pub(super) fn terminate_incomplete_line(file: &mut File) -> std::io::Result<()> {
     let len = file.metadata()?.len();
@@ -238,12 +238,12 @@ fn metadata_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
-// Synchronous buffered I/O on a dedicated blocking thread, intentional:
-// producers drop-on-full via try_send so a stalled filesystem never blocks
-// the analysis path, and rotation runs once per cap_bytes (rare). It is a
+// Synchronous buffered I/O on a dedicated blocking thread: producers
+// drop-on-full via try_send so a stalled filesystem never blocks the
+// analysis path, and rotation runs once per cap_bytes (rare). It is a
 // blocking thread rather than a runtime worker because every call in here
-// parks the caller, a truncation and a rotation included, and a worker
-// parked on a slow disk stops polling every other task it holds.
+// parks the caller, a truncation and a rotation included. A worker parked
+// on a slow disk stops polling every other task it holds.
 fn run_writer(
     mut rx: Receiver<OwnedArchive>,
     path: &Path,
@@ -316,7 +316,7 @@ fn run_writer(
 ///
 /// `hash` covers `{ts, report, prev, seq}` in canonical form, so editing
 /// any of them breaks it. `prev` ties the line to its predecessor, so
-/// removing or reordering a line breaks the next one, and `seq` pins its
+/// removing or reordering a line breaks the next one. `seq` pins the line's
 /// position so a break says how many lines are off, not only that one is.
 /// A tail cut cleanly off the file stays invisible to both: what remains
 /// is a shorter self-consistent chain, and only an anchor kept outside the
@@ -383,7 +383,7 @@ fn extract_hash(line: &str) -> Option<String> {
 
 /// Write one line straight to the file.
 ///
-/// Unbuffered on purpose: at window cadence buffering saves nothing, and
+/// Unbuffered because, at window cadence, buffering saves nothing, and
 /// a `BufWriter` would leave a half-written line on an ungraceful death
 /// (SIGKILL, OOM) or hold bytes the caller then cannot account for when a
 /// write fails. Both cases end up published as a chain break.
@@ -679,8 +679,8 @@ mod tests {
 
     /// Push enough oversized envelopes to cross the 1 MB cap, then close
     /// the channel and wait for the writer to drain. Each report
-    /// serialises to a few hundred bytes on its own, so the warning is
-    /// what makes a handful of sends rotate.
+    /// serialises to a few hundred bytes on its own, so the warning
+    /// makes a handful of sends rotate.
     async fn push_until_rotation(handle: ArchiveHandle) {
         for _ in 0..30 {
             let mut archive = sample_archive();

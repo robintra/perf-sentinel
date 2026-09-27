@@ -7,7 +7,7 @@ use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans};
 
 /// Build a metrics sink from a fresh `MetricsState`, coerced to the
 /// trait object the OTLP module expects. Co-locates the
-/// `Arc<MetricsState>` -> `Arc<dyn MetricsSink>` cast so the four
+/// `Arc<MetricsState>` to `Arc<dyn MetricsSink>` cast so the four
 /// HTTP-handler tests below stay readable.
 #[cfg(feature = "daemon")]
 fn fresh_metrics_sink() -> (Arc<MetricsState>, Arc<dyn MetricsSink>) {
@@ -235,8 +235,8 @@ fn counted_conversion_classifies_filtered_spans() {
 
 #[test]
 fn non_sql_datastore_span_is_dropped() {
-    // A Redis span carries a db.statement that is not relational SQL;
-    // it must be dropped under the dedicated reason, never tokenized.
+    // A Redis span carries a db.statement that is not relational SQL.
+    // It must be dropped under the dedicated reason, never tokenized.
     let redis = make_bare_span(
         &[8; 8],
         vec![
@@ -259,7 +259,7 @@ fn non_sql_datastore_span_is_dropped() {
 #[test]
 fn non_sql_datastore_span_with_url_is_dropped_not_http() {
     // An ES/OpenSearch span over an HTTP transport may carry both a
-    // statement and url.full; the db.system gate must still drop it
+    // statement and url.full. The db.system gate must still drop it
     // rather than reclassify it as an HTTP outbound call.
     let es = make_bare_span(
         &[8; 8],
@@ -280,7 +280,7 @@ fn non_sql_datastore_span_with_url_is_dropped_not_http() {
 #[test]
 fn non_sql_datastore_span_without_statement_is_not_an_instrumentation_gap() {
     // A Redis span with db.system but no db.statement must count as a
-    // deliberate non-SQL drop, not a MissingDbStatement instrumentation gap.
+    // non-SQL datastore drop, not a MissingDbStatement instrumentation gap.
     let redis = make_bare_span(&[8; 8], vec![make_kv("db.system", "redis")]);
     let req = make_request("cache-svc", vec![redis]);
 
@@ -454,7 +454,7 @@ fn datadog_stable_unknown_db_system_name_without_statement_is_a_gap() {
 fn datadog_http_resource_with_db_tag_is_not_tokenized_as_sql() {
     // A mis-tagged dd-trace span carrying an HTTP route in dd.span.Resource
     // plus a SQL db signal and an http.url must NOT have the route (which can
-    // carry query-string secrets) tokenized as SQL; it is an HTTP call.
+    // carry query-string secrets) tokenized as SQL. It is an HTTP call.
     let span = make_bare_span(
         &[9; 8],
         vec![
@@ -473,7 +473,7 @@ fn datadog_http_resource_with_db_tag_is_not_tokenized_as_sql() {
 
 #[test]
 fn datadog_stable_namespaced_sql_server_classifies_as_sql() {
-    // SQL Server's stable db.system.name is "microsoft.sql_server"; it must
+    // SQL Server's stable db.system.name is "microsoft.sql_server". It must
     // canonicalize to "mssql" so the dd.span.Resource fallback fires.
     let span = make_bare_span(
         &[9; 8],
@@ -725,10 +725,9 @@ fn parent_span_provides_source_endpoint() {
 
 #[test]
 fn parent_span_http_route_takes_precedence_over_http_url() {
-    // Critical for ack stability: when the parent emits both
-    // http.route (template) and http.url (instantiated), the route
-    // must win. Otherwise every distinct request id forks the ack
-    // signature.
+    // When the parent emits both http.route (template) and http.url
+    // (instantiated), the route must win. Otherwise every distinct
+    // request id forks the ack signature.
     let parent = Span {
         trace_id: vec![1; 16],
         span_id: vec![10; 8],
@@ -1547,8 +1546,8 @@ const SPAN_KIND_SERVER: i32 = opentelemetry_proto::tonic::trace::v1::span::SpanK
 #[test]
 fn grpc_client_rpc_span_is_admitted_as_outbound_call() {
     // RPC semconv spans (rpc.system/service/method) carry neither a
-    // statement nor a URL. Before RPC support they were dropped as non-I/O,
-    // blinding the topology + occurrence detectors on gRPC-heavy fleets.
+    // statement nor a URL. Dropping them as non-I/O would blind the
+    // topology + occurrence detectors on gRPC-heavy fleets.
     let mut span = make_bare_span(
         &[7; 8],
         vec![
@@ -1587,7 +1586,7 @@ fn grpc_server_rpc_span_is_not_admitted() {
 
 #[test]
 fn rpc_span_without_service_falls_back_to_span_name() {
-    // gRPC span name convention is "package.Service/Method"; use it as the
+    // gRPC span name convention is "package.Service/Method". Use it as the
     // target when rpc.service / rpc.method are not both present.
     let mut span = make_bare_span(&[8; 8], vec![make_kv("rpc.system", "grpc")]);
     span.kind = SPAN_KIND_CLIENT;
@@ -1603,7 +1602,7 @@ fn rpc_span_without_service_falls_back_to_span_name() {
 #[test]
 fn rpc_span_with_blank_service_and_method_falls_back_to_span_name() {
     // Empty rpc.service / rpc.method (some emitters) must not produce a
-    // meaningless "/" target; fall back to the span name instead.
+    // meaningless "/" target. Fall back to the span name instead.
     let mut span = make_bare_span(
         &[11; 8],
         vec![
@@ -1689,7 +1688,7 @@ fn messaging_span_reads_the_legacy_destination_key() {
 
 #[test]
 fn messaging_span_without_destination_falls_back_to_span_name() {
-    // Agents name the span "<destination> publish"; use it when the
+    // Agents name the span "<destination> publish". Use it when the
     // destination attribute is absent or blank.
     let mut span = make_bare_span(
         &[24; 8],
@@ -2041,7 +2040,7 @@ fn link_on_a_non_consumer_ancestor_is_ignored() {
     // Batch span processors and follows-from relations emit links too.
     // Reading those would invent edges between unrelated traces. A real
     // CONSUMER rides along in another trace so the per-request gate is on
-    // and the walk actually runs, otherwise this test would pin nothing.
+    // and the walk runs. Otherwise this test would pin nothing.
     let mut spans = make_linked_consumer_pair(PRODUCER_TRACE.to_vec(), SPAN_KIND_CLIENT);
     let mut decoy = make_bare_span(&[41; 8], vec![]);
     decoy.trace_id = vec![9; 16];
@@ -2378,7 +2377,7 @@ fn span_with_both_db_and_http_prefers_sql() {
 
 #[test]
 fn clock_skew_duration_is_zero() {
-    // end < start -> saturating_sub gives 0
+    // end < start, so saturating_sub gives 0
     let span = make_sql_span(
         &[1; 16],
         &[2; 8],
@@ -2495,7 +2494,7 @@ fn cloud_region_extracted_from_resource_attributes() {
 
 #[test]
 fn cloud_region_falls_back_to_span_attribute() {
-    // Resource has no cloud.region; span itself carries it.
+    // Resource has no cloud.region. The span itself carries it.
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
     span.attributes.push(make_kv("cloud.region", "us-east-1"));
     let req =
@@ -2575,7 +2574,8 @@ fn grouping_falls_back_to_span_attributes() {
 
 #[test]
 fn cloud_region_with_space_is_sanitized_to_none() {
-    // Invalid character (space) at the resource level → silently dropped.
+    // A region with an invalid character (space) at the resource level is
+    // silently dropped.
     let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
     let req = make_request_with_resource_attrs(
         vec![
@@ -2625,7 +2625,7 @@ fn cloud_region_with_control_char_is_sanitized_to_none() {
 
 #[test]
 fn cloud_region_span_level_fallback_also_sanitized() {
-    // Invalid cloud.region at the span level (resource has none) →
+    // Invalid cloud.region at the span level (resource has none) is
     // silently dropped too.
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
     span.attributes.push(make_kv("cloud.region", "bad region!"));
@@ -2763,7 +2763,7 @@ fn make_span_with_code_attrs(
 
 #[test]
 fn code_attrs_inherited_from_immediate_parent() {
-    // HTTP server parent carries code.namespace; JDBC child has none.
+    // HTTP server parent carries code.namespace. JDBC child has none.
     // Walker must surface the parent namespace on the child SpanEvent.
     let parent = make_span_with_code_attrs(
         &[10; 8],
@@ -2864,8 +2864,8 @@ fn code_attrs_max_depth_safety() {
 
 #[test]
 fn code_attrs_self_takes_precedence() {
-    // Span has its own code.namespace; parent has a different one.
-    // The span's own attrs must win; the walker only triggers when the
+    // Span has its own code.namespace, its parent a different one.
+    // The span's own attrs must win. The walker only triggers when the
     // span itself has nothing.
     let parent = make_span_with_code_attrs(
         &[10; 8],
@@ -2938,7 +2938,7 @@ fn code_attrs_php_backslash_namespace_derivation() {
 
 #[test]
 fn code_attrs_legacy_conventions_still_work() {
-    // Legacy names only. No regression from the stable-name addition.
+    // Legacy names only: stable-name support must not break them.
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
     span.attributes.extend(vec![
         make_kv("code.function", "findItems"),
@@ -2978,9 +2978,9 @@ fn code_attrs_legacy_namespace_wins_over_derivation() {
 #[test]
 fn code_attrs_legacy_function_does_not_derive_namespace() {
     // Legacy `code.function` is documented as a bare function name, even
-    // when an agent technically packs a dotted value into it. We must
-    // NOT derive a namespace from it; doing so would surface false
-    // positives in JAVA_RULES on agents that emit `code.function = "X.y"`.
+    // when an agent packs a dotted value into it. We must NOT derive a
+    // namespace from it. Doing so would surface false positives in
+    // JAVA_RULES on agents that emit `code.function = "X.y"`.
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
     span.attributes
         .push(make_kv("code.function", "OrderService.findItems"));
@@ -3013,8 +3013,7 @@ fn code_attrs_no_dot_in_fq_name() {
 fn java_rules_match_via_derived_namespace() {
     // End-to-end: a stable-convention FQ name on a JPA repository span
     // must produce a SpanEvent whose code_namespace triggers JAVA_RULES
-    // (via the JPA prefix). Verifies that namespace derivation feeds
-    // the suggestion engine correctly.
+    // (via the JPA prefix).
     let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
     span.attributes.push(make_kv(
         "code.function.name",
@@ -3039,8 +3038,8 @@ fn java_rules_match_via_derived_namespace() {
 
 #[test]
 fn endpoint_falls_back_to_code_frame() {
-    // Scheduled job: no HTTP attribute anywhere, so the endpoint used to be
-    // "unknown". The parent's code frame names the origin instead.
+    // Scheduled job: no HTTP attribute anywhere. The parent's code frame
+    // names the origin instead of "unknown".
     let parent = Span {
         trace_id: vec![1; 16],
         span_id: vec![10; 8],
@@ -3174,9 +3173,8 @@ fn endpoint_code_frame_survives_secret_stripping() {
 
 #[test]
 fn endpoint_code_frame_separates_two_jobs_sharing_a_statement() {
-    // The defect this fallback fixes: both jobs used to report "unknown", so
-    // the same statement gave them one ack signature and acking either hid
-    // the other.
+    // Without this fallback both jobs report "unknown", so the same statement
+    // gives them one ack signature and acking either hides the other.
     let job_endpoint = |ns: &str, span_seed: u8| {
         let parent = Span {
             trace_id: vec![span_seed; 16],
@@ -3218,7 +3216,7 @@ fn endpoint_code_frame_separates_two_jobs_sharing_a_statement() {
 #[test]
 fn endpoint_http_route_resolves_through_ancestors() {
     // The standard Spring shape: the route sits on the SERVER span, two
-    // levels above the jdbc leaf. A single-level lookup reported "unknown"
+    // levels above the jdbc leaf. A single-level lookup would report "unknown"
     // here, and the code frame would claim an HTTP finding for a class name.
     let server = Span {
         trace_id: vec![1; 16],
@@ -3287,8 +3285,7 @@ fn endpoint_code_frame_resolves_past_a_nameless_leaf_frame() {
 
 #[test]
 fn endpoint_stays_unknown_without_a_usable_frame() {
-    // No HTTP attribute and no name anywhere: "unknown" is the honest answer,
-    // and the pre-existing behaviour.
+    // No HTTP attribute and no name anywhere: the endpoint stays "unknown".
     let parent = Span {
         trace_id: vec![1; 16],
         span_id: vec![10; 8],
@@ -3461,8 +3458,8 @@ fn endpoint_code_frame_keeps_the_outermost_named_frame() {
 #[test]
 fn endpoint_walk_crosses_resource_block_boundaries() {
     // The collector batch processor splits one trace across ResourceSpans
-    // blocks of the same service. A per-block index lost the endpoint at the
-    // boundary (lab: 362 nest-svc findings fell back to "unknown").
+    // blocks of the same service. A per-block index would lose the endpoint at
+    // the boundary (lab: 362 nest-svc findings fell back to "unknown").
     let server = Span {
         trace_id: vec![1; 16],
         span_id: vec![10; 8],
@@ -3750,7 +3747,7 @@ mod http_handler {
 
     #[tokio::test]
     async fn otlp_http_rejects_unsupported_encoding() {
-        // Brotli is not enabled; tower-http surfaces this as 415.
+        // Brotli is not enabled, so tower-http surfaces this as 415.
         let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
         let router = otlp_http_router(tx, 1_048_576, None);
 
@@ -4083,7 +4080,7 @@ fn stitch_span(
 }
 
 /// One PHP contrib query as emitted live by auto-doctrine + auto-pdo. The
-/// doctrine layer carries the statement (`db.query.text`) but NO `db.system`;
+/// doctrine layer carries the statement (`db.query.text`) but NO `db.system`.
 /// `db.system.name` sits only on the child pdo layer. The statement-bearing
 /// `SELECT orders` (prepare, ~0 ms) and the duration-bearing
 /// `Doctrine::execute` are SIBLINGS under `parent_span_id`, each with its own
@@ -4261,7 +4258,7 @@ fn php_prepare_once_execute_many_yields_one_event_per_execute() {
 fn orphan_without_donor_stays_missing_db_statement() {
     // Fail-open: a prepare/execute pair split across collector batches
     // leaves the execute spans donor-less. They must count exactly as
-    // before the stitch pass, layered or not.
+    // they would without the stitch pass, layered or not.
     let sys = || vec![make_kv("db.system", "postgresql")];
     let outer = stitch_span(&[40; 8], &[], sys(), 1_000_000_000, 1_600_000_000);
     let inner = stitch_span(&[41; 8], &[40; 8], sys(), 1_100_000_000, 1_500_000_000);
@@ -4278,7 +4275,7 @@ fn orphan_without_donor_stays_missing_db_statement() {
 fn laravel_sibling_prepare_and_execute_both_emit_unchanged() {
     // Single-layer emitters (Laravel/PDO) put the statement on both the
     // prepare and the execute span, as siblings. Sibling donors are never
-    // collapsed: today's behavior, two events.
+    // collapsed, so both spans still emit their own event.
     let root = make_parent_span(&[10; 8], "GET /api/users");
     let prepare = make_sql_span(
         &[1; 16],
@@ -4405,7 +4402,7 @@ fn stitching_never_crosses_traces() {
     // Donor in trace A, layered orphans in trace B, same resource: no
     // stitch, both orphans fall back to missing_db_statement (the
     // deferred layered suppression only fires when the carrier
-    // actually stitches).
+    // stitches).
     let donor = make_sql_span(
         &[1; 16],
         &[80; 8],
@@ -4461,7 +4458,7 @@ fn non_sql_orphan_not_stitched() {
 
 #[test]
 fn dd_resource_donor_stitches_orphan() {
-    // The dd-trace bridge resolves statements from dd.span.Resource; a
+    // The dd-trace bridge resolves statements from dd.span.Resource. A
     // donor found through that fallback stitches like any other.
     let root = make_parent_span(&[10; 8], "GET /api/orders");
     let donor = stitch_span(
@@ -4599,7 +4596,8 @@ fn self_parented_donor_still_emits() {
 #[test]
 fn mutual_cycle_donors_keep_both_events() {
     // Malformed two-node parent cycle with identical statements has no
-    // outermost span: neither is a layered duplicate, both emit as before.
+    // outermost span: neither is a layered duplicate, so both emit their
+    // own event.
     let a = make_sql_span(
         &[1; 16],
         &[111; 8],
@@ -4743,8 +4741,8 @@ fn statement_less_span_without_db_system_needs_a_sibling_donor() {
     // Rails-style shape: an ORM logical-op span (no db.system, no statement,
     // execute-ish name) whose ONLY statement-bearing relative is its CHILD.
     // Without a sibling donor it is not admitted as an orphan, so it never
-    // adopts the descendant's statement: the child emits, the wrapper drops
-    // as before. Guards against regressing single-layer emitters.
+    // adopts the descendant's statement: the child emits, the wrapper drops.
+    // Guards against regressing single-layer emitters.
     let root = make_parent_span(&[10; 8], "GET /api/orders");
     let wrapper = stitch_span(
         &[150; 8],
@@ -4858,9 +4856,9 @@ fn stats_merge_sums_every_field() {
 
 #[test]
 fn usable_ratio_counts_only_io_shaped_spans() {
-    // 10 received: 4 not_io, 1 deliberate merged, 2 SQL missing their
-    // statement, 3 SQL retained. The SQL denominator is 3 + 2 = 5:
-    // internal spans and deliberate drops must not depress the ratio.
+    // 10 received: 4 not_io, 1 merged, 2 SQL missing their statement,
+    // 3 SQL retained. The SQL denominator is 3 + 2 = 5: internal spans
+    // and merged or non-SQL datastore drops must not depress the ratio.
     let stats = SpanConversionStats {
         received: 40,
         filtered_not_io: 4,
@@ -4877,9 +4875,9 @@ fn usable_ratio_counts_only_io_shaped_spans() {
 
 #[test]
 fn usable_ratio_takes_the_worst_kind_not_the_pooled_share() {
-    // The motivating false green: 900 healthy HTTP spans alongside 100
-    // SQL spans that all lack db.statement. Pooled, that reads 0.90 and
-    // slips past a 0.9 threshold while every SQL detector is blind.
+    // A false green: 900 healthy HTTP spans alongside 100 SQL spans that
+    // all lack db.statement. Pooled, that reads 0.90 and slips past a 0.9
+    // threshold while every SQL detector is blind.
     let stats = SpanConversionStats {
         received: 1000,
         filtered_missing_db_statement: 100,
@@ -4897,8 +4895,8 @@ fn usable_ratio_takes_the_worst_kind_not_the_pooled_share() {
 
 #[test]
 fn usable_ratio_ignores_a_kind_that_never_appeared() {
-    // An HTTP-only service has no SQL ratio to speak of, so the HTTP
-    // one stands alone rather than being dragged to 0 by an absent kind.
+    // An HTTP-only service has no SQL ratio, so the HTTP one stands
+    // alone rather than being dragged to 0 by an absent kind.
     let stats = SpanConversionStats {
         received: 30,
         filtered_missing_http_url: 5,
@@ -4941,9 +4939,10 @@ fn usable_ratio_zero_when_every_io_span_is_unusable() {
 #[test]
 fn blank_db_statement_counts_as_a_missing_statement() {
     // A redacting instrumentation keeps the key and the operation, and
-    // empties the text. Taken at face value it became a SQL event with an
-    // empty target, which normalized to an empty template and surfaced as
-    // `redundant_sql` advising the team to cache an operation with no name.
+    // empties the text. Taken at face value it would become a SQL event
+    // with an empty target, which would normalize to an empty template and
+    // surface as `redundant_sql` advising the team to cache an operation
+    // with no name.
     // Whitespace is no empty query, so it stays a gap without an operation.
     for (blank, operation) in [("", Some("SELECT")), ("   ", None)] {
         let mut attributes = vec![
@@ -4992,7 +4991,7 @@ fn driver_ping_counts_as_not_io() {
 
 #[test]
 fn empty_statement_with_an_operation_stays_a_gap() {
-    // Stable semconv spelling of the redaction case: the operation survives.
+    // Stable semconv spelling of the redaction case: the operation is kept.
     let span = make_bare_span(
         &[12; 8],
         vec![

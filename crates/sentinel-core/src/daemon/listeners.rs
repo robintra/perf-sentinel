@@ -34,7 +34,7 @@ use super::query_api;
 use super::tls::{build_tls_acceptor, load_tls_pem, serve_https, tls_tcp_incoming};
 
 /// HTTP/2 stream multiplexing cap for the OTLP gRPC listener. Tonic's
-/// defaults are generous (thousands of concurrent streams); on a non-loopback
+/// defaults are generous (thousands of concurrent streams). On a non-loopback
 /// bind a misbehaving client must not monopolize the listener. 256 leaves
 /// plenty of headroom for legitimate OTLP exporters batching spans.
 const GRPC_MAX_CONCURRENT_STREAMS: u32 = 256;
@@ -43,7 +43,7 @@ const GRPC_MAX_CONCURRENT_STREAMS: u32 = 256;
 /// connections, mirroring `MAX_CONCURRENT_OTLP_HTTP` on the HTTP route.
 /// The per-connection limits above do not bound a flood of connections,
 /// which would monopolize protobuf decode CPU and starve the /health
-/// liveness probe exactly like the HTTP saturation observed in the lab.
+/// liveness probe like the HTTP saturation observed in the lab.
 const GRPC_MAX_CONCURRENT_REQUESTS: usize = 32;
 
 fn grouping_attributes(config: &Config) -> Vec<Arc<str>> {
@@ -170,7 +170,7 @@ fn spawn_grpc_listener(
         // Pre-decode memory gate: the interceptor runs on request
         // metadata BEFORE tonic decodes the protobuf message, so a
         // saturation flood is refused without materializing payloads
-        // into RSS (the in-service check is only the belt for direct
+        // into RSS (the in-service check only fires for direct
         // callers). UNAVAILABLE is the retryable status compliant
         // exporters back off on.
         let memory_gate = move |req: tonic::Request<()>| {
@@ -212,7 +212,7 @@ fn spawn_grpc_listener(
 /// - When the operator explicitly set `[daemon.ack] storage_path` or
 ///   `[daemon.ack] toml_path` and that path fails to load, the daemon
 ///   refuses to start with a typed `DaemonError`. The operator chose
-///   the path, a typo or permission issue should be loud at startup,
+///   the path, so a typo or permission issue should be loud at startup,
 ///   not silently downgraded to a 503 hours later.
 /// - When the path was resolved from the default
 ///   (`dirs::data_local_dir()` / `.perf-sentinel-acknowledgments.toml`
@@ -318,7 +318,7 @@ enum TomlAckLoad {
 /// error, so a permission problem on a configured path is loud rather than
 /// silently indistinguishable from a project with no acks.
 ///
-/// Otherwise silent by design: the reload task runs this every minute, so the
+/// Otherwise silent: the reload task runs this every minute, so the
 /// one-line summary belongs to the callers that decide what absence means.
 fn load_toml_acks(toml_path: &Path, configured: bool) -> Result<TomlAckLoad, DaemonError> {
     let file = match acknowledgments::load_from_file_if_present(toml_path) {
@@ -474,7 +474,7 @@ fn build_http_router(
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.
         // The wildcard + api_key combination is rejected at config load by
-        // `Config::validate_daemon_cors`, no runtime check needed here.
+        // `Config::validate_daemon_cors`, so no runtime check is needed here.
         let mut query_router = query_api::query_api_router(query_state);
         if let Some(cors) = build_cors_layer(&config.daemon.cors.allowed_origins) {
             query_router = query_router.layer(cors);
@@ -500,8 +500,7 @@ fn build_http_router(
 /// Build the CORS layer when the operator configured at least one
 /// origin. Returns `None` when the list is empty so callers can skip
 /// wiring the layer entirely (and the daemon emits no
-/// `Access-Control-Allow-Origin` header on responses, matching the
-/// pre-CORS behavior).
+/// `Access-Control-Allow-Origin` header on responses).
 ///
 /// Wildcard mode (`["*"]`) maps to `AllowOrigin::any()`, intended for
 /// development. Non-wildcard mode whitelists exact origins. Invalid
@@ -544,12 +543,11 @@ fn build_cors_layer(origins: &[String]) -> Option<tower_http::cors::CorsLayer> {
         CorsLayer::new()
             .allow_origin(allow_origin)
             .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-            // `x-user-id` is not enforced server-side; the `by` field on a
+            // `x-user-id` is not enforced server-side. The `by` field on a
             // POST /api/findings/{sig}/ack body is operator-attested only.
-            // Keep the allow-list narrow to what the daemon actually
-            // consumes: Content-Type for POST bodies and X-API-Key for
-            // ack auth.
-            // `authorization` is deliberately absent: the key-gated routes also
+            // Keep the allow-list narrow to what the daemon consumes:
+            // Content-Type for POST bodies and X-API-Key for ack auth.
+            // `authorization` stays off the list: the key-gated routes also
             // accept `Authorization: Bearer`, but that path exists for the
             // Alertmanager receivers two Kubernetes operators generate, which
             // are server to server and never preflight. Advertising it here
@@ -576,10 +574,10 @@ const ACK_TOML_RELOAD_INTERVAL: Duration = Duration::from_mins(1);
 /// restart.
 ///
 /// The file is the sanctioned way to record a team decision, and it is
-/// usually a mounted `ConfigMap`: asking for a pod restart to honour a text
-/// edit is not an answer. Errors are logged and the previous map is kept,
-/// because a half-written file must not silently un-acknowledge findings
-/// that the team decided to accept.
+/// usually a mounted `ConfigMap`, so a text edit should not need a pod
+/// restart. Errors are logged and the previous map is kept, because a
+/// half-written file must not silently un-acknowledge findings that the
+/// team decided to accept.
 ///
 /// The returned guard aborts the task on drop: a re-read that never happens
 /// costs the next tick, not data.
@@ -720,7 +718,7 @@ pub(super) fn setup_correlator(
     }
     tracing::info!("Cross-trace correlation enabled");
     let mut correlation = config.daemon.correlation.clone();
-    // A TTL flush reaches analysis up to 1.5 x ttl late; the rest covers exporter batching.
+    // A TTL flush reaches analysis up to 1.5 x ttl late. The rest covers exporter batching.
     correlation.ingest_skew_ms = config.daemon.trace_ttl_ms.saturating_mul(2);
     Some(Arc::new(Mutex::new(
         detect::correlate_cross::CrossTraceCorrelator::new(correlation),
@@ -728,7 +726,7 @@ pub(super) fn setup_correlator(
 }
 
 /// Handles and staleness threshold for an optional energy/intensity
-/// scraper. `state` is `None` when the scraper is disabled; `staleness_ms`
+/// scraper. `state` is `None` when the scraper is disabled. `staleness_ms`
 /// is `0` in that case and ignored by the snapshot read.
 pub(super) struct ScraperSetup<S> {
     pub(super) state: Option<Arc<S>>,
@@ -984,7 +982,7 @@ mod grpc_compression_tests {
     /// A compressed export must be decoded, not answered with the
     /// non-retryable Unimplemented tonic returns when no encoding is
     /// accepted. The Collector's OTLP exporter gzips by default, so this
-    /// is the nominal path, not an exotic one.
+    /// is the nominal path.
     async fn export_compressed(encoding: CompressionEncoding) {
         let (mut client, mut rx, server) = client_and_ingest(encoding, 1024 * 1024).await;
         let request: ExportTraceServiceRequest = serde_json::from_str(SAMPLE_EXPORT_JSON).unwrap();
@@ -1009,10 +1007,10 @@ mod grpc_compression_tests {
         export_compressed(CompressionEncoding::Deflate).await;
     }
 
-    /// `max_payload_size` must cap the message after decompression, which is
-    /// what keeps a compression bomb from expanding inside the daemon. Only
-    /// tonic's internals enforce it, so pin the behavior rather than the
-    /// comment: a few KB on the wire that inflate past the cap are refused.
+    /// `max_payload_size` must cap the message after decompression, which
+    /// keeps a compression bomb from expanding inside the daemon. Only
+    /// tonic's internals enforce it, so this test pins the behavior: a few
+    /// KB on the wire that inflate past the cap are refused.
     #[tokio::test]
     async fn grpc_listener_caps_the_decompressed_size_not_the_wire_size() {
         const CAP: usize = 64 * 1024;
@@ -1237,9 +1235,9 @@ mod cors_tests {
             allow_headers.contains("content-type"),
             "Allow-Headers missing content-type: {allow_headers}"
         );
-        // x-user-id was dropped from the allow-list because the daemon
-        // does not enforce it server-side. Keep the allow-list narrow
-        // to what the API actually consumes.
+        // x-user-id stays off the allow-list because the daemon does not
+        // enforce it server-side. Keep the allow-list narrow to what the
+        // API consumes.
         assert!(
             !allow_headers.contains("x-user-id"),
             "Allow-Headers should not advertise x-user-id (not enforced server-side): {allow_headers}"
@@ -1308,11 +1306,10 @@ mod cors_tests {
 
     #[tokio::test]
     async fn cors_preflight_does_not_advertise_put_or_patch() {
-        // The allow-list is intentionally narrow: GET, POST, DELETE,
-        // OPTIONS only. PUT and PATCH are not part of the daemon's
-        // public surface; if a future handler adds one, the CORS
-        // allow-list must be extended in lockstep, not silently
-        // permissive.
+        // The allow-list is narrow: GET, POST, DELETE, OPTIONS only.
+        // PUT and PATCH are not part of the daemon's public surface. If
+        // a future handler adds one, the CORS allow-list must be
+        // extended in lockstep, not silently permissive.
         let router = router_with_cors(&["*"]);
         let request = preflight_builder("PUT").body(Body::empty()).unwrap();
         let response = router.oneshot(request).await.unwrap();
@@ -1341,8 +1338,7 @@ mod cors_tests {
         // origin must NOT echo `Access-Control-Allow-Origin`. A
         // future refactor that flips merge order, swaps `merge` for
         // `nest`, or moves the layer to the outer router would break
-        // this property; the test locks the security-load-bearing
-        // invariant in.
+        // this property. The test pins this security invariant.
         let outer_routes = Router::new()
             .route("/v1/traces", post(|| async { StatusCode::OK }))
             .route("/metrics", get(|| async { "metrics" }))
@@ -1351,7 +1347,7 @@ mod cors_tests {
         let api_routes = build_api_routes().layer(cors);
         let router = outer_routes.merge(api_routes);
 
-        // Probe each non-API route with an Origin header; CORS must
+        // Probe each non-API route with an Origin header. CORS must
         // not echo back. Cover both the actual-request method and the
         // unsolicited preflight: the most realistic browser-side leak
         // vector for a wildcard CORS misconfig is an attacker page

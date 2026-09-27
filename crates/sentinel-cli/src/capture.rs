@@ -1,10 +1,10 @@
 //! `capture` runner: receive OTLP into a trace file `analyze --ci` can gate on.
 //!
-//! Two shapes, one subcommand. Without a trailing command it runs alongside an
-//! existing test step and stops on a signal, which is the drop-in replacement
-//! for a Collector in a pipeline that already exists. With `-- <command>` it
-//! wraps the test step, which removes the start-up race and the question of
-//! when to stop.
+//! The subcommand has two shapes. Without a trailing command it runs
+//! alongside an existing test step and stops on a signal, which is the
+//! drop-in replacement for a Collector in a pipeline that already exists.
+//! With `-- <command>` it wraps the test step, which removes the start-up
+//! race and the question of when to stop.
 
 use std::path::Path;
 use std::process::ExitStatus;
@@ -15,7 +15,7 @@ use sentinel_core::capture::{CaptureConfig, CaptureStats};
 /// Exit code when the capture itself failed (port taken, unwritable file).
 const EXIT_CAPTURE_FAILED: i32 = 1;
 /// Exit code when the trace file is short of the run. Distinct from a gate
-/// breach: nothing was measured wrong, the measurement itself is incomplete.
+/// breach: nothing was measured wrong, but the measurement is incomplete.
 const EXIT_INCOMPLETE: i32 = 2;
 
 /// Run the capture, returning the process exit code.
@@ -163,9 +163,9 @@ fn capped_file_bytes(requested_mb: u64) -> u64 {
     requested
 }
 
-/// A signal-terminated command is a failure, not a success. `code()` is
-/// `None` for that case on Unix, and reporting 0 would turn an OOM-killed
-/// test suite into a green build.
+/// A signal-terminated command is a failure. `code()` is `None` for that
+/// case on Unix, and reporting 0 would turn an OOM-killed test suite into a
+/// green build.
 fn exit_code_of(status: ExitStatus) -> i32 {
     if let Some(code) = status.code() {
         return code;

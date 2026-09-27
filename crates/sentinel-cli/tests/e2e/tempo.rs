@@ -47,10 +47,10 @@ fn push_varint_field(out: &mut Vec<u8>, field: u32, value: u64) {
 
 /// `SpanKind` as `opentelemetry_proto::tonic::trace::v1::span::SpanKind`
 /// numbers them, checked against that enum the way every field number in this
-/// encoder was checked against its message. Fidelity rather than coverage: a span
-/// carrying `db.system` is kept whatever its kind, so marking these correctly
-/// changes no assertion today. It stops the stub from serving UNSPECIFIED
-/// spans no backend sends, and it is what a reader copying this shape needs.
+/// encoder was checked against its message. A span carrying `db.system` is kept
+/// whatever its kind, so marking these correctly changes no assertion today. It
+/// stops the stub from serving UNSPECIFIED spans no backend sends, and it is
+/// what a reader copying this shape needs.
 const SPAN_KIND_SERVER: u64 = 2;
 const SPAN_KIND_CLIENT: u64 = 3;
 
@@ -251,7 +251,7 @@ fn cli_tempo_invalid_lookback_exits_tooling_error() {
 
 #[test]
 fn cli_tempo_fetch_failure_exits_tooling_error() {
-    // Port 1 is a privileged port nothing listens on; the fetch fails
+    // Port 1 is a privileged port nothing listens on. The fetch fails
     // fast with a connection error, no live Tempo backend needed.
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args([
@@ -389,7 +389,7 @@ fn cli_tempo_inverted_absolute_window_exits_tooling_error() {
 #[test]
 fn cli_tempo_absolute_window_reaches_the_fetch() {
     // Nothing listens on port 1, so getting as far as a connection error
-    // proves the window parsed and the request was actually issued.
+    // proves the window parsed and the request was issued.
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args([
             "tempo",
@@ -523,10 +523,10 @@ fn cli_tempo_max_traces_at_the_ceiling_reaches_the_fetch() {
 
 #[test]
 fn cli_tempo_json_carries_the_findings_spans() {
-    // The jaeger-query mirror of this seam, over tempo's two hops: the
-    // search hands back an id, the trace fetch answers OTLP protobuf,
-    // and the JSON still has to carry the spans of the traces its
-    // findings point at, since it travels without its input.
+    // Mirrors the jaeger-query test of this contract, over tempo's two hops:
+    // the search hands back an id and the trace fetch answers OTLP
+    // protobuf. The JSON travels without its input, so it still has to
+    // carry the spans of the traces its findings point at.
     let search = format!(r#"{{"traces":[{{"traceID":"{STUB_TRACE_ID_HEX}"}}]}}"#);
     let port = spawn_tempo_stub(search, otlp_trace_body());
 

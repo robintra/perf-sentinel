@@ -197,15 +197,14 @@ function renderFixtures() {
   // (so GreenOps renders a multi-region breakdown with real
   // operational CO2) + --before for the Diff tab. Correlations are
   // patched in post-render (see injectDemoCorrelations). Only used
-  // by demo/tour.spec.ts; the regular test suite keeps hitting
+  // by demo/tour.spec.ts. The regular test suite keeps hitting
   // dashboard.html built from the pristine fixture.
   writeDemoEvents(FIXTURE_JSON, DEMO_EVENTS);
   // `--daemon-url` flips the dashboard into live mode: per-finding
   // Ack/Revoke buttons, an Acknowledgments panel, a connection status
   // dot and a manual refresh button all become visible. The URL points
-  // at a closed loopback port (65535) because the actual HTTP exchange
-  // is intercepted by `injectDemoAckMock` below, no network call ever
-  // leaves the page.
+  // at a closed loopback port (65535) because `injectDemoAckMock` below
+  // intercepts the HTTP exchange. No network call ever leaves the page.
   execFileSync(
     BINARY,
     [
@@ -238,10 +237,10 @@ function renderFixtures() {
 // Keep both raw namespace dimensions in the browser fixture. order-svc
 // carries both values (Kubernetes wins for filtering), payment-svc carries
 // only service.namespace (the fallback), and chat-svc carries neither.
-// Both fixtures tag the same way: DEMO_CORRELATIONS names these identities on
+// Both fixtures tag the same way. DEMO_CORRELATIONS names these identities on
 // its endpoints, and the dashboard resolves a correlation side only when the
-// finding's grouping matches, so an untagged demo fixture kills every click
-// zone.
+// finding's grouping matches. An untagged demo fixture therefore leaves every
+// click zone inert.
 function tagGrouping(ev: Record<string, unknown>) {
   if (ev.service === "order-svc") {
     ev.grouping = [
@@ -353,7 +352,7 @@ function writeDemoEvents(source: string, dest: string) {
 // scoring config bandeau in one dashboard. The script tag holds a
 // JSON blob where every `</` is escaped to `<\/` (inject() in
 // html.rs does this to block the script-tag-escape family of XSS
-// defects), we unescape, mutate, and re-escape with the same rule.
+// defects). We unescape, mutate, and re-escape with the same rule.
 //
 // scoring_config is built with `direct` + `5_minutes` opt-ins
 // (Scope 2 audit-grade profile) so the bandeau renders one v4
@@ -403,10 +402,10 @@ function injectDemoCorrelations(htmlPath: string) {
 // on /api/payment/999, and the chat-svc slow_http), so three of the six
 // rows render with the "Revoke" button (acked state) instead of "Ack".
 // Named rather than numbered: the list is re-sorted at render, so a
-// position is not a stable way to point at a row. This is what the
-// "Show acknowledged" still captures, otherwise the toggle would have no
-// visual effect on the demo dataset. The order-svc n+1 on
-// /api/orders/7/checkout is deliberately left un-acked so the existing
+// position is not a stable way to point at a row. The "Show acknowledged"
+// still frame captures these acked rows. Without them the toggle would have
+// no visual effect on the demo dataset. The order-svc n+1 on
+// /api/orders/7/checkout stays un-acked so the existing
 // `02 explain trace tree` still finds a visible first row to click
 // without needing a `:visible` selector tweak.
 function injectDemoAckMock(htmlPath: string) {
@@ -501,9 +500,9 @@ async function startStaticServer(): Promise<void> {
   const baseURL = `http://127.0.0.1:${port}`;
   process.env.PS_BASE_URL = baseURL;
 
-  // `-a 127.0.0.1` is load-bearing. `http-server` defaults to binding
-  // 0.0.0.0 otherwise, which would expose the fixture to every
-  // interface on the runner for the duration of the suite.
+  // Keep `-a 127.0.0.1`. Without it, `http-server` binds 0.0.0.0, which
+  // would expose the fixture to every interface on the runner for the
+  // duration of the suite.
   const server = spawn(
     "npx",
     [

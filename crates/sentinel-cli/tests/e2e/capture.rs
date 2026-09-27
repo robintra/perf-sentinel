@@ -2,7 +2,7 @@
 //! nothing was exported.
 //!
 //! Receiving actual OTLP is covered by the core's `capture` tests, which own
-//! a protobuf encoder. What matters here is the process contract a CI job
+//! a protobuf encoder. This module tests the process contract a CI job
 //! depends on: exit codes, streams, and the file left behind.
 
 use std::process::{Command, Stdio};
@@ -120,9 +120,9 @@ fn cli_capture_runs_the_command_when_the_output_directory_is_missing() {
 
 #[test]
 fn cli_analyze_rejects_an_empty_capture_rather_than_passing_it() {
-    // The trap this closes: a capture that received nothing, analyzed with
-    // --ci, must not report a clean gate. Zero measured spans is a tooling
-    // failure, not a passing build.
+    // A capture that received nothing, analyzed with --ci, must not report a
+    // clean gate. Zero measured spans is a tooling failure, not a passing
+    // build.
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("traces.json");
     std::fs::write(&out, "").unwrap();
@@ -207,7 +207,7 @@ fn cli_capture_stops_the_whole_command_tree_on_signal() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("traces.json");
     // The grandchild records its own pid, then sleeps well past the test. A
-    // witness file written *after* the sleep would prove nothing, it would be
+    // witness file written *after* the sleep would prove nothing. It would be
     // absent either way within the test's lifetime.
     let pidfile = dir.path().join("grandchild.pid");
     let mut argv = args(out.to_str().unwrap(), 34329, 34330);
@@ -292,7 +292,7 @@ fn cli_capture_blames_the_exporter_not_the_writer_on_an_unusable_request() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.contains("refused as unusable") {
-        // `nc` is not everywhere; skip rather than fail on a missing tool.
+        // `nc` is not everywhere, so skip rather than fail on a missing tool.
         assert!(
             stderr.contains("no traces received"),
             "unexpected capture output: {stderr}"

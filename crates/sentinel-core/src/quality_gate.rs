@@ -28,7 +28,7 @@ pub fn rule_label(rule: &str) -> Option<&'static str> {
 
 /// Evaluate quality gate rules against findings, green summary and the
 /// ingest tally. `ingest` is `None` on inputs with no OTLP filter stats
-/// (native, Jaeger, Zipkin, daemon window reports); the usable-span rule
+/// (native, Jaeger, Zipkin, daemon window reports). The usable-span rule
 /// is skipped there rather than passed, so its absence is visible.
 #[must_use]
 pub fn evaluate(
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn unusable_instrumentation_fails_gate() {
         // The false-green scenario: 9 of 10 I/O-shaped spans lack their
-        // attribute, ratio 0.1 < 0.9 threshold, the gate must fail even
+        // attribute (ratio 0.1 < 0.9 threshold), so the gate must fail even
         // though there are zero findings.
         let thresholds = thresholds_with_min_ratio(0.9);
         let stats = ingest_stats(4, 36);

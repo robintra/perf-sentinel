@@ -1,9 +1,9 @@
 //! Redfish scraper task, HTTP client, and error types. Iterates the
 //! configured chassis endpoints per tick, parses the wattage gauge for
-//! whichever schema each endpoint declares (`legacy_power` →
-//! `PowerControl[0].PowerConsumedWatts`, `environment_metrics` →
+//! whichever schema each endpoint declares (`legacy_power` reads
+//! `PowerControl[0].PowerConsumedWatts`, `environment_metrics` reads
 //! `PowerWatts.Reading`), and publishes per-service coefficients via
-//! [`apply_chassis_scrape`]. TLS uses the shared webpki client, the
+//! [`apply_chassis_scrape`]. TLS uses the shared webpki client. The
 //! `ca_bundle_path` deferral rationale lives in design doc 05.
 
 use std::sync::Arc;
@@ -108,10 +108,6 @@ async fn scrape_chassis(
     }
 }
 
-/// Pre-parse the configured endpoints into `(chassis_id, Uri, schema)`
-/// triples once at startup. Invalid URIs are surfaced via an
-/// error-level log and the chassis is dropped from the rotation, so a
-/// single malformed entry does not silently kill the whole scraper.
 /// Whether a configured auth header would travel to any chassis over
 /// cleartext `http://`. Extracted for testing: the caller only logs.
 pub(super) fn credentials_travel_cleartext(
@@ -124,6 +120,10 @@ pub(super) fn credentials_travel_cleartext(
             .any(|(_, uri, _)| uri.scheme_str() == Some("http"))
 }
 
+/// Pre-parse the configured endpoints into `(chassis_id, Uri, schema)`
+/// triples once at startup. Invalid URIs are surfaced via an
+/// error-level log and the chassis is dropped from the rotation, so a
+/// single malformed entry does not silently kill the whole scraper.
 fn parse_chassis_uris(cfg: &RedfishConfig) -> Vec<(String, hyper::Uri, RedfishSchema)> {
     use std::str::FromStr;
     let mut out = Vec::with_capacity(cfg.endpoints.len());
@@ -142,7 +142,7 @@ fn parse_chassis_uris(cfg: &RedfishConfig) -> Vec<(String, hyper::Uri, RedfishSc
     out
 }
 
-/// Per-chassis path within one tick. Refactored out of
+/// Per-chassis path within one tick. Factored out of
 /// [`run_scraper_loop`] so the loop stays under the line-count limit
 /// without an explicit allow.
 fn record_chassis_failure(
@@ -215,7 +215,7 @@ async fn run_tick(
             Ok(watts) => {
                 outcome.any_success = true;
                 metrics.redfish_scrape_success.inc();
-                // Chassis without mapped services produce no work, fall
+                // Chassis without mapped services produce no work and fall
                 // through to an empty slice without allocating.
                 let services: &[String] = ctx
                     .chassis_services
@@ -246,8 +246,8 @@ async fn run_scraper_loop(
     state: Arc<RedfishState>,
     metrics: Arc<MetricsState>,
 ) {
-    // Fail loud: ca_bundle_path is reserved for a follow-up. See
-    // design doc 05 "Redfish TLS limitation".
+    // Fail loud: ca_bundle_path is not implemented yet. See design
+    // doc 05 "Redfish TLS limitation".
     if cfg.ca_bundle_path.is_some() {
         tracing::error!(
             "[green.redfish] ca_bundle_path is set but custom-CA TLS support \
@@ -293,8 +293,8 @@ async fn run_scraper_loop(
         ScraperAuthOutcome::Some(h) => Some(h),
     };
 
-    // chassis_id → services-on-this-chassis, computed once. Avoids a
-    // per-tick walk of cfg.service_mappings inside apply_chassis_scrape.
+    // Services per chassis_id, computed once to avoid a per-tick walk
+    // of cfg.service_mappings inside apply_chassis_scrape.
     let chassis_services = build_chassis_services(&cfg.service_mappings);
 
     let client = http_client::build_client();

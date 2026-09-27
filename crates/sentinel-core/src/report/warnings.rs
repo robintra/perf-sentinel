@@ -8,10 +8,10 @@
 //! # Sanitization contract for `Warning::kind` and `Warning::message`
 //!
 //! Both fields land verbatim in the JSON `Report` payload, the HTML
-//! dashboard's embedded payload, and the CLI's terminal output. Today
-//! both 0.5.19 producer sites use trusted inputs (hardcoded literals
-//! or a `format!` over a `u64` counter), so [`Warning::new`] does no
-//! sanitization. **A future contributor wiring a `Warning` from any
+//! dashboard's embedded payload, and the CLI's terminal output.
+//! [`Warning::new`] does no sanitization because its producer sites use
+//! trusted inputs (such as hardcoded literals or a `format!` over a
+//! `u64` counter). **A future contributor wiring a `Warning` from any
 //! source that touches user-controlled bytes (OTLP attributes, span
 //! names, request headers, config strings) MUST construct it via
 //! [`Warning::from_untrusted`]**, which strips `BiDi` format codes and
@@ -33,7 +33,7 @@ pub const INGESTION_DROPS: &str = "ingestion_drops";
 /// and once on the configuration alone when `sampling_rate` is below
 /// 1.0, since that makes every aggregate in the report a sample.
 /// Messages name the relevant config knob and its current value where
-/// one exists; two rules point at fixed caps or instrumentation instead.
+/// one exists. Two rules point at fixed caps or instrumentation instead.
 pub const TUNING: &str = "tuning";
 
 /// Stable kind for an active acknowledgment that suppressed nothing in
@@ -122,9 +122,9 @@ mod tests {
 
     #[test]
     fn warning_kind_constants_match_documented_values() {
-        // Lock the wire-format value of the stable kinds (0.5.19 +
-        // 0.8.7). Operators write alert rules against these strings, so
-        // a rename is a breaking change.
+        // Lock the wire-format value of the stable kinds. Operators write
+        // alert rules against these strings, so a rename is a breaking
+        // change.
         assert_eq!(COLD_START, "cold_start");
         assert_eq!(INGESTION_DROPS, "ingestion_drops");
         assert_eq!(TUNING, "tuning");

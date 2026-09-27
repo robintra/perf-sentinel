@@ -15,8 +15,8 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, RwLock};
 
-/// Hard cap on the JSONL file size. A daemon that survives this much
-/// churn without a restart should restart anyway, the startup
+/// Hard cap on the JSONL file size. A daemon that accumulates this much
+/// churn without a restart should restart anyway. The startup
 /// compaction reclaims the space.
 pub const MAX_ACKS_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -25,7 +25,7 @@ pub const MAX_ACKS_FILE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ACK_ENTRY_BYTES: usize = 4 * 1024;
 
 /// Max number of simultaneously active acks held in memory. Bounds RSS
-/// growth in face of an attacker who can call `POST /ack` repeatedly
+/// growth in the face of an attacker who can call `POST /ack` repeatedly
 /// with new signatures.
 pub const MAX_ACTIVE_ACKS: usize = 10_000;
 
@@ -44,7 +44,7 @@ pub const MAX_SIGNATURE_LEN: usize = 1024;
 const MAX_BY_LEN: usize = 256;
 
 /// Soft cap on `AckEntry::reason` byte length. Mirrors the field cap on
-/// span events: dozens to hundreds of bytes in practice, this leaves
+/// span events: dozens to hundreds of bytes in practice. This leaves
 /// headroom for ticket links and short justifications without letting
 /// an attacker fill the audit log with multi-KB descriptions.
 const MAX_REASON_LEN: usize = 1024;
@@ -251,9 +251,9 @@ impl AckStore {
     ///
     /// Returns an `Arc<HashMap>` clone (single atomic refcount inc, no
     /// data copy). Callers that need O(1) signature lookup hold the
-    /// `Arc` for the lifetime of their filter pass, no lock contention
-    /// with concurrent `ack`/`unack` writers. Expired entries are not
-    /// filtered out at this stage, the caller applies its own
+    /// `Arc` for the lifetime of their filter pass, without lock contention
+    /// against concurrent `ack`/`unack` writers. Expired entries are not
+    /// filtered out at this stage. The caller applies its own
     /// expiration check via [`is_expired`] at query time.
     pub async fn snapshot_active(&self) -> Arc<HashMap<String, AckEntry>> {
         Arc::clone(&*self.active.read().await)
@@ -282,8 +282,8 @@ impl AckStore {
 
 /// Default storage path: `<data_local_dir>/perf-sentinel/acks.jsonl`.
 ///
-/// We deliberately do not fall back to `/tmp` because ack data is audit
-/// material that must survive a reboot.
+/// There is no fallback to `/tmp` because ack data is audit material
+/// that must survive a reboot.
 ///
 /// # Errors
 ///
@@ -379,7 +379,7 @@ async fn append_line(file: &mut File, entry: &AckEntry) -> Result<(), AckError> 
     if metadata.len().saturating_add(line.len() as u64) > MAX_ACKS_FILE_BYTES {
         return Err(AckError::FileTooLarge);
     }
-    // `fsync` per write is intentional: a daemon crash after a 201
+    // `fsync` runs on every write because a daemon crash after a 201
     // Created response must not lose the ack on disk. Acks are
     // operator-driven and rare (dozens per day across a fleet), so
     // the per-write durability cost is negligible.
@@ -427,7 +427,7 @@ async fn replay_and_compact(
         // an active ack in /api/acks that matches no finding, eating
         // slots against MAX_ACTIVE_ACKS and silently masking the reset.
         // Bypassing the check would also mask a typo in a new JSONL
-        // line. We do NOT abort the daemon on this path, the operator
+        // line. The daemon does not abort on this path: the operator
         // sees one warn per line plus an end-of-replay summary.
         if validate_signature(&entry.signature).is_err() {
             dropped_for_invalid_signature += 1;
@@ -455,7 +455,7 @@ async fn replay_and_compact(
     }
 
     // Always rewrite, even when the file was empty: this is the
-    // canonical "reset to mode 0600" point, dropping the rewrite to
+    // canonical "reset to mode 0600" point. Dropping the rewrite to
     // save three syscalls on a no-op startup would let a pre-existing
     // weak-mode file slip past `open_append`'s post-open permission
     // check.
@@ -537,12 +537,11 @@ async fn open_for_replay(path: &Path) -> Result<File, AckError> {
 
 /// Refuse to follow a symlinked storage path. A hostile local user
 /// could pre-create the leaf as a symlink to `~/.bashrc` or
-/// `~/.ssh/authorized_keys`, and the daemon would happily append JSONL
-/// lines to the target. The open itself never follows the leaf
-/// (`archive::no_follow`), this pre-check only exists to surface a typed
-/// error rather than the kernel's `ELOOP`. The leaf is the only path
-/// component we control, deeper components like `~/.local/share` are
-/// operator-trusted.
+/// `~/.ssh/authorized_keys`, and the daemon would append JSONL lines to
+/// the target. The open itself never follows the leaf (`archive::no_follow`).
+/// This pre-check only exists to surface a typed error rather than the
+/// kernel's `ELOOP`. The leaf is the only path component we control.
+/// Deeper components like `~/.local/share` are operator-trusted.
 async fn refuse_if_symlink(path: &Path) -> Result<(), AckError> {
     if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
         && metadata.file_type().is_symlink()
@@ -838,11 +837,10 @@ mod tests {
             // Realistic legacy 16-hex shape (pre-0.5.28). Long enough
             // to clear the length guard, fails the colon-position
             // check at `bytes[len - 33]`. Locks in the rejection of
-            // every previously-valid 16-hex signature.
+            // every legacy 16-hex signature.
             "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef",
             // 33-byte signature shaped `:<32 hex>` with empty prefix.
-            // Was accepted by the pre-amend `len < 33` check, now
-            // rejected by `len < 34` since the kind segment must be
+            // Rejected by `len < 34` since the kind segment must be
             // non-empty.
             ":0123456789abcdef0123456789abcdef",
         ] {
@@ -919,7 +917,7 @@ mod tests {
 
     #[test]
     fn validate_signature_accepts_service_with_colon() {
-        // Service names from OTLP can contain colons, only the tail is
+        // Service names from OTLP can contain colons. Only the tail is
         // fixed-format.
         let s = "n_plus_one_sql:svc:with:colons:_endpoint:0123456789abcdef0123456789abcdef";
         assert!(validate_signature(s).is_ok());

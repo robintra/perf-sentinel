@@ -134,7 +134,7 @@ fn cli_mysql_stat_malformed_input_exits_tooling_error() {
         stderr.contains("missing required column"),
         "stderr should name the missing column, got: {stderr}"
     );
-    // mysql-stat has no quality gate, every failure is a tooling error.
+    // mysql-stat has no quality gate, so every failure is a tooling error.
     // See docs/CI.md "Exit codes".
     assert_eq!(
         output.status.code(),

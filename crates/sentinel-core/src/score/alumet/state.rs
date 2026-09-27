@@ -34,8 +34,8 @@ pub struct DbEnergyState {
     cumulative_kwh_bits: AtomicU64,
     consumed_kwh_bits: AtomicU64,
     last_update_ms: AtomicU64,
-    /// Last scrape that actually carried this workload's label, as
-    /// opposed to `last_update_ms` which any successful scrape refreshes.
+    /// Last scrape that carried this workload's label, as opposed to
+    /// `last_update_ms` which any successful scrape refreshes.
     last_sample_ms: AtomicU64,
     /// Whether a labelled sample ever landed. A flag rather than a zero
     /// timestamp, which `monotonic_ms()` legitimately returns at startup.
@@ -50,8 +50,8 @@ impl DbEnergyState {
 
     /// Scraper side: refresh liveness without touching the balance.
     /// Called on every successful scrape while a database is declared,
-    /// whether or not its label appeared, so banked energy survives an
-    /// idle database and a label rename alike.
+    /// whether or not its label appeared, so banked energy persists
+    /// through an idle database and a label rename alike.
     pub(crate) fn mark_alive(&self, now_ms: u64) {
         self.last_update_ms.store(now_ms, Ordering::SeqCst);
     }
@@ -74,8 +74,8 @@ impl DbEnergyState {
     /// Consumer side: whether this workload's own series was seen recently
     /// enough for the measurement to own its slice of the timeline.
     ///
-    /// Stricter than the liveness [`Self::take_window_kwh`] uses, and the
-    /// distinction is load-bearing: see `docs/design/05-GREENOPS-AND-CARBON.md`.
+    /// Stricter than the liveness [`Self::take_window_kwh`] uses. See
+    /// `docs/design/05-GREENOPS-AND-CARBON.md` for why the difference matters.
     #[must_use]
     pub fn has_recent_sample(&self, now_ms: u64, staleness_ms: u64) -> bool {
         // Without this an unscraped state reads fresh for the first

@@ -180,8 +180,8 @@ jobs:
           fi
           echo "oci_digest=${digest}" >> "$GITHUB_OUTPUT"
 
-      # oras is a Go binary like crane / kubeconform, direct upstream
-      # download for the same reliability reasons.
+      # oras is a Go binary like crane / kubeconform. It is downloaded
+      # directly from upstream for the same reliability reasons.
       - name: Install oras
         run: |
           curl -fsSL -o /tmp/oras.tgz \

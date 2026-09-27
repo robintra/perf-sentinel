@@ -68,7 +68,7 @@ pub(crate) fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     }
 
     // Check for userinfo. `hyper::Uri::authority()` returns the full
-    // `[user[:pass]@]host[:port]` string; if it contains `@`, credentials
+    // `[user[:pass]@]host[:port]` string. If it contains `@`, credentials
     // are embedded.
     if let Some(authority) = uri.authority()
         && authority.as_str().contains('@')
@@ -82,7 +82,7 @@ pub(crate) fn validate_endpoint(endpoint: &str) -> Result<(), String> {
 /// Reject a label name that is not a bare `PromQL` label.
 ///
 /// Same reasoning as [`validate_series_name`], one grammar tighter: a label
-/// carries no `:`, and the operator-supplied query label now lands inside a
+/// carries no `:`, and the operator-supplied query label lands inside a
 /// `sum by (...)` clause rather than only being read back off the response.
 pub(crate) fn validate_label_name(label: &str) -> Result<(), String> {
     let head_ok = matches!(
@@ -247,9 +247,9 @@ pub(crate) fn identity_key(metric: &serde_json::Value, labels: &[&str]) -> Optio
 /// the schema on `MySQL`. The query aggregates on that same identity, so the
 /// sum here only guards against an exporter that splits it further.
 ///
-/// `series` names the metric that was queried, for the warning: a scrape that
-/// silently reports zero is the failure this whole join exists to prevent, and
-/// the operator needs the name to know which flag to reach for.
+/// `series` names the metric that was queried, for the warning: the join
+/// exists to prevent a scrape that silently reports zero, and the operator
+/// needs the name to know which flag to reach for.
 pub(crate) fn counter_by_labels(
     body: &[u8],
     labels: &[&str],
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn counter_rows_sharing_an_identity_are_summed() {
-        // The query already folds on the identity; this only guards against an
+        // The query already folds on the identity. This only guards against an
         // exporter that splits it further, and against a row with no identifier.
         let body = br#"{"data":{"result":[
             {"metric":{"queryid":"42","datname":"app"},"value":[1,"7"]},
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn an_absent_trailing_label_still_joins() {
         // An exporter omitting `schema` omits it on both series, so the two
-        // sides still meet; only the identifier itself is mandatory.
+        // sides still meet. Only the identifier itself is mandatory.
         let body = br#"{"data":{"result":[{"metric":{"digest":"a1"},"value":[1,"4"]}]}}"#;
         let counts = counter_by_labels(body, &["digest", "schema"], "calls").expect("parse");
         let metric = serde_json::json!({"digest": "a1"});

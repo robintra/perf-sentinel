@@ -44,7 +44,7 @@ Set FontSize 13
 Set Width 1600
 Set Height 900
 # 100ms typing keeps the launch command at roughly one character per output
-# frame (natural letter-by-letter); the post-process below keeps fps=20 so
+# frame (natural letter-by-letter). The post-process below keeps fps=20 so
 # it does not turn blocky.
 Set TypingSpeed 100ms
 Set Padding 15
@@ -79,8 +79,8 @@ Sleep 3s
 Screenshot docs/img/tui/inspect.png
 Sleep 3s
 
-# Walk to the fanout trace (position 1) and drill all the way to Explain:
-# Traces -> Findings -> Detail -> Explain.
+# Walk to the fanout trace (position 1) and drill from Traces through
+# Findings and Detail all the way to Explain.
 Down
 Sleep 2s
 Enter
@@ -92,7 +92,7 @@ Sleep 3s
 Screenshot docs/img/tui/explain.png
 Sleep 3s
 
-# Esc walks back up: Explain -> Detail -> Findings -> Traces -> Analyze.
+# Esc walks back up from Explain through Detail, Findings and Traces to Analyze.
 Escape
 Sleep 1500ms
 Escape

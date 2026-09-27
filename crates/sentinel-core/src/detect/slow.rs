@@ -46,14 +46,12 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             continue;
         }
 
-        // Find max duration for severity calculation
         let max_duration_us = indices
             .iter()
             .map(|&i| trace.spans[i].event.duration_us)
             .max()
             .unwrap_or(0);
 
-        // Severity: Critical if > 5x threshold, Warning otherwise
         let severity = if max_duration_us > threshold_us.saturating_mul(5) {
             Severity::Critical
         } else {
@@ -67,7 +65,6 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
                 .map(|&i| trace.spans[i].event.timestamp.as_str()),
         );
 
-        // Count distinct params
         let distinct_params: HashSet<&[String]> = indices
             .iter()
             .map(|&i| trace.spans[i].params.as_slice())
@@ -916,7 +913,7 @@ mod tests {
 
     #[test]
     fn exactly_at_threshold_not_slow() {
-        // duration_us == threshold_ms * 1000 exactly → NOT slow (uses strict >)
+        // duration_us == threshold_ms * 1000 exactly is NOT slow (uses strict >)
         let events: Vec<_> = (0..3)
             .map(|i| {
                 make_sql_event_with_duration(
@@ -957,7 +954,7 @@ mod tests {
 
     #[test]
     fn exactly_5x_threshold_is_warning_not_critical() {
-        // 5x threshold exactly → still warning (uses strict >)
+        // 5x threshold exactly is still a warning (uses strict >)
         let events: Vec<_> = (0..3)
             .map(|i| {
                 make_sql_event_with_duration(

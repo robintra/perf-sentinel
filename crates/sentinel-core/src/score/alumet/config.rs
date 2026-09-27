@@ -29,7 +29,7 @@ pub const DEFAULT_ENERGY_INTERVAL_SECS: f64 = 1.0;
 /// no default that is correct for every deployment, so both fields are
 /// required, see `docs/CONFIGURATION.md`.
 ///
-/// Absent config means no scraper spawned, every service falls back to
+/// Absent config means no scraper is spawned and every service falls back to
 /// the proxy or cloud path. This struct is only constructed when the
 /// user sets at least an `endpoint`.
 #[derive(Clone)]
@@ -68,7 +68,7 @@ pub struct AlumetConfig {
     /// Optional auth header in curl format (`"Name: Value"`) attached to
     /// every Alumet request. Resolved via the
     /// `PERF_SENTINEL_ALUMET_AUTH_HEADER` environment variable with
-    /// fallback to this field, env wins when both are set.
+    /// fallback to this field (env wins when both are set).
     pub auth_header: Option<String>,
     /// Optional `[green.alumet.database]` declaration, see
     /// [`AlumetDatabaseConfig`]. `None` means no database waste figure
@@ -107,8 +107,8 @@ pub struct AlumetDatabaseConfig {
     pub label_value: String,
     /// Declared region of the database host, used to convert the waste
     /// energy to gCO2 (real-time intensity when available, embedded
-    /// annual otherwise, times provider PUE; hourly profiles are not
-    /// applied to this figure). `None` reports the waste in kWh only.
+    /// annual otherwise, times provider PUE). Hourly profiles are not
+    /// applied to this figure. `None` reports the waste in kWh only.
     pub region: Option<String>,
 }
 

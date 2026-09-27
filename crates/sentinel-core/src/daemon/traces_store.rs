@@ -3,11 +3,11 @@
 //!
 //! The correlation window drops a trace's spans a few seconds after it
 //! completes, which is why `/api/explain/{trace_id}` only answers while
-//! the trace is still live. A report exported afterwards carried
-//! findings with no way to see what happened around them. This buffer
-//! keeps the span trees the findings point at, masked through
-//! [`EmbeddedTrace`], so `/api/export/report` hands over a report the
-//! HTML dashboard can still draw.
+//! the trace is still live. Without this buffer, a report exported
+//! afterwards would carry findings with no way to see what happened
+//! around them. The buffer keeps the span trees the findings point at,
+//! masked through [`EmbeddedTrace`], so `/api/export/report` hands over
+//! a report the HTML dashboard can still draw.
 //!
 //! Bounded three ways: trace count (`[daemon] max_retained_traces`),
 //! spans per trace (`max_events_per_trace`, so a TTL-split trace whose
@@ -62,7 +62,7 @@ impl TracesStore {
 
     /// Retain the traces that `findings` point at, evicting the least
     /// recently flushed past the capacity. A trace id already held is
-    /// merged, not replaced: the window flushes the same id more than
+    /// merged, not replaced. The window flushes the same id more than
     /// once (TTL split, LRU eviction plus late spans) and each flush
     /// carries only its own spans, so either flush alone can miss the
     /// evidence a finding from the other one points at.
@@ -124,8 +124,8 @@ impl TracesStore {
     /// remaining budget is skipped, not fatal: one oversized tree must
     /// not empty the whole snapshot. Sizes are measured on the stored
     /// value, only the kept traces pay a clone. Findings whose trace
-    /// aged out are simply absent, which the dashboard reports as a
-    /// tree missing from the embed.
+    /// aged out are absent, which the dashboard reports as a tree
+    /// missing from the embed.
     pub async fn snapshot_for(
         &self,
         findings: &[Finding],

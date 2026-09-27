@@ -121,7 +121,7 @@ impl TraceWindow {
         mut event: NormalizedEvent,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
-        // Fast path: trace already exists: get_mut auto-promotes to MRU.
+        // Fast path: trace already exists (get_mut auto-promotes to MRU).
         if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
             resolve_and_index_event(
@@ -143,7 +143,7 @@ impl TraceWindow {
             return None;
         }
 
-        // Slow path: new trace, clone trace_id; push evicts LRU if at cap.
+        // Slow path: new trace, clone trace_id. `push` evicts LRU if at cap.
         let trace_id = event.event.trace_id.clone();
         let mut buffer = new_trace_buffer(now_ms, self.config.max_events_per_trace);
         resolve_and_index_event(
@@ -1173,8 +1173,8 @@ mod tests {
         w.push(make_event("t2", "SELECT 2"), 50);
 
         w.evict(150);
-        // t1 last_seen=0, now=150, diff=150 > 100 -> evicted
-        // t2 last_seen=50, now=150, diff=100 -> NOT evicted (100 <= 100)
+        // t1 last_seen=0, now=150, diff=150 > 100, so evicted
+        // t2 last_seen=50, now=150, diff=100, so NOT evicted (100 <= 100)
         assert_eq!(w.active_traces(), 1);
         let drained = w.drain_all();
         assert_eq!(drained[0].0, "t2");
@@ -2263,7 +2263,7 @@ mod tests {
     #[test]
     fn capacity_one_proven_consumer_outranks_the_guessed_sole_root() {
         // A handler root and a listener root in one trace, the usual Java agent
-        // shape where the CONSUMER span is a root of its own: the sole retained
+        // shape where the CONSUMER span is a root of its own. The sole retained
         // root is the handler, the SQL sits under the consumer, and the guess
         // must not override what the chain proves. When the listener instead
         // sits under the handler's PRODUCER span, cap 1 cannot walk that far

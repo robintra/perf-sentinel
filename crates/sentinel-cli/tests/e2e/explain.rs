@@ -159,7 +159,7 @@ fn cli_explain_unknown_trace_lists_available_ids() {
 
 #[test]
 fn cli_explain_reads_a_snapshot_report_with_embedded_traces() {
-    // A daemon snapshot has no raw events, its masked span trees are
+    // A daemon snapshot has no raw events. Its masked span trees are
     // what explain must draw from, like the dashboard and the TUI.
     let fixture = format!(
         "{}/../../tests/fixtures/report_with_embedded_traces.json",

@@ -28,7 +28,7 @@ use crate::report::Report;
 /// Variants are pre-warmed to 0 at startup so dashboards can plot
 /// zero-values before any rejection occurs.
 ///
-/// `payload_too_large` is intentionally absent: tower-http's
+/// There is no `payload_too_large` variant: tower-http's
 /// `RequestBodyLimitLayer` (HTTP) and tonic's `max_decoding_message_size`
 /// (gRPC) reject oversized payloads before the application handler
 /// runs. Operators concerned with payload size should monitor the
@@ -73,13 +73,13 @@ impl OtlpRejectReason {
 /// written, the `reason` label of
 /// `perf_sentinel_archive_windows_dropped_total`. The archive chain
 /// (`daemon/archive.rs`) stays contiguous across a drop, so this counter
-/// and the paired warn log are the only witnesses of the loss.
+/// and the paired warn log are the only record of the loss.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArchiveDropReason {
     /// The bounded writer channel was full (writer behind on disk I/O
     /// or sustained window pressure).
     ChannelFull,
-    /// The writer task has already exited, the channel is closed.
+    /// The writer task has already exited, so the channel is closed.
     WriterExited,
     /// Serializing the window envelope failed.
     SerializeError,
@@ -115,10 +115,10 @@ impl ArchiveDropReason {
 ///
 /// Used as the `reason` label of `perf_sentinel_otlp_spans_filtered_total`.
 /// Variants are pre-warmed to 0 at startup. Span-level filtering is
-/// deliberate (only SQL and client-side outbound spans are analyzable, see
-/// docs/LIMITATIONS.md); the counter exists so a fleet whose spans all
-/// filter out is visible instead of silently yielding no findings while
-/// every OTLP request keeps returning success.
+/// expected because only SQL and client-side outbound spans are
+/// analyzable (see docs/LIMITATIONS.md). The counter exists so a fleet
+/// whose spans all filter out is visible instead of silently yielding no
+/// findings while every OTLP request keeps returning success.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OtlpSpanFilterReason {
     /// Span carries no `db.*` statement and no HTTP url or method, or is a
@@ -129,7 +129,7 @@ pub enum OtlpSpanFilterReason {
     /// Non-SERVER span with an HTTP method but no `http.url`/`url.full`.
     MissingHttpUrl,
     /// Span names a non-SQL datastore in `db.system` (Redis, `MongoDB`, ...).
-    /// Dropped on purpose, not an instrumentation gap, so it is excluded
+    /// An expected drop, not an instrumentation gap, so it is excluded
     /// from the daemon zero-retention warning.
     NonSqlDatastore,
     /// DB span merged into the single event of a query that layered
@@ -401,11 +401,11 @@ type FindingExemplarKey = (&'static str, &'static str, String, String);
 
 /// How long an exemplar keeps annotating its series. The map is bounded
 /// by the findings series count, 12 types x 3 severities x (the analysis
-/// pair cap plus two groupings per admitted service), near 28k, so this
-/// is not about memory: a service that stops
-/// emitting would otherwise point its `findings_total` series at a
-/// `trace_id` past the tracing backend's retention forever, and the
-/// Grafana click-through lands on a 404.
+/// pair cap plus two groupings per admitted service), near 28k, so the
+/// TTL is not about memory. Without it, a service that stops emitting
+/// would point its `findings_total` series at a `trace_id` past the
+/// tracing backend's retention forever, and the Grafana click-through
+/// would land on a 404.
 const EXEMPLAR_TTL: Duration = Duration::from_mins(15);
 
 /// Data attached to a metric as an `OpenMetrics` exemplar.
@@ -438,7 +438,7 @@ fn sanitize_exemplar_value(value: &str) -> Cow<'_, str> {
 
 /// Saturating conversion of a Prometheus counter value to `u64`.
 ///
-/// Counter values are never negative and never overflow in practice, the
+/// Counter values are never negative and never overflow in practice. The
 /// bounds are spelled out because clippy's cast lints want them explicit.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn counter_value_as_u64(value: f64) -> u64 {
@@ -475,9 +475,9 @@ pub struct MetricsState {
     /// compile-time backend names, so cardinality stays bounded.
     pub energy_backend_configured: GaugeVec,
     /// Unix timestamp of the last span received for a service, a traffic
-    /// signal rather than a liveness one. Cardinality rides on the service
-    /// cap and no series is ever removed, so a dead service keeps a frozen
-    /// stamp that reads as a growing age, which is the correct answer.
+    /// signal rather than a liveness one. Cardinality is bounded by the
+    /// service cap and no series is ever removed. A dead service keeps a
+    /// frozen stamp, which correctly reads as a growing age.
     pub service_last_span_timestamp_seconds: GaugeVec,
     /// Cumulative I/O waste ratio since daemon start.
     /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
@@ -526,8 +526,7 @@ pub struct MetricsState {
     /// ingestion. Stays at 0 without the daemon feature.
     pub analysis_queue_depth: IntGauge,
     /// Analysis batches shed because the worker queue was full or the
-    /// worker has stopped. Replaces the previous silent drop: every shed is
-    /// counted here.
+    /// worker has stopped. Every shed is counted here.
     pub analysis_shed_batches_total: IntCounter,
     /// Traces dropped by the shed batches counted in
     /// [`Self::analysis_shed_batches_total`].
@@ -535,7 +534,7 @@ pub struct MetricsState {
     /// Per-window report archive entries dropped instead of written,
     /// labeled by [`ArchiveDropReason`]. The archive hash chain stays
     /// contiguous across a drop, so a nonzero rate here is the only
-    /// scrape-visible witness that the disclosure archive is incomplete.
+    /// scrape-visible sign that the disclosure archive is incomplete.
     /// Stays at 0 without the daemon feature.
     pub archive_windows_dropped_total: IntCounterVec,
     /// Cross-trace correlator pairs evicted by the `max_tracked_pairs`
@@ -545,7 +544,7 @@ pub struct MetricsState {
     pub correlator_pairs_evicted_total: IntCounter,
     /// New keys refused by the cross-batch slow window's key cap.
     pub slow_window_keys_refused_total: IntCounter,
-    /// cumulative I/O ops per service. Labeled with the
+    /// Cumulative I/O ops per service. Labeled with the
     /// `service` attribute from span `service.name` and, since 0.19.0,
     /// the span's effective `grouping`. Exposed so Grafana dashboards
     /// can show per-service throughput, and used by every
@@ -563,9 +562,9 @@ pub struct MetricsState {
     pub service_io_ops_overflow_total: IntCounter,
     /// I/O ops whose `grouping` folded into `_other` on
     /// [`Self::service_io_ops_total`] because the ingest (service,
-    /// grouping) pair cap was reached. Unlike the service axis of the same counter nothing
-    /// is dropped: per-service totals stay exact, the per-grouping split
-    /// coarsens.
+    /// grouping) pair cap was reached. Unlike the service axis of the same
+    /// counter, nothing is dropped: per-service totals stay exact and the
+    /// per-grouping split coarsens.
     pub service_io_ops_grouping_overflow_total: IntCounter,
     /// Per-service share of [`Self::avoidable_io_ops`], derived from
     /// findings with the same dedup rule as the global counter. The only
@@ -580,13 +579,13 @@ pub struct MetricsState {
     pub service_analyzed_io_ops_total: CounterVec,
     /// Analysis-side attributions (findings, avoidable and analysed I/O
     /// ops) folded into `_other` past the cap. An ongoing increase means
-    /// per-service attribution is coarsening, totals stay exact.
+    /// per-service attribution is coarsening while totals stay exact.
     pub analysis_service_overflow_total: IntCounter,
     /// Same families, `grouping` axis: attributions folded into
     /// `grouping="_other"` past the analysis (service, grouping) pair
-    /// cap, the second gate after the service cap: a pair is keyed on
-    /// the effective service, so a series folds on the service axis
-    /// first and on the grouping axis only past the pair budget.
+    /// cap. That cap is the second gate after the service cap. A pair is
+    /// keyed on the effective service, so a series folds on the service
+    /// axis first and on the grouping axis only past the pair budget.
     pub analysis_grouping_overflow_total: IntCounter,
 
     /// Slow spans folded into the `_other` histogram series because the
@@ -597,11 +596,11 @@ pub struct MetricsState {
     pub slow_duration_service_overflow_total: IntCounter,
     /// Slow spans folded into a `grouping="_other"` histogram series
     /// past the histogram (service, grouping) pair cap, the lowest of
-    /// the three: the
-    /// histogram now costs 14 series per (type, service, grouping).
+    /// the three because the histogram costs 14 series per (type,
+    /// service, grouping).
     pub slow_duration_grouping_overflow_total: IntCounter,
 
-    /// age in seconds since the last successful Scaphandre
+    /// Age in seconds since the last successful Scaphandre
     /// scrape. Reset to 0 on each successful scrape and incremented
     /// every scrape interval by the scraper task. Useful for
     /// Grafana alerts that detect a hung scraper. Stays at 0 when
@@ -630,7 +629,7 @@ pub struct MetricsState {
     /// rejection. The `otlp_rejected_*` `IntCounter` fields below
     /// cache the labeled children so the hot path
     /// (`record_otlp_reject`) avoids a label hashmap lookup per
-    /// rejection. Lookup the vec directly only for scrape rendering
+    /// rejection. Look up the vec directly only for scrape rendering
     /// and tests, not in the hot path.
     pub otlp_rejected_total: IntCounterVec,
     /// Cached child for `otlp_rejected_total{reason="unsupported_media_type"}`.
@@ -702,8 +701,8 @@ pub struct MetricsState {
     /// Failed ack and unack operations on the daemon HTTP API, labeled
     /// by `action` and `reason`. Pre-warmed to 0 for the 13 documented
     /// reachable combinations (8 reasons on action=ack, 5 reasons on
-    /// action=unack). Failures are by definition rare so no hot-path
-    /// child caching, `with_label_values` is called per call site.
+    /// action=unack). Failures are rare, so there is no hot-path child
+    /// caching: `with_label_values` is called per call site.
     #[cfg(feature = "daemon")]
     pub ack_operations_failed_total: IntCounterVec,
     /// Cached child for `ack_operations_total{action="ack"}`.
@@ -716,16 +715,15 @@ pub struct MetricsState {
     /// by `status` (`success` or `failed`). Pre-warmed to 0 for both
     /// values so dashboards plot zero-rates before the first scrape.
     /// The two `scaphandre_scrape_*` `IntCounter` fields below cache
-    /// the labeled children for the hot path, both `status` values
-    /// fire at every interval tick (one per tick).
+    /// the labeled children for the hot path, since every interval tick
+    /// fires one of the two `status` values.
     #[cfg(feature = "daemon")]
     pub scaphandre_scrape_total: IntCounterVec,
     /// Failed Scaphandre scrapes, labeled by failure `reason`.
     /// Pre-warmed to 0 for the 6 reachable variants of
     /// [`ScaphandreScrapeReason`] so alert rules can filter without
-    /// `absent()` guards. Failures are by definition rare so no
-    /// hot-path child caching, `with_label_values` is called per
-    /// scrape error.
+    /// `absent()` guards. Failures are rare, so there is no hot-path
+    /// child caching: `with_label_values` is called per scrape error.
     #[cfg(feature = "daemon")]
     pub scaphandre_scrape_failed_total: IntCounterVec,
     /// Cached child for `scaphandre_scrape_total{status="success"}`.
@@ -950,10 +948,10 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
-        // per-service I/O op counter. Single source of
-        // truth for per-service op counts, the Scaphandre scraper
-        // reads this via snapshot-diff instead of maintaining a
-        // parallel counter that would drift under concurrent writes.
+        // Per-service I/O op counter, the single source of truth for
+        // per-service op counts. The Scaphandre scraper reads it via
+        // snapshot-diff instead of maintaining a parallel counter that
+        // would drift under concurrent writes.
         // The daemon's ServiceMeter is the only production writer and
         // enforces both cardinality caps before any label is created.
         let service_io_ops_total = CounterVec::new(
@@ -1015,10 +1013,10 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
-        // Scaphandre scrape freshness gauge. 0 when a
-        // successful scrape just completed; grows with wall-clock
-        // time until the next success. Always 0 when Scaphandre is
-        // not configured (the scraper task is the only writer).
+        // Scaphandre scrape freshness gauge. 0 right after a successful
+        // scrape, then grows with wall-clock time until the next success.
+        // Always 0 when Scaphandre is not configured (the scraper task is
+        // the only writer).
         let scaphandre_last_scrape_age_seconds = Gauge::new(
             "perf_sentinel_scaphandre_last_scrape_age_seconds",
             "Age in seconds since the last successful Scaphandre scrape",
@@ -1221,11 +1219,11 @@ impl MetricsState {
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ChannelFull.as_str()]);
         let otlp_rejected_memory_pressure =
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::MemoryPressure.as_str()]);
-        // Belt-and-suspenders pre-warm via the exhaustive `ALL`
-        // constant. Idempotent with the named handles above (same
-        // children) but shifts the guarantee: a future variant added
-        // to the enum forces a compile error on `[Self; 3]` until
-        // `ALL` is updated, so pre-warming cannot silently drift.
+        // Second pre-warm pass via the exhaustive `ALL` constant,
+        // idempotent with the named handles above (same children). A
+        // variant added to the enum forces a compile error on
+        // `[Self; 3]` until `ALL` is updated, so pre-warming cannot
+        // silently drift.
         for reason in &OtlpRejectReason::ALL {
             let _ = otlp_rejected_total.with_label_values(&[reason.as_str()]);
         }
@@ -1314,8 +1312,8 @@ impl MetricsState {
         // already_acked / limit_reached / file_too_large /
         // entry_too_large) to avoid misleading series. The `let _ =`
         // on the failure pre-warm makes the materialization side
-        // effect explicit, the returned child is intentionally
-        // dropped, the parent vec retains it.
+        // effect explicit: the returned child is dropped and the parent
+        // vec retains it.
         #[cfg(feature = "daemon")]
         let ack_operations_ack_success =
             ack_operations_total.with_label_values(&[AckAction::Ack.as_str()]);
@@ -1454,7 +1452,7 @@ impl MetricsState {
 
         // Process metrics (RSS, FDs, start_time, CPU). procfs-backed,
         // Linux-only. On macOS/Windows we skip registration so each
-        // scrape does not pay for failed reads under the hood.
+        // scrape does not pay for failed reads.
         #[cfg(target_os = "linux")]
         {
             use prometheus::process_collector::ProcessCollector;
@@ -1635,9 +1633,9 @@ impl MetricsState {
 
     /// Increment `perf_sentinel_ack_operations_failed_total` for the
     /// given action and reason. Called at every error exit path of the
-    /// daemon ack endpoints. Failures are by definition rare, so we
-    /// pay the label hashmap lookup per call instead of caching all
-    /// 13 documented children.
+    /// daemon ack endpoints. Failures are rare, so we pay the label
+    /// hashmap lookup per call instead of caching all 13 documented
+    /// children.
     #[cfg(feature = "daemon")]
     #[inline]
     pub fn record_ack_failure(&self, action: AckAction, reason: AckFailureReason) {
@@ -1658,7 +1656,7 @@ impl MetricsState {
         }
     }
 
-    /// snapshot the per-service I/O op counter.
+    /// Snapshot the per-service I/O op counter.
     ///
     /// Returns a `HashMap<service_name, cumulative_count>` built by
     /// iterating the Prometheus `CounterVec` metric families via the
@@ -1679,10 +1677,9 @@ impl MetricsState {
                 let Some(service) = service_label(metric) else {
                     continue;
                 };
-                // `metric.get_counter()` returns `MessageField<Counter>`
-                // (protobuf wrapper). Dereference to the inner Counter
-                // and call `.value()` which is the current accessor in
-                // prometheus 0.14.
+                // `metric.get_counter()` returns a protobuf
+                // `MessageField<Counter>`, read through `.value()` (the
+                // prometheus 0.14 accessor).
                 let count = counter_value_as_u64(metric.get_counter().value());
                 // `get_mut` first: `entry(to_string())` would allocate
                 // once per child series instead of once per distinct
@@ -1741,7 +1738,7 @@ impl MetricsState {
     ///
     /// Library entry point, keyed on each finding's raw service and
     /// grouping (what [`Self::record_batch`] renders, a blank service
-    /// reading as `unknown` like a span's), the daemon resolves capped
+    /// reading as `unknown` like a span's). The daemon resolves capped
     /// labels first and calls [`Self::record_exemplars_labeled`]. No cap
     /// on this path: a long-lived embedder feeding unbounded
     /// `service.name` or grouping values must cap them itself.
@@ -1801,9 +1798,9 @@ impl MetricsState {
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             // Drop what aged out on every batch, findings or not, so a
-            // daemon that goes quiet prunes too (the read path filters
-            // as well, this keeps the bounded map from carrying dead
-            // entries between scrapes).
+            // daemon that goes quiet prunes too. The read path filters as
+            // well, but this prune keeps the bounded map from carrying dead
+            // entries between scrapes.
             let now = Instant::now();
             worst_map.retain(|_, exemplar| exemplar_is_fresh(exemplar, now));
             worst_map.extend(new_exemplars);
@@ -1913,7 +1910,7 @@ impl MetricsState {
 
     /// Post-process rendered metrics text to inject exemplar annotations.
     ///
-    /// Note: This relies on the prometheus crate 0.14.0 output format for line-prefix
+    /// This relies on the prometheus crate 0.14.0 output format for line-prefix
     /// matching. If the crate changes its label ordering or spacing, the matching
     /// will silently stop injecting exemplars. The exemplar format follows the
     /// `OpenMetrics` 1.0.0 specification (section 5.1.10):
@@ -2726,12 +2723,12 @@ mod tests {
     }
 
     // Two-mode Accept negotiation tests. An explicit accepted OpenMetrics
-    // media type selects OM; every absent, wildcard or refused preference
+    // media type selects OM. Every absent, wildcard or refused preference
     // stays on plain Prometheus text.
 
     #[test]
     fn negotiate_returns_openmetrics_when_accept_header_explicitly_requests_it() {
-        // No exemplars but explicit OM request → OM 1.0 forced with `# EOF`.
+        // No exemplars, but an explicit OM request still gets OM 1.0 with `# EOF`.
         let state = MetricsState::new();
         state.traces_analyzed_total.inc();
 
@@ -2795,10 +2792,10 @@ mod tests {
     }
 
     /// vmagent sends `text/plain;version=0.0.4;*/*;q=0.1` and does not
-    /// parse exemplars. Serving them anyway made it read the whole line
+    /// parse exemplars. Serving them anyway makes it read the whole line
     /// `perf_sentinel_io_waste_ratio 0.60 # {trace_id="..."} 1.0` as a
-    /// metric NAME, minting one series per scrape: 6k+ dead series in a
-    /// few hours on a real cluster. A wildcard is not an opt-in.
+    /// metric NAME, minting one series per scrape (6k+ dead series in a
+    /// few hours on a real cluster). A wildcard is not an opt-in.
     #[test]
     fn wildcard_accept_never_receives_exemplars() {
         let state = MetricsState::new();
@@ -2844,7 +2841,7 @@ mod tests {
 
     #[test]
     fn negotiate_returns_plain_strict_when_accept_text_plain_only() {
-        // Strict refusal of OM and `*/*` → plain Prometheus, no exemplars
+        // Strict refusal of OM and `*/*` gets plain Prometheus: no exemplars
         // even when present, no `# EOF`. Defends pre-OpenMetrics scrapers.
         let state = MetricsState::new();
         let report = make_test_report(
@@ -3053,9 +3050,8 @@ mod tests {
     #[test]
     fn render_appends_eof_marker_with_exemplars() {
         // OpenMetrics 1.0.0 mandates `# EOF` as the end-of-exposition marker.
-        // Pre-0.5.15 the daemon advertised the OpenMetrics content type but
-        // omitted the marker, causing strict scrapers (Prometheus in
-        // openmetrics-text negotiation) to refuse the payload.
+        // Strict scrapers (Prometheus in openmetrics-text negotiation)
+        // refuse an OpenMetrics payload without it.
         let state = MetricsState::new();
         let report = make_test_report(
             vec![make_finding(
@@ -3099,7 +3095,7 @@ mod tests {
     #[test]
     fn exemplar_annotation_includes_numeric_value() {
         // OpenMetrics 1.0.0 section 5.1.10 requires a numeric value after the
-        // exemplar labels block. Pre-0.5.15 the helper emitted only the labels.
+        // exemplar labels block.
         let state = MetricsState::new();
         let report = make_test_report(
             vec![make_finding(

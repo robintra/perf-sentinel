@@ -4,20 +4,20 @@
 # ~4 min of points to fill, too long for this tour GIF.
 #
 # Showcases the live operator TUI exposed by `perf-sentinel query
-# monitor` (since 0.8.8): a daemon-backed dashboard that polls
+# monitor` (since 0.8.8), a daemon-backed dashboard that polls
 # /api/export/report, /api/energy, /api/status, /api/config and
-# /api/incidents and cycles six tabs with Tab: Advisor (settings-advisor
+# /api/incidents. Tab cycles six tabs: Advisor (settings-advisor
 # hints), Energy (the effective energy/carbon mix per service and per
 # region), Trends (braille charts of the energy/carbon per window plus
 # runtime gauges as a share of their caps), Scrapers (live backend
-# health), Config (the read-only daemon parameters) and Incidents (the
-# restarts and memory events the alerting posted, each with the findings
-# frozen from its window, since 0.20.0, the one tab that takes an API
-# key). This tape covers the nominal, well-dimensioned daemon: the Energy
-# tab is rich and the Advisor tab reads "No hints". The undersized-daemon
-# Advisor hint and the Scrapers still frame are captured separately by
-# demo-monitor-advisor.tape and demo-monitor-scrapers.tape at shorter
-# heights.
+# health), Config (the read-only daemon parameters) and Incidents (since
+# 0.20.0, the restarts and memory events the alerting posted, each with
+# the findings frozen from its window). Incidents is the one tab that
+# takes an API key. This tape covers the nominal, well-dimensioned
+# daemon: the Energy tab is rich and the Advisor tab reads "No hints".
+# The undersized-daemon Advisor hint and the Scrapers still frame are
+# captured separately by demo-monitor-advisor.tape and
+# demo-monitor-scrapers.tape at shorter heights.
 #
 # The daemon runs with [daemon.incidents] and a [daemon] read_api_key.
 # One Alertmanager envelope (an OOM kill of checkout-svc, started now) is
@@ -25,7 +25,7 @@
 # Incidents tab shows one incident with the findings of its window. The
 # monitor itself opens with the read key only, the one that cannot POST.
 # lookback_ms is shortened to 30 s so the window fits inside the daemon's
-# uptime and the capture marker reads "complete": the 5 min default would
+# uptime and the capture marker reads "complete". The 5 min default would
 # reach back before the daemon started and read "partial", which is what
 # the marker is for, but not what a nominal tour should show.
 #
@@ -35,7 +35,7 @@
 # A short trace_ttl_ms flushes the TraceWindow so green scoring runs
 # before the TUI opens. On top of the one-shot seed,
 # scripts/demo-seed-loop.py keeps pushing randomly-sized sub-batches so
-# the Trends curves actually move: each batch closes a new scoring
+# the Trends curves move: each batch closes a new scoring
 # window with a different energy total, and the findings store fills up
 # tick after tick. [green] is enabled with per-service regions for the
 # per-region table, and [green.cloud] points at an unreachable
@@ -69,11 +69,10 @@ Set FontSize 13
 # monitor's tabs are far less dense (a few summary tables, not
 # multi-panel browsers), so the default viewport frames the content
 # against a wide empty margin on the right and below. 1000 cols fits the
-# widest line, which is now the Energy waste row (`Database waste: ... model
-# estimated ... within the report totals`, ~120 cols) rather than the
-# By-service row; at 810 the provenance tag was cut off mid-word. 600 fits
-# the fullest tab (Energy, ~26 lines) and gives the two Trends chart rows
-# ~12 lines each.
+# widest line, the Energy waste row (`Database waste: ... model
+# estimated ... within the report totals`, ~120 cols). At 810 the
+# provenance tag is cut off mid-word. 600 fits the fullest tab (Energy,
+# ~26 lines) and gives the two Trends chart rows ~12 lines each.
 Set Width 1000
 Set Height 600
 Set TypingSpeed 100ms
@@ -90,7 +89,7 @@ Enter
 Type `mkdir -p /tmp/demo-monitor-dir && cd /tmp/demo-monitor-dir && rm -f perf-sentinel.sock`
 Enter
 # Nominal daemon: short trace_ttl_ms so detectors and green scoring flush
-# within ~1 s; per-service regions for a multi-row per-region table; a
+# within ~1 s, per-service regions for a multi-row per-region table, and a
 # [green.cloud] backend pointed at an unreachable loopback endpoint so the
 # Scrapers tab shows a configured backend whose freshness age climbs.
 # max_active_traces and max_retained_findings are sized so the seed loop
@@ -110,13 +109,14 @@ Type `python3 "$OLDPWD/scripts/demo-seed-loop.py" /tmp/demo-monitor-dir/perf-sen
 Enter
 # The incident: post one Alertmanager envelope with the write key, an OOM
 # kill of checkout-svc starting now, so the daemon freezes the findings
-# the ring holds for that service. The wait is on the ring rather than on
-# a duration, a fixed sleep having raced the seed loop and frozen an empty
-# window, and it is bounded at 12 s so a daemon that never answers fails the
-# tape instead of hanging it. The second's margin after it is the one the
-# window needs: `startsAt` is truncated to the second while the window
-# closes at at_ms + 2 x trace_ttl_ms, so a finding stored in the same second
-# as the post can land past the close. The read key file feeds the monitor.
+# the ring holds for that service. The wait polls the ring rather than
+# sleeping a fixed duration, because a fixed sleep can race the seed loop
+# and freeze an empty window. It is bounded at 12 s so a daemon that never
+# answers fails the tape instead of hanging it. The `sleep 1` after it is
+# the margin the window needs: `startsAt` is truncated to the second while
+# the window closes at at_ms + 2 x trace_ttl_ms, so a finding stored in the
+# same second as the post can land past the close. The read key file feeds
+# the monitor.
 Type `for i in $(seq 40); do curl -s 'http://127.0.0.1:14318/api/findings?service=checkout-svc' | grep -q signature && break; sleep 0.3; done && sleep 1 && curl -s -o /dev/null -X POST http://127.0.0.1:14318/api/incidents -H 'X-API-Key: demo-incidents-key-0123' -H 'Content-Type: application/json' -d "{\"version\":\"4\",\"status\":\"firing\",\"alerts\":[{\"status\":\"firing\",\"labels\":{\"service\":\"checkout-svc\",\"perf_sentinel_kind\":\"oom_kill\",\"namespace\":\"shop\"},\"annotations\":{\"summary\":\"container exceeded its memory limit\"},\"startsAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"endsAt\":\"0001-01-01T00:00:00Z\"}]}"`
 Enter
 Type `printf 'demo-read-key-0123456' > read-key && chmod 600 read-key`
@@ -141,38 +141,38 @@ Enter
 # Opens on the Advisor tab. A well-dimensioned daemon reports no hints.
 Sleep 2500ms
 
-# Tab -> Energy: the per-service and per-region mix.
+# Tab to Energy: the per-service and per-region mix.
 Tab
 Sleep 2500ms
 Screenshot docs/img/monitor/energy.png
 Sleep 1500ms
 
-# Tab -> Trends: the energy/carbon and headroom charts. The poller fills
+# Tab to Trends: the energy/carbon and headroom charts. The poller fills
 # the fixed window from empty, so the tour only shows the right edge
-# building up; the filled-window still is captured by
+# building up. The filled-window still is captured by
 # demo-monitor-trends.tape.
 Tab
 Sleep 6s
 
-# Tab -> Scrapers: backend health (still frame owned by its own tape).
+# Tab to Scrapers: backend health (still frame owned by its own tape).
 Tab
 Sleep 3s
 
-# Tab -> Config: the read-only daemon parameters (current, default, what
+# Tab to Config: the read-only daemon parameters (current, default, what
 # each does). trace_ttl_ms is flagged "modified" against its default.
 Tab
 Sleep 2500ms
 Screenshot docs/img/monitor/config.png
 Sleep 1500ms
 
-# Tab -> Incidents: the seeded OOM kill of checkout-svc with the findings
+# Tab to Incidents: the seeded OOM kill of checkout-svc with the findings
 # of its window, read with the read-only key.
 Tab
 Sleep 2500ms
 Screenshot docs/img/monitor/incidents.png
 Sleep 1500ms
 
-# Tab -> back to Advisor, closing the cycle.
+# Tab back to Advisor, closing the cycle.
 Tab
 Sleep 1500ms
 

@@ -21,7 +21,7 @@ fn empty_input_returns_empty_summary() {
 
 #[test]
 fn single_trace_computes_iis() {
-    // 6 SQL events in 1 trace -> IIS = 6/1 = 6.0
+    // 6 SQL events in 1 trace, so IIS = 6/1 = 6.0
     let events: Vec<SpanEvent> = (1..=6)
         .map(|i| {
             make_sql_event(
@@ -76,7 +76,7 @@ fn single_trace_computes_iis() {
 
 #[test]
 fn multiple_traces_same_endpoint() {
-    // 2 traces, each with 3 events on the same endpoint -> IIS = 6/2 = 3.0
+    // 2 traces, each with 3 events on the same endpoint, so IIS = 6/2 = 3.0
     let events_t1: Vec<SpanEvent> = (1..=3)
         .map(|i| {
             make_sql_event(
@@ -108,8 +108,8 @@ fn multiple_traces_same_endpoint() {
 
 #[test]
 fn top_offenders_sorted_by_iis_desc() {
-    // Endpoint A: 6 events in 1 trace -> IIS = 6.0
-    // Endpoint B: 2 events in 1 trace -> IIS = 2.0
+    // Endpoint A: 6 events in 1 trace, so IIS = 6.0
+    // Endpoint B: 2 events in 1 trace, so IIS = 2.0
     let mut events_a: Vec<SpanEvent> = (1..=6)
         .map(|i| {
             make_sql_event(
@@ -201,7 +201,7 @@ fn same_endpoint_across_services_stays_distinct_and_consistent() {
     assert!(services.contains(&"svc-a") && services.contains(&"svc-b"));
 
     // per_endpoint_io_ops mirrors the same cardinality and per-pair
-    // counts -> the two views are joinable on (service, endpoint).
+    // counts, so the two views are joinable on (service, endpoint).
     assert_eq!(per_endpoint.len(), 2);
     let svc_a = per_endpoint
         .iter()
@@ -408,7 +408,7 @@ fn sql_split_separates_sql_and_http_waste() {
 
 #[test]
 fn messaging_split_excludes_the_sql_share() {
-    // Its own fixture on purpose: the SQL split test above pins literal
+    // Its own fixture because the SQL split test above pins literal
     // counts on a shared one.
     let mut events: Vec<SpanEvent> = (1..=4)
         .map(|i| {
@@ -527,7 +527,7 @@ fn database_waste_multiplies_window_energy_by_sql_ratio() {
         db.model, "alumet_rapl",
         "measured path carries the RAPL tag"
     );
-    // eu-west-3 is a known region, the carbon conversion must land.
+    // eu-west-3 is a known region, so the carbon conversion must land.
     assert!(db.waste_gco2.expect("gco2 for a known region") > 0.0);
     // Excluded from the totals: the report's energy stays proxy-based.
     assert!(summary.energy_kwh < 1.0);
@@ -721,7 +721,7 @@ fn database_waste_estimated_carries_regional_gco2() {
 
 #[test]
 fn clean_traces_zero_waste() {
-    // 4 events, no findings -> waste ratio = 0
+    // 4 events, no findings, so waste ratio = 0
     let events = vec![
         make_sql_event(
             "trace-1",
@@ -764,7 +764,7 @@ fn per_service_carbon_respects_service_region() {
     // Two services in regions with very different grid intensities.
     // `eu-west-3` is ~41 gCO2/kWh, `pl` is ~700. The proportional
     // I/O share used by the proxy-only path would give both services
-    // the same average; runtime attribution must reflect the per-region rate.
+    // the same average. Runtime attribution must reflect the per-region rate.
     let mut events = Vec::new();
     for i in 1..=3 {
         let mut e = make_sql_event(
@@ -841,24 +841,23 @@ fn per_service_carbon_respects_service_region() {
     let summed_energy: f64 = summary.per_service_energy_kwh.values().sum();
     assert!((summed_energy - summary.energy_kwh).abs() < 1e-9);
 
-    // No measured energy entries → proxy model tag.
+    // No measured energy entries, so the model tag is the proxy one.
     assert_eq!(summary.energy_model, "io_proxy_v1");
 }
 
 /// Build a [`CarbonContext`] with a single default region and zero embodied
 /// term, used by tests that want to verify operational CO₂ in isolation.
 fn ctx_with_region(region: &str) -> CarbonContext {
-    // these legacy helper-built contexts disable hourly
-    // profiles so existing-era tests keep asserting the
-    // v1 model tag. Tests that need the hourly path build their
-    // own context inline (see `hourly_profile_flips_model_to_v2`).
+    // Hourly profiles are disabled so tests built on this helper keep
+    // asserting the v1 model tag. Tests that need the hourly path build
+    // their own context inline (see `hourly_profile_flips_model_to_v2`).
     CarbonContext {
         default_region: Some(region.to_string()),
         service_regions: HashMap::new(),
         embodied_per_request_gco2: 0.0,
         use_hourly_profiles: false,
         energy_snapshot: None,
-        // Disable per-op coefficients so legacy tests asserting exact
+        // Disable per-op coefficients so tests asserting exact
         // CO2 values against the flat ENERGY_PER_IO_OP_KWH stay valid.
         per_operation_coefficients: false,
         ..CarbonContext::default()
@@ -913,8 +912,7 @@ fn co2_computed_when_region_set() {
     assert!(co2.total.mid > 0.0);
     assert!(co2.avoidable.mid > 0.0);
     assert_eq!(co2.total.model, "io_proxy_v1");
-    // Methodology field replaces sci_version,
-    // with distinct values for total (numerator) vs avoidable (ratio).
+    // Distinct methodology values for total (numerator) vs avoidable (ratio).
     assert_eq!(co2.total.methodology, "sci_v1_numerator+transport");
     assert_eq!(co2.avoidable.methodology, "sci_v1_operational_ratio");
     // 2× multiplicative uncertainty bracket.
@@ -999,9 +997,9 @@ fn co2_none_when_no_carbon_context() {
 
 #[test]
 fn unknown_region_yields_zero_operational_but_keeps_embodied() {
-    // behavior: an unknown region (not in the embedded carbon
-    // table) bucketed under the configured name produces zero operational
-    // CO₂. Embodied carbon is still emitted because it is region-independent.
+    // An unknown region (not in the embedded carbon table) bucketed
+    // under the configured name produces zero operational CO₂. Embodied
+    // carbon is still emitted because it is region-independent.
     let events = vec![make_sql_event(
         "trace-1",
         "span-1",
@@ -1043,8 +1041,8 @@ fn unknown_region_yields_zero_operational_but_keeps_embodied() {
         .unwrap();
     assert_eq!(mars.io_ops, 1);
     assert!((mars.co2_gco2 - 0.0).abs() < f64::EPSILON);
-    // Top offender CO₂ stays None, the per-offender scalar uses
-    // io_ops_to_co2_grams which returns None for unknown regions.
+    // Top offender CO₂ stays None because the per-offender scalar uses
+    // io_ops_to_co2_grams, which returns None for unknown regions.
     for offender in &summary.top_offenders {
         assert!(offender.co2_grams.is_none());
     }
@@ -1052,7 +1050,7 @@ fn unknown_region_yields_zero_operational_but_keeps_embodied() {
 
 #[test]
 fn slow_findings_do_not_inflate_waste_ratio() {
-    // 3 slow SQL events (same template) -> slow_sql finding with 3 occurrences
+    // 3 slow SQL events (same template) give a slow_sql finding with 3 occurrences.
     // These should NOT count as avoidable I/O.
     use crate::test_helpers::make_sql_event_with_duration;
     let events: Vec<SpanEvent> = (1..=3)
@@ -1225,8 +1223,8 @@ fn make_trace_with_region(trace_id: &str, region: &str, count: usize) -> Trace {
 #[test]
 fn co2_includes_embodied_term() {
     // 6 spans in eu-west-3 (intensity 41 g/kWh, AWS PUE 1.15).
-    // disable hourly profiles so the expected_op
-    // calculation below (using the flat 41 g/kWh) stays exact.
+    // Disable hourly profiles so the expected_op calculation below
+    // (using the flat 41 g/kWh) stays exact.
     // The hourly path is exercised by dedicated tests below.
     let trace = make_trace_with_region("t1", "eu-west-3", 6);
     let ctx = CarbonContext {
@@ -1254,8 +1252,8 @@ fn co2_includes_embodied_term() {
 #[test]
 fn avoidable_excludes_embodied() {
     // 6 spans, 5 marked avoidable via N+1 finding. Avoidable should equal
-    // operational × (5/6), with NO embodied term, embodied is fixed and
-    // can't be eliminated by fixing query patterns.
+    // operational × (5/6), with NO embodied term, because embodied is
+    // fixed and can't be eliminated by fixing query patterns.
     let trace = make_trace_with_region("t1", "eu-west-3", 6);
     let finding = Finding {
         finding_type: FindingType::NPlusOneSql,
@@ -1282,12 +1280,12 @@ fn avoidable_excludes_embodied() {
         suggested_fix: None,
         signature: String::new(),
     };
-    // disable hourly profiles so avoidable ratio math
-    // stays deterministic (the test compares to operational × 5/6).
+    // Disable hourly profiles so avoidable ratio math stays
+    // deterministic (the test compares to operational × 5/6).
     let ctx = CarbonContext {
         default_region: None,
         service_regions: HashMap::new(),
-        embodied_per_request_gco2: 0.5, // intentionally large to detect leakage
+        embodied_per_request_gco2: 0.5, // large so any leakage shows
         use_hourly_profiles: false,
         energy_snapshot: None,
         per_operation_coefficients: false,
@@ -1334,8 +1332,8 @@ fn multi_region_bucketing_distinct_per_region() {
 fn region_resolution_chain_priority() {
     // Three spans, three resolution paths:
     // span-1: cloud_region = "ap-south-1" (event attribute)
-    // span-2: service "order-svc" → service_regions["order-svc"] = "us-east-1"
-    // span-3: no event attr, no service map → default_region = "eu-west-3"
+    // span-2: service "order-svc" via service_regions["order-svc"] = "us-east-1"
+    // span-3: no event attr, no service map, so default_region = "eu-west-3"
     let mut span1 = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
     span1.cloud_region = Some(Arc::from("ap-south-1"));
     let mut span2 = make_sql_event("t1", "s2", "SELECT 2", "2025-07-10T14:32:01.002Z");
@@ -1406,7 +1404,7 @@ fn regions_sorted_by_co2_desc() {
     let trace_eu = make_trace_with_region("t2", "eu-west-3", 1);
     let trace_ap = make_trace_with_region("t3", "ap-south-1", 1);
     let ctx = ctx_with_region("eu-west-3");
-    // Pass traces in non-sorted order on purpose.
+    // Pass traces in non-sorted order.
     let (_, summary, _) = score_green(&[trace_us, trace_eu, trace_ap], vec![], Some(&ctx));
 
     let names: Vec<&str> = summary.regions.iter().map(|r| r.region.as_str()).collect();
@@ -1418,9 +1416,8 @@ fn regions_sorted_by_co2_desc() {
 
 #[test]
 fn regions_output_deterministic_under_permutation() {
-    // Explicitly verify that feeding the
-    // same logical workload in two different input orders produces
-    // identical `regions` output. BTreeMap accumulation + the final
+    // Feeding the same logical workload in two different input orders
+    // produces identical `regions` output. BTreeMap accumulation + the final
     // CO₂-DESC sort jointly guarantee this.
     let ctx = ctx_with_region("eu-west-3");
 
@@ -1454,15 +1451,15 @@ fn confidence_interval_factors_match_constants() {
     // Total
     assert!((co2.total.low - co2.total.mid * 0.5).abs() < f64::EPSILON);
     assert!((co2.total.high - co2.total.mid * 2.0).abs() < f64::EPSILON);
-    // Avoidable (with no findings, mid is 0 → low and high are 0 too)
+    // Avoidable (with no findings, mid is 0, so low and high are 0 too)
     assert!((co2.avoidable.low - co2.avoidable.mid * 0.5).abs() < f64::EPSILON);
     assert!((co2.avoidable.high - co2.avoidable.mid * 2.0).abs() < f64::EPSILON);
 }
 
 #[test]
 fn co2_methodology_labels_set() {
-    // `total` is tagged as the SCI numerator,
-    // `avoidable` is tagged as the region-blind operational ratio.
+    // `total` is tagged as the SCI numerator and `avoidable` as the
+    // region-blind operational ratio.
     // The two distinct methodology strings signal the semantic
     // difference to downstream consumers at the data layer.
     let trace = make_trace_with_region("t1", "eu-west-3", 1);
@@ -1530,7 +1527,7 @@ fn top_offender_co2_some_in_single_region_mode() {
 #[test]
 fn top_offender_co2_none_when_multi_region_via_service_regions() {
     // When [green.service_regions] is non-empty, multi-region is
-    // active → TopOffender.co2_grams must be None (the scalar would be
+    // active, so TopOffender.co2_grams must be None (the scalar would be
     // inconsistent with the per-region breakdown).
     let trace = make_trace_with_region_no_cloud("t1", 6);
     let mut service_regions = HashMap::new();
@@ -1580,7 +1577,7 @@ fn top_offender_co2_none_when_multi_region_via_span_attribute() {
 
 #[test]
 fn region_cardinality_cap_folds_overflow_into_unknown() {
-    // Cap at 256 distinct regions. Feed 260 distinct region tags;
+    // Cap at 256 distinct regions. Feed 260 distinct region tags and
     // expect at most 256 in the breakdown + an "unknown" row with the
     // overflow count.
     let mut events = Vec::with_capacity(260);
@@ -1600,9 +1597,9 @@ fn region_cardinality_cap_folds_overflow_into_unknown() {
     let ctx = CarbonContext::default();
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
 
-    // Tighten the assertions. With 260 distinct region names fed
-    // in insertion order and MAX_REGIONS = 256, exactly 256 known rows
-    // should be bucketed + exactly 4 ops folded into the unknown bucket.
+    // With 260 distinct region names fed in insertion order and
+    // MAX_REGIONS = 256, exactly 256 known rows should be bucketed +
+    // exactly 4 ops folded into the unknown bucket.
     let non_unknown_rows: Vec<&RegionBreakdown> = summary
         .regions
         .iter()
@@ -1661,7 +1658,7 @@ fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
     let mut events_orphan = Vec::new();
     for i in 1..=5 {
         // No cloud_region, service doesn't match any service_regions,
-        // no default_region → lands in unknown_ops bucket.
+        // no default_region, so it lands in the unknown_ops bucket.
         events_orphan.push(helper(
             "trace-orphan",
             &format!("o{i}"),
@@ -1680,7 +1677,7 @@ fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
         source_endpoint: "POST /api/orders/42/submit".to_string(),
         pattern: Pattern {
             template: "SELECT * FROM t WHERE id = ?".to_string(),
-            occurrences: 4, // 4 occurrences → 3 avoidable
+            occurrences: 4, // 4 occurrences, so 3 avoidable
             window_ms: 250,
             distinct_params: 4,
             ..Default::default()
@@ -1698,7 +1695,7 @@ fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
     };
 
     let ctx = CarbonContext {
-        default_region: None, // no fallback → orphan trace goes to unknown
+        default_region: None, // no fallback, so the orphan trace goes to unknown
         service_regions: HashMap::new(),
         embodied_per_request_gco2: 0.0,
         use_hourly_profiles: true,
@@ -1742,9 +1739,9 @@ fn make_trace_with_region_no_cloud(trace_id: &str, count: usize) -> Trace {
 
 #[test]
 fn empty_traces_with_carbon_context_returns_no_co2() {
-    // Explicit test for the early-return branch inside
-    // compute_carbon_report. Previous coverage only hit the outer
-    // `None` arm via `score_green(..., None)`.
+    // Covers the early-return branch inside compute_carbon_report, which
+    // `score_green(..., None)` does not reach (it stops at the outer
+    // `None` arm).
     let ctx = ctx_with_region("eu-west-3");
     let (_, summary, _) = score_green(&[], vec![], Some(&ctx));
     assert!(
@@ -1757,8 +1754,8 @@ fn empty_traces_with_carbon_context_returns_no_co2() {
 #[test]
 fn region_breakdown_distinguishes_out_of_table_from_unresolved() {
     // `mars-1` resolves (via default_region) but isn't in the carbon
-    // table → status "out_of_table". A second span with no resolvable
-    // region → status "unresolved" in the "unknown" bucket.
+    // table, so its status is "out_of_table". A second span with no
+    // resolvable region gets status "unresolved" in the "unknown" bucket.
     let mut span_mars = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
     span_mars.cloud_region = Some(Arc::from("mars-1"));
     let span_orphan = make_sql_event("t1", "s2", "SELECT 2", "2025-07-10T14:32:01.002Z");
@@ -1802,7 +1799,7 @@ fn region_breakdown_status_known_for_in_table_region() {
 
 /// Build 6 spans at the same UTC hour in the given region.
 /// The template, trace id and endpoint are the same so one N+1 finding
-/// can be attached; differing `order_id` values give 6 distinct params.
+/// can be attached. Differing `order_id` values give 6 distinct params.
 fn make_trace_at_hour(trace_id: &str, region: &str, hour: u8, count: usize) -> Trace {
     let mut events = Vec::with_capacity(count);
     for i in 1..=count {
@@ -1870,7 +1867,7 @@ fn hourly_profile_flips_model_to_v3_for_monthly_region() {
 
 #[test]
 fn hourly_profile_disabled_stays_on_v1() {
-    // use_hourly_profiles = false → never flip to v2 even for
+    // With use_hourly_profiles = false, never flip to v2, even for
     // regions with hourly data.
     let trace = make_trace_at_hour("t1", "eu-west-3", 14, 6);
     let ctx = ctx_hourly(false);
@@ -1896,9 +1893,9 @@ fn hourly_profile_fallback_to_annual_for_region_without_profile() {
 #[test]
 fn de_flat_annual_numerical_regression() {
     // Regression guard for eu-central-1 (Germany): the hourly
-    // profile grand mean and the flat annual value are intentionally
-    // close but not equal, so a future edit that accidentally couples
-    // the flat path to hourly data would produce wrong numbers here.
+    // profile grand mean and the flat annual value are close but not
+    // equal, so a future edit that accidentally couples the flat path
+    // to hourly data would produce wrong numbers here.
     // Pin the flat-annual model and assert the closed-form formula,
     // with expected values derived from the table.
     let trace = make_trace_at_hour("t_de", "eu-central-1", 12, 6);
@@ -1914,7 +1911,7 @@ fn de_flat_annual_numerical_regression() {
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
     let co2 = summary.co2.as_ref().unwrap();
     // Model tag must stay v1 when hourly is disabled, even for a
-    // region that has a hourly profile.
+    // region that has an hourly profile.
     assert_eq!(co2.total.model, "io_proxy_v1");
     // Exact CO₂ from the flat annual intensity and PUE of eu-central-1.
     let (intensity, pue) = carbon::lookup_region("eu-central-1").expect("eu-central-1");
@@ -2043,9 +2040,9 @@ fn custom_profile_overrides_embedded_in_scoring_loop() {
         "expected custom intensity 999.0, got {}",
         row.grid_intensity_gco2_kwh
     );
-    // Custom FlatYear profile => IntensitySource::Hourly (not MonthlyHourly).
+    // A custom FlatYear profile gives IntensitySource::Hourly (not MonthlyHourly).
     assert_eq!(row.intensity_source, IntensitySource::Hourly);
-    // Model tag: FlatYear custom => io_proxy_v2.
+    // Model tag: a custom FlatYear profile gives io_proxy_v2.
     let co2 = summary.co2.as_ref().unwrap();
     assert_eq!(co2.total.model, "io_proxy_v2");
 }
@@ -2166,7 +2163,7 @@ fn scaphandre_empty_snapshot_stays_on_proxy() {
 
 #[test]
 fn scaphandre_takes_precedence_over_hourly_in_model_tag() {
-    // Both hourly AND scaphandre active -> scaphandre_rapl wins.
+    // With both hourly AND scaphandre active, scaphandre_rapl wins.
     let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
     let mut snapshot = HashMap::new();
     snapshot.insert(
@@ -2692,8 +2689,8 @@ fn per_service_measured_ratio_partial_when_only_some_services_measured() {
 
 #[test]
 fn per_service_energy_model_inherits_cal_suffix_when_proxy() {
-    // Calibration active + no measured snapshot -> window tag carries
-    // "+cal", and the service without a measured entry inherits it.
+    // With calibration active and no measured snapshot, the window tag
+    // carries "+cal", and the service without a measured entry inherits it.
     let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
     let cal_data = crate::calibrate::CalibrationData {
         calibration: crate::calibrate::CalibrationSection {
@@ -3043,7 +3040,7 @@ fn transport_co2_numerical_value() {
 #[test]
 fn transport_co2_uppercase_hostname_matches() {
     use crate::test_helpers::make_http_event_with_size;
-    // Target URL has uppercase hostname; service_regions keys are lowercase.
+    // Target URL has an uppercase hostname while service_regions keys are lowercase.
     let mut event = make_http_event_with_size(
         "t1",
         "s1",

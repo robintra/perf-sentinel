@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 /// Precomputed per-trace indices shared by the fanout and serialized
 /// detectors. Both detectors need `children_by_parent` +
-/// `span_index`; building them once per trace and passing the struct
+/// `span_index`. Building them once per trace and passing the struct
 /// halves the hot-path `HashMap` cost on traces that trigger both
 /// detectors.
 ///
@@ -95,7 +95,7 @@ pub struct Finding {
     /// boost or reduce severity based on how the finding was produced.
     ///
     /// **Contract:** detectors always emit [`Confidence::default()`]
-    /// (= `CiBatch`); the real value is stamped by the pipeline caller
+    /// (= `CiBatch`). The real value is stamped by the pipeline caller
     /// (`pipeline::analyze_with_traces` for batch, `daemon::process_traces`
     /// for the daemon) after detection returns. This keeps the detector
     /// layer oblivious to runtime context.
@@ -108,7 +108,7 @@ pub struct Finding {
     /// for N+1, repeated identical `(template, params)` for redundant).
     /// `Some(SanitizerHeuristic)` means the type was inferred via the
     /// sanitizer-aware heuristic because the standard distinct-params signal
-    /// was insufficient. SQL first requires evidence of collapsed literals;
+    /// was insufficient. SQL first requires evidence of collapsed literals.
     /// HTTP uses timing and trace-shape signals without proving sanitization.
     /// Operators can filter on this field to spot where the heuristic fires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,7 +251,7 @@ pub enum Severity {
 /// Source context for a [`Finding`]: where and how it was produced.
 ///
 /// A future IDE-side consumer would read this field on import and
-/// uses it to adjust severity in the IDE. A `daemon_production` finding
+/// use it to adjust severity in the IDE. A `daemon_production` finding
 /// (observed on real production traffic) is a much stronger signal than a
 /// `ci_batch` finding (observed on a controlled integration test run with
 /// limited traffic shapes).
@@ -265,7 +265,7 @@ pub enum Confidence {
     /// limited traffic shapes, controlled environment.
     ///
     /// Marked `#[default]` so detectors that emit `Confidence::default()`
-    /// get a safe batch fallback, a forgotten stamp never inflates
+    /// get a safe batch fallback. A forgotten stamp never inflates
     /// an editor-side severity to a daemon level.
     #[default]
     CiBatch,
@@ -330,14 +330,14 @@ impl Confidence {
 /// Orthogonal to [`Confidence`]: confidence describes the runtime context
 /// (CI vs production daemon), `ClassificationMethod` describes which
 /// detection rule produced the type. Stored in
-/// [`Finding::classification_method`] as `Option`; `None` means the
+/// [`Finding::classification_method`] as `Option`. `None` means the
 /// standard direct rule fired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClassificationMethod {
     /// Standard pipeline classification (e.g. `distinct_params >=
     /// threshold` for N+1, repeated identical `(template, params)` for
-    /// redundant). Equivalent to the absence of the field; emitted
+    /// redundant). Equivalent to the absence of the field. Emitted
     /// explicitly only when a caller wants to be unambiguous.
     Direct,
     /// Reclassified via a heuristic path. For SQL: the `OTel` agent's
@@ -389,7 +389,7 @@ pub struct GreenImpact {
     /// (`healthy` / `moderate` / `high` / `critical`).
     ///
     /// Computed by [`crate::report::interpret::InterpretationLevel::for_iis`].
-    /// The enum values are stable across versions; the thresholds behind
+    /// The enum values are stable across versions. The thresholds behind
     /// them are versioned with the binary. See
     /// [`crate::report::interpret`] for the stability contract.
     pub io_intensity_band: crate::report::interpret::InterpretationLevel,
@@ -447,9 +447,9 @@ impl FindingType {
     /// RGESN 2024 criteria (ARCEP/Arcom/ADEME) this finding type relates to.
     ///
     /// An interpretive crosswalk, not a compliance certification: the RGESN
-    /// criterion titles do not name "N+1" or "slow query", these are the
+    /// criterion titles do not name "N+1" or "slow query". These are the
     /// criteria whose intent the anti-pattern bears on. `slow_*` returns an
-    /// empty slice on purpose, RGESN family 9 "Algorithmie" is ML-specific and
+    /// empty slice because RGESN family 9 "Algorithmie" is ML-specific and
     /// no criterion targets single-operation latency. Rationale and the full
     /// crosswalk live in `docs/METHODOLOGY.md`.
     #[must_use]
@@ -508,7 +508,7 @@ impl FindingType {
     ///
     /// Only N+1 and redundant qualify (batchable or cacheable). Slow,
     /// fanout, chatty, pool saturation and serialized calls are excluded
-    /// from waste scoring; the per-type rationale is in the "Not part of
+    /// from waste scoring. The per-type rationale is in the "Not part of
     /// waste ratio" sections of `docs/design/04-DETECTION.md`.
     #[must_use]
     pub const fn is_avoidable_io(&self) -> bool {
@@ -538,14 +538,14 @@ impl Severity {
 /// Configuration for the detection stage. Serialized into
 /// `Report.detection_config` so consumers see the producing run's values.
 ///
-/// Deserialization stays strict on purpose: a partially drifted object
-/// must not silently become this binary's defaults, or the dashboard
-/// would state thresholds that never produced the findings. The
-/// tolerance lives one level up, on `Report::detection_config`, which
-/// degrades a shape it cannot read to `None`. The one field with a serde
-/// default, `sanitizer_aware_min_cv`, keeps to that rule rather than
-/// bending it: every report written before the field existed ran with
-/// that exact value hard-wired, so the default states what the run used.
+/// Deserialization stays strict: a partially drifted object must not
+/// silently become this binary's defaults, or the dashboard would state
+/// thresholds that never produced the findings. The tolerance lives one
+/// level up, on `Report::detection_config`, which degrades a shape it
+/// cannot read to `None`. The one field with a serde default,
+/// `sanitizer_aware_min_cv`, keeps to that rule: every report written
+/// before the field existed ran with that exact value hard-wired, so the
+/// default states what the run used.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DetectConfig {
     pub n_plus_one_threshold: u32,
@@ -728,7 +728,7 @@ pub fn run_full_detection(traces: &[Trace], config: &DetectConfig) -> Vec<Findin
 
 /// Run all per-trace detectors on a set of traces.
 ///
-/// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`]
+/// Does not include cross-trace analysis. See [`slow::detect_slow_cross_trace`]
 /// or use [`run_full_detection`] for the combined pass.
 #[must_use]
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
@@ -980,8 +980,8 @@ mod tests {
     #[test]
     fn detect_combines_n_plus_one_and_redundant() {
         use crate::test_helpers::{make_sql_event, make_trace};
-        // 5 events with different params -> N+1
-        // 3 events with same params -> redundant
+        // 5 events with different params trigger N+1
+        // 3 events with same params trigger redundant
         let mut events = Vec::new();
         for i in 1..=5 {
             events.push(make_sql_event(
@@ -1164,7 +1164,7 @@ mod tests {
     fn detect_all_three_types_on_one_trace() {
         use crate::test_helpers::{make_sql_event, make_sql_event_with_duration, make_trace};
         let mut events = Vec::new();
-        // 5 different params -> N+1
+        // 5 different params trigger N+1
         for i in 1..=5 {
             events.push(make_sql_event(
                 "trace-1",
@@ -1173,7 +1173,7 @@ mod tests {
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
             ));
         }
-        // 3 identical queries -> redundant
+        // 3 identical queries trigger redundant
         for i in 1..=3 {
             events.push(make_sql_event(
                 "trace-1",
@@ -1182,7 +1182,7 @@ mod tests {
                 &format!("2025-07-10T14:32:02.{:03}Z", i * 30),
             ));
         }
-        // 3 slow queries -> slow
+        // 3 slow queries trigger slow
         for i in 1..=3 {
             events.push(make_sql_event_with_duration(
                 "trace-1",
@@ -1210,7 +1210,7 @@ mod tests {
         assert!(has_slow, "should detect slow");
     }
 
-    // --- Serde roundtrip for Finding (Deserialize added for query CLI) ---
+    // --- Serde roundtrip for Finding ---
 
     #[test]
     fn finding_serde_roundtrip() {
@@ -1333,7 +1333,7 @@ mod tests {
     fn timing_stats_dispersed_durations_cv_matches_variance_helper() {
         let mut durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let (_p50, _p99, cv) = compute_timing_stats(&mut durations);
-        // CV ~ 0.68 on this set → cv_x1000 ~ 680
+        // CV ~ 0.68 on this set, so cv_x1000 ~ 680
         assert!(cv > 500, "CV should be > 0.5, got {cv}");
         assert!(cv < 800, "CV should be < 0.8, got {cv}");
     }
@@ -1341,8 +1341,8 @@ mod tests {
     #[test]
     fn detect_config_from_a_report_without_the_variance_knob_reads_0_5() {
         // A report written before the knob existed ran with the 0.5 the
-        // heuristic hard-wired, so defaulting it is truthful rather than
-        // the fabrication the strict deserialization otherwise refuses.
+        // heuristic hard-wired, so defaulting it is accurate, unlike the
+        // made-up defaults the strict deserialization otherwise rejects.
         let json = r#"{"n_plus_one_threshold":5,"window_ms":500,"slow_threshold_ms":500,
             "slow_min_occurrences":3,"max_fanout":20,"chatty_service_min_calls":15,
             "pool_saturation_concurrent_threshold":10,"serialized_min_sequential":3,

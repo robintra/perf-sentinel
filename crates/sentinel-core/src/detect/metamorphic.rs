@@ -1,6 +1,6 @@
 //! Metamorphic property tests for the detection stage.
 //!
-//! Ground-truth labels are expensive; invariants are not. Each property
+//! Invariants are cheaper than ground-truth labels. Each property
 //! asserts a *relation* between detection runs on transformed inputs
 //! instead of an expected output, so the whole detector logic is
 //! exercised on thousands of generated workloads without a single
@@ -11,19 +11,18 @@
 //! - **permutation**: span arrival order never changes what is found
 //! - **duplication**: a duplicated trace exactly doubles per-class findings
 //! - **additivity**: per-trace detection over a set equals the union of
-//!   detections per trace - the structural guarantee behind "sampling
-//!   whole traces upstream never *creates* findings". Deliberately NOT
-//!   covered: [`run_full_detection`]'s cross-trace percentile
-//!   detector ([`super::slow::detect_slow_cross_trace`]), which is
-//!   non-additive by design (p50/p95/p99 shift with the population);
-//!   that exclusion is itself pinned by
-//!   `cross_trace_slow_findings_are_not_additive` below.
+//!   detections per trace, the structural guarantee behind "sampling
+//!   whole traces upstream never *creates* findings". Excluded:
+//!   [`run_full_detection`]'s cross-trace percentile detector
+//!   ([`super::slow::detect_slow_cross_trace`]), which is non-additive
+//!   (p50/p95/p99 shift with the population). That exclusion is itself
+//!   pinned by `cross_trace_slow_findings_are_not_additive` below.
 //! - **silence**: below-threshold workloads never emit
 //! - **span removal**: dropping spans (collector loss) never creates a
 //!   finding nor inflates occurrences, under the strict distinct-params
-//!   rule (`SanitizerAwareMode::Never`; the sanitizer/timing heuristics
-//!   are intentionally out of scope - their verdicts depend on group
-//!   composition, so span removal can legitimately flip them)
+//!   rule (`SanitizerAwareMode::Never`). The sanitizer/timing heuristics
+//!   are out of scope: their verdicts depend on group composition, so
+//!   span removal can legitimately flip them.
 //! - **exclusivity**: a template never appears in both the N+1 and the
 //!   redundant finding sets for the same trace, under any
 //!   `SanitizerAwareMode` and any mix of duplicate / distinct /
@@ -34,7 +33,7 @@
 //!   contain, never counts more occurrences than spans present, and
 //!   never splits one group into several findings
 //! - **sanitizer non-monotonicity (pinned)**: the known corner where
-//!   removing a span CAN create a finding under `Auto`, kept as a
+//!   removing a span can create a finding under `Auto`, kept as a
 //!   characterization test so the trade-off stays documented
 //! - **window boundary**: an above-threshold group fires iff its
 //!   min..max span fits in `window_ms`, with the limit itself inclusive
@@ -164,12 +163,12 @@ fn any_mode() -> impl Strategy<Value = SanitizerAwareMode> {
     ]
 }
 
-/// Workload mixing every classification path on overlapping templates:
-/// an exact-duplicate SQL series (redundant candidate), a distinct-params
+/// Workload mixing every classification path on overlapping templates.
+/// An exact-duplicate SQL series (redundant candidate), a distinct-params
 /// series (direct N+1 candidate), and an `OTel`-sanitized series
-/// (heuristic candidate, ORM scope toggled) all share the `order_items /
-/// order_id` template and merge into one group; a duplicate HTTP series
-/// and a noise statement stay separate.
+/// (heuristic candidate, ORM scope toggled) all share the
+/// `order_items / order_id` template and merge into one group. A
+/// duplicate HTTP series and a noise statement stay separate.
 fn exclusivity_workload() -> impl Strategy<Value = (Vec<SpanEvent>, SanitizerAwareMode)> {
     (
         0usize..=8,
@@ -289,7 +288,7 @@ fn assert_amplification(
     prop_assert_eq!(f_before[0].pattern.occurrences, base);
     prop_assert_eq!(f_after[0].pattern.occurrences, base + extra);
     // Severity is anchored on the occurrence count: growth may escalate
-    // Warning -> Critical but must never do the reverse.
+    // Warning to Critical but must never do the reverse.
     if f_before[0].severity == Severity::Critical {
         prop_assert_eq!(&f_after[0].severity, &Severity::Critical);
     }
@@ -397,8 +396,8 @@ proptest! {
     }
 
     /// Duplication: feeding the same spans again under a new trace id
-    /// exactly doubles every per-class finding count - no cross-trace
-    /// leakage between per-trace detectors.
+    /// exactly doubles every per-class finding count (no cross-trace
+    /// leakage between per-trace detectors).
     #[test]
     fn duplicating_a_trace_doubles_per_class_findings(events in mixed_workload()) {
         let config = default_config();
@@ -423,7 +422,7 @@ proptest! {
     /// per-trace detections. This is the structural guarantee behind
     /// "head/tail-sampling whole traces upstream never creates findings"
     /// (the lab's sampling-degradation monotone gate, proven at the unit
-    /// level). Cross-trace percentile detection is excluded on purpose.
+    /// level). Cross-trace percentile detection is excluded.
     #[test]
     fn per_trace_detection_is_additive(
         workloads in prop::collection::vec(mixed_workload(), 2..=4),
@@ -605,7 +604,7 @@ proptest! {
     /// Characterization (Auto, HTTP): one template, few distinct path
     /// ids, spread durations. Span removal may flip the group between
     /// the direct distinct-params rule and the timing-variance heuristic,
-    /// or silence it - that flip is legitimate and NOT asserted against.
+    /// or silence it. That flip is legitimate and not asserted against.
     /// What must hold: at most one finding per run, only the workload's
     /// template, never more occurrences than spans, and a classification
     /// that is either direct (`None`) or the heuristic.
@@ -697,13 +696,13 @@ proptest! {
     }
 }
 
-/// Characterization: the sanitizer heuristic is deliberately non-monotone
-/// under span removal, which is why the removal properties above are
-/// scoped to `SanitizerAwareMode::Never`. A mixed group (sanitized spans
-/// plus one span carrying an extracted literal) fails `looks_sanitized`,
-/// so the whole group stays silent; dropping the literal-carrying span
-/// leaves a uniformly sanitized group whose ORM scope flips the verdict
-/// to `LikelyNPlusOne`. Pinned so the corner stays a documented trade-off
+/// Characterization: the sanitizer heuristic is non-monotone under span
+/// removal, so the removal properties above are scoped to
+/// `SanitizerAwareMode::Never`. A mixed group (sanitized spans plus one
+/// span carrying an extracted literal) fails `looks_sanitized`, so the
+/// whole group stays silent. Dropping the literal-carrying span leaves a
+/// uniformly sanitized group whose ORM scope flips the verdict to
+/// `LikelyNPlusOne`. Pinned so the corner stays a documented trade-off
 /// instead of resurfacing as a proptest failure.
 #[test]
 fn sanitizer_heuristic_can_fire_after_span_removal() {
@@ -745,15 +744,14 @@ fn sanitizer_heuristic_can_fire_after_span_removal() {
     assert_eq!(after_removal[0].pattern.occurrences, 6);
 }
 
-/// Characterization: cross-trace slow detection is non-additive by
-/// design, which is why the additivity property above targets `detect`
-/// and the lab's sampling-degradation gate asserts *total* findings
-/// only. Two slow spans per trace stay below `slow_min_occurrences` (3)
-/// in isolation, and `run_full_detection` skips cross-trace analysis
-/// for a single trace - but the combined population reaches 4
-/// occurrences across 2 traces with p99 above the threshold, so a
-/// `slow_sql` finding exists in the combined run that no per-trace run
-/// contains.
+/// Characterization: cross-trace slow detection is non-additive, so the
+/// additivity property above targets `detect` and the lab's
+/// sampling-degradation gate asserts *total* findings only. Two slow
+/// spans per trace stay below `slow_min_occurrences` (3) in isolation,
+/// and `run_full_detection` skips cross-trace analysis for a single
+/// trace. The combined population reaches 4 occurrences across 2 traces
+/// with p99 above the threshold, so the combined run contains a
+/// `slow_sql` finding that no per-trace run contains.
 #[test]
 fn cross_trace_slow_findings_are_not_additive() {
     let slow_span = |trace: &str, span: &str, id: usize, ts: &str| {

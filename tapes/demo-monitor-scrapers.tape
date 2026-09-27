@@ -5,7 +5,7 @@
 # 0.8.8) at a height sized to its content, instead of the taller
 # demo-monitor.tape viewport (which is sized for the fullest tab,
 # Energy). The Scrapers tab only reads /api/energy, so no trace seeding
-# is needed: a [green.cloud] backend pointed at an unreachable loopback
+# is needed. A [green.cloud] backend pointed at an unreachable loopback
 # endpoint shows configured=yes with a freshness age that climbs, while
 # the unconfigured backends stay dashed. Offline-safe (no real backend,
 # no external network destination).
@@ -24,9 +24,9 @@ Output tapes/demo-monitor-scrapers-unused.gif
 
 Set Shell "bash"
 Set FontSize 13
-# Sized for the Scrapers tab content: 740 px wide fits the widest line
+# Sized for the Scrapers tab content. 740 px wide fits the widest line
 # (the top header row of four tabs + daemon URL + age) with a small
-# margin, 320 px tall fits a header row, five backend rows and the
+# margin. 320 px tall fits a header row, five backend rows and the
 # two-line electricity_maps note plus the border.
 Set Width 740
 Set Height 320
@@ -43,7 +43,7 @@ Enter
 Type `mkdir -p /tmp/demo-monitor-scr-dir && cd /tmp/demo-monitor-scr-dir && rm -f perf-sentinel.sock`
 Enter
 # Minimal daemon: green enabled with a single [green.cloud] backend
-# pointed at an unreachable loopback endpoint. No trace seeding, the
+# pointed at an unreachable loopback endpoint. No trace seeding: the
 # Scrapers tab reads only /api/energy.
 Type `printf '[daemon]\njson_socket = "/tmp/demo-monitor-scr-dir/perf-sentinel.sock"\n\n[green]\nenabled = true\n\n[green.cloud]\nprometheus_endpoint = "http://127.0.0.1:19999/metrics"\nscrape_interval_secs = 2\n\n[green.cloud.services]\norder-svc = { idle_watts = 5.0, max_watts = 30.0 }\n' > .perf-sentinel.toml`
 Enter
@@ -59,8 +59,8 @@ Show
 Type "perf-sentinel query --daemon http://127.0.0.1:14318 monitor --refresh 3"
 Sleep 800ms
 Enter
-# Opens on Advisor; Tab three times to reach Scrapers
-# (Advisor -> Energy -> Trends -> Scrapers).
+# Opens on Advisor. Tab three times to reach Scrapers
+# (Advisor, Energy, Trends, then Scrapers).
 Sleep 1500ms
 Tab
 Sleep 1200ms

@@ -8,7 +8,7 @@
 use hyper::header::{HeaderName, HeaderValue};
 
 /// Maximum raw input length accepted by `AuthHeader::parse`, in bytes.
-/// A typical JWT is 2 to 4 KiB; 8 KiB leaves headroom for long
+/// A typical JWT is 2 to 4 KiB, and 8 KiB leaves headroom for long
 /// multi-claim tokens without opening the door to arbitrary blobs.
 pub(crate) const MAX_AUTH_HEADER_INPUT_BYTES: usize = 8 * 1024;
 
@@ -82,8 +82,8 @@ impl AuthHeader {
 }
 
 /// Three-state outcome of `parse_scraper_auth_header`. Encodes "parse
-/// failed, abort" without smuggling a `Result<_, ()>` (clippy hates the
-/// unit error) or an `Option<Option<_>>` (clippy hates that too).
+/// failed, abort" without a `Result<_, ()>` or an `Option<Option<_>>`,
+/// both of which clippy flags.
 #[cfg(feature = "daemon")]
 #[derive(Debug)]
 pub(crate) enum ScraperAuthOutcome {
@@ -91,13 +91,13 @@ pub(crate) enum ScraperAuthOutcome {
     None,
     /// Header configured and parsed cleanly.
     Some(AuthHeader),
-    /// Header configured but malformed; caller aborts the scraper task.
+    /// Header configured but malformed. The caller aborts the scraper task.
     Invalid,
 }
 
 /// Parse an optional auth header for a daemon scraper. Failures log a
-/// `tracing::error!` with the redacted endpoint and yield `Invalid`;
-/// successful parses over cleartext `http://` emit a `tracing::warn!`.
+/// `tracing::error!` with the redacted endpoint and yield `Invalid`.
+/// Successful parses over cleartext `http://` emit a `tracing::warn!`.
 /// Shared by the `cloud_energy` and `scaphandre` scrapers.
 #[cfg(feature = "daemon")]
 pub(crate) fn parse_scraper_auth_header(
@@ -132,7 +132,7 @@ pub(crate) fn parse_scraper_auth_header(
 }
 
 // Manual Debug guarantees the value is never printed, even if a
-// future refactor drops hyper's sensitive flag for some reason.
+// future refactor drops hyper's sensitive flag.
 impl std::fmt::Debug for AuthHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthHeader")
@@ -198,7 +198,7 @@ mod tests {
     /// Confirms the documented behaviour that internal whitespace in
     /// the value (including horizontal tabs, per RFC 7230 VCHAR + SP +
     /// HTAB) is preserved as-is. Only surrounding whitespace is
-    /// trimmed; only CR/LF/non-visible ASCII is rejected.
+    /// trimmed, and only CR/LF/non-visible ASCII is rejected.
     #[test]
     fn preserves_internal_tabs_and_spaces() {
         let auth = AuthHeader::parse("Authorization: Bearer\tfoo bar").expect("valid");

@@ -67,8 +67,8 @@ config:
     lag_threshold_ms = 2000
     max_tracked_pairs = 10000
 
-  # No energy backend here on purpose. Without one the carbon figures come
-  # from the embedded model, which needs no scraper and no extra service.
+  # No energy backend here. Without one the carbon figures come from the
+  # embedded model, which needs no scraper and no extra service.
   #
   # To measure instead of model, stack one of the values-green-*.yaml overlays
   # in this directory on top of this file. Each carries a single

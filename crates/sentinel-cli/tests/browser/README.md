@@ -16,7 +16,7 @@ npx playwright test
 The suite's `global-setup.ts` step:
 
 1. Builds the release binary with `cargo build --release --bin
-   perf-sentinel`, every run and not only when the binary is missing.
+   perf-sentinel`, on every run, even when the binary already exists.
    The suite asserts on what the embedded template emits, so a stale
    binary would pass the suite against code that no longer exists.
    Cargo no-ops in seconds when nothing changed.
@@ -38,10 +38,11 @@ pulling in a heavy test framework.
 ## CI
 
 Runs as a separate `browser-tests` job in `.github/workflows/ci.yml`
-so the Rust-only `check` job isn't slowed by the Playwright install.
-Uses `actions/setup-node@v6.4.0` with Node 24, installs Chromium via
-`npx playwright install --with-deps chromium`, then runs this suite.
-Uploads the HTML report as a retained artifact on failure.
+so the Rust-only `check` job isn't slowed by the Playwright setup.
+The job runs inside the `mcr.microsoft.com/playwright:v1.59.1-noble`
+container image, which ships Node and Chromium, so it only runs
+`npm ci` before this suite. Uploads the HTML report as a retained
+artifact on failure.
 
 ## Dashboard demo GIFs and still frames
 
@@ -50,12 +51,16 @@ Uploads the HTML report as a retained artifact on failure.
 
 - `dashboard_dark.gif` and `dashboard_light.gif`: the scripted tour
   recorded twice (one project per primary theme, ~28 s each,
-  palette-optimised at 1000 px / 15 fps).
+  palette-optimised at 1000 px / 20 fps).
 - `findings.png` + `findings-dark.png`, ..., `greenops.png` +
   `greenops-dark.png`, `cheatsheet.png` + `cheatsheet-dark.png`:
   one light + one dark still per tab (seven tabs total), captured
-  at 1280 x 720 so the README's `<picture>` tags can serve the
+  1280 px wide and cropped to the tab's content height, so the
+  README's `<picture>` tags can serve the
   right variant via `prefers-color-scheme`.
+- `ack-modal.png`, `ack-panel.png`, `ack-toggle.png` and their
+  `-dark` variants: the acknowledgment modal, the Acks panel and the
+  show-acknowledged toggle, in light and dark.
 
 ```sh
 cd crates/sentinel-cli/tests/browser
@@ -66,7 +71,7 @@ Requires ffmpeg on the PATH. Edit `demo/tour.spec.ts` for the GIF
 scenario, `demo/stills.spec.ts` for the still frames, and
 `demo/build-gif.sh` for the ffmpeg pipeline.
 
-Each run overwrites every committed asset (~5 MB total: 2 GIFs + 12
+Each run overwrites every committed asset (~18 MB total: 2 GIFs + 20
 PNGs), so each invocation creates new git blobs. Re-run only when
 the dashboard surface changes meaningfully (new tab, layout shift,
 shortcut rebinding) rather than on every doc tweak, otherwise the

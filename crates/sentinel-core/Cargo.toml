@@ -45,16 +45,17 @@ tokio = { version = "1.53.1", features = ["rt", "rt-multi-thread", "sync", "time
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
 # /metrics router) uses axum+tower, and ingest/otlp/ uses tonic directly
 # (`Request`, `Response`, `Status`, `async_trait`) plus opentelemetry-proto
-# message types which depend on prost (via gen-tonic-messages). The actual
+# message types which depend on prost (via gen-tonic-messages). The
 # gRPC/HTTP listeners only run when the daemon feature is enabled at runtime.
-# The gzip/deflate encodings the OTLP gRPC listener accepts ride on the daemon
-# feature, they both resolve to flate2, which tower-http already pulls there.
-# zstd is left out, it would pull zstd-sys (C bindings) into a static musl binary.
+# The daemon feature enables the gzip/deflate encodings the OTLP gRPC listener
+# accepts. Both resolve to flate2, which tower-http already pulls in under that
+# feature. zstd is left out because it would pull zstd-sys (C bindings) into a
+# static musl binary.
 tonic = "0.14.6"
 prost = "0.14.4"
 # with-serde (already on via the default `full` feature) is pinned explicitly:
 # the batch `analyze --input` OTLP/JSON arm needs the serde impls (camelCase +
-# hex ids) and must survive a future `default-features = false` slimming.
+# hex ids) and must keep working if `default-features = false` is set later.
 opentelemetry-proto = { version = "0.33.0", features = ["gen-tonic-messages", "trace", "with-serde"] }
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout", "limit"] }

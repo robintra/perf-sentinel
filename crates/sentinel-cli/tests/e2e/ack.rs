@@ -6,7 +6,7 @@ use crate::helpers::{
 use serde_json::Value;
 use std::process::Command;
 
-// ── Acknowledgments (0.5.17) ─────────────────────────────────────────
+// ── Acknowledgments ──────────────────────────────────────────────────
 
 #[test]
 fn cli_analyze_signature_emitted_in_json() {

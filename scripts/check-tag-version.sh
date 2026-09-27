@@ -135,7 +135,7 @@ for CRATE_TOML in "${CRATE_TOMLS[@]}"; do
   for DEP_NAME in "${INTRA_WORKSPACE_CRATES[@]}"; do
     # Single-line table form only: `<name> = { version = "X.Y.Z", path = "..." }`.
     # Multi-line tables (`<name> = { \n version = "X.Y.Z" \n }`) are not used
-    # in this workspace; if introduced, extend this awk to track the table block.
+    # in this workspace. If introduced, extend this awk to track the table block.
     DEP_VERSION=$(awk -v dep="${DEP_NAME}" '
       $0 ~ "^"dep"[[:space:]]*=[[:space:]]*\\{" {
         if (match($0, /version[[:space:]]*=[[:space:]]*"=?[^"]+"/)) {

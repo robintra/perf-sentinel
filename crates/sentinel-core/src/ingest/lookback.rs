@@ -3,7 +3,7 @@
 //! Both `tempo` and `jaeger_query` subcommands accept a `--lookback`
 //! string like `"1h"`, `"30m"`, `"7d"`, `"2h30m"` to bound their search window,
 //! or a `--from`/`--to` pair for an absolute one. The parsing logic and
-//! the window type live here once, each module wraps them with its own
+//! the window type live here once. Each module wraps them with its own
 //! error type.
 
 use std::time::Duration;
@@ -106,8 +106,8 @@ pub enum WindowError {
 /// The two arms differ in what the caller asks for, never in what reaches
 /// the wire: both resolve to explicit bounds, and neither backend is ever
 /// sent a relative parameter. Victoria Traces reads `lookback` only on its
-/// service-graph endpoint, so a relative window expressed that way was
-/// dropped and the search ran from the Unix epoch. Do not reintroduce it.
+/// service-graph endpoint, so a relative window expressed that way would be
+/// dropped and the search would run from the Unix epoch. Do not send one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SearchWindow {
@@ -124,7 +124,7 @@ pub enum SearchWindow {
     /// Milliseconds rather than seconds because that is what ISO 8601
     /// carries and what the Jaeger query API accepts, once scaled to its
     /// own microseconds. Storing seconds here would discard precision one
-    /// of the two backends can actually use.
+    /// of the two backends can use.
     Absolute { start_ms: u64, end_ms: u64 },
 }
 
@@ -159,9 +159,9 @@ impl SearchWindow {
 
     /// Absolute bounds in Unix epoch milliseconds, as `(start, end)`.
     ///
-    /// Each backend scales from here to the unit its own API takes, which
-    /// is why this returns the finest unit either of them accepts rather
-    /// than the coarsest they share.
+    /// Each backend scales from here to the unit its own API takes, so this
+    /// returns the finest unit either of them accepts rather than the
+    /// coarsest they share.
     ///
     /// # Errors
     ///
@@ -173,7 +173,7 @@ impl SearchWindow {
             Self::Lookback(d) => {
                 // Zero rather than u64::MAX on an unrepresentable clock: the
                 // far end would be an ordered far-future window that passes
-                // validation and reaches the backend, zero surfaces as
+                // validation and reaches the backend. Zero surfaces as
                 // NotOrdered instead.
                 let now = u64::try_from(
                     std::time::SystemTime::now()
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(w.resolve().unwrap(), (1_787_838_000_000, 1_787_839_200_500));
     }
 
-    /// Sub-second bounds used to collapse to the same second and be
+    /// Sub-second bounds must not collapse to the same second and be
     /// rejected. The Jaeger query API takes microseconds, so they survive.
     #[test]
     fn a_sub_second_window_survives() {
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn rejects_a_zero_lookback() {
-        // The parser refuses "0h", but a caller can build the variant directly.
+        // The parser rejects "0h", but a caller can build the variant directly.
         assert_matches!(
             SearchWindow::Lookback(Duration::ZERO).resolve(),
             Err(WindowError::NotOrdered { .. })

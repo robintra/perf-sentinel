@@ -5,9 +5,8 @@
 # uses a different heuristic from S3776, so the two tools do not catch
 # the same set of functions even at the same numeric threshold. We
 # keep clippy enabled as a local pre-commit safety net but at a
-# threshold higher than current ceiling (53 at the time of writing),
-# so it fires on truly egregious regressions without requiring
-# `#[allow]` markers on the existing 9 feature-gated offenders. New
-# code that pushes past this bar is a strong signal to split before
-# committing. The canonical gate at 15 stays in SonarCloud.
+# threshold higher than the current ceiling (53 at the time of writing),
+# so it fires on egregious regressions without requiring `#[allow]`
+# markers on the existing 9 feature-gated offenders. New code that
+# pushes past this bar is a strong signal to split before committing.
 cognitive-complexity-threshold = 60

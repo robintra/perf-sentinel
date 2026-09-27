@@ -89,7 +89,7 @@ fn bump_depth(b: u8, depth: &mut usize, in_string: &mut bool) -> bool {
 /// The detected input format.
 ///
 /// `#[non_exhaustive]` for SemVer-minor variant additions (0.9.5 added
-/// `Otlp`; external matchers must carry a wildcard arm).
+/// `Otlp`). External matchers must carry a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InputFormat {
@@ -131,7 +131,7 @@ impl JsonIngest {
 impl JsonIngest {
     /// [`IngestSource::ingest`] plus the OTLP span-filter tally. The tally
     /// is `Some` only on the OTLP arm: native, Jaeger and Zipkin carry no
-    /// per-reason classification (a known follow-up), so a `None` here
+    /// per-reason classification (a known gap), so a `None` here
     /// means "not counted", never "nothing filtered".
     ///
     /// # Errors
@@ -158,9 +158,8 @@ impl JsonIngest {
         }
 
         // Apply the project-wide nesting cap before dispatching to a
-        // format-specific parser. Pre-0.5.15 only the Native arm enforced
-        // it, leaving Jaeger and Zipkin paths on serde_json's looser
-        // 128-frame default.
+        // format-specific parser, so the Jaeger and Zipkin paths do not
+        // rely on serde_json's looser 128-frame default.
         if exceeds_max_depth(raw) {
             return Err(JsonIngestError::PayloadTooDeep {
                 max_depth: MAX_JSON_DEPTH,
@@ -269,7 +268,7 @@ impl JsonIngest {
                 // A truncated trailing document is routine on a live or
                 // rotated Collector file-exporter dump (exporter still
                 // writing, file rotated mid-line). Tolerate it once at
-                // least one request parsed; mid-stream garbage (non-EOF
+                // least one request parsed. Mid-stream garbage (non-EOF
                 // errors) and a truncated-only payload still fail.
                 Some(Err(e)) if e.is_eof() && parsed_any => {
                     tracing::warn!(
@@ -372,12 +371,12 @@ fn normalize_otlp_json(value: &mut serde_json::Value) {
     }
 }
 
-/// The error a `snake_case` OTLP document earns, or `None` when the empty
-/// request is the document's own doing.
+/// The error for a `snake_case` OTLP document, or `None` when the document
+/// itself holds an empty request.
 ///
 /// `opentelemetry-proto` 0.33 ignores a field it does not know, where
-/// 0.32 refused it, so `{"resource_spans": [...]}` deserializes into an
-/// empty request and every span in it disappears without a word. The
+/// 0.32 rejected it, so `{"resource_spans": [...]}` deserializes into an
+/// empty request and every span in it is dropped silently. The
 /// protobuf JSON mapping spells its keys in camelCase and that is the
 /// only spelling the decoder reads, so name the spelling rather than
 /// report an analysis of nothing.
@@ -400,22 +399,21 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
     let peek = std::str::from_utf8(&raw[..raw.len().min(1024)]).unwrap_or("");
 
     // `{`-rooted formats are told apart STRUCTURALLY, on top-level keys
-    // only, never on whole-buffer substrings: a Jaeger export can carry
+    // only, never on whole-buffer substrings. A Jaeger export can carry
     // the literal "resourceSpans" inside a span name or tag value (a
-    // trace OF an OTel Collector), and an OTLP request can carry "data"
-    // as an attribute key or value while always containing a nested
-    // "spans" key inside scopeSpans, so substring sniffs misroute in
-    // BOTH directions.
+    // trace OF an OTel Collector). An OTLP request can carry "data" as
+    // an attribute key or value, and always contains a nested "spans"
+    // key inside scopeSpans. Substring sniffs misroute in BOTH directions.
     if peek.trim_start().starts_with('{') {
         let mut saw_data_key = false;
         for key in TopLevelKeys::new(peek) {
             match key {
-                // OTLP/JSON: { "resourceSpans": [...] } (camelCase per the
-                // protobuf JSON mapping; the snake_case spelling routes here
+                // OTLP/JSON: { "resourceSpans": [...] }, camelCase per the
+                // protobuf JSON mapping. The snake_case spelling routes here
                 // too so it fails with a clear serde error instead of
-                // Native's confusing "expected array").
+                // Native's confusing "expected array".
                 "resourceSpans" | "resource_spans" => return InputFormat::Otlp,
-                // Jaeger: { "data": [{ ..., "spans": [...] }] }; the nested
+                // Jaeger: { "data": [{ ..., "spans": [...] }] }. The nested
                 // "spans" key is confirmed on a deeper window below.
                 "data" => saw_data_key = true,
                 _ => {}
@@ -443,9 +441,8 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
 /// Iterator over the keys of the ROOT JSON object inside a (possibly
 /// truncated) prefix: depth-1 strings whose next non-whitespace byte is
 /// `:`. Strings at any other depth (nested keys, attribute names) and
-/// string VALUES never qualify, which is what makes the format sniff
-/// immune to payload content. Escape-aware, stops silently when the
-/// prefix ends mid-string.
+/// string VALUES never qualify, so the format sniff is immune to payload
+/// content. Escape-aware, stops silently when the prefix ends mid-string.
 struct TopLevelKeys<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -690,7 +687,7 @@ mod tests {
 
     /// Same span as `otlp_request_json`, with `extra_attrs` spliced into the
     /// attributes array after db.statement/db.system. Each element must carry a
-    /// leading comma (e.g. `,{"key":..,"value":..}`); pass "" for none.
+    /// leading comma (e.g. `,{"key":..,"value":..}`). Pass "" for none.
     fn otlp_request_json_with_attrs(trace_id: &str, statement: &str, extra_attrs: &str) -> String {
         format!(
             r#"{{"resourceSpans":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"svc"}}}}]}},"scopeSpans":[{{"spans":[{{"traceId":"{trace_id}","spanId":"eee19b7ec3c1b174","name":"db-query","kind":3,"startTimeUnixNano":"1720621921000000000","endTimeUnixNano":"1720621921000500000","attributes":[{{"key":"db.statement","value":{{"stringValue":"{statement}"}}}},{{"key":"db.system","value":{{"stringValue":"postgresql"}}}}{extra_attrs}]}}]}}]}}]}}"#
@@ -707,7 +704,7 @@ mod tests {
     fn detect_jaeger_wins_over_stray_resource_spans_literal() {
         // Regression: a Jaeger export can mention "resourceSpans" inside a
         // span name or tag (e.g. a trace OF an OTel Collector). The Jaeger
-        // rule must keep winning, as it did before the OTLP sniff existed.
+        // rule must win over the OTLP sniff.
         let json = r#"{
             "data": [{
                 "traceID": "t1",
@@ -778,8 +775,8 @@ mod tests {
 
     #[test]
     fn otlp_camel_case_empty_request_stays_ok() {
-        // The guard reads the spelling, never the emptiness: a document
-        // that really holds no resource span is not an error.
+        // The guard reads the spelling, never the emptiness: a correctly
+        // spelled document that holds no resource span is not an error.
         let ingest = JsonIngest::new(1_048_576);
         let events = ingest.ingest(br#"{"resourceSpans": []}"#).unwrap();
         assert!(events.is_empty());
@@ -799,7 +796,7 @@ mod tests {
     #[test]
     fn otlp_empty_array_value_ingests() {
         // Canonical protojson omits empty repeated fields, so `{"arrayValue":{}}`
-        // is a valid empty-list attribute. It must not poison the batch (#81).
+        // is a valid empty-list attribute. It must not fail the batch (#81).
         let json = otlp_request_json_with_attrs(
             "5b8efff798038103d269b633813fc60c",
             "SELECT 1",
@@ -982,7 +979,7 @@ mod tests {
 
     #[test]
     fn auto_ingest_otlp_pretty_printed_single_object() {
-        // A pretty-printed request spans many lines; the stream
+        // A pretty-printed request spans many lines. The stream
         // deserializer must not treat it as broken NDJSON.
         let compact = otlp_request_json("5b8efff798038103d269b633813fc60c", "SELECT 1");
         let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
@@ -1110,9 +1107,9 @@ mod tests {
 
     #[test]
     fn deeply_nested_jaeger_payload_is_rejected() {
-        // Pre-0.5.15 only the Native arm enforced MAX_JSON_DEPTH. A Jaeger
-        // payload with 33+ frames of nesting would slip through to
-        // JaegerIngest and rely on serde_json's looser 128-frame default.
+        // Without the pre-dispatch cap, a Jaeger payload with 33+ frames of
+        // nesting would slip through to JaegerIngest and rely on
+        // serde_json's looser 128-frame default.
         let depth = MAX_JSON_DEPTH + 4;
         let mut payload = String::from(r#"{"data":[{"spans":[{"tags":["#);
         for _ in 0..depth {

@@ -6,8 +6,8 @@
 //! Kubernetes liveness or load-balancer health probe.
 //!
 //! Readiness-style signals (uptime, active traces, scraper staleness)
-//! already live at `/api/status`; this endpoint deliberately stays O(1)
-//! and dependency-free.
+//! already live at `/api/status`, so this endpoint stays O(1) and
+//! dependency-free.
 
 use axum::Json;
 use axum::Router;

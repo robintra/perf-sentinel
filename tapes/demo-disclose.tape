@@ -12,9 +12,9 @@
 # under six weekly `{ts, report}` envelopes. The preview opens on the
 # archive's last month (March), `g` widens the granularity to the whole
 # quarter, and `i` flips the intent to official to surface the validator
-# verdict (the demo data predates per-service attribution, so coverage is
-# low and the official validator reports why, which is exactly what the
-# preview is for).
+# verdict. The demo data predates per-service attribution, so coverage is
+# low and the official validator reports why, which is what the preview
+# is for.
 #
 # Frames:
 #   - preview.png : default Month view (internal intent, public/G2)
@@ -97,7 +97,7 @@ Sleep 2500ms
 Right
 Sleep 2500ms
 
-# `g` widens the granularity Month -> Quarter, covering the whole archive.
+# `g` widens the granularity from Month to Quarter, covering the whole archive.
 Type "g"
 Sleep 2500ms
 Screenshot docs/img/disclose/quarter.png

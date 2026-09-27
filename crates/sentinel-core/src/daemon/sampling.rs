@@ -77,8 +77,8 @@ pub(super) fn apply_sampling(events: Vec<SpanEvent>, rate: f64) -> Vec<SpanEvent
     }
 }
 
-/// FNV-1a 64-bit hash of a `trace_id`. Extracted from `should_sample` so
-/// it can be called once per event in `apply_sampling` and reused as
+/// FNV-1a 64-bit hash of a `trace_id`. Kept apart from `should_sample`
+/// so `apply_sampling` hashes each event once and reuses the hash as
 /// both the cache key and the sampling decision input.
 #[inline]
 fn hash_trace_id(trace_id: &str) -> u64 {
@@ -198,7 +198,7 @@ mod tests {
         // sharing a trace_id gets the same keep/drop verdict. At rate
         // 1.0 apply_sampling short-circuits to "keep all" before
         // touching the cache, so we also test a partial rate where the
-        // cache-hit branch is actually exercised.
+        // cache-hit branch is exercised.
         let events = vec![
             make_event("same-trace"),
             make_event("same-trace"),
@@ -215,8 +215,7 @@ mod tests {
         // Partial rate: all three events share a trace_id, so the
         // cache forces a single decision. Acceptable outcomes are
         // 0 (all dropped) or 3 (all kept). Anything in between would
-        // mean the cache lost the decision, which is exactly the
-        // invariant this test is guarding.
+        // mean the cache lost the decision.
         let events2 = vec![
             make_event("cached-trace"),
             make_event("cached-trace"),

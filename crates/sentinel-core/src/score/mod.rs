@@ -16,22 +16,22 @@ pub mod electricity_maps;
 // `cargo publish -p perf-sentinel-core` (default features off) green.
 #[cfg(feature = "daemon")]
 pub(crate) mod energy_state;
-// Shared per-service ops-delta tracker used by every measured-energy
-// scraper. Daemon-gated for the same reason as `energy_state`.
 pub mod kepler;
+// Shared per-service ops-delta tracker for every measured-energy
+// scraper. Daemon-gated for the same reason as `energy_state`.
 #[cfg(feature = "daemon")]
 pub(crate) mod ops_snapshot_diff;
 // Shared Prometheus text-exposition parser, generic over the metric
 // name and routing label key. Used by the Kepler and Alumet scrapers,
-// both daemon-only. Left un-gated to keep the module path it was
-// extracted from (`kepler::parser`) reachable in a bare build, matching
-// how `kepler::config` and `redfish::config` stay compiled there too.
+// both daemon-only. Left un-gated so it stays reachable in a bare
+// build, matching how `kepler::config` and `redfish::config` stay
+// compiled there too.
 pub mod prom_parser;
 pub mod redfish;
 pub mod scaphandre;
 
 // Daemon-only: the canonical avoidable pass runs at archive time. The
-// `disclose` subcommand reads pre-computed tiers, it never recomputes them.
+// `disclose` subcommand reads pre-computed tiers and never recomputes them.
 #[cfg(feature = "daemon")]
 pub(crate) mod canonical;
 mod carbon_compute;
@@ -149,7 +149,7 @@ fn endpoint_stats_to_per_endpoint_io_ops(
     endpoint_stats: &HashMap<EndpointKey<'_>, EndpointStats>,
 ) -> Vec<PerEndpointIoOps> {
     // Sort over borrowed pairs so the comparator does not walk fresh
-    // heap-allocated `String`s; owned strings are materialized after.
+    // heap-allocated `String`s. Owned strings are materialized after.
     let mut refs: Vec<(&str, &str, usize)> = endpoint_stats
         .iter()
         .map(|((service, endpoint), stats)| (*service, *endpoint, stats.total_io_ops))
@@ -305,10 +305,11 @@ pub(crate) struct AvoidableIoOps {
 /// finding's service one less for the necessary call. Every share lands
 /// under the finding's own grouping (`""` when it has none): the split
 /// on `Pattern` knows services, not groupings, and its shape is pinned
-/// by the v1 report schema. That is exact, not approximate: the N+1 and
-/// redundant detectors key their groups on the grouping identity, so
-/// every span a finding charges already carries it. What the split does
-/// approximate is which service made the one necessary call.
+/// by the v1 report schema. Crediting the finding's grouping is exact
+/// because the N+1 and redundant detectors key their groups on the
+/// grouping identity, so every span a finding charges already carries
+/// it. The approximate part of the split is which service made the one
+/// necessary call.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, BTreeMap<(String, String), usize>) {
@@ -377,8 +378,8 @@ struct WasteFigure {
 ///
 /// The measured path emits even at ratio zero (the consumed energy must
 /// appear somewhere or the archive under-counts it) and returns `None`
-/// on windows with no delivered reading: the carry-over banks that
-/// energy for a later window, an estimate here would double-count it.
+/// on windows with no delivered reading. The carry-over banks that
+/// energy for a later window, so an estimate here would double-count it.
 /// Only when NO workload is declared does the figure fall back to an
 /// estimate from the modeled energy of the window's own spans.
 fn build_waste_figure(

@@ -71,7 +71,7 @@ pub(super) struct ReportFlags {
 /// the cross-region flags needed for model-tag selection, and compute
 /// the total operational CO₂. Regions whose name is not in the
 /// embedded carbon table get a dedicated out-of-table row with the
-/// generic PUE fallback; the synthetic "unknown" bucket is appended
+/// generic PUE fallback. The synthetic "unknown" bucket is appended
 /// if there are any unresolvable ops.
 pub(super) fn build_region_breakdowns(
     per_region: BTreeMap<String, RegionAccumulator>,
@@ -132,7 +132,7 @@ fn update_flags_from_accumulator(flags: &mut ReportFlags, acc: &RegionAccumulato
 
 /// Build a single `RegionBreakdown` row from a finished accumulator.
 /// Known regions (present in the embedded carbon table) use the
-/// canonical PUE; out-of-table regions use the generic PUE when a
+/// canonical PUE. Out-of-table regions use the generic PUE when a
 /// custom profile produced non-zero CO₂, and a zeroed row otherwise.
 ///
 /// Takes `acc` by value so the optional `realtime_estimation_method`
@@ -223,8 +223,8 @@ fn realtime_metadata_for_row(
 ///
 /// Precedence (most to least precise): real-time, Alumet, Scaphandre,
 /// Kepler, Redfish, cloud `SPECpower`, monthly/hourly proxy, annual
-/// proxy. The `+cal` suffix only applies to the proxy branches, the
-/// measured branches all short-circuit earlier so the calibration flag
+/// proxy. The `+cal` suffix only applies to the proxy branches. The
+/// measured branches all short-circuit earlier, so the calibration flag
 /// is implicitly suppressed when any measured source is active.
 pub(super) fn select_co2_model_tag(flags: ReportFlags) -> &'static str {
     if flags.any_realtime {
@@ -359,7 +359,7 @@ pub(super) fn finalize_carbon_report(
 
 /// Sort the per-region breakdown by `co2_gco2` descending with an
 /// alphabetical tiebreak. BTreeMap-based accumulation gives stable
-/// f64 sums upstream; this final sort is purely cosmetic and the
+/// f64 sums upstream. This final sort is purely cosmetic and the
 /// result stays deterministic.
 pub(super) fn sort_regions_by_co2_desc(regions: &mut [RegionBreakdown]) {
     regions.sort_by(|a, b| {

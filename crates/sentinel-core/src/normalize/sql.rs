@@ -123,7 +123,7 @@ pub fn is_session_command(template: &str) -> bool {
         // the spaced spellings below: a `values(` prefix match would also
         // claim `VALUES(?,?),(?,?)`, a table constructor written without a
         // space after the keyword.
-        // `show` is deliberately absent: `SHOW COLUMNS FROM t` is schema
+        // `show` is absent because `SHOW COLUMNS FROM t` is schema
         // introspection a dynamic-schema ORM runs once per entity, and both
         // batching and caching apply to it.
         "commit" | "rollback" | "savepoint" | "release" | "start" | "set" | "reset" | "discard"
@@ -156,9 +156,9 @@ pub fn is_session_command(template: &str) -> bool {
         // narrowed to a lone literal so a `VALUES` table constructor stays
         // visible.
         "values" => words.next().is_some_and(|w| w == "?" || w == "(?)"),
-        // Deliberately not `SELECT ?`: `SELECT 1` normalizes into it, but so
-        // does any select of a bare literal, and the ambiguity is not worth it.
-        // Deliberately not `SELECT @@…`: `@@version` is a per-checkout probe
+        // `SELECT ?` is excluded: `SELECT 1` normalizes into it, but so does
+        // any select of a bare literal, and the ambiguity is not worth it.
+        // `SELECT @@…` is excluded: `@@version` is a per-checkout probe
         // but `@@IDENTITY` and `@@ROWCOUNT` are emitted once per statement to
         // fetch generated keys, and batching those is a real remediation.
         "select" => words.next().is_some_and(|w| {
@@ -176,10 +176,10 @@ pub fn is_session_command(template: &str) -> bool {
 ///
 /// The tokenizer only ever anchors slice bounds on ASCII delimiters
 /// (`'`, `"`, `$...$`, digits), and every ASCII byte is a char boundary,
-/// so this holds by construction today. The guard is a refactor net: a
-/// future slice taken at a non-ASCII-anchored position would panic on
-/// multi-byte input, invisible to a grep for `unwrap`/`panic`. Compiles
-/// out in release.
+/// so this holds by construction today. The guard catches a future slice
+/// taken at a non-ASCII-anchored position, which would panic on
+/// multi-byte input and is invisible to a grep for `unwrap`/`panic`.
+/// Compiles out in release.
 fn checked_query_slice(query: &str, start: usize, end: usize) -> &str {
     debug_assert!(
         query.is_char_boundary(start) && query.is_char_boundary(end),
@@ -210,7 +210,7 @@ fn step_normal(t: &mut Tokenizer<'_>) {
         // PostgreSQL positional parameter: $1, $2, etc. Preserve as
         // `$?` in the template WITHOUT extracting the index as a
         // param. The index is a placeholder, not a literal value.
-        // Without this, `$1` → params=["1"] which breaks
+        // Without this, `$1` yields params=["1"], which breaks
         // `looks_sanitized` (params must be empty for sanitized
         // queries to enter the sanitizer-aware classification path).
         flush_normal_run(t);
@@ -295,8 +295,8 @@ fn step_in_double_quote(t: &mut Tokenizer<'_>) {
 }
 
 fn step_in_backtick(t: &mut Tokenizer<'_>) {
-    // Closes on the first backtick; doubled-backtick escapes (`` `a``b` ``)
-    // are not handled, matching the existing double-quote behavior.
+    // Closes on the first backtick. Doubled-backtick escapes (`` `a``b` ``)
+    // are not handled, matching the double-quote behavior.
     if t.bytes[t.i] == b'`' {
         t.state = State::Normal;
     }
@@ -307,7 +307,7 @@ fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {
     // Look for the closing dollar tag at current position
     let remaining = &t.bytes[t.i..];
     if remaining.starts_with(&t.dollar_tag) {
-        // Found closing tag -- flush content as a proper &str slice
+        // Found closing tag: flush content as a proper &str slice
         t.current_value
             .push_str(checked_query_slice(t.query, t.value_start, t.i));
         t.params.push(std::mem::take(&mut t.current_value));
@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn multi_dot_full_template() {
-        // 1.2.3 -> "1.2" is a float, then ".3" remains: dot in template, 3 is a new number
+        // In 1.2.3, "1.2" is a float, then ".3" remains: dot in template, 3 is a new number
         let r = normalize_sql("SELECT * FROM t WHERE x = 1.2.3");
         assert_eq!(r.template, "SELECT * FROM t WHERE x = ?.?");
         assert_eq!(r.params, vec!["1.2", "3"]);
@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn cow_borrowed_path_no_in_list() {
-        // No IN clause -> Cow::Borrowed path
+        // Without an IN clause, normalization takes the Cow::Borrowed path
         let r = normalize_sql("SELECT 1");
         assert_eq!(r.template, "SELECT ?");
         assert_eq!(r.params, vec!["1"]);
@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn dollar_param_does_not_break_dollar_quote() {
         // $$ is a dollar-quote, not a $param. Ensure the dollar-param
-        // check (which runs first) does not swallow $$...$$.
+        // check (which runs first) does not consume $$...$$.
         let r = normalize_sql("SELECT $$hello$$");
         assert_eq!(r.template, "SELECT ?");
         assert_eq!(r.params, vec!["hello"]);

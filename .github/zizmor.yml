@@ -9,7 +9,7 @@ rules:
   # token, so a compromised triggering workflow could reach it. Two things bound
   # that here: the trigger names three workflows of this repository only, and
   # the job's whole body is one `gh run rerun` on an id that arrives through the
-  # environment rather than spliced into the script (fixed alongside this entry).
+  # environment rather than spliced into the script.
   # It grants no write beyond `actions: write`, and it publishes nothing.
   # Removing the finding would mean removing the feature. Reviewed 2026-08-27.
   dangerous-triggers:

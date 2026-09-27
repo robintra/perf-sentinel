@@ -12,9 +12,8 @@ use std::time::Duration;
 /// `cmdline` label, which Scaphandre emits as argv concatenated without
 /// separators (`java -jar /tmp/svc-a.jar` becomes
 /// `cmdline="java-jar/tmp/svc-a.jar"`). The matcher requires both
-/// substrings to be present when `cmdline_contains` is set, exactly one
-/// candidate process otherwise the matcher skips that service for the
-/// tick.
+/// substrings to be present when `cmdline_contains` is set, and exactly
+/// one candidate process. Otherwise it skips that service for the tick.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessMatcher {
@@ -44,13 +43,13 @@ pub struct ProcessMatcher {
 /// exe_contains = "/opt/native-svc/bin/native-svc"
 /// ```
 ///
-/// Absent config → no scraper spawned → all services fall back to the
-/// proxy model. This struct is only constructed when the user sets at
-/// least an `endpoint`.
+/// Absent config means no scraper is spawned, so all services fall back
+/// to the proxy model. This struct is only constructed when the user
+/// sets at least an `endpoint`.
 #[derive(Clone)]
 pub struct ScaphandreConfig {
     /// Full URL of the Prometheus-format metrics endpoint. No TLS
-    /// support is implemented; the endpoint MUST be `http://...` on
+    /// support is implemented. The endpoint MUST be `http://...` on
     /// localhost or a trusted host on the same network segment.
     pub endpoint: String,
     /// How often to scrape. Default `5s`. Clamped to `[1, 3600]` at
@@ -67,8 +66,8 @@ pub struct ScaphandreConfig {
     /// Stored as plain `String` (not `secrecy::SecretString`) to avoid
     /// adding a dependency. The manual `Debug` impl below redacts this
     /// field. Resolved via the `PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER`
-    /// environment variable with fallback to this field; env wins when
-    /// both are set.
+    /// environment variable with fallback to this field. The env var
+    /// wins when both are set.
     pub auth_header: Option<String>,
 }
 
@@ -110,8 +109,8 @@ mod tests {
 
     #[test]
     fn debug_impl_redacts_auth_header() {
-        // Regression guard against `#[derive(Debug)]` being
-        // reintroduced on the struct, which would print the credential.
+        // Guards against a `#[derive(Debug)]` on the struct, which
+        // would print the credential.
         let cfg = sample_config();
         crate::test_helpers::assert_debug_redacts_secret!(&cfg, "super-secret-do-not-log");
     }

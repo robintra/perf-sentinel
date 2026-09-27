@@ -21,10 +21,10 @@ use crate::score::prom_parser::{PromSample, sum_by_label};
 ///   energy_per_op_kwh = window_joules / (ops × 3_600_000)
 /// ```
 ///
-/// The division by `energy_interval_secs` is what makes an Alumet
-/// reading comparable to a Scaphandre one: Alumet publishes the joules
-/// burned during one source `poll_interval`, so the raw number is
-/// meaningless until it is turned back into a rate. Summing raw readings
+/// Dividing by `energy_interval_secs` makes an Alumet reading
+/// comparable to a Scaphandre one: Alumet publishes the joules burned
+/// during one source `poll_interval`, so the raw number is meaningless
+/// until it is turned back into a rate. Summing raw readings
 /// across scrapes would be wrong in both directions (double-counting
 /// when scraping faster than Alumet flushes, dropped intervals when
 /// scraping slower).
@@ -44,7 +44,7 @@ pub fn compute_energy_per_op_kwh(
     // last flush caught the consumer idle, not that the work in this
     // scrape window was free. Publishing 0.0 would override every
     // lower-tier backend with a measured zero for a service that
-    // demonstrably did I/O. Mirrors Kepler's `delta > 0.0` filter, the
+    // demonstrably did I/O. Mirrors Kepler's `delta > 0.0` filter. The
     // caller keeps the previous entry instead.
     if ops == 0 {
         return None;
@@ -110,7 +110,7 @@ pub fn apply_scrape(
     // O(N) index over samples so the service loop stays O(N + M) on
     // endpoints exposing hundreds of series. Label collisions are
     // routine for Alumet (one row per RAPL domain per pod, one row per
-    // socket under `label_key = "domain"`), the summing and per-row
+    // socket under `label_key = "domain"`). The summing and per-row
     // validation semantics live in [`sum_by_label`].
     let by_label = sum_by_label(samples);
     let scrape_interval_secs = cfg.scrape_interval.as_secs_f64();

@@ -17,8 +17,8 @@ const ENVIRONMENT_METRICS_JSON_POINTER: &str = "/PowerWatts/Reading";
 /// Wire shape served by a Redfish endpoint. The schema is declared
 /// per-endpoint so a fleet can host both legacy and modern BMCs without
 /// duplicating top-level config sections. The JSON pointer used by the
-/// parser is derived from this enum (see [`RedfishSchema::json_pointer`]),
-/// the operator never spells out a pointer.
+/// parser is derived from this enum (see [`RedfishSchema::json_pointer`]).
+/// The operator never spells out a pointer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RedfishSchema {
@@ -55,9 +55,9 @@ pub struct RedfishEndpoint {
 }
 
 /// Lower bound on `scrape_interval_secs`. Several BMCs (notably HPE
-/// iLO 4/5) rate-limit Redfish polling below 30 seconds, and many
-/// vendors update their internal sensor cache every 30s anyway, so a
-/// faster interval gains no information while risking 429 responses.
+/// iLO 4/5) rate-limit Redfish polling below 30 seconds. Many vendors
+/// also update their internal sensor cache every 30s, so a faster
+/// interval gains no information and risks 429 responses.
 pub const MIN_SCRAPE_INTERVAL_SECS: u64 = 15;
 
 /// Upper bound on `scrape_interval_secs`. Same shape as Scaphandre /
@@ -96,8 +96,7 @@ pub struct RedfishConfig {
     /// parser uses, no operator-typed pointer.
     pub endpoints: HashMap<String, RedfishEndpoint>,
     /// How often to scrape each chassis. Default `60s`. Clamped to
-    /// `[15, 3600]` at config load time to avoid BMC rate-limit
-    /// retaliation.
+    /// `[15, 3600]` at config load time to stay under BMC rate limits.
     pub scrape_interval: Duration,
     /// Maps perf-sentinel service names to the chassis hosting them.
     /// Every service mapped to the same chassis receives the same
@@ -109,16 +108,15 @@ pub struct RedfishConfig {
     /// **Not yet implemented.** Setting this field causes the scraper
     /// to fail loud at startup with a clear error. Operators with
     /// self-signed BMC certs must currently front the BMC with a
-    /// reverse proxy that presents a publicly-signed cert. Tracked as
-    /// a follow-up.
+    /// reverse proxy that presents a publicly-signed cert.
     pub ca_bundle_path: Option<String>,
     /// Optional auth header in curl format (`"Name: Value"`) attached
     /// to every Redfish request. Most BMCs require Basic auth, e.g.
     /// `"Authorization: Basic base64..."`. Session-token auth (POST
     /// `/SessionService/Sessions`) is not yet supported.
     /// Resolved via the `PERF_SENTINEL_REDFISH_AUTH_HEADER`
-    /// environment variable with fallback to this field, env wins
-    /// when both are set.
+    /// environment variable with fallback to this field. The env var
+    /// wins when both are set.
     pub auth_header: Option<String>,
 }
 

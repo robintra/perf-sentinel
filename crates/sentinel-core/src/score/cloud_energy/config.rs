@@ -65,7 +65,7 @@ pub struct CloudEnergyConfig {
     /// dependency. The manual `Debug` impl below redacts this field so
     /// `tracing::debug!(?config)` never leaks the credential. Resolved
     /// via the `PERF_SENTINEL_CLOUD_AUTH_HEADER` environment variable
-    /// with fallback to this field; env wins when both are set.
+    /// with fallback to this field. The env var wins when both are set.
     pub auth_header: Option<String>,
 }
 
@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn debug_impl_redacts_auth_header() {
-        // Regression guard against `#[derive(Debug)]` being
-        // reintroduced on the struct, which would print the credential.
+        // Guards against a `#[derive(Debug)]` on the struct, which
+        // would print the credential.
         let cfg = sample_config();
         crate::test_helpers::assert_debug_redacts_secret!(&cfg, "super-secret-do-not-log");
     }

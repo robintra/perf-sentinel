@@ -22,18 +22,18 @@
 #
 #   # Post-process the analyze GIF: ~30 MB raw down to ~11.5 MB. This is
 #   # a landing-page asset, so it keeps the full frame rate and a rich
-#   # palette; the settings below were each measured on this tape's own
+#   # palette. The settings below were each measured on this tape's own
 #   # output rather than copied from the other tapes, because this one
 #   # scrolls a full-screen report where nearly every frame differs.
 #   #   fps=20          the capture rate above. Asking for more only
-#   #                   duplicates frames; to actually go higher, raise
+#   #                   duplicates frames. To go higher, raise
 #   #                   `Set Framerate` here and re-record.
 #   #   max_colors=64   SSIM against a 256-color encode is 0.9974, an
 #   #                   invisible difference that costs 4 MB.
 #   #   dither=none     dithering adds per-pixel noise on flat terminal
 #   #                   text, which costs size without looking better.
 #   # Frame dedup (mpdecimate) is not worth adding: the still stretches
-#   # already cost nothing, the size is in the scrolling frames.
+#   # already cost nothing and the size is in the scrolling frames.
 #   ffmpeg -y -i docs/img/analyze/demo.gif \
 #     -vf "fps=20,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=none" \
 #     -loop 0 /tmp/demo-opt.gif
@@ -78,7 +78,7 @@ Enter
 # top of the report and walk through the 10 findings page by page. The
 # four screenshots below populate the README's still-frames section.
 #
-# Note: the last page is captured FIRST (before ScrollUp) so the Quality
+# The last page is captured FIRST (before ScrollUp) so the Quality
 # gate line is guaranteed inside the viewport. Subsequent pages use a
 # ~40-row `ScrollDown` stride with ~8-row overlap: that overlap ensures
 # every finding appears fully on at least one page (any finding partially

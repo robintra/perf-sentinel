@@ -23,10 +23,10 @@ use super::{ClassificationMethod, Finding, FindingType, Severity};
 pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
 
 /// Fixed N+1 threshold for the avoidable energy/carbon archived for periodic
-/// disclosure. Not operator-configurable on purpose: sourcing it from config
-/// would let a loose operational threshold shrink the disclosed waste. Value
-/// `2` is the most sensitive defensible threshold, so the figure is an upper
-/// bound the operator cannot reduce.
+/// disclosure. Not operator-configurable: sourcing it from config would let
+/// a loose operational threshold shrink the disclosed waste. Value `2` is the
+/// most sensitive defensible threshold, so the figure is an upper bound the
+/// operator cannot reduce.
 pub const DISCLOSURE_N_PLUS_ONE_THRESHOLD: u32 = 2;
 
 type NPlusOneKey<'a> = (&'a EventType, &'a str, Option<(&'a str, &'a str)>);
@@ -428,7 +428,7 @@ mod tests {
                 )
             })
             .collect();
-        // Positive control: the genuine N+1 the checkouts used to outrank must
+        // Positive control: the order_item N+1 next to the checkouts must
         // still be reported, so the skip cannot pass by silencing everything.
         events.extend((1..=5).map(|i| {
             make_sql_event(
@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn same_params_not_n_plus_one() {
-        // 6 events with same template AND same params -> not N+1 (that's redundant)
+        // 6 events with same template AND same params are not N+1 (that's redundant)
         let events: Vec<SpanEvent> = (1..=6)
             .map(|i| {
                 make_sql_event(
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn window_at_exact_limit_still_detected() {
-        // 5 events spanning exactly 500ms -> window_ms == 500, limit == 500
+        // 5 events spanning exactly 500ms: window_ms == 500, limit == 500
         // Code uses `>` so `==` should pass
         let events: Vec<SpanEvent> = (0..5)
             .map(|i| {
@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn parse_timestamp_ms_no_fractional() {
-        // No fractional part -> millis = 0
+        // No fractional part gives millis = 0
         assert_eq!(
             parse_timestamp_ms("2025-07-10T14:32:01Z"),
             Some(JUL10_2025_MS + 14 * 3_600_000 + 32 * 60_000 + 1_000)
@@ -746,7 +746,7 @@ mod tests {
 
     #[test]
     fn parse_timestamp_ms_missing_parts() {
-        // Only 2 colon-separated parts (HH:MM, no seconds) -> None
+        // Only 2 colon-separated parts (HH:MM, no seconds) give None
         assert_eq!(parse_timestamp_ms("2025-07-10T14:32Z"), None);
     }
 
@@ -863,7 +863,7 @@ mod tests {
         // under the `3 * threshold` cache-warm bar so high_occurrence
         // does not fire. Strict must let the redundant detector pick
         // it up. Counts above 3*threshold (15 for the default
-        // threshold of 5) flip to n_plus_one_sql; see
+        // threshold of 5) flip to n_plus_one_sql. See
         // `strict_mode_reclassifies_orm_high_occurrence_cache_warm`.
         let durations = [100u64; 7];
         let events = crate::test_helpers::make_sanitized_n_plus_one_events(
@@ -897,7 +897,7 @@ mod tests {
         // Lab dotnet-svc shape: 15 LINQ-by-PK queries on EF Core hitting
         // a warm Npgsql pool. ORM scope present, per-span timings cluster
         // tight (no variance), but the occurrence count clears the
-        // `3 * threshold` cache-warm bar — Strict must reclassify rather
+        // `3 * threshold` cache-warm bar. Strict must reclassify rather
         // than miss a real n+1 just because the rows happen to be in
         // memory. Quarkus + Hibernate would land on the same path.
         let durations = [100u64; 15];
@@ -947,7 +947,7 @@ mod tests {
         // scheduling jitter spreads the durations to CV ~ 0.75. Under the
         // 0.5 default the ORM scope plus the variance reclassify the
         // group to N+1 and the redundant finding vanishes. Raising the
-        // threshold keeps the verdict the code deserves.
+        // threshold keeps the redundant verdict.
         let durations = [400u64, 2600, 500, 3100, 450, 2900, 380, 3300, 420, 2700];
         let events = crate::test_helpers::make_sanitized_n_plus_one_events(
             10,
@@ -1171,7 +1171,7 @@ mod tests {
     #[test]
     fn strict_bare_driver_rejects_when_too_few_valid_timestamps() {
         // If corruption knocks bounds.len() below the 3-span variance
-        // threshold, the gate must reject — no stable signal possible.
+        // threshold, the gate must reject because no stable signal is possible.
         let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let mut events = make_bare_driver_sanitized_events(10, "ts-root-span", 30, &durations);
         for event in events.iter_mut().take(8) {

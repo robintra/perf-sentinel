@@ -49,7 +49,7 @@ fn redundant_impl<'a>(
     collect_spans: bool,
 ) -> Vec<(Finding, Vec<&'a str>)> {
     // Use borrowed keys: (&EventType, &str, &[String]) avoids cloning and
-    // eliminates the join-ambiguity bug (a param containing the separator
+    // the join ambiguity of a string key (a param containing the separator
     // could cause two different param lists to collide).
     let mut groups: HashMap<RedundantKey<'_>, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
@@ -211,8 +211,8 @@ mod tests {
                 )
             })
             .collect();
-        // Positive control: a real duplicate in the same trace must survive,
-        // so the skip cannot pass by silencing everything.
+        // Positive control: a real duplicate in the same trace must still be
+        // reported, so the skip cannot pass by silencing everything.
         events.extend((1..=2).map(|i| {
             make_sql_event(
                 "trace-1",

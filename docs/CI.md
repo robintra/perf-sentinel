@@ -21,7 +21,7 @@ perf-sentinel analyze --ci --input traces.json
 Batch mode needs a trace file, and how a test suite hands one over
 depends entirely on the language. Only C++, PHP and, from agent
 2.32.0 through declarative configuration, Java implement an OTLP
-exporter that writes to a path you choose, and a forked Maven test JVM
+exporter that writes to a path you choose. A forked Maven test JVM
 cannot even yield its stdout, which Surefire uses as its command
 channel. The portable answer is to let the application export over the
 network, as it does in production, and to listen:
@@ -58,15 +58,15 @@ The batch subcommands (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, `pg
 - `1`: quality gate FAILED. Only emitted by `analyze --ci` (or `tempo
   --ci` / `jaeger-query --ci`, which share the same gate path via
   `emit_report_and_gate`) when a threshold in `[thresholds]` was
-  exceeded. The analysis itself succeeded, this is a genuine regression.
+  exceeded. The analysis itself succeeded and found a regression.
   A gate breach takes precedence over a simultaneous report-write failure,
   so a real regression on a broken pipe or a full disk still exits `1`,
   never the tolerable `75`. Every other batch command has no `--ci` flag
-  and no quality gate at all, none of them ever emit `1`.
-- `2`: a CLI usage error. Emitted both by `clap` for parse-level mistakes (a missing required flag, e.g. `mysql-stat` with no `--input`) and by perf-sentinel's own post-parse validation for unsupported flag combinations `clap` cannot express (e.g. `report --pg-stat-top` without `--pg-stat`, or `bench --iterations 0`). A usage error is a permanent invocation mistake and always blocks, deliberately kept out of the tolerable `75` bucket.
+  and no quality gate, so none of them ever emits `1`.
+- `2`: a CLI usage error. Emitted both by `clap` for parse-level mistakes (a missing required flag, e.g. `mysql-stat` with no `--input`) and by perf-sentinel's own post-parse validation for unsupported flag combinations `clap` cannot express (e.g. `report --pg-stat-top` without `--pg-stat`, or `bench --iterations 0`). A usage error is a permanent invocation mistake, so it always blocks and stays out of the tolerable `75` bucket.
 - `75`: tooling/internal error (aligned with `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), the sentinel value the GitLab CI template already uses at the shell level). Covers every runtime failure that reaches perf-sentinel's own code and is neither a usage error nor a quality-gate breach: a missing or unreadable `--input`/`--config`/acknowledgments/baseline file, malformed trace/config/acknowledgments data, a `tempo`/`jaeger-query` fetch failure, an `explain` trace-not-found, or a failure writing the SARIF/JSON/HTML output. Never emitted for a threshold breach, and never means the analysis ran and disagreed with your config.
 
-The two failure codes above the `clap` floor are deliberately distinct so a CI pipeline can branch on the exact code instead of inferring the cause from file existence or step outcome, see [Tooling failures vs quality-gate breaches](#tooling-failures-vs-quality-gate-breaches) below for how each of the three official templates uses this. Before 0.9.17, tooling failures exited `1` too. Pipelines that only check for a non-zero exit code are unaffected.
+The two failure codes above the `clap` floor are distinct so a CI pipeline can branch on the exact code instead of inferring the cause from file existence or step outcome. See [Tooling failures vs quality-gate breaches](#tooling-failures-vs-quality-gate-breaches) below for how each of the three official templates uses this. Before 0.9.17, tooling failures exited `1` too. Pipelines that only check for a non-zero exit code are unaffected.
 
 ---
 
@@ -97,7 +97,7 @@ All three templates run `perf-sentinel analyze --ci` as the gating step. The `--
 
 This split avoids the common failure mode where PR-gates that also enforce on trunk leave main red, the team works around it, and the tool gets disabled.
 
-The recommended setup produces the report once per job, without `--ci` (SARIF + JSON, always available for reviewer inspection), then decides pass/fail separately. Jenkins and GitLab CI do that by re-running `perf-sentinel analyze --ci` a second time and reading its exit code. GitHub Actions instead reads `quality_gate.passed` straight from the JSON report already on disk, since the gate result is computed on every run regardless of `--ci`, only the exit code differs. Either way, the gate decision only ever runs once the report-only pass has already succeeded.
+The recommended setup produces the report once per job, without `--ci` (SARIF + JSON, always available for reviewer inspection), then decides pass/fail separately. Jenkins and GitLab CI do that by re-running `perf-sentinel analyze --ci` a second time and reading its exit code. GitHub Actions instead reads `quality_gate.passed` straight from the JSON report already on disk, since the gate result is computed on every run regardless of `--ci`. Only the exit code differs. Either way, the gate decision runs only after the report-only pass has succeeded.
 
 Per-provider PR-vs-trunk wiring:
 
@@ -107,13 +107,13 @@ Per-provider PR-vs-trunk wiring:
 
 ### Tooling failures vs quality-gate breaches
 
-A `--ci` exit code of `1` is ambiguous on its own: it can mean a genuine threshold breach, or it can mean perf-sentinel never actually ran (a blocked download, a corrupted release, a crash on malformed traces). Treating both the same way is worse than it sounds: a flaky network blip on a Friday afternoon should not block every PR in the repo until someone notices and re-runs CI. All three templates isolate the two failure modes so only a genuine breach can turn a PR red:
+A `--ci` exit code of `1` is ambiguous on its own: it can mean a threshold breach, or it can mean perf-sentinel never ran (a blocked download, a corrupted release, a crash on malformed traces). Treating both the same way lets a flaky network blip on a Friday afternoon block every PR in the repo until someone notices and re-runs CI. All three templates isolate the two failure modes so only a threshold breach can turn a PR red:
 
-- **GitHub Actions**: the download step tolerates failure (`continue-on-error: true`), but the checksum-verification step right after it does not, a tampered or corrupted release must always fail the job, never get folded into the tooling-tolerant bucket. The report-only analyze step also carries `continue-on-error: true`. Every downstream step (SARIF upload, PR comment, the two gate steps) checks `steps.analyze.outcome == 'success'` rather than file existence: shell `>` redirection creates its target file before the command runs, so a crashed analyze would still leave an empty `findings.sarif` behind and defeat a `hashFiles()` check. The analyze step also writes through a `.tmp` path and renames on success, a second, independent guard against that same trap. A final `Report tooling failure` step emits a `::warning::` when analyze did not succeed, so a tooling problem stays visible instead of being silently swallowed.
-- **GitLab CI**: every download command explicitly exits `75` (`EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits)) instead of propagating whatever exit code the underlying tool produced. `allow_failure: exit_codes: [75]` on the job excludes only that specific code from blocking a merge request. It sits on the job rather than inside the merge-request rule because `rules:allow_failure` accepts a boolean and nothing else: GitLab's CI lint rejects the whole file when a rule carries the mapping form. Checksum verification and the Code Quality `jq` conversion are deliberately excluded from that exit-75 convention: a checksum mismatch means a tampered release, and a `jq` failure means a bug in the conversion filter, neither is a tooling blip that should be tolerated. The final `--ci` re-run keeps its own exit code (normally `1` on a real breach), which still blocks as before.
-- **Jenkins**: the download half of the `Install perf-sentinel` stage is wrapped in `catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE')`. Checksum verification and install run unwrapped right after it, so a bad checksum always fails the build. The `perf-sentinel analyze` stage writes its SARIF/JSON through a `.tmp` path and renames on success for the same reason as GitHub Actions above, otherwise `fileExists()` could not tell a crash from a real report. The `Quality gate (PR only)` stage adds a `fileExists('perf-sentinel-results.sarif')` condition alongside the existing `CHANGE_ID` check, so it only runs a real threshold check once the report-only stage has actually produced a SARIF.
+- **GitHub Actions**: the download step tolerates failure (`continue-on-error: true`), but the checksum-verification step right after it does not. A tampered or corrupted release must always fail the job, never get folded into the tooling-tolerant bucket. The report-only analyze step also carries `continue-on-error: true`. Every downstream step (SARIF upload, PR comment, the two gate steps) checks `steps.analyze.outcome == 'success'` rather than file existence. Shell `>` redirection creates its target file before the command runs, so a crashed analyze would still leave an empty `findings.sarif` behind and defeat a `hashFiles()` check. The analyze step also writes through a `.tmp` path and renames on success, a second, independent guard against that same trap. A final `Report tooling failure` step emits a `::warning::` when analyze did not succeed, so a tooling problem stays visible.
+- **GitLab CI**: every download command explicitly exits `75` (`EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits)) instead of propagating whatever exit code the underlying tool produced. `allow_failure: exit_codes: [75]` on the job excludes only that specific code from blocking a merge request. It sits on the job rather than inside the merge-request rule because `rules:allow_failure` accepts a boolean and nothing else: GitLab's CI lint rejects the whole file when a rule carries the mapping form. Checksum verification and the Code Quality `jq` conversion are excluded from that exit-75 convention: a checksum mismatch means a tampered release, and a `jq` failure means a bug in the conversion filter. Neither is a tooling blip that should be tolerated. The final `--ci` re-run keeps its own exit code (normally `1` on a real breach), which still blocks.
+- **Jenkins**: the download half of the `Install perf-sentinel` stage is wrapped in `catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE')`. Checksum verification and install run unwrapped right after it, so a bad checksum always fails the build. The `perf-sentinel analyze` stage writes its SARIF/JSON through a `.tmp` path and renames on success for the same reason as GitHub Actions above. Otherwise `fileExists()` could not tell a crash from a real report. The `Quality gate (PR only)` stage adds a `fileExists('perf-sentinel-results.sarif')` condition alongside the existing `CHANGE_ID` check, so it runs the threshold check only after the report-only stage has produced a SARIF.
 
-In all three cases, a tooling failure now surfaces as a visible warning or an unstable/yellow build, clearly distinct from the red build a real breach produces, and it never blocks a merge or a push to trunk on its own. A checksum or conversion-logic failure, in contrast, always blocks, in every trigger context, because it is not the kind of failure this isolation is meant to tolerate.
+In all three cases, a tooling failure surfaces as a visible warning or an unstable/yellow build, distinct from the red build a threshold breach produces, and it never blocks a merge or a push to trunk on its own. A checksum or conversion-logic failure, in contrast, always blocks, in every trigger context, because it is not the kind of failure this isolation is meant to tolerate.
 
 ### Interactive report via GitHub Pages
 
@@ -239,8 +239,8 @@ That pattern splits the pipeline into a read-only workflow that
 builds and uploads artifacts and a write-enabled workflow triggered
 by `workflow_run` that downloads those artifacts and posts the
 comment. It is not the default in this template because it doubles
-the YAML surface and needs careful artifact passing, not proportional
-for a getting-started template. The `Publish report to gh-pages` step
+the YAML surface and needs careful artifact passing, which is out of
+proportion for a getting-started template. The `Publish report to gh-pages` step
 is guarded the same way (it runs only when
 `github.event.pull_request.head.repo.full_name == github.repository`),
 so a fork PR never fails on a push the read-only token could not make.
@@ -288,13 +288,13 @@ pick the one matching your GitLab tier.
 documented as [Experiment, Tier: Premium or
 Ultimate](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments),
 and is not available on gitlab.com Free. On Free, the MR deployment
-appears successful in the environments list but is not actually
-served. A Free-tier compatible fallback is provided alongside.
+appears successful in the environments list but is not served. A
+Free-tier compatible fallback is provided alongside.
 
-| Block | Tier | Behavior |
-| --- | --- | --- |
-| `perf-sentinel-pages-simple` | Free | Single deployment on the default branch. Publishes the trunk snapshot of the report AND the baseline JSON at the project Pages root. MR reviewers see the trunk view, not their own MR's analysis. |
-| `perf-sentinel-pages` | Premium or Ultimate | One deployment per MR under path prefix `mr-<IID>`, 30-day auto-expiry via `expire_in`. Baseline on the default branch at the Pages root. Native "View deployment" button on the MR UI. |
+| Block                        | Tier                | Behavior                                                                                                                                                                                           |
+|------------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf-sentinel-pages-simple` | Free                | Single deployment on the default branch. Publishes the trunk snapshot of the report AND the baseline JSON at the project Pages root. MR reviewers see the trunk view, not their own MR's analysis. |
+| `perf-sentinel-pages`        | Premium or Ultimate | One deployment per MR under path prefix `mr-<IID>`, 30-day auto-expiry via `expire_in`. Baseline on the default branch at the Pages root. Native "View deployment" button on the MR UI.            |
 
 Pick either block, not both (they would fight over the root deployment).
 
@@ -394,7 +394,7 @@ tab strip.
 controller):
 
 1. Confirm the HTML Publisher plugin (>= 1.10 for CSP compatibility)
-   is installed. Manage Jenkins -> Plugins -> Installed plugins,
+   is installed. `Manage Jenkins -> Plugins -> Installed plugins`,
    search for "HTML Publisher". If missing, install and restart
    the controller. The Warnings Next Generation plugin used by the
    rest of the template needs to be at >= 9.11.0 for the SARIF tool.
@@ -485,8 +485,8 @@ the page, in plain unstyled text, saying that its content is built
 by script, that a restrictive policy is the usual reason it did not
 run, and pointing here. A script placed right after it removes it
 during parsing, so a normal load never shows it. A page that
-explains itself is not a rendered dashboard, it only replaces the
-blank page that sent the first reporter looking through build logs.
+explains itself is not a rendered dashboard. It only replaces a
+blank page that leaves the reader searching through build logs.
 
 The constraint is specific to Jenkins. GitHub Pages and GitLab Pages
 serve the report with no policy of their own, and the two paths above
@@ -501,18 +501,18 @@ and `fetchBaseline()` helper functions (top of
 [`docs/ci-templates/jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy))
 use the [Copy Artifact plugin](https://plugins.jenkins.io/copyartifact/)
 instead, pulling `perf-sentinel-report.json` straight from a previous
-build rather than from a separate published artifact. Following the
-same "compare against what you are merging into" model as SonarQube's
-new-code period. On a PR build (`env.CHANGE_TARGET` set by MultiBranch
-Pipeline) the baseline is the last successful build of the **target
-branch's** job. Outside a PR (no `CHANGE_TARGET` to resolve, and this
-stage runs without a git checkout so the base cannot be inferred any
-other way) it falls back to this job's own last successful build. Both
-lookups are best-effort (`optional: true`): a job that has never built
-successfully, or a first-ever build with no history at all, simply
-renders without the Diff tab, same as leaving the enhancement disabled.
-Enable it by uncommenting the `Generate interactive HTML report` stage,
-the helper functions are already wired in.
+build. This follows the same "compare against what you are merging
+into" model as SonarQube's new-code period. On a PR build
+(`env.CHANGE_TARGET` set by MultiBranch Pipeline) the baseline is the
+last successful build of the **target branch's** job. Outside a PR (no
+`CHANGE_TARGET` to resolve, and this stage runs without a git checkout
+so the base cannot be inferred any other way) it falls back to this
+job's own last successful build. Both lookups are best-effort
+(`optional: true`): a job that has never built successfully, or a
+first-ever build with no history at all, renders without the Diff tab,
+same as leaving the enhancement disabled. Enable it by uncommenting
+the `Generate interactive HTML report` stage. The helper functions are
+already wired in.
 
 **No PR comment posting**. Jenkins does not have a native
 pull-request comment mechanism equivalent to GitHub's sticky
@@ -564,7 +564,7 @@ Three things follow:
 - Coverage asymmetry only flatters. A scenario renamed, dropped or not run lands its findings in Resolved with no code change behind it.
 - An acked finding is filtered from both sides, so its real fix resolves nothing here. The `unmatched_acknowledgment` warning is that signal, see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 
-Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, both sides are re-analyzed by the current binary.
+Upgrade note (0.9.22): finding identity is keyed on `(type, service, source_endpoint, template)`, and `source_endpoint` now resolves entry points that previously reported `unknown` (see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md#signature-format)). Whether that churns your first post-upgrade comparison depends on what the baseline is. A baseline that persists findings, such as the `report --before baseline.json` gh-pages flow below, shows each moved finding once as resolved and once as new, with no application change behind it: re-capture it against 0.9.22 first. A baseline that is a trace corpus fed to `diff --before` sees no churn at all, because both sides are re-analyzed by the current binary.
 
 Upgrade note (0.11.2): finding identity moves for three separate reasons, on
 OTLP, Jaeger and Zipkin alike. Findings may move from an inner framework route

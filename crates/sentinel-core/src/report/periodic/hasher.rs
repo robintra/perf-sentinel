@@ -13,7 +13,7 @@ use super::errors::HashError;
 use super::schema::PeriodicReport;
 
 /// Soft cap on the binary read in [`binary_hash`]. perf-sentinel release
-/// binaries are tens of MiB; this guards against `current_exe` resolving
+/// binaries are tens of MiB. This guards against `current_exe` resolving
 /// to an unexpectedly large path (e.g. a procfs link).
 const BINARY_HASH_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -60,7 +60,7 @@ enum BlankZero {
 /// When a future schema revision adds a post-signing field (typed
 /// `trace_integrity_chain`, an external audit signature, ...) append
 /// it here. The hash invariant only holds for the exact set
-/// declared, see the regression test in this module.
+/// declared (see the regression test in this module).
 const POST_SIGN_FIELDS: &[(&str, &str, BlankZero)] = &[
     ("integrity", "content_hash", BlankZero::EmptyString),
     ("integrity", "signature", BlankZero::Null),
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn content_hash_survives_json_roundtrip() {
         // verify-hash reparses the report from a file before recomputing the
-        // hash, so the hash must be stable across serialize -> parse. With
+        // hash, so the hash must be stable across a JSON round trip. With
         // messy floats (long mantissas, the kind disclose produces) the
         // default serde_json parser can shift a value by 1 ULP and break the
         // hash of an untampered report. The `float_roundtrip` feature makes

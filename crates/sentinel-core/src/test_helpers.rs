@@ -216,7 +216,7 @@ pub fn make_n_plus_one_events() -> Vec<SpanEvent> {
 /// `scope` is attached as the `instrumentation_scopes` chain on every
 /// span (use `Some("io.opentelemetry.spring-data-jpa-3.0")` to exercise
 /// the ORM-marker signal). Optional `durations` overrides the per-span
-/// `duration_us`; when `None` every span uses the default 800µs.
+/// `duration_us`. When `None`, every span uses the default 800µs.
 pub fn make_sanitized_n_plus_one_events(
     count: usize,
     scope: Option<&str>,
@@ -343,7 +343,7 @@ pub fn http_200_text(content_type: &str, body: &str) -> Vec<u8> {
 
 /// Build an HTTP/1.1 200 OK response with a binary body. Used for
 /// OTLP protobuf responses (Tempo fetch). Only tempo tests need binary
-/// bodies today; `scaphandre` / `electricity_maps` stay on the text helper.
+/// bodies today. `scaphandre` / `electricity_maps` stay on the text helper.
 #[must_use]
 #[cfg(feature = "tempo")]
 pub fn http_200_bytes(content_type: &str, body: &[u8]) -> Vec<u8> {

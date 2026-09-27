@@ -12,7 +12,7 @@ use arc_swap::ArcSwap;
 /// One row in the shared state: a measured coefficient with a
 /// freshness timestamp.
 ///
-/// `last_update_ms` is monotonic milliseconds since process start ,
+/// `last_update_ms` is monotonic milliseconds since process start,
 /// produced by [`crate::score::scaphandre::state::monotonic_ms`]. The
 /// scoring snapshot uses the `staleness_ms` parameter to discard
 /// entries older than `3 × scrape_interval` (so a hung scraper does
@@ -26,9 +26,9 @@ pub(crate) struct EnergyRow {
 /// Shared storage for per-service energy coefficients with staleness
 /// filtering.
 ///
-/// Constructors and method signatures mirror the pre-existing
-/// `ScaphandreState` / `CloudEnergyState` public surface so the
-/// wrapping newtypes can delegate line-for-line.
+/// Constructors and method signatures mirror the `ScaphandreState` /
+/// `CloudEnergyState` public surface so the wrapping newtypes can
+/// delegate line-for-line.
 #[derive(Debug, Default)]
 pub(crate) struct AgedEnergyMap {
     inner: ArcSwap<HashMap<String, EnergyRow>>,
@@ -92,12 +92,6 @@ impl AgedEnergyMap {
     }
 }
 
-/// Generate a nominally distinct energy-state wrapper around
-/// [`AgedEnergyMap`]. Each invocation creates a new type that delegates
-/// `new`, `snapshot`, `publish`, `current_owned`, and `insert_for_test`
-/// to the shared storage. The types are intentionally NOT unified so the
-/// daemon cannot accidentally swap a Scaphandre state for a cloud-energy
-/// state (or vice versa) when tagging the energy model.
 /// Insert or overwrite one service's row without re-cloning the key in
 /// the steady state (the common case: the service already has an
 /// entry, only its coefficient moves). Shared by every scraper's
@@ -110,6 +104,12 @@ pub(crate) fn upsert_row(map: &mut HashMap<String, EnergyRow>, service: &str, ro
     }
 }
 
+/// Generate a nominally distinct energy-state wrapper around
+/// [`AgedEnergyMap`]. Each invocation creates a new type that delegates
+/// `new`, `snapshot`, `publish`, `current_owned`, and `insert_for_test`
+/// to the shared storage. The types are not unified, so the daemon
+/// cannot accidentally swap a Scaphandre state for a cloud-energy state
+/// (or vice versa) when tagging the energy model.
 macro_rules! impl_energy_state {
     (
         $(#[$meta:meta])*
@@ -187,7 +187,7 @@ mod tests {
     fn stale_entry_filtered_out() {
         let state = AgedEnergyMap::default();
         state.insert_for_test("svc-a".into(), 1e-7, 100);
-        // now=700, staleness=500 → age 600 >= 500 → stale
+        // now=700, staleness=500: age 600 >= 500, so the row is stale.
         assert!(state.snapshot(700, 500).is_empty());
     }
 
@@ -206,7 +206,7 @@ mod tests {
     fn saturating_sub_protects_against_clock_skew() {
         let state = AgedEnergyMap::default();
         // Row at t=1000, read at t=500 (time went backwards).
-        // saturating_sub gives 0 → age 0 < staleness → fresh.
+        // saturating_sub gives age 0 < staleness, so the row is fresh.
         state.insert_for_test("svc".into(), 5e-7, 1000);
         let snap = state.snapshot(500, 200);
         assert_eq!(snap.len(), 1);

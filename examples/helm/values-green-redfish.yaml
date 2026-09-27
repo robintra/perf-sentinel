@@ -21,17 +21,17 @@
 #     chassis are attributed from the same figure. Prefer Alumet or Kepler when
 #     you need per-service resolution and RAPL is readable.
 #
-# One deliberate difference from the .toml: `[green] enabled` and
-# `default_region` are not repeated here. The base values already set them in
-# config.toml, which is merged after this fragment and would win anyway. The
-# BMC URLs need no in-cluster rewrite, they were already off-host.
+# One difference from the .toml: `[green] enabled` and `default_region` are
+# not repeated here. The base values already set them in config.toml, which is
+# merged after this fragment and would win anyway. The BMC URLs need no
+# in-cluster rewrite because they were already off-host.
 
 config:
   fragments:
     34-green-redfish.toml: |
       [green.redfish]
-      # BMCs are slow and rate-limit aggressively, do not push this down to the
-      # 5s the in-cluster scrapers use.
+      # BMCs are slow and rate-limit aggressively, so do not push this down to
+      # the 5s the in-cluster scrapers use.
       scrape_interval_secs = 60   # default 60, bounds 15..3600
       # Reserved. Setting this currently stops the scraper, so leave it unset.
       # ca_bundle_path = "/etc/ssl/bmc-ca.pem"   # default unset
@@ -57,8 +57,8 @@ config:
       "chat-svc" = "chassis-legacy-1"
       "ledger-svc" = "chassis-modern-1"
 
-# BMC credentials. Required in practice, a Redfish endpoint is never open. The
-# env var wins over the `auth_header` field above, which is deliberately left
+# BMC credentials. Required in practice, since a Redfish endpoint is never
+# open. The env var wins over the `auth_header` field above, which is left
 # commented: a fragment renders into a ConfigMap, readable by anyone holding
 # `get` on the namespace. Create the Secret first:
 #   kubectl -n observability create secret generic perf-sentinel-secrets \

@@ -1,12 +1,11 @@
 # Alerting that hands perf-sentinel the moment an incident happened, for a
 # cluster running the VictoriaMetrics operator. The prometheus-operator twin of
-# this file is examples/incident-alerts-prometheus-operator.yaml, and it opens
-# with the same explanation of why this exists, which three labels the daemon
-# reads, the two cluster assumptions to check before copying (the
-# `container="app"` selector, and deriving `service` from the pod name), why
-# every rule aggregates before deriving that service, and the recording rule
-# every rule joins on. Read that file first,
-# this one repeats only what differs.
+# this file is examples/incident-alerts-prometheus-operator.yaml. Read that
+# file first. It explains why this exists, which three labels the daemon reads,
+# the two cluster assumptions to check before copying (the `container="app"`
+# selector, and deriving `service` from the pod name), why every rule
+# aggregates before deriving that service, and the recording rule every rule
+# joins on. This one repeats only what differs.
 #
 # The VictoriaMetrics operator also converts a `PrometheusRule` into a `VMRule`
 # on its own, so the twin file's rules work here too, provided the VMAlert
@@ -150,7 +149,7 @@ spec:
 #    anywhere along the way. `bearer_token_secret` below is a field the
 #    operator has always rendered, and the daemon accepts `Authorization:
 #    Bearer <key>` as an equivalent of `X-API-Key` on every key-gated route for
-#    exactly this reason.
+#    this reason.
 #
 # 2. THE NAMESPACE MATCHER. The operator adds a `namespace="<this resource's
 #    namespace>"` matcher to the route by default. These alerts carry the

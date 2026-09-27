@@ -1,4 +1,4 @@
-//! Scaphandre power→energy math + state update.
+//! Scaphandre power-to-energy math and state update.
 //!
 //! Holds the pieces specific to Scaphandre's per-process power gauge:
 //! [`compute_energy_per_op_kwh`] turns `(microwatts, scrape_interval, ops)`
@@ -28,8 +28,7 @@ use super::state::{ScaphandreState, ServiceEnergy};
 /// Returns `None` when `ops == 0` so the scraper can keep the
 /// previous (still-valid) entry unchanged instead of producing a
 /// division-by-zero or a coefficient that flaps every scrape. Keeping
-/// stale-but-present is the user-validated decision against model-tag
-/// flapping for idle services.
+/// the stale entry prevents model-tag flapping for idle services.
 #[must_use]
 pub fn compute_energy_per_op_kwh(
     power_microwatts: f64,
@@ -80,14 +79,15 @@ pub fn apply_scrape(
     let mut any_change = false;
     for (service, matcher) in &cfg.process_map {
         let Some(ops) = op_deltas.get(service).copied() else {
-            continue; // service had no ops this window → keep previous entry
+            continue; // service had no ops this window, keep previous entry
         };
         // Scaphandre concatenates argv without separators: `java -jar
         // /tmp/svc.jar` is emitted as `cmdline="java-jar/tmp/svc.jar"`.
         // The matcher uses substring containment on both labels, with
         // cmdline_contains optional for processes whose exe is already
-        // unique (native binaries). Trichotomy via early-bail to avoid
-        // a per-tick Vec allocation.
+        // unique (native binaries). The loop classifies the match as
+        // none, unique or ambiguous and stops at the second candidate,
+        // which avoids a per-tick Vec allocation.
         let mut unique: Option<&ProcessPower> = None;
         let mut ambiguous = false;
         let mut candidate_count = 0usize;
@@ -106,7 +106,7 @@ pub fn apply_scrape(
             unique = Some(p);
         }
         let reading = match (ambiguous, unique) {
-            (false, None) => continue, // process not running → keep previous
+            (false, None) => continue, // process not running, keep previous
             (false, Some(p)) => {
                 // Clean match: clear any prior ambiguity warn-latch so
                 // a future flap re-emits the warning rather than going
@@ -140,7 +140,7 @@ pub fn apply_scrape(
         let Some(energy_per_op) =
             compute_energy_per_op_kwh(reading.power_microwatts, interval_secs, ops)
         else {
-            continue; // divide-by-zero or negative power → skip this service this tick
+            continue; // divide-by-zero or negative power, skip this service this tick
         };
         next.insert(
             service.clone(),

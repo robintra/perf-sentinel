@@ -29,8 +29,8 @@ Set Width 1200
 # The Advisor tab holds only a title, a one-line description and the
 # hint, so a short viewport avoids a near-empty capture.
 # 16/9 rather than the 8:1 strip the content alone fills: the hint is one
-# long line, and a page-wide sliver reads as a cropping accident. The
-# empty space below is deliberate, so trim-bottom-png must NOT run here.
+# long line, and a page-wide sliver reads as a cropping accident. Keep
+# the empty space below: trim-bottom-png must NOT run here.
 Set Height 675
 Set TypingSpeed 100ms
 Set Padding 15

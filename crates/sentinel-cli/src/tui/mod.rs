@@ -1,6 +1,6 @@
 //! Terminal UI for interactive trace and finding inspection.
 //!
-//! Three top-level views form a single drill-down — `Analyze` (summary),
+//! Three top-level views form a single drill-down: `Analyze` (summary),
 //! `Inspect` (the multi-panel browser: traces list, findings, correlations
 //! and a detail span tree) and `Explain` (the selected trace's span tree
 //! full screen). Enter descends `Analyze -> Inspect -> Explain`, Esc
@@ -68,12 +68,12 @@ pub enum View {
     Explain,
     /// Read-only `disclose` preview: calendar stepper over the period,
     /// live intent/confidentiality toggles, aggregated summary, equivalent
-    /// command. Standalone — no drill-down to the other views.
+    /// command. Standalone, with no drill-down to the other views.
     Disclose,
 }
 
 /// Summary data backing the Analyze view. Supplied by the launcher when
-/// available; `None` degrades the view to a hint (e.g. an older daemon
+/// available. `None` degrades the view to a hint (e.g. an older daemon
 /// without `/api/export/report`).
 pub struct AnalyzeSummary {
     pub green_summary: GreenSummary,
@@ -81,7 +81,6 @@ pub struct AnalyzeSummary {
     pub analysis: Analysis,
 }
 
-/// Application state for the TUI.
 /// Order of the Inspect trace list. `s` cycles it: the TUI's primary
 /// list is traces, so the severity/impact axes rank each trace by its
 /// findings, mirroring the dashboard and `analyze --sort`.
@@ -102,8 +101,8 @@ impl From<crate::render::FindingsSort> for TraceSort {
 }
 
 impl TraceSort {
-    /// Impact leads, it is what the list opens on and the question a
-    /// reader arrives with. Id order stays reachable, one key away.
+    /// Impact leads: the list opens on it, and it is what a reader looks
+    /// for. Id order stays one key away.
     fn next(self) -> Self {
         match self {
             Self::Impact => Self::Severity,
@@ -141,6 +140,7 @@ fn build_recurrence(findings: &[Finding]) -> HashMap<String, crate::render::Recu
     index
 }
 
+/// Application state for the TUI.
 pub struct App {
     pub traces: Vec<Trace>,
     /// All findings from the report (owned, flat list).
@@ -148,8 +148,8 @@ pub struct App {
     /// Per-trace finding indices into `all_findings`.
     findings_by_trace: Vec<Vec<usize>>,
     /// `findings_by_trace` narrowed to `severity_filter`, the slice the
-    /// Findings panel actually walks. Derived, never the source: the
-    /// filter has to be reversible without re-reading the report.
+    /// Findings panel walks. Derived, never the source: the filter has to
+    /// be reversible without re-reading the report.
     visible_by_trace: Vec<Vec<usize>>,
     /// Severity the Findings panel is narrowed to, `None` for all of
     /// them. The dashboard puts the same three values on pills.
@@ -187,8 +187,8 @@ pub struct App {
     /// Pre-rendered span trees keyed by `trace_id`, populated by callers
     /// that don't have raw spans in memory (e.g. `query inspect` which
     /// fetches trees from the daemon's `/api/explain/{trace_id}` endpoint).
-    /// When `Some(text)`, takes precedence over the `detect + build_tree`
-    /// path that requires `traces[i].spans` to be populated.
+    /// When `Some(text)`, takes precedence over the `build_tree` path that
+    /// requires `traces[i].spans` to be populated.
     pre_rendered_trees: HashMap<String, String>,
     /// Cross-trace correlations to display in the Correlations panel.
     /// Empty in batch mode (correlator is daemon-only). Populated by
@@ -221,7 +221,7 @@ pub struct App {
     pub ack_modal: AckModalState,
 
     /// Present only under `disclose --tui`. When `Some`, the tab bar shows
-    /// just the standalone Disclose tab and the app opens on it; the
+    /// just the standalone Disclose tab and the app opens on it. The
     /// analyze/inspect/explain drill-down is unused.
     disclose: Option<DiscloseState>,
 
@@ -326,14 +326,15 @@ impl App {
             hover: None,
             inspect_area: std::cell::Cell::new(Rect::default()),
         };
-        // The state above says impact, so the list has to be in it before
-        // the first paint: the field alone would leave the header lying.
+        // The state above says impact, so the list must be sorted that way
+        // before the first paint, or the header would name an order the
+        // list does not follow.
         app.reorder_traces();
         app
     }
 
     /// Attach the `disclose --tui` preview state. The caller pairs this with
-    /// `with_initial_view(View::Disclose)`; the App is otherwise built with
+    /// `with_initial_view(View::Disclose)`. The App is otherwise built with
     /// empty findings/traces.
     pub(crate) fn with_disclose(mut self, state: DiscloseState) -> Self {
         self.disclose = Some(state);
@@ -380,8 +381,8 @@ impl App {
     /// Attach the report's own warnings, which say what the numbers
     /// below them do not cover (dropped spans, an ignored config
     /// section, a truncated snapshot). The text report and the
-    /// dashboard have always shown them; without this the TUI read as
-    /// a complete report when it was a partial one.
+    /// dashboard show them too. Without them the TUI reads as a
+    /// complete report when it is a partial one.
     pub(crate) fn with_warnings(
         mut self,
         warnings: Vec<sentinel_core::report::warnings::Warning>,
@@ -389,9 +390,9 @@ impl App {
         self.warnings = warnings;
         // Warnings are part of the Analyze body, so the cached line count
         // has to follow them. Without this the degraded no-summary path
-        // (which never calls `with_summary`) keeps a count of 0 and the
-        // view cannot be scrolled to the warnings past the viewport, and
-        // the builder order would silently decide whether they count.
+        // (which never calls `with_summary`) would keep a count of 0, so the
+        // view could not be scrolled to the warnings past the viewport. The
+        // builder order would also silently decide whether they count.
         self.refresh_analyze_line_count();
         self
     }
@@ -408,7 +409,7 @@ impl App {
     /// offenders, quality gate). Without it the view shows a hint.
     pub(crate) fn with_summary(mut self, summary: AnalyzeSummary) -> Self {
         self.summary = Some(summary);
-        // Build the body once to cache its line count; the summary and
+        // Build the body once to cache its line count. The summary and
         // findings are immutable afterwards, so the count never changes.
         self.refresh_analyze_line_count();
         self
@@ -498,7 +499,7 @@ impl App {
         }
         // Timing only exists on the detectors that measure per-span
         // durations, classification only inside the n+1 family, and the
-        // confidence row is silent on a batch run. The observation
+        // confidence row is absent on a batch run. The observation
         // window is unconditional, hence not counted here but in the
         // always-present rows below.
         if crate::render::format_span_timing(&finding.pattern).is_some() {
@@ -530,8 +531,8 @@ impl App {
 
     /// Get the cached detail tree text, computing it if needed.
     ///
-    /// Cached per trace (not per finding) since the tree is the same for all
-    /// findings in a trace, `build_tree` annotates all findings inline.
+    /// Cached per trace (not per finding): `build_tree` annotates every
+    /// finding of the trace inline, so the tree is the same for all of them.
     fn detail_tree_text(&mut self) -> Option<String> {
         let trace_idx = self.selected_trace;
 
@@ -544,9 +545,9 @@ impl App {
         let trace_id = self.trace_ids.get(trace_idx)?.clone();
 
         // Prefer the pre-rendered tree (populated by `query inspect` from
-        // daemon API responses) over the local detect + build_tree path.
-        // This lets the TUI display real span trees even when the caller
-        // has no raw spans in memory.
+        // daemon API responses) over the local build_tree path. This lets
+        // the TUI display real span trees even when the caller has no raw
+        // spans in memory.
         if let Some(text) = self.pre_rendered_trees.get(&trace_id) {
             let text = text.clone();
             self.cached_detail = Some((trace_idx, text.clone()));
@@ -561,12 +562,13 @@ impl App {
         if trace.spans.is_empty() {
             return None;
         }
-        // The report's own findings for this trace, never a re-detection:
-        // spans rebuilt from a snapshot's masked trees carry no params and
-        // a `?` template, which the sanitizer-aware classifier reads as
-        // already-parameterized and suppresses, drawing a clean tree under
-        // the very finding the user selected. Reusing them also keeps the
-        // tree consistent with acknowledgment filtering.
+        // The report's own findings for this trace, never a re-detection.
+        // Spans rebuilt from a snapshot's masked trees carry no params and
+        // a `?` template. The sanitizer-aware classifier reads those as
+        // already-parameterized and suppresses the detection, which would
+        // draw a clean tree under the finding the user selected. Reusing the
+        // report's findings also keeps the tree consistent with
+        // acknowledgment filtering.
         let per_trace_findings: Vec<Finding> = self.findings_by_trace[trace_vec_idx]
             .iter()
             .filter_map(|&i| self.all_findings.get(i).cloned())
@@ -577,7 +579,6 @@ impl App {
         Some(text)
     }
 
-    /// Move selection up in the active panel.
     /// Cycle the Inspect trace order: aggregate-impact-first, which is
     /// what it opens on, then worst-severity-first, then id, the other
     /// axis breaking ties.
@@ -660,10 +661,10 @@ impl App {
 
     /// Rank the findings inside each trace under the active mode, on the
     /// same comparator as the trace list and the dashboard. Without this
-    /// the key ordered the outer list while the inner one kept detector
-    /// order, so a trace ranked worst-first opened on whichever finding
-    /// the detector happened to emit first. `ById` restores the report's
-    /// own order, which is the index order in `all_findings`.
+    /// the key would order the outer list while the inner one would keep
+    /// detector order, so a trace ranked worst-first would open on
+    /// whichever finding the detector emitted first. `ById` restores the
+    /// report's own order, which is the index order in `all_findings`.
     fn reorder_findings(&mut self) {
         let mode = match self.trace_sort {
             TraceSort::ById => {
@@ -783,6 +784,7 @@ impl App {
         self.reorder_findings();
     }
 
+    /// Move selection up in the active panel.
     pub fn move_up(&mut self) {
         match self.active_panel {
             Panel::Traces => {
@@ -902,9 +904,9 @@ impl App {
         if area.width == 0 || area.height == 0 {
             return None;
         }
-        // Horizontal borders live in the top row; checked before the
-        // vertical border so the vertical ±1 tolerance can't shadow the
-        // top row's bottom cell.
+        // Horizontal borders live in the top row. They are checked before
+        // the vertical border so the vertical ±1 tolerance can't shadow
+        // the top row's bottom cell.
         let top_h = u16::try_from(u32::from(area.height) * u32::from(self.inspect_rows[0]) / 100)
             .unwrap_or(area.height);
         if in_range(row, area.y, top_h) {
@@ -1073,15 +1075,9 @@ impl App {
         counts
     }
 
-    /// Build the Analyze view body as owned ratatui lines. Mirrors the
-    /// sections of the CLI report (`render.rs`) — analysis metadata,
-    /// findings by severity, I/O waste, top offenders, quality gate — but
-    /// as widgets. All externally-sourced strings (endpoint, service) are
-    /// sanitized for the terminal. Falls back to a hint when no summary
-    /// was supplied (e.g. an older daemon without `/api/export/report`).
-    /// The report's warnings, first, so what the figures do not cover is
-    /// read before the figures. Same content and same order as the text
-    /// report and the dashboard banner.
+    /// The report's warnings, pushed first so what the figures do not
+    /// cover is read before the figures. Same content and same order as
+    /// the text report and the dashboard banner.
     fn push_warning_lines(&self, lines: &mut Vec<Line<'static>>) {
         if self.warnings.is_empty() {
             return;
@@ -1094,7 +1090,7 @@ impl App {
         )));
         for w in &self.warnings {
             // Backticks live in the data so the HTML can render code
-            // chips; a terminal shows them as literal noise.
+            // chips. A terminal shows them as literal noise.
             let plain = strip_code_ticks(&w.message);
             lines.push(Line::from(Span::raw(format!(
                 "  [{}] {}",
@@ -1140,9 +1136,8 @@ impl App {
         for &(f, avoidable) in ranked.iter().take(Self::TOP_FINDINGS_ROWS) {
             lines.push(Line::from(vec![
                 Span::raw("  - ".to_string()),
-                // 9, not 8: `CRITICAL` is exactly 8 characters, so a
-                // width of 8 padded it to nothing and ran the label into
-                // the finding type.
+                // 9, not 8: `CRITICAL` is 8 characters, so a width of 8
+                // would run the label into the finding type.
                 Span::styled(
                     format!("{:<9}", severity_label(&f.severity)),
                     Style::default().fg(severity_color(&f.severity)),
@@ -1162,6 +1157,12 @@ impl App {
         lines.push(Line::from(""));
     }
 
+    /// Build the Analyze view body as owned ratatui lines. Mirrors the
+    /// sections of the CLI report (`render.rs`) as widgets: analysis
+    /// metadata, findings by severity, I/O waste, top offenders, quality
+    /// gate. All externally-sourced strings (endpoint, service) are
+    /// sanitized for the terminal. Falls back to a hint when no summary
+    /// was supplied (e.g. an older daemon without `/api/export/report`).
     fn build_analyze_lines(&self) -> Vec<Line<'static>> {
         let dim = dim_style();
         let Some(summary) = &self.summary else {
@@ -1341,7 +1342,7 @@ impl App {
 }
 
 /// State for the ack/revoke modal overlay. Lives on `App.ack_modal`.
-/// `Default` is the hidden state, the modal is opened by `open_ack` /
+/// `Default` is the hidden state. The modal is opened by `open_ack` /
 /// `open_unack` from the `a` and `u` key handlers in `run_loop`.
 #[cfg(feature = "daemon")]
 #[derive(Debug, Default)]
@@ -1385,7 +1386,7 @@ pub enum AckFormField {
 // Modal text-buffer character caps. Capping in chars (not bytes) so
 // multi-byte UTF-8 input fills the buffer at the same rate the user
 // sees typed characters. The daemon enforces server-side limits on
-// reason / by anyway, these caps just keep the modal layout stable.
+// reason / by anyway. These caps only keep the modal layout stable.
 #[cfg(feature = "daemon")]
 const REASON_MAX: usize = 256;
 #[cfg(feature = "daemon")]
@@ -1489,7 +1490,7 @@ pub enum ModalAction {
 }
 
 /// Result of an ack/revoke roundtrip executed off the run loop.
-/// The async task sends one of these through the outcome channel,
+/// The async task sends one of these through the outcome channel, and
 /// `apply_ack_outcome` applies it the next time the loop tick drains.
 /// `Success.refreshed_acks` is `None` when the post-write refetch failed
 /// (keep the previous snapshot), `Some(map)` otherwise even if empty
@@ -1753,9 +1754,9 @@ fn push_carbon_lines(
     dim: Style,
 ) {
     let Some(carbon) = gs.co2.as_ref() else {
-        // Greyed rather than absent, so the reader sees why. The trace count,
-        // not scoring_config: a daemon stamps that whenever Electricity Maps
-        // is configured.
+        // Greyed rather than absent, so the reader sees why. The cause is
+        // picked from the trace count, not from scoring_config, which a
+        // daemon stamps whenever Electricity Maps is configured.
         lines.push(Line::from(Span::styled(
             if traces_analyzed == 0 {
                 "Carbon: not computed (no traces analyzed)"
@@ -1796,7 +1797,7 @@ fn push_carbon_lines(
 fn push_quality_gate_lines(lines: &mut Vec<Line<'static>>, gate: &QualityGate, dim: Style) {
     // An empty rule set means the gate was never evaluated, e.g. a daemon
     // `/api/export/report` snapshot (which hardcodes passed=true, rules=[]).
-    // Render that honestly rather than a misleading green PASSED sitting
+    // Render it as "not evaluated" rather than a misleading green PASSED
     // next to live critical findings under `query inspect`.
     let (gate_label, gate_color) = if gate.rules.is_empty() {
         ("not evaluated", Color::DarkGray)
@@ -1945,7 +1946,7 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> io::Result<()> {
-    // Channel: spawned ack/revoke tasks send their outcome here, the
+    // Channel: spawned ack/revoke tasks send their outcome here. The
     // loop drains it before each redraw so the modal closes (or shows
     // the error) without blocking on the HTTP roundtrip.
     #[cfg(feature = "daemon")]
@@ -1957,16 +1958,15 @@ fn run_loop(
         }
         // Pre-compute detail tree text (requires &mut self) before immutable
         // draw. Only the Inspect (Detail panel) and Explain views render it,
-        // so skip the detect + build_tree + clone work in the Analyze view.
+        // so skip the build_tree + clone work in the Analyze view.
         if matches!(app.view, View::Inspect | View::Explain) {
             app.detail_tree_text();
         }
         terminal.draw(|f| draw(f, app))?;
 
-        // Block on `event::read` when no ack is in flight (0fps idle,
-        // matches the pre-refactor power profile). Poll with a short
-        // timeout only when a spawned task may push an outcome we need
-        // to apply quickly.
+        // Block on `event::read` when no ack is in flight (0fps idle).
+        // Poll with a short timeout only when a spawned task may push an
+        // outcome we need to apply quickly.
         #[cfg(feature = "daemon")]
         let submitting = app.ack_modal.submitting;
         #[cfg(not(feature = "daemon"))]
@@ -1985,7 +1985,7 @@ fn run_loop(
                 }
             }
             // Border dragging, only when a panel drag is currently
-            // accepted (Inspect view, no modal up); the stored area is
+            // accepted (Inspect view, no modal up). The stored area is
             // stale otherwise. Resize repaints on the next loop turn,
             // which redraws unconditionally.
             Event::Mouse(me) if app.mouse_mode && app.accepts_panel_drag() => {
@@ -2040,7 +2040,7 @@ fn handle_keystroke(
         View::Disclose => dispatch_disclose_key(app, code),
     };
     // A view change invalidates the hovered/dragged border, which is only
-    // tracked while in Inspect; clear it so re-entry doesn't paint a
+    // tracked while in Inspect. Clear it so re-entry doesn't paint a
     // phantom highlight with no cursor under it.
     if app.view != prev_view {
         app.hover = None;
@@ -2205,7 +2205,7 @@ fn draw(f: &mut Frame, app: &App) {
 
 /// Centered "Powered by perf-sentinel (...)" credit pinned to the bottom of
 /// every view, mirroring the HTML dashboard footer. "perf-sentinel" and the
-/// repo link are brand green and the link is underlined; "Powered by" and the
+/// repo link are brand green and the link is underlined. "Powered by" and the
 /// parentheses use the dimmed default foreground so they stay legible on both
 /// light and dark terminals.
 fn draw_brand_footer(f: &mut Frame, area: Rect) {
@@ -2222,7 +2222,7 @@ fn draw_brand_footer(f: &mut Frame, area: Rect) {
 }
 
 /// Top tab bar: the three views with the active one highlighted, plus the
-/// view-level navigation hint. Purely a visual orientation aid — the keys
+/// view-level navigation hint. Only a visual orientation aid: the keys
 /// that switch views are Enter (down) and Esc (up), bound per view.
 fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
     let dim = dim_style();
@@ -2277,7 +2277,7 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         dim,
     ));
     // The MOUSE badge shows in every drill-down view so capture can never
-    // be silently trapped on; the drag/reset hint is Inspect-only.
+    // be silently trapped on. The drag/reset hint is Inspect-only.
     if app.mouse_mode {
         // Unstyled gap so the reversed badge doesn't butt against "q quit".
         spans.push(Span::raw("  "));
@@ -2297,7 +2297,7 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// The Inspect view: the 4-panel browser (traces, findings, correlations,
-/// detail). Body of the former top-level `draw`.
+/// detail).
 fn draw_inspect_view(f: &mut Frame, app: &App, area: Rect) {
     // Stored for the next frame's mouse hit-testing (see `begin_drag`).
     app.inspect_area.set(area);
@@ -2528,11 +2528,11 @@ fn tone_style(tone: Tone) -> Style {
     }
 }
 
-/// Map an interpretation band to a terminal color, matching the CLI
+/// Map an interpretation band to a terminal color. Matches the CLI
 /// report's `interpret_color` (`render.rs`) exactly so the same band reads
 /// the same in `analyze` stdout and the TUI: Critical red, High yellow,
-/// Moderate uncolored (it is a non-empirical rule of thumb, kept neutral so
-/// it does not compete with High), Healthy green.
+/// Moderate uncolored, Healthy green. Moderate is a non-empirical rule of
+/// thumb, kept neutral so it does not compete with High.
 fn interpret_band_color(level: InterpretationLevel) -> Color {
     match level {
         InterpretationLevel::Healthy => Color::Green,
@@ -2576,8 +2576,8 @@ pub(crate) fn highlight_vline(f: &mut Frame, x: u16, y: u16, height: u16, style:
 }
 
 /// Highlight a draggable HORIZONTAL border, heavy + accent with a
-/// `\u{256a}` handle at its midpoint (vertical stubs hint the up-down drag);
-/// see [`highlight_vline`].
+/// `\u{256a}` handle at its midpoint (vertical stubs hint the up-down drag).
+/// See [`highlight_vline`].
 pub(crate) fn highlight_hline(f: &mut Frame, x: u16, y: u16, width: u16, style: Style) {
     let buf = f.buffer_mut();
     let mid = x.saturating_add(width / 2);
@@ -2901,7 +2901,7 @@ fn push_finding_context_lines<'a>(lines: &mut Vec<Line<'a>>, finding: &'a Findin
     if let Some(ref loc) = finding.code_location {
         let src = loc.display_string();
         if !src.is_empty() {
-            // After Endpoint, which the grouping row pushed from 5 to 6.
+            // After Endpoint, at index 6 behind the grouping row.
             lines.insert(
                 7,
                 Line::from(vec![
@@ -2912,8 +2912,8 @@ fn push_finding_context_lines<'a>(lines: &mut Vec<Line<'a>>, finding: &'a Findin
         }
     }
 
-    // The three below shipped on the dashboard in 0.11.0 and 0.5.4 and
-    // never reached the terminal. Same figures, same formatting.
+    // The three rows below use the same figures and formatting as the
+    // dashboard.
     if let Some(timing) = crate::render::format_span_timing(&finding.pattern) {
         lines.push(Line::from(vec![
             Span::styled("Timing:   ", dim_style()),
@@ -3135,9 +3135,8 @@ fn render_field_label(
 
 #[cfg(feature = "daemon")]
 fn render_field_input(f: &mut Frame, area: Rect, value: &str, focused: bool) {
-    // Borrow when possible: the focused branch needs to append a
-    // cursor char so it allocates, the empty placeholder is `'static`
-    // and the unfocused branch just borrows `value`.
+    // Borrow when possible: only the focused branch allocates, to append
+    // the cursor char.
     let display: std::borrow::Cow<'_, str> = if value.is_empty() && !focused {
         std::borrow::Cow::Borrowed("(empty)")
     } else if focused {
@@ -3181,7 +3180,7 @@ fn render_modal_buttons(f: &mut Frame, area: Rect, modal: &AckModalState) {
 }
 
 /// Style a modal action button. Focused buttons reverse the color
-/// (black foreground on the action color background) and bold; the
+/// (black foreground on the action color background) and bold. The
 /// unfocused state uses the action color as foreground only.
 #[cfg(feature = "daemon")]
 fn button_style(action_color: Color, focused: bool) -> Style {
@@ -3269,8 +3268,8 @@ fn submit_ack_modal(app: &mut App, tx_outcome: &mpsc::UnboundedSender<AckOutcome
 
 /// Execute the POST/DELETE roundtrip and the post-success refetch, then
 /// push a single `AckOutcome` through the channel. Refetch failure on a
-/// successful write keeps the previous `acks_by_signature` snapshot, the
-/// indicator may briefly look stale but the write itself succeeded.
+/// successful write keeps the previous `acks_by_signature` snapshot. The
+/// indicator may briefly look stale, but the write itself succeeded.
 #[cfg(feature = "daemon")]
 async fn execute_ack_submit(payload: AckSubmitPayload, tx: mpsc::UnboundedSender<AckOutcome>) {
     let write_result = match &payload.op {
@@ -3333,10 +3332,11 @@ async fn execute_ack_submit(payload: AckSubmitPayload, tx: mpsc::UnboundedSender
 }
 
 /// Apply an `AckOutcome` to the app state. Idempotent against an
-/// already-closed modal (Esc-while-submitting): Success still refreshes
-/// the global ack map when present so the Findings indicator updates,
-/// Failure logs at WARN before being dropped so a misconfigured
-/// `[daemon.ack] api_key` does not stay hidden in the operator's logs.
+/// already-closed modal (Esc-while-submitting). Success still refreshes
+/// the global ack map when present, so the Findings indicator updates.
+/// A Failure on a closed modal logs at WARN before being dropped, so a
+/// misconfigured `[daemon.ack] api_key` still shows up in the operator's
+/// logs.
 #[cfg(feature = "daemon")]
 fn apply_ack_outcome(app: &mut App, outcome: AckOutcome) {
     match outcome {

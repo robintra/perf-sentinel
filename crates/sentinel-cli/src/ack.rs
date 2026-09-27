@@ -74,7 +74,7 @@ pub(crate) enum AckAction {
     /// List active daemon acknowledgments.
     ///
     /// TOML CI acks (`.perf-sentinel-acknowledgments.toml`) are not
-    /// listed here, consult the file directly.
+    /// listed here. Consult the file directly.
     List {
         /// Output format.
         #[arg(long, value_enum, default_value = "text")]
@@ -427,8 +427,7 @@ pub(crate) fn validate_url(daemon_url: &str) -> Result<String, String> {
         ));
     }
     // `hyper::Uri` accepts `http://:8080` (port without host) so reject
-    // empty hosts explicitly. Closes the rust-reviewer's "loose hostname
-    // validation" nit without pulling in `url::Url` as a dependency.
+    // empty hosts explicitly, without pulling in `url::Url` as a dependency.
     if parsed.host().is_none_or(str::is_empty) {
         return Err(format!("Invalid daemon URL `{daemon_url}`: missing host"));
     }
@@ -444,7 +443,7 @@ pub(crate) fn validate_url(daemon_url: &str) -> Result<String, String> {
         ));
     }
     // Reject path components: the CLI builds `/api/...` URLs from the
-    // base, a user-supplied path would create `https://host/v1/api/...`
+    // base, so a user-supplied path would create `https://host/v1/api/...`
     // which is almost never what the operator intends and silently
     // mismatches the daemon's route table. `parsed.path()` is `"/"` or
     // `""` for a bare authority, anything longer is a real path.
@@ -481,7 +480,7 @@ fn resolve_signature(arg: Option<String>) -> Result<String, String> {
         );
     }
     // Cap stdin at MAX_SIGNATURE_LEN+1 so a `cat /dev/urandom` pipe
-    // cannot exhaust memory; oversize input is rejected post-trim.
+    // cannot exhaust memory. Oversize input is rejected post-trim.
     let cap = sentinel_core::daemon::ack::MAX_SIGNATURE_LEN + 1;
     let mut buf = String::new();
     let stdin = std::io::stdin();
@@ -726,8 +725,8 @@ fn format_ack_table(entries: &[AckListEntry], colored: bool) -> String {
     }
 
     // Materialize each row once so the column-width pass and the
-    // render pass walk the same owned strings without parallel-vector
-    // foot-guns (length drift, off-by-one indexing).
+    // render pass walk the same owned strings. Parallel vectors would
+    // risk length drift and off-by-one indexing.
     struct Row {
         signature: String,
         by: String,
@@ -813,8 +812,8 @@ fn exit_code_for_status(status: hyper::StatusCode) -> i32 {
 fn eprint_status_error(status: hyper::StatusCode, op: &str, signature: &str, daemon_url: &str) {
     use sentinel_core::text_safety::sanitize_for_terminal;
     let code = status.as_u16();
-    // Signatures and daemon URLs may have been read from stdin/env; pipe
-    // through the terminal sanitizer to avoid escape-sequence injection.
+    // Signatures and daemon URLs may have been read from stdin/env, so pipe
+    // them through the terminal sanitizer to avoid escape-sequence injection.
     let safe_sig = sanitize_for_terminal(signature);
     let safe_url = sanitize_for_terminal(daemon_url);
     match (code, op) {
@@ -961,10 +960,9 @@ pub(crate) async fn post_ack_via_daemon(
         .await
         .map_err(|e| AckSubmitError::Transport(e.to_string()))?;
     // POST never produces 404 from the route table, so the `NotFound`
-    // variant is reserved for DELETE. 400 surfaces an
-    // invalid-signature body from the daemon, mirror the CLI's
-    // dedicated 400 hint via `Validation`. 507 signals the ack store
-    // cap is reached.
+    // variant is reserved for DELETE. 400 carries an invalid-signature
+    // body from the daemon and maps to `Validation`, mirroring the CLI's
+    // dedicated 400 hint. 507 signals the ack store cap is reached.
     match status.as_u16() {
         201 => Ok(()),
         400 => Err(AckSubmitError::Validation(format!(
@@ -1033,7 +1031,7 @@ fn decode_body_message(body: &bytes::Bytes) -> String {
         trimmed.to_string()
     };
     // Eager sanitize: per the AckSubmitError contract, every consumer
-    // must scrub before display; do it once at the source.
+    // must scrub before display, so do it once at the source.
     sanitize_for_terminal(&truncated).into_owned()
 }
 
@@ -1045,7 +1043,7 @@ fn decode_body_message(body: &bytes::Bytes) -> String {
 ///
 /// Encodes everything that is not in the unreserved set (RFC 3986)
 /// or `:`, which is allowed in path segments. Real sentinel signatures
-/// are `[A-Za-z0-9_:.-]+`, the common case probes the input and
+/// are `[A-Za-z0-9_:.-]+`, so the common case probes the input and
 /// returns `Cow::Borrowed` zero-allocation.
 pub(crate) fn percent_encode_signature_segment(s: &str) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;
@@ -1055,7 +1053,7 @@ pub(crate) fn percent_encode_signature_segment(s: &str) -> std::borrow::Cow<'_, 
     }
     // Each unsafe byte expands to 3 chars. `+ s.len() / 4` is a soft
     // upper bound for typical input where most bytes are safe and only
-    // a few escape, prevents the realloc dance on heavy-escape inputs
+    // a few escape. It prevents repeated reallocs on heavy-escape inputs
     // without overcommitting memory on signatures with one stray byte.
     let mut out = String::with_capacity(s.len() + s.len() / 4);
     for byte in s.bytes() {

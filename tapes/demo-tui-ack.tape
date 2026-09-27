@@ -8,7 +8,7 @@
 # key (revoke) is not exercised here because one screenshot per
 # action keeps the tape compact, but the modal renders the same way.
 #
-# Seeding the daemon with findings is the load-bearing step: the
+# The tape depends on seeding the daemon with findings. The
 # daemon's OTLP endpoints only accept `application/x-protobuf`, but
 # `[daemon] json_socket` (Unix domain socket, NDJSON of SpanEvent
 # arrays, owner-only 0600 permissions) accepts our native fixture
@@ -90,8 +90,8 @@ Sleep 1500ms
 Screenshot docs/img/ack/tui-modal.png
 Sleep 2s
 
-# Fill the form: reason -> Tab -> expires shortcut -> Tab to skip
-# the By field (pre-filled from $USER) -> Tab to land on the
+# Fill the form: type the reason, Tab, type the expires shortcut, Tab
+# to skip the By field (pre-filled from $USER), then Tab to land on the
 # Acknowledge button. A longer pause on the filled modal lets the
 # GIF viewer read the form before the Enter submits it.
 Type "Known intentional batch in checkout, JIRA-1234"

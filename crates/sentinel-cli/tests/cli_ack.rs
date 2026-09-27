@@ -18,8 +18,8 @@ use std::time::Duration;
 const DAEMON_BIN: &str = env!("CARGO_BIN_EXE_perf-sentinel");
 
 /// Captured request: method, body, X-API-Key header value (if any).
-/// `path` is parsed but not retained; tests assert on method+body which
-/// are sufficient because each mock is one-shot.
+/// `path` is parsed but not retained. Tests assert on method+body, which
+/// is enough because each mock is one-shot.
 #[derive(Default)]
 struct CapturedRequest {
     method: String,

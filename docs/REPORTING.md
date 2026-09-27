@@ -18,7 +18,7 @@ For `official` intent, the validator also rejects reports below 75% runtime-cali
 
 ### Temporal coverage and other warnings (v1.2)
 
-`disclose` reports `aggregate.temporal_coverage`: the fraction of the declared period's calendar days that actually carried measurements (`observed_days / days_in_period`). When it falls below an informational threshold the CLI prints a stderr warning and appends a disclaimer to the report, but it never blocks an `official` report. The reason is that archiving is traffic-gated, a window with no traffic writes nothing, so a low figure can be a legitimately quiet period rather than a measurement gap. Treat it as a lower bound on activity, not a daemon-uptime guarantee. It exists so a reader can distinguish a continuously-measured quarter from one where the daemon ran only a handful of days, the in-binary signal closest to "the operator simply stopped measuring for part of the period". Total non-participation (never running the tool) leaves no report at all and is out of scope for any in-binary check, see [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md).
+`disclose` reports `aggregate.temporal_coverage`: the fraction of the declared period's calendar days that carried measurements (`observed_days / days_in_period`). When it falls below an informational threshold the CLI prints a stderr warning and appends a disclaimer to the report, but it never blocks an `official` report. Archiving is traffic-gated (a window with no traffic writes nothing), so a low figure can be a legitimately quiet period rather than a measurement gap. Treat it as a lower bound on activity, not a daemon-uptime guarantee. It exists so a reader can distinguish a continuously-measured quarter from one where the daemon ran only a handful of days, the in-binary signal closest to "the operator stopped measuring for part of the period". Total non-participation (never running the tool) leaves no report at all and is out of scope for any in-binary check, see [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md).
 
 Two further checks tighten consistency. The validator hard-rejects a `days_covered` that does not equal `(to_date - from_date) + 1` (a disclose-produced report always satisfies this, so only a hand-edited file trips it) and a `requests_measured` that exceeds an operator-declared `total_requests_in_period`. For `official` intent, omitting `total_requests_in_period` in the org config emits a warning, since `coverage_percentage` is then absent from the report.
 
@@ -39,7 +39,7 @@ perf-sentinel publishes reports at two granularity levels, controlled by `--conf
 - `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>` (required, inclusive). UTC calendar dates.
 - `--input <PATH>` (required, repeatable). Each path can be a single `.ndjson` file, a directory whose `*.ndjson` files are unioned (sorted by name), or a shell-expanded glob. perf-sentinel itself does not expand globs, so `--input archive/2026Q1/*.ndjson` works in a shell but fails when called via direct `exec` without shell expansion. In CI runners that exec the binary directly, prefer a directory or a single file.
 - `--output <PATH>` (required). Where to write `perf-sentinel-report.json`.
-- `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the previous section.
+- `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the org-config TOML section below.
 - `--emit-attestation <PATH>` (optional). When set, also writes the in-toto v1 statement sidecar at this path. Needed for the signing workflow.
 - `--strict-attribution` (optional). By default, perf-sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
 - `--tui` (optional, needs the `tui` build feature). Opens a read-only preview instead of writing a report, see below. It relaxes `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to`, and `--output` to optional, since you dial them in the interface. Conflicts with `--emit-attestation`.
@@ -73,7 +73,7 @@ A report carries the total operational energy and carbon of the workload (span-d
 - **Canonical** (`aggregate.canonical_waste`). Computed at a fixed N+1 threshold pinned in the binary (`2`), regardless of the operator's `[detection] n_plus_one_min_occurrences`. This is the non-manipulable figure: raising your own threshold cannot shrink it. It is the headline avoidable number, and at the default operator threshold of `5` it is typically larger than what the operator's own dashboard shows.
 - **Operational** (`aggregate.operational_waste`). Computed at the operator's configured threshold and recorded with that threshold.
 
-Publishing both keeps the disclosure honest: a reader compares the two and sees how much avoidable waste a loose operator threshold would otherwise hide. For `intent = official`, the validator rejects a report whose `canonical_waste.n_plus_one_threshold` is not the binary's canonical value.
+Publishing both lets a reader compare the two and see how much avoidable waste a loose operator threshold would otherwise hide. For `intent = official`, the validator rejects a report whose `canonical_waste.n_plus_one_threshold` is not the binary's canonical value.
 
 ![disclose preview, month view: settings header, aggregated summary, and the equivalent command in the footer](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
 
@@ -85,15 +85,15 @@ Publishing both keeps the disclosure honest: a reader compares the two and sees 
 
 Every report carries `methodology.standard_crosswalk`, an interpretive map from its figures to the EU climate-reporting standard ESRS E1 (Delegated Regulation (EU) 2023/5303):
 
-- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
-- the operational carbon term feeds **E1-6 Scope 2** on a location-based basis. ESRS also requires a market-based Scope 2 figure, which SCI deliberately excludes, so this is a partial input.
+- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), to be converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
+- the operational carbon term feeds **E1-6 Scope 2** on a location-based basis. ESRS also requires a market-based Scope 2 figure, which SCI excludes, so this is a partial input.
 - embodied carbon (the SCI `M` term, aggregate only) feeds **E1-6 Scope 3** (categories 1 and 2). ESRS admits estimates and proxy data for Scope 3.
 
 This is a **mapping aid, not a certification**. It does not make a report a CSRD submission: the figures keep their 2x directional uncertainty bracket, the scope is IT compute only, and an audited inventory by a qualified body is still required. The same caveats ship in-band under `standard_crosswalk.caveats` and in `notes.disclaimers`.
 
 ## Inputs
 
-**Daemon archives only.** A batch `analyze --format json` report cannot feed `disclose`, for three independent reasons: a directory input collects `*.ndjson` only, every line must deserialize as the `{"ts", "report"}` envelope below, and a batch report carries no `disclosure_waste` (the canonical avoidable tiers are computed at archive time). This is deliberate: a public disclosure rests on continuous observation over the declared period, not on ad-hoc runs. Run `perf-sentinel watch` with archiving enabled for anything you intend to disclose.
+**Daemon archives only.** A batch `analyze --format json` report cannot feed `disclose`, for three independent reasons: a directory input collects `*.ndjson` only, every line must deserialize as the `{"ts", "report"}` envelope below, and a batch report carries no `disclosure_waste` (the canonical avoidable tiers are computed at archive time). Batch reports stay excluded because a public disclosure rests on continuous observation over the declared period, not on ad-hoc runs. Run `perf-sentinel watch` with archiving enabled for anything you intend to disclose.
 
 A period that mixes archives written before canonical disclosure with newer ones passes `--intent official` validation, because the canonical threshold is the maximum across windows. The canonical tier then omits waste from the older windows, so `disclose` prints how many windows carried no canonical figure. Regenerate over post-upgrade windows for a complete figure.
 
@@ -180,8 +180,8 @@ disclose_period = "calendar-quarter"
 
 Producing an official disclosure is an outward-facing, hard-to-reverse
 action: the file lands at a public transparency URL and is signed under
-your organisation's identity. The CLI itself has no authorization layer,
-anyone who can run the binary with the org-config and the input data can
+your organisation's identity. The CLI itself has no authorization layer.
+Anyone who can run the binary with the org-config and the input data can
 produce one. So the control belongs in the pipeline that publishes, not
 in `perf-sentinel` itself, the same split as for the daemon write paths
 (see [`docs/QUERY-API.md`](./QUERY-API.md#restricting-writes-in-production-reverse-proxy)).
@@ -189,8 +189,7 @@ in `perf-sentinel` itself, the same split as for the daemon write paths
 In CI, gate the job that runs `disclose --intent official` behind a
 **GitHub Environment with required reviewers**. A developer can still
 open the PR or trigger the workflow, but the job pauses until a named
-reviewer (an architect or a DevOps lead) approves. No approval, no
-official report.
+reviewer (an architect or a DevOps lead) approves.
 
 Set it up once under `Settings -> Environments -> official-disclosure`:
 
@@ -259,7 +258,7 @@ If you have not used Sigstore before, this short primer is a prerequisite for th
 - **Fulcio** is the certificate authority. It takes the OIDC token cosign obtained (proof of identity: email, GitHub workflow URL, ...) and issues a short-lived X.509 certificate (10 minutes) bound to that identity. Fulcio never sees the signer's private key.
 - **Rekor** is the public transparency log. It records the signature next to the Fulcio certificate, returns an inclusion proof, and exposes the entry at a stable log index. Past entries cannot be silently rewritten.
 
-**Who signs with which key.** Cosign generates a brand-new ephemeral keypair just before signing. Fulcio issues a 10-minute certificate that binds the *public* half of that keypair to the OIDC identity. Once the signature is uploaded to Rekor the keypair is discarded. What survives is the signature, the certificate, and the Rekor entry, which is exactly what a verifier needs.
+**Who signs with which key.** Cosign generates a brand-new ephemeral keypair just before signing. Fulcio issues a 10-minute certificate that binds the *public* half of that keypair to the OIDC identity. Once the signature is uploaded to Rekor the keypair is discarded. Only the signature, the certificate, and the Rekor entry remain, which is what a verifier needs.
 
 **The OIDC identity** is the subject of the Fulcio certificate (and ends up as `integrity.signature.signer_identity` + `signer_issuer` in your disclosure). For an individual signing with a Google account the identity is the email address and the issuer is `https://accounts.google.com`. For a GitHub Actions workflow the identity is the workflow URL and the issuer is `https://token.actions.githubusercontent.com`.
 
@@ -269,7 +268,7 @@ If you have not used Sigstore before, this short primer is a prerequisite for th
 
 - **OIDC (OpenID Connect)** is an identity protocol layered on OAuth 2.0. In this workflow it is how cosign proves "this signer is `user@example.org`" to Fulcio. Cosign opens a browser tab, you log in to your IdP (Google, GitHub, ...), the IdP returns a signed token, cosign forwards it to Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
 - **in-toto v1 statement** is an open OpenSSF specification for software-supply-chain attestations. A JSON envelope that pairs an artefact hash with a typed *claim* about it. `--emit-attestation` produces such a statement where the artefact is your `report.json` and the claim type is `perf-sentinel-disclosure/v1`. Cosign signs the statement, not the report directly, so verifiers can chain the trust from the report hash through the in-toto statement, the cosign signature on that statement, and finally the Fulcio cert binding the signature to an OIDC identity. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
-- **Bundle (`bundle.sig`)** is the file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single JSON. Publishing this bundle next to the report is what enables fully offline verification: a consumer validates the signature against Rekor's public key without having to re-query Rekor live.
+- **Bundle (`bundle.sig`)** is the file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single JSON. Publishing this bundle next to the report enables fully offline verification: a consumer validates the signature against Rekor's public key without having to re-query Rekor live.
 - **SLSA provenance** is a separate OpenSSF framework (Supply-chain Levels for Software Artifacts) that describes *how* an artefact was built (which source commit, which builder, which workflow). perf-sentinel release binaries carry SLSA Build L3 provenance produced during the GitHub Actions release workflow. The disclosure's `integrity.binary_attestation` is filled with this provenance when present, and `report_metadata.integrity_level` graduates from `signed` to `signed-with-attestation`. [Spec](https://slsa.dev/spec/v1.0/).
 
 The same primer is mirrored in [docs/SUPPLY-CHAIN.md](SUPPLY-CHAIN.md#background-sigstore-primer), which is the canonical location for the supply-chain stack across binary, Helm chart and disclosure signing.
@@ -333,10 +332,10 @@ The seven fields and where each value comes from:
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `format`          | constant `"sigstore-cosign-intoto-v1"` for this schema                                                                                                                                                           |
 | `bundle_url`      | URL where you will publish `bundle.sig` at step 4                                                                                                                                                                |
-| `signer_identity` | cosign stdout/stderr at step 2, line `Successfully verified SCT...` or `tlog entry... signed by`. Also visible in the cert via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_identity` | the OIDC subject in the signing certificate inside `bundle.sig` (`cosign sign-blob` 3.0+ does not always print it on stdout). Visible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
 | `signer_issuer`   | same source as `signer_identity`, the OIDC issuer URL recorded next to it                                                                                                                                        |
 | `rekor_url`       | the Rekor instance used (`https://rekor.sigstore.dev` for Sigstore public, or the value from `[reporting.sigstore] rekor_url` for a private instance)                                                            |
-| `rekor_log_index` | cosign stdout at step 2, line `tlog entry created with index: X`. Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm                                                                       |
+| `rekor_log_index` | `bundle.sig` at `.verificationMaterial.tlogEntries[0].logIndex` (`cosign sign-blob` 3.0+ no longer prints `tlog entry created with index: X`). Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm |
 | `signed_at`       | timestamp from the Rekor entry, ISO 8601 UTC                                                                                                                                                                     |
 
 Example before / after on a fresh disclosure:
@@ -387,27 +386,27 @@ producing binary also carries SLSA provenance.)
 
 The `content_hash`, the cosign signature and the SLSA provenance bind
 the **published document**. Since 0.9.25 the daemon also hash-chains
-each archived window as it writes it, and `disclose` walks that chain
-while aggregating, publishing the result in
+each archived window as it writes it. `disclose` walks that chain while
+aggregating and publishes the result in
 `integrity.trace_integrity_chain`: windows verified, windows written
-before chaining existed, breaks found inside the period and breaks found
-in the same files outside it, since one rolling archive can span years
-and a report answers only for its own period. That closes the gap where
-a window could be edited between measurement and publication with
-nothing to show for it. A break does not stop the report, it is
-published as a count, so a truncated archive still yields an honest
-partial disclosure.
+before chaining existed, breaks found inside the period, and breaks
+found in the same files outside it. Breaks are split this way because
+one rolling archive can span years and a report answers only for its
+own period. The chain closes the gap where a window could be edited
+between measurement and publication with nothing to show for it. A
+break does not stop the report. It is published as a count, so a
+truncated archive still yields a partial disclosure.
 
 Since v1.7 each archive line also carries the daemon's cumulative drop
-counter, and the same block publishes `windows_dropped`, the windows the
-daemon produced but could not archive over the period, plus
+counter. The same block publishes `windows_dropped`, the windows the
+daemon produced but could not archive over the period. It also publishes
 `drop_counter_resets`, how many times the counter went backwards (one
 per daemon restart, each making the figure a lower bound over the gap it
 spans). This is the signed twin of the
 `perf_sentinel_archive_windows_dropped_total` metric: the scrape sees
 losses live, the report accounts for them after the fact. It says
-nothing about windows never produced, a stopped daemon leaves no counter
-to read, which `aggregate.temporal_coverage` bounds instead. Both fields
+nothing about windows never produced (a stopped daemon leaves no counter
+to read), which `aggregate.temporal_coverage` bounds instead. Both fields
 are omitted on archives written before the counter existed, so an old
 archive never reads as zero drops.
 
@@ -417,16 +416,16 @@ field inside the file can contradict it. Detecting that needs a record
 of the chain head kept somewhere the operator does not control, which is
 what `integrity.cross_period_log` stays reserved for.
 
-What none of this proves is that the measurement was sincere in the
-first place. An operator who controls the daemon and its files can
+None of this proves that the measurement was sincere in the first
+place. An operator who controls the daemon and its files can
 regenerate a consistent chain, exactly as they can choose an
 unfavourable coefficient. Those parameters are now published too, see
 `carbon_methodologies`, `scoring_coefficients` and the embodied fields
 in `methodology.calibration_inputs`, which makes them contestable
-rather than invisible. The remaining step is anchoring the chain head outside
-the operator's control, which is what `integrity.cross_period_log`
-stays reserved for. Read the guarantee as: tamper-evident after the
-fact, self-declared at the source.
+rather than invisible. The remaining step is anchoring the chain head
+outside the operator's control, which is what
+`integrity.cross_period_log` stays reserved for. The guarantee is
+tamper-evident after the fact but self-declared at the source.
 
 ### Content hash stays valid
 
@@ -478,7 +477,7 @@ local state. The helper remains useful for an internal dry-run where
 the four values are inspected for plausibility, not provenance.
 
 The pattern is repetitive and easy to script. Until
-`perf-sentinel sign` lands (planned for 0.7.x), this jq workflow
+`perf-sentinel sign` lands, this jq workflow
 captures the fields from cosign output and patches the report in
 one shot:
 
@@ -571,7 +570,7 @@ Both examples pass `--expected-identity` and `--expected-issuer` because
 that is the safe default: without these flags `verify-hash` refuses to
 invoke cosign and returns `Status::Fail` on the signature slot. See
 [Identity verification](#identity-verification) below for the three
-modes and their semantics. Reuse `--no-identity-check` only for an
+modes and their semantics. Reserve `--no-identity-check` for an
 internal self-check before publication.
 
 `verify-hash` chains three checks: deterministic content hash
@@ -582,25 +581,25 @@ the binary in `integrity.binary_verification_url`).
 
 Exit codes:
 
-| Code | Meaning                                                                                                                                          |
-|------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| Code | Meaning                                                                                                                                           |
+|------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `0`  | TRUSTED (content hash matched AND signature verified ok, and binary attestation not left unverified when the report carries attestation metadata) |
-| `1`  | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch)                            |
-| `2`  | PARTIAL (no hard failure but at least one check could not complete: cosign absent, `gh` CLI absent, signature metadata absent, sidecars missing) |
-| `3`  | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`)                                                                |
-| `4`  | NETWORK_ERROR (only `--url` mode: HTTP fetch failed, scheme rejected, body over the size cap)                                                    |
+| `1`  | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch)                             |
+| `2`  | PARTIAL (no hard failure but at least one check could not complete: cosign absent, `gh` CLI absent, signature metadata absent, sidecars missing)  |
+| `3`  | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`)                                                                 |
+| `4`  | NETWORK_ERROR (only `--url` mode: HTTP fetch failed, scheme rejected, body over the size cap)                                                     |
 
 A scripted `verify-hash && deploy` gate blocks on any non-zero code
 and so still rejects PARTIAL, but a wrapper that distinguishes
 PARTIAL (2) from UNTRUSTED (1) can tell a missing tool from a tamper
 attempt.
 
-When a report carries binary attestation metadata, that block is no
-longer verified silently: without `--verify-binary <path>` the
+When a report carries binary attestation metadata, `verify-hash` does
+not skip that block silently: without `--verify-binary <path>` the
 attestation stays unverified and the result caps at PARTIAL rather than
 TRUSTED. Pass `--verify-binary <path>` to run `gh attestation verify`
 against the producing binary (needs the `gh` CLI and network) so the
-provenance is actually checked and exit `0` reflects it.
+provenance is checked and exit `0` reflects it.
 
 ### Sidecar URL convention in `--url` mode
 
@@ -635,8 +634,8 @@ have signed the report. Three modes:
   Google account holder can publish a bundle claiming an identity).
 - `--no-identity-check`: cosign verifies the cryptographic integrity
   without checking the identity. Useful for an internal self-check
-  before publication, but explicitly logged as PARTIAL because the
-  signer is not verified.
+  before publication, but logged as PARTIAL because the signer is not
+  verified.
 - Neither flag passed: `verify-hash` refuses to invoke cosign and
   returns `Status::Fail` on the signature slot. This is the safe
   default and forces an external consumer to declare intent.
@@ -664,16 +663,16 @@ For test fixtures and debugging workflows where you need a report whose `content
 perf-sentinel hash-bake --report input.json --output output.json
 ```
 
-`hash-bake` reads the report at `--report`, computes the canonical `content_hash` (applying the `POST_SIGN_FIELDS` blanching defined for the schema version), writes the hash into `integrity.content_hash`, and saves the result to `--output`. The same path as `--report` is allowed for in-place baking, with an atomic temp+rename that prevents partial corruption.
+`hash-bake` reads the report at `--report`, computes the canonical `content_hash` (applying the `POST_SIGN_FIELDS` blanking defined for the schema version), writes the hash into `integrity.content_hash`, and saves the result to `--output`. The same path as `--report` is allowed for in-place baking, with an atomic temp+rename that prevents partial corruption.
 
 This command is intended for:
 
 - Generating test fixtures with valid canonical hashes (for example, test suites that exercise `verify-hash` with TRUSTED or PARTIAL outcomes).
 - Debugging a report whose hash has drifted from canonical (typically after manual edits to fields outside `POST_SIGN_FIELDS`).
 
-Signed reports (where `integrity.signature` is non-null) are rejected by default. Re-baking does not invalidate the signature, since the canonical form blanches the signature anyway, but the operator should confirm intent with `--allow-signed`.
+Signed reports (where `integrity.signature` is non-null) are rejected by default. Re-baking does not invalidate the signature, since the canonical form blanks the signature anyway, but the operator should confirm intent with `--allow-signed`.
 
-`hash-bake` does not modify `integrity.signature`, does not modify `integrity.binary_attestation`, and does not modify `report_metadata.integrity_level`. It only writes `integrity.content_hash`.
+`hash-bake` does not modify `integrity.signature`, `integrity.binary_attestation` or `report_metadata.integrity_level`. It only writes `integrity.content_hash`.
 
 Exit codes:
 

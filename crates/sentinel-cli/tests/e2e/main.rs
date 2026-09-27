@@ -1,6 +1,6 @@
 //! End-to-end integration tests for the perf-sentinel CLI.
 //!
-//! Single test binary; tests live in per-topic modules and share the
+//! Single test binary. Tests live in per-topic modules and share the
 //! helpers module below.
 
 mod helpers;

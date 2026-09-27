@@ -14,14 +14,14 @@ use sentinel_core::text_safety::{safe_url, sanitize_for_terminal, strip_code_tic
 use crate::OutputFormat;
 
 /// Emit the final report in the requested format and enforce the quality
-/// gate in CI mode. A failed gate when `ci` is true exits with status `1`;
-/// a report write failure exits with `crate::EXIT_TOOLING_ERROR`. The two
-/// are deliberately distinct: only the gate-failure exit means a genuine
-/// threshold breach, see docs/CI.md "Exit codes".
+/// gate in CI mode. A failed gate when `ci` is true exits with status `1`.
+/// A report write failure exits with `crate::EXIT_TOOLING_ERROR`. The two
+/// stay distinct because only the gate-failure exit means a threshold
+/// breach, see docs/CI.md "Exit codes".
 ///
 /// The gate check runs *after* the write but takes precedence over a write
-/// failure: if a real regression coincides with a broken pipe or a full
-/// disk, the process still exits `1`, never the tolerable `75`, so the
+/// failure. If a regression coincides with a broken pipe or a full disk,
+/// the process still exits `1`, never the tolerable `75`, so the
 /// regression is never masked as a tooling blip. See `exit_code_after_gate`.
 ///
 /// `show_acknowledged` controls whether the structured sinks (JSON, SARIF)
@@ -43,14 +43,14 @@ pub(crate) fn emit_report_and_gate(
     show_acknowledged: bool,
 ) {
     let effective_format = effective_format(format, ci);
-    // One seam for every subcommand that ends here: the sort is applied
+    // Shared by every subcommand that ends here. The sort is applied
     // after the caller's ack pass (a masked finding must not weigh in the
     // aggregate) and before any sink, so `--format json --sort impact`
     // comes out ranked. The embed comes AFTER the sort, because its byte
     // budget keeps the traces of the first findings: budget-trimmed before
-    // sorting, it would keep the detector-order head and strand the top
-    // rows of the sorted list. Only the JSON sink serializes the trees,
-    // the text and SARIF paths never pay the clones.
+    // sorting, it would keep the detector-order head and leave the top
+    // rows of the sorted list without traces. Only the JSON sink
+    // serializes the trees. The text and SARIF paths never pay the clones.
     if let Some(mode) = sort {
         sort_findings(&mut report.findings, mode);
     }
@@ -110,7 +110,7 @@ pub(crate) fn effective_format(format: Option<OutputFormat>, ci: bool) -> Output
 
 /// Decide the process exit code after a report emit under the CI gate.
 /// A gate breach (`Some(1)`) takes precedence over a report write failure
-/// (`Some(EXIT_TOOLING_ERROR)`): a genuine regression must block even when
+/// (`Some(EXIT_TOOLING_ERROR)`): a regression must block even when
 /// the write also failed, so it is never masked as a tolerable tooling
 /// blip on a broken pipe or a full disk. `None` means clean success.
 fn exit_code_after_gate(gate_failed: bool, write_failed: bool) -> Option<i32> {
@@ -130,8 +130,7 @@ fn exit_code_after_gate(gate_failed: bool, write_failed: bool) -> Option<i32> {
 /// let a quality-gate breach take precedence over a write failure. A
 /// write failure here (disk full, permission denied) happens after the
 /// report was already computed successfully, so it is never itself a
-/// quality-gate breach. Restores the field before returning so the report
-/// is left in a consistent state.
+/// quality-gate breach.
 fn with_optional_acks_hidden<F>(
     report: &mut Report,
     show_acknowledged: bool,
@@ -158,10 +157,9 @@ pub(crate) fn print_colored_report(report: &Report, title: &str) {
 
 /// ANSI color codes bundled for CLI rendering.
 ///
-/// Named fields avoid the "count underscores in a 7-tuple" pattern that
-/// made it easy to misuse the old `AnsiColors` tuple alias. Every field
-/// is either a SGR escape sequence or an empty string (when the output
-/// is not a terminal).
+/// Named fields avoid destructuring a 7-tuple by counting underscores,
+/// which is easy to get wrong. Every field is either an SGR escape
+/// sequence or an empty string (when the output is not a terminal).
 #[derive(Clone, Copy)]
 pub(crate) struct AnsiColors {
     pub(crate) bold: &'static str,
@@ -242,7 +240,7 @@ const fn intensity_source_label(source: IntensitySource) -> &'static str {
 /// slow do). Shared with the TUI so the two terminal surfaces cannot
 /// drift from each other. Same three figures as the dashboard, and the
 /// coefficient of variation reads identically there (`cv_x1000` is
-/// scaled by 1000, so 523 reads 52.3%); the durations do not, the
+/// scaled by 1000, so 523 reads 52.3%). The durations do not: the
 /// dashboard's `formatDurationUs` always prints milliseconds while the
 /// terminal follows `explain`'s µs/ms/s scale.
 pub(crate) fn format_span_timing(pattern: &sentinel_core::detect::Pattern) -> Option<String> {
@@ -261,7 +259,7 @@ pub(crate) fn format_span_timing(pattern: &sentinel_core::detect::Pattern) -> Op
 
 /// Microseconds on the terminal scale, the one `explain`'s span tree
 /// already uses: µs under a millisecond, milliseconds under a second,
-/// seconds above. Deliberately not the dashboard's `formatDurationUs`,
+/// seconds above. This differs from the dashboard's `formatDurationUs`,
 /// which prints milliseconds at every magnitude (`0.80 ms`, `2500 ms`).
 fn format_duration_us(us: u64) -> String {
     #[allow(clippy::cast_precision_loss)]
@@ -312,7 +310,7 @@ fn format_estimation_suffix(
 
 /// Build the "Carbon scoring: Electricity Maps ..." header line printed
 /// before the per-region breakdown. Two borrowed arms cover the most
-/// common shapes (v4/v3 with both knobs at default), the fallback
+/// common shapes (v4/v3 with both knobs at default), and the fallback
 /// allocates for opt-in combinations. All three fields originate from
 /// typed enums with bounded variants, so no terminal-sanitization is
 /// needed at the print sink (unlike `intensity_estimation_method`,
@@ -371,8 +369,8 @@ pub(crate) fn format_colored_report_with_acks(
         report.analysis.traces_analyzed,
         report.analysis.duration_ms
     );
-    // Surface the OTLP filter tally so a thin report reads as what it is:
-    // either a clean run or unusable instrumentation, never silently both.
+    // Surface the OTLP filter tally so the reader of a thin report can
+    // tell a clean run from unusable instrumentation.
     if let Some(ingest) = &report.analysis.ingest
         && ingest.spans_filtered > 0
     {
@@ -413,7 +411,7 @@ pub(crate) fn format_colored_report_with_acks(
 /// legacy `warnings: Vec<String>` a pre-0.5.19 report or daemon sends.
 /// One helper so every surface applies the same fallback, instead of
 /// each caller remembering the older field exists. Only the TUI surfaces
-/// need it as data, the text report formats the two forms in place.
+/// need it as data. The text report formats the two forms in place.
 #[cfg(feature = "tui")]
 pub(crate) fn effective_warnings(report: &Report) -> Vec<sentinel_core::report::warnings::Warning> {
     if report.warning_details.is_empty() {
@@ -442,8 +440,8 @@ fn print_warnings(report: &Report, force_color: bool) {
     if !report.warning_details.is_empty() {
         println!("{bold}{yellow}Warnings:{reset}");
         for w in &report.warning_details {
-            // Backticks live in the data so the HTML can render code chips;
-            // a terminal shows them as literal noise.
+            // Backticks live in the data so the HTML can render code chips.
+            // A terminal shows them as literal noise.
             let plain = strip_code_ticks(&w.message);
             println!(
                 "  [{}] {}",
@@ -505,7 +503,7 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
 
 /// Same rendering with the recurrence tallies supplied by the caller:
 /// `query findings` receives rows the daemon already folded, so counting
-/// signatures here would find 1 everywhere and lose the story.
+/// signatures here would find 1 everywhere.
 pub(crate) fn print_findings_with_recurrence(
     findings: &[sentinel_core::detect::Finding],
     force_color: bool,
@@ -526,7 +524,7 @@ pub(crate) fn print_findings_with_recurrence(
     }
     println!();
     // Detection is per trace, so a recurring problem is many findings.
-    // The first one prints in full with its recurrence tally, the
+    // The first one prints in full with its recurrence tally, and the
     // repeats compact to one line each: on real captures the repeats
     // were the bulk of the output without adding anything to read.
     let recurrence = external.unwrap_or_else(|| build_recurrence_index(findings));
@@ -681,7 +679,7 @@ pub(crate) fn compare_severity_impact(
     }
 }
 
-/// Stable sort, so the canonical detector order survives inside ties.
+/// Stable sort, so ties keep the canonical detector order.
 pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mode: FindingsSort) {
     let index = build_recurrence_index(findings);
     // Decorate first: `recurrence_key` allocates its `String` per call, so
@@ -709,8 +707,8 @@ pub(crate) fn sort_findings(findings: &mut [sentinel_core::detect::Finding], mod
 /// `order` is the source convention a sorted index vector produces. The
 /// cycle-chase below walks the destination convention, so invert first:
 /// applied unconverted it performs the inverse permutation, which misorders
-/// every cycle of length three or more while leaving swaps intact, exactly
-/// the shape a two-element test cannot catch.
+/// every cycle of length three or more while leaving swaps intact. A
+/// two-element test cannot catch that.
 fn apply_permutation<T>(items: &mut [T], order: &[usize]) {
     let mut destination = vec![0usize; order.len()];
     for (position, &source) in order.iter().enumerate() {
@@ -807,7 +805,7 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         sanitize_for_terminal(&finding.service)
     );
     // Without this line two identical blocks from two deployments read as
-    // a duplicate: the recurrence key splits them, nothing said why. The
+    // a duplicate: the recurrence key splits them and nothing says why. The
     // label is the attribute name, since it is operator config.
     for attr in &finding.grouping {
         println!(
@@ -929,7 +927,8 @@ struct WasteLine<'a> {
 
 /// One waste text line, database or broker. Pure so the sanitization and
 /// the measured-versus-estimated label are assertable. `region` and
-/// `model` flow through user-supplied `--input` JSON, sanitize at the sink.
+/// `model` flow through user-supplied `--input` JSON, so they are
+/// sanitized at the sink.
 fn format_waste_line(w: &WasteLine<'_>) -> String {
     let gco2 = w
         .waste_gco2
@@ -1038,7 +1037,7 @@ fn format_region_line(region: &sentinel_core::score::carbon::RegionBreakdown) ->
 
 /// The three figures that can legitimately be absent. Each prints greyed
 /// with its cause rather than vanishing, so a reader sees why a number is
-/// missing instead of not knowing it exists.
+/// missing.
 fn print_absent_aware_figures(
     summary: &sentinel_core::report::GreenSummary,
     traces_analyzed: usize,
@@ -1047,7 +1046,7 @@ fn print_absent_aware_figures(
 ) {
     match summary.co2.as_ref() {
         Some(carbon) => print_carbon_summary(carbon),
-        // The trace count is the only honest discriminant: a daemon stamps
+        // The trace count is the only reliable discriminant: a daemon stamps
         // scoring_config whenever Electricity Maps is configured, green
         // scoring off included.
         None if traces_analyzed == 0 => {
@@ -1107,8 +1106,9 @@ fn print_green_summary(
 
     // Carbon scoring config header. Hidden when Electricity Maps is not
     // configured: `scoring_config` is built on every green-scored run, so its
-    // presence alone no longer means the API is in use. The 3 fields are
-    // typed enums with bounded variants, no terminal sanitization needed.
+    // presence alone does not mean the API is in use. The 3 fields are
+    // typed enums with bounded variants, so no terminal sanitization is
+    // needed.
     if let Some(scoring) = summary
         .scoring_config
         .as_ref()
@@ -1139,8 +1139,8 @@ fn print_green_summary(
                 .co2_grams
                 .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
             // `endpoint` and `service` come from span attributes (OTLP
-            // sender controls them) or from a `--input` JSON baseline;
-            // sanitize before printing for the same reason as `region`
+            // sender controls them) or from a `--input` JSON baseline.
+            // Sanitize before printing for the same reason as `region`
             // above.
             let endpoint = sanitize_for_terminal(&offender.endpoint);
             let service = sanitize_for_terminal(&offender.service);
@@ -1152,8 +1152,8 @@ fn print_green_summary(
         }
     }
 
-    // Mandatory disclaimer: only shown when we actually emitted CO₂
-    // estimates, to avoid noise when green scoring is disabled.
+    // Mandatory disclaimer: only shown when CO₂ estimates were emitted,
+    // to avoid noise when green scoring is disabled.
     // The "2× multiplicative uncertainty" framing matches the constants:
     // low = mid/2, high = mid×2 (log-symmetric interval, geometric mean = mid).
     if summary.co2.is_some() {
@@ -1166,8 +1166,8 @@ fn print_green_summary(
 
     // One-liner on the interpret bands: they are anchored on the *default*
     // detector thresholds, not on the user's config. An endpoint still
-    // labelled "high" after raising `n_plus_one_min_occurrences` is not a bug;
-    // see README "How to read the report" for the full explanation.
+    // labelled "high" after raising `n_plus_one_min_occurrences` is not a bug.
+    // See README "How to read the report" for the full explanation.
     println!(
         "  {dim}Note: `(healthy/moderate/high/critical)` bands use fixed heuristic \
          thresholds, independent of your `n_plus_one_min_occurrences` / \
@@ -1203,7 +1203,7 @@ fn print_quality_gate(
     for rule in &gate.rules {
         let status_color = if rule.passed { green } else { red };
         let status_label = if rule.passed { "PASS" } else { "FAIL" };
-        // A known key is a literal; an unknown one comes off the
+        // A known key is a literal. An unknown one comes off the
         // daemon-snapshot path (`/api/export/report` fed into `report`) and is
         // attacker-influenced, so it sanitizes like the other report fields.
         let rule_name = sentinel_core::quality_gate::rule_label(&rule.rule).map_or_else(
@@ -1416,8 +1416,8 @@ fn write_resolved_findings_section(
 /// Printed as a before/after template pair so a reader can judge the
 /// pairing at a glance, counted neither as new nor as resolved. A pair
 /// whose severity worsened is colored red and shows the transition: the
-/// escalation never reaches `severity_changes`, so this line is its only
-/// witness.
+/// escalation never reaches `severity_changes`, so this line is the only
+/// place it shows.
 fn write_mutated_findings_section(
     writer: &mut dyn std::io::Write,
     mutated: &[sentinel_core::diff::MutatedFinding],
@@ -1597,8 +1597,8 @@ pub(crate) fn to_local<Z: chrono::TimeZone>(
 }
 
 /// The embedded IANA zone to use when `TZ` names one the system database
-/// lacks, as in the `FROM scratch` image, where `chrono::Local` would fall
-/// back to UTC without a word. `None` leaves the zone to `chrono::Local`:
+/// lacks, as in the `FROM scratch` image, where `chrono::Local` would
+/// silently fall back to UTC. `None` leaves the zone to `chrono::Local`:
 /// `TZ` unset, a path, a POSIX rule such as `JST-9`, or a name the system
 /// database has, which is preferred for being the one the host keeps current.
 fn embedded_zone(tz: Option<&str>, system_has: impl Fn(&str) -> bool) -> Option<chrono_tz::Tz> {
@@ -1838,10 +1838,10 @@ mod tests {
             Severity::Info,
             "5x5 = 25 aggregate ops must outrank the critical's 5"
         );
-        // The FULL order, not just the head: the sort permutation here is a
-        // six-element rotation, and applying its inverse also puts an Info
-        // first, which is how the head-only assert once passed over a broken
-        // apply_permutation. The critical must land last, exactly.
+        // Assert the FULL order: the sort permutation here is a six-element
+        // rotation, and applying its inverse also puts an Info first, so a
+        // head-only assert passes over a broken apply_permutation. The
+        // critical must land last.
         assert!(
             findings[..5].iter().all(|f| f.severity == Severity::Info),
             "all five infos precede the critical"
@@ -1854,8 +1854,8 @@ mod tests {
     #[test]
     fn sort_applies_the_permutation_not_its_inverse() {
         // Three distinct impacts whose sort permutation is a 3-cycle: the
-        // inverse of a 3-cycle is the other 3-cycle, so this ordering is
-        // exactly what a convention mix-up in apply_permutation breaks.
+        // inverse of a 3-cycle is the other 3-cycle, so a convention mix-up
+        // in apply_permutation breaks this ordering.
         let mut findings: Vec<Finding> = [(1u64, "a"), (3, "b"), (2, "c")]
             .iter()
             .map(|(ops, sig)| {
@@ -1885,7 +1885,7 @@ mod tests {
     use sentinel_core::event::GroupingAttribute;
     use sentinel_core::report::interpret::InterpretationLevel;
 
-    /// A gate breach must win over a concurrent write failure so a real
+    /// A gate breach must win over a concurrent write failure so a
     /// regression is never masked as the tolerable `EXIT_TOOLING_ERROR`.
     #[test]
     fn gate_breach_takes_precedence_over_write_failure() {
@@ -2152,7 +2152,7 @@ mod tests {
 
     #[test]
     fn local_batch_confidence_is_omitted() {
-        // Both batch contexts (local + CI) stay quiet in the terminal; only
+        // Both batch contexts (local + CI) stay quiet in the terminal. Only
         // the stronger daemon signals print a Confidence line.
         let mut f = sample_finding();
         f.confidence = Confidence::LocalBatch;
@@ -2278,7 +2278,7 @@ mod tests {
     }
 
     /// The suggestion carries backticks so the HTML can chip them. Every
-    /// terminal surface must strip them, exactly like `suggested_fix`.
+    /// terminal surface must strip them, like `suggested_fix`.
     #[test]
     fn backticks_in_suggestion_never_reach_the_terminal() {
         let mut f = sample_finding();
@@ -2453,8 +2453,8 @@ mod tests {
 
     /// The coefficient of variation is a percentage of a value stored
     /// scaled by 1000, the same reading the dashboard makes. Getting that
-    /// scale wrong turns 52.3% into 523%, which is why the unit
-    /// conversion is pinned, alongside the terminal duration scale.
+    /// scale wrong turns 52.3% into 523%, so the test pins the unit
+    /// conversion, alongside the terminal duration scale.
     #[test]
     fn span_timing_line_uses_the_terminal_scale_and_the_dashboard_cv() {
         let mut pattern = Pattern {
@@ -2532,9 +2532,8 @@ mod tests {
     fn estimation_suffix_strips_terminal_escapes_when_method_is_hostile() {
         // Defense-in-depth: estimation_method from a --input JSON
         // bypasses the API-side sanitizer, so the terminal sink must
-        // still strip control bytes. Mirrors the parity that every
-        // other user-controlled string in print_green_summary already
-        // gets via sanitize_for_terminal.
+        // still strip control bytes. Every other user-controlled string in
+        // print_green_summary already goes through sanitize_for_terminal.
         let hostile = "ATTACK\x1b[2J\x1b[H";
         let raw = format_estimation_suffix(Some(true), Some(hostile));
         let cleaned = sanitize_for_terminal(&raw);

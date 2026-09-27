@@ -85,8 +85,8 @@ for overlay in "" "$REPO"/examples/helm/values-green-*.yaml; do
   sed -n '/perf-sentinel.toml: |/,$p' "$WORK/main.yaml" | tail -n +2 | sed 's/^    //' \
     > "$mnt/.perf-sentinel.toml"
   # The extraction is a sed range over a rendered template, so a template
-  # reshuffle can silently produce nothing. `analyze` happily runs on defaults
-  # and prints a full report, so without this the whole harness would go green
+  # reshuffle can silently produce nothing. `analyze` runs on defaults and
+  # prints a full report, so without this the whole harness would go green
   # while loading none of the chart's config.
   if [ ! -s "$mnt/.perf-sentinel.toml" ]; then
     echo "FAIL $name (extracted config.toml is empty, the ConfigMap shape changed)"
@@ -140,7 +140,7 @@ for overlay in "" "$REPO"/examples/helm/values-green-*.yaml; do
   fi
 done
 
-# --- The loader really reads the projected directory -------------------------
+# --- The loader reads the projected directory --------------------------------
 #
 # Everything above proves the examples load. None of it proves the fragments
 # were part of that load: config.toml alone produces the same successful report,
@@ -176,21 +176,20 @@ fi
 # --- Field parity with the examples/ fragments -------------------------------
 #
 # Each values-green-*.yaml is the Kubernetes port of the examples/NN-*.toml of
-# the same name, and the pair drifts silently: the .toml gains a key, the
-# overlay does not, and nobody notices until an operator copies the overlay and
-# wonders where the setting went. That is how examples/helm/ fell four months
-# behind examples/ before this script existed.
+# the same name. The pair drifts silently: the .toml gains a key, the overlay
+# does not, and nobody notices until an operator copies the overlay and
+# wonders where the setting went.
 #
 # So every key and table the .toml mentions, set or commented, must appear in
 # the overlay. Values are free to differ, and have to: localhost becomes
-# in-cluster DNS. Only the field has to survive the port.
+# in-cluster DNS. Only the field has to carry over.
 #
 # Exempt, and each overlay says why in its header:
 #   [green], enabled, default_region  the base values set them in config.toml,
 #                                     merged after the fragment, so a copy here
 #                                     would be silently overridden
-#   api_key                           a fragment renders into a ConfigMap; the
-#                                     token goes through a Secret instead
+#   api_key                           a fragment renders into a ConfigMap, so
+#                                     the token goes through a Secret instead
 EXEMPT='^(\[green\]|enabled|default_region|api_key)$'
 
 mentioned() {

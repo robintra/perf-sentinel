@@ -104,12 +104,12 @@ pub struct MethodologySummary {
     pub disabled_patterns_count: u32,
     /// SHA-256 over the sorted, colon-joined names of the core pattern
     /// set declared in `methodology.core_patterns_required`. Lets a
-    /// consumer detect not just shrinkage (covered by
-    /// `core_patterns_count`) but substitution: replacing a canonical
-    /// core pattern with another keeps the count constant yet changes
-    /// the hash. The reference value for a given
-    /// `predicate.perf_sentinel_version` is the hash of the canonical
-    /// `core_patterns_required()` slice in that version.
+    /// consumer detect substitution as well as shrinkage (covered by
+    /// `core_patterns_count`): replacing a canonical core pattern with
+    /// another keeps the count constant yet changes the hash. The
+    /// reference value for a given `predicate.perf_sentinel_version` is
+    /// the hash of the canonical `core_patterns_required()` slice in that
+    /// version.
     pub core_patterns_hash: String,
 }
 
@@ -197,9 +197,9 @@ pub fn build_in_toto_statement_named(
     }
 }
 
-/// SHA-256 over the sorted, colon-joined core pattern names. Sort is
-/// applied to make the hash invariant of input order. 64-hex output,
-/// no `sha256:` prefix, to match the in-toto subject digest format.
+/// SHA-256 over the sorted, colon-joined core pattern names. Sorting
+/// makes the hash independent of input order. 64-hex output, no `sha256:`
+/// prefix, to match the in-toto subject digest format.
 /// Exposed so `verify-hash` can recompute the canonical value from
 /// the local binary and cross-check against the predicate.
 #[must_use]

@@ -23,7 +23,7 @@ use crate::score::scaphandre::ScaphandreConfig;
 /// Mirrors the four `.perf-sentinel.toml` sections (`[thresholds]`,
 /// `[detection]`, `[green]`, `[daemon]`) into typed sub-structs so a
 /// consumer that touches only thresholds does not pull a daemon-shaped
-/// import surface. The 0.5.x flat layout was unfolded in 0.6.0; see
+/// import surface. The 0.5.x flat layout was unfolded in 0.6.0. See
 /// `docs/CONFIGURATION.md` for the rename matrix.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -61,7 +61,7 @@ pub struct ReportingConfig {
     /// `"calendar-year"`, or `"custom"`. Pure hint for scheduled runs.
     pub disclose_period: Option<String>,
     /// Sigstore signing target. Empty defaults to the public Sigstore
-    /// instance. perf-sentinel does not sign itself; this value lives
+    /// instance. perf-sentinel does not sign itself. This value lives
     /// in the report so `verify-hash` knows which Rekor to query.
     pub sigstore: SigstoreConfig,
 }
@@ -136,7 +136,7 @@ pub struct ThresholdsConfig {
     /// Minimum share of I/O-shaped spans that must be analyzable before
     /// the gate fails, guarding against a false green from unusable
     /// instrumentation (SQL spans without `db.statement`, HTTP spans
-    /// without `http.url`). `None` (the default) disables the rule; it
+    /// without `http.url`). `None` (the default) disables the rule. It
     /// also stays silent when the input carries no OTLP filter tally.
     pub min_usable_span_ratio: Option<f64>,
 }
@@ -175,8 +175,8 @@ pub struct DetectionConfig {
     /// whose scheduling jitter spreads identical queries past the default.
     pub sanitizer_aware_min_cv: f64,
     /// Resource or span attributes captured to separate deployments, most
-    /// specific first. The first one present on a span decides its identity,
-    /// the others are still captured and shown. Capped at
+    /// specific first. The first one present on a span decides its identity.
+    /// The others are still captured and shown. Capped at
     /// [`MAX_GROUPING_ATTRIBUTES`] so a config cannot grow every span.
     pub grouping_attributes: Vec<String>,
 }
@@ -235,7 +235,7 @@ pub struct GreenConfig {
     /// Deprecated since 0.9.25, retained for API compatibility. The
     /// coefficient is fixed, so this always reads
     /// [`DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`](crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH),
-    /// the value scoring actually applies, whatever the TOML said.
+    /// the value that scoring applies, whatever the TOML said.
     #[deprecated(
         since = "0.9.25",
         note = "the transport coefficient is fixed; this value has no effect"
@@ -290,21 +290,21 @@ pub struct DaemonConfig {
     pub max_retained_findings: usize,
     /// Maximum number of findings carried by one `/api/export/report`
     /// snapshot. Separate from the `/api/findings` cap, which paginates a
-    /// browsing API, where this one sizes a deliberate export: a store
-    /// holding tens of thousands of findings ships a slice of its most
-    /// recent, and the default keeps the historical size. Raising it
-    /// grows the response body and the HTML rendered from it by a few KB
-    /// per finding, so it trades report weight for coverage. The cap also
-    /// bounds what the exported `quality_gate` counts, so zero exports the
-    /// envelope alone and the gate's finding-count rules pass whatever the
-    /// daemon detected. `io_waste_ratio_max` reads `green_summary`, which
-    /// no cap empties, so the verdict still moves, it just stops reflecting
-    /// the findings: a probe polling that shape is reading half a verdict.
+    /// browsing API. This one sizes an export: a store holding tens of
+    /// thousands of findings ships a slice of its most recent, and the
+    /// default equals the `/api/findings` cap. Raising it grows the response
+    /// body and the HTML rendered from it by a few KB per finding, so it
+    /// trades report weight for coverage. The cap also bounds what the
+    /// exported `quality_gate` counts, so zero exports the envelope alone
+    /// and the gate's finding-count rules pass whatever the daemon
+    /// detected. `io_waste_ratio_max` reads `green_summary`, which no cap
+    /// empties, so the verdict still moves but stops reflecting the
+    /// findings. A probe polling that shape reads a partial verdict.
     pub max_export_findings: usize,
     /// Maximum number of traces whose masked spans are retained for
     /// `/api/export/report`, so an exported report still draws a span
     /// tree. Zero disables retention. Costs memory in proportion to
-    /// `max_events_per_trace`, which is why the default is small next to
+    /// `max_events_per_trace`, so the default is small next to
     /// `max_retained_findings`.
     pub max_retained_traces: usize,
     /// Capacity of the ingestion channel: span-event batches buffered
@@ -344,7 +344,7 @@ pub struct DaemonConfig {
     /// keys. `PERF_SENTINEL_READ_API_KEY` wins over this value.
     pub read_api_key: Option<String>,
     /// TLS material for the OTLP listeners. When `cert_path` and
-    /// `key_path` are both `Some`, both gRPC and HTTP listen TLS; when
+    /// `key_path` are both `Some`, both gRPC and HTTP listen TLS. When
     /// both are `None`, plain TCP (default).
     pub tls: DaemonTlsConfig,
     /// Daemon-side ack store (JSONL persistence + HTTP API).
@@ -353,7 +353,7 @@ pub struct DaemonConfig {
     pub cors: DaemonCorsConfig,
     /// Inbound incident webhooks, opt-in and disabled by default.
     pub incidents: DaemonIncidentsConfig,
-    /// Cross-trace correlation. `enabled = false` by default; the
+    /// Cross-trace correlation. `enabled = false` by default. The
     /// daemon never wires the correlator when off, so the other fields
     /// only apply when `enabled = true`.
     pub correlation: crate::detect::correlate_cross::CorrelationConfig,
@@ -410,9 +410,9 @@ pub struct DaemonAckConfig {
 /// Inbound incident webhook config, `[daemon.incidents]`.
 ///
 /// perf-sentinel does not detect a crash and cannot see an observed
-/// service's memory. This is how the operator's alerting hands over the
-/// moment, so the daemon can freeze the findings of its window before
-/// the ring evicts them.
+/// service's memory. The operator's alerting posts the incident here, so
+/// the daemon can freeze the findings of its window before the ring
+/// evicts them.
 #[derive(Debug, Clone)]
 pub struct DaemonIncidentsConfig {
     /// Whether `POST /api/incidents` and `GET /api/incidents` exist at
@@ -422,7 +422,7 @@ pub struct DaemonIncidentsConfig {
     /// against `X-API-Key`. Enabling without one is a config error rather
     /// than a warning, because the route writes.
     pub api_key: Option<String>,
-    /// How far back of findings a posted incident freezes, in
+    /// How far back a posted incident freezes findings, in
     /// milliseconds. Default 300000, five minutes.
     pub lookback_ms: u64,
     /// Incidents kept in the ring. Default 200.
@@ -433,14 +433,14 @@ pub struct DaemonIncidentsConfig {
     pub service_label: String,
     /// Alert label carrying the incident kind, one of `oom_kill`,
     /// `memory_saturation`, `restart`, `deploy`, `other`. Default
-    /// `perf_sentinel_kind`. Anything else is `other`, deliberately not
-    /// guessed from `alertname`.
+    /// `perf_sentinel_kind`. Anything else is `other`, not guessed from
+    /// `alertname`.
     pub kind_label: String,
     /// Alert label whose value becomes the incident's `namespace`. Default
     /// `namespace`, the label kube-prometheus alerts carry natively. An
-    /// incident carrying one leaves out of its freeze the findings whose
+    /// incident carrying one excludes from its freeze the findings whose
     /// [`K8S_NAMESPACE_ATTRIBUTE`] grouping names another namespace, so it
-    /// narrows the freeze only with that attribute among
+    /// narrows the freeze only when that attribute is among
     /// `[detection] grouping_attributes`. An alert without it is recorded
     /// all the same, frozen by service alone, and the label is never a
     /// Prometheus label here.
@@ -472,11 +472,10 @@ impl Default for DaemonIncidentsConfig {
 #[derive(Debug, Clone, Default)]
 pub struct DaemonCorsConfig {
     /// Allowed origins for the daemon HTTP API CORS layer. Empty (default)
-    /// means no CORS headers are emitted, which preserves the pre-CORS
-    /// behavior. `["*"]` is wildcard mode, intended for development. A
-    /// non-wildcard list is the production posture: each entry must be a
-    /// full origin (scheme + host + optional port), e.g.
-    /// `"https://reports.example.com"`. Configured via
+    /// means no CORS headers are emitted. `["*"]` is wildcard mode,
+    /// intended for development. A non-wildcard list is the production
+    /// posture: each entry must be a full origin (scheme + host + optional
+    /// port), e.g. `"https://reports.example.com"`. Configured via
     /// `[daemon.cors] allowed_origins` in TOML.
     pub allowed_origins: Vec<String>,
 }
@@ -547,7 +546,7 @@ impl Default for DetectionConfig {
 
 impl Default for GreenConfig {
     // The two deprecated transport fields are set to what scoring
-    // actually applies, so a downstream reader is never misled.
+    // applies, so a downstream reader is never misled.
     #[allow(deprecated)]
     fn default() -> Self {
         Self {
@@ -589,8 +588,8 @@ impl Default for DaemonConfig {
             max_payload_size: 16 * 1024 * 1024,
             environment: DaemonEnvironment::Staging,
             max_retained_findings: 10_000,
-            // Matches the historical hardcoded export cap, so an operator
-            // who sets nothing sees the snapshot they saw before.
+            // Equals `MAX_FINDINGS_LIMIT`, the `/api/findings` cap, so an
+            // operator who sets nothing sees no change in the export.
             max_export_findings: 1_000,
             max_retained_traces: 50,
             ingest_queue_capacity: 1024,
@@ -640,7 +639,7 @@ impl Config {
     /// Map the daemon environment to a [`Confidence`] value.
     ///
     /// Used by `daemon::run` to stamp findings after detection. `analyze`
-    /// batch mode does not call this; it picks `CiBatch` or `LocalBatch`
+    /// batch mode does not call this. It picks `CiBatch` or `LocalBatch`
     /// from the host CI environment in `pipeline::analyze_with_traces`
     /// instead (see `pipeline::ci_environment_detected`).
     #[must_use]
@@ -651,12 +650,7 @@ impl Config {
         }
     }
 
-    /// Build a [`CarbonContext`] from the green config fields.
-    ///
-    /// Returns a context with `energy_snapshot: None`. The daemon clones
-    /// this and patches in the measured energy snapshot per tick; the
-    /// batch pipeline uses it as-is (no scrapers in batch mode).
-    /// The embodied coefficient scoring actually applies. Zero is
+    /// The embodied coefficient that scoring applies. Zero is
     /// deprecated (no hardware has zero embodied carbon) and clamped
     /// here rather than in the TOML layer alone, so a `Config` built by
     /// hand cannot erase the SCI `M` term either.
@@ -670,6 +664,11 @@ impl Config {
         }
     }
 
+    /// Build a [`CarbonContext`] from the green config fields.
+    ///
+    /// Returns a context with `energy_snapshot: None`. The daemon clones
+    /// this and patches in the measured energy snapshot per tick. The
+    /// batch pipeline uses it as-is (no scrapers in batch mode).
     #[must_use]
     #[allow(deprecated)] // the transport toggle is retained for API compatibility only
     pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
@@ -688,7 +687,7 @@ impl Config {
             real_time_intensity: None, // set per-tick in daemon via build_tick_ctx
             scoring_config,
             // None here so batch runs fall back to the estimated figure.
-            // The daemon injects the declaration (see `daemon::run`), it
+            // The daemon injects the declaration (see `daemon::run`). It
             // is the only mode that can deliver measured window energy.
             db_energy: None,
             broker_energy: None,
@@ -696,11 +695,11 @@ impl Config {
     }
 
     /// Build the [`ScoringConfig`](crate::score::carbon::ScoringConfig)
-    /// regardless of `green.enabled`. Always built, not only under
-    /// Electricity Maps: it carries the applied coefficients into every
-    /// archived window and the transport display setting the dashboards
-    /// honour. `carbon_context` gates it on `green.enabled`, the query
-    /// API reports it ungated so a configured backend stays visible.
+    /// regardless of `green.enabled`. Built with or without Electricity
+    /// Maps: it carries the applied coefficients into every archived
+    /// window and the transport display setting the dashboards honour.
+    /// `carbon_context` gates it on `green.enabled`, while the query API
+    /// reports it ungated so a configured backend stays visible.
     #[must_use]
     pub fn scoring_config(&self) -> crate::score::carbon::ScoringConfig {
         let mut scoring_config = self.green.electricity_maps.as_ref().map_or_else(
@@ -730,8 +729,8 @@ use raw::{
 use toml_paths::normalize_toml_path_strings;
 pub(crate) use validate::has_control_char;
 
-// Re-imports so `use super::*;` in the tests module keeps resolving the
-// names that moved into submodules.
+// Re-imports so `use super::*;` in the tests module resolves the names
+// defined in submodules.
 #[cfg(test)]
 use raw::{
     AlumetDatabaseSection, AlumetSection, CloudSection, ElectricityMapsSection, KeplerSection,
@@ -746,13 +745,12 @@ use toml_paths::{TOML_PATH_STRING_KEYS, find_basic_string_end};
 use validate::validate_http_authority;
 
 /// Top-level TOML keys that perf-sentinel accepted in 0.5.x as legacy
-/// flat aliases for sectioned fields. Removed in 0.6.0; loading a config
+/// flat aliases for sectioned fields. Removed in 0.6.0. Loading a config
 /// that still uses any of them returns
 /// [`ConfigError::Validation`] with the new section path so the operator
 /// can migrate without grep-around. Tuple is `(legacy_top_level_key,
-/// new_section_path)`. The list is intentionally exhaustive: a 0.5.x
-/// config that loads on 0.6.x without a clear error is the worst-case
-/// outcome we want to avoid.
+/// new_section_path)`. The list is exhaustive so that no config using a
+/// 0.5.x flat key loads on 0.6.x without a clear error.
 const REMOVED_LEGACY_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
     (
         "n_plus_one_threshold",
@@ -771,10 +769,10 @@ const REMOVED_LEGACY_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
 ///
 /// Runs before the typed `RawConfig` parse: a typed parse with no
 /// `deny_unknown_fields` would silently drop these keys (operator never
-/// sees a warning, defaults silently apply). A typed parse WITH
+/// sees a warning, defaults silently apply). A typed parse with
 /// `deny_unknown_fields` would surface a serde error like "unknown field
-/// `listen_port`" without the migration path. The bespoke check below
-/// prints both pieces of information in one error.
+/// `listen_port`" without the migration path. This check prints both the
+/// legacy key and its replacement in one error.
 fn reject_legacy_top_level_keys(content: &str) -> Result<(), ConfigError> {
     let value: toml::Value = toml::from_str(content).map_err(ConfigError::Parse)?;
     reject_legacy_top_level_value(&value).map_err(ConfigError::Validation)
@@ -1044,9 +1042,9 @@ fn validate_raw_config(raw: RawConfig) -> Result<Config, ConfigError> {
     }
     // Same pattern for `[green.kepler] metric_kind`: the From conversion
     // would otherwise downgrade an invalid value to a tracing::error log
-    // and silently drop the whole section, which on a v0.7.4 → v0.7.5
-    // upgrade would translate an operator's `metric_kind = "process_package"`
-    // into a silent Kepler disable instead of the documented loud error.
+    // and silently drop the whole section. After a v0.7.4 to v0.7.5
+    // upgrade, an operator's `metric_kind = "process_package"` would
+    // disable Kepler silently instead of raising the documented loud error.
     parse_kepler_metric_kind(raw.green.kepler.metric_kind.as_deref())
         .map_err(ConfigError::Validation)?;
     // Same pattern for `[green.alumet]`: `metric_name` and `label_key`
@@ -1075,7 +1073,7 @@ pub enum ConfigError {
     Parse(#[from] toml::de::Error),
     /// TOML parsing error attributed to one named file. The name is the
     /// file itself, fragment or main config: the main `.perf-sentinel.toml`
-    /// travels the same loader and must not be called a fragment.
+    /// goes through the same loader and must not be called a fragment.
     #[error("in {name}: {source}")]
     FragmentParse {
         name: String,

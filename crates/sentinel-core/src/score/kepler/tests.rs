@@ -100,7 +100,7 @@ fn no_change_produces_empty_deltas() {
 fn counters_sharing_a_label_value_are_summed() {
     // Two pods each run a container named "order": two cumulative
     // series under one label value. The deltas must be computed on the
-    // SUM of the counters; a last-write-wins read would flip between
+    // SUM of the counters. A last-write-wins read would flip between
     // the two counters with exposition order and produce garbage
     // deltas in both directions.
     let mut last = HashMap::new();
@@ -185,7 +185,7 @@ fn unmapped_label_is_ignored() {
 
 #[test]
 fn compute_energy_per_op_basic() {
-    // 3.6 MJ over 100 ops → 1 kWh / 100 = 0.01 kWh per op.
+    // 3.6 MJ over 100 ops is 1 kWh / 100 = 0.01 kWh per op.
     let kwh = compute_energy_per_op_kwh(3_600_000.0, 100).unwrap();
     assert!((kwh - 0.01).abs() < 1e-12);
 }
@@ -281,7 +281,7 @@ fn process_scrape_end_to_end_after_two_ticks() {
     let _ = process_scrape(&state, &samples1, &ops1, &cfg, &mut last_raw, 1000);
     assert!(state.snapshot(1000, 10_000).is_empty());
 
-    // Tick 2: delta = 3,600,000 J over 100 ops → 0.01 kWh per op.
+    // Tick 2: delta = 3,600,000 J over 100 ops, so 0.01 kWh per op.
     let samples2 = vec![PromSample {
         label_value: "order".to_string(),
         value: 4_600_000.0,
@@ -300,7 +300,7 @@ fn process_scrape_end_to_end_after_two_ticks() {
 fn state_filters_stale_entries() {
     let state = KeplerState::default();
     state.insert_for_test("order-svc".to_string(), 5e-7, 100);
-    // now=700, staleness=500 → age 600 >= 500 → stale.
+    // now=700, staleness=500: age 600 >= 500, so stale.
     assert!(state.snapshot(700, 500).is_empty());
 }
 
@@ -446,9 +446,9 @@ fn track_zero_sample_streak_resets_on_non_empty_scrape() {
 
 #[test]
 fn no_match_streak_arms_on_mistyped_kepler_mappings() {
-    // The v0.7.4-class gap the Alumet round closed: a mistyped
-    // service_mappings value keeps every counter healthy while nothing
-    // publishes. Three matched-nothing ticks must warn on latch B.
+    // A mistyped service_mappings value keeps every counter healthy
+    // while nothing publishes. Three matched-nothing ticks must warn on
+    // latch B.
     let (mut a, mut b) = kepler_streaks();
     for _ in 0..3 {
         kepler_tick(7, 0, 1, &mut a, &mut b);
@@ -499,10 +499,10 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
 
 #[tokio::test]
 async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
-    // Regression guard against the round-1 bug where the gauge
-    // stayed at 0.0 forever if the scraper failed from the very first
-    // tick. `last_success_ms` is now seeded to scraper-start time so
-    // the gauge climbs from boot on a hung endpoint.
+    // Regression guard: `last_success_ms` is seeded to scraper-start
+    // time so the gauge climbs from boot on a hung endpoint instead of
+    // staying at 0.0 forever when the scraper fails from the very first
+    // tick.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
@@ -524,7 +524,7 @@ async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
     // fixed window. On Linux the scrape fails fast (connection refused) within
     // a tick, but on Windows connecting to the dropped port can take until the
     // fetch timeout (3s) to fail, so a fixed 300ms wait flakes. Break as soon
-    // as the gauge moves; the budget only has to exceed the fetch timeout.
+    // as the gauge moves. The budget only has to exceed the fetch timeout.
     let mut age = 0.0;
     for _ in 0..320 {
         tokio::time::sleep(Duration::from_millis(25)).await;

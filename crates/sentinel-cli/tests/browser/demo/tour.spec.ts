@@ -1,20 +1,18 @@
 import {expect, test} from "@playwright/test";
 
-// Scripted tour of the HTML dashboard. Pacing is deliberate: each
-// pause is tuned so the final GIF reads as a calm demo rather than a
-// Benny Hill sketch. Adjust `pause` values if a step looks rushed or
-// stalls when viewed at 15 fps.
+// Scripted tour of the HTML dashboard. Each pause is tuned so the final
+// GIF reads as a calm demo. Adjust `pause` values if a step looks rushed
+// or stalls when viewed at 15 fps.
 
 async function pause(page: import("@playwright/test").Page, ms: number) {
-  // Deliberate fixed dwell for the recorded video: it holds each frame long
-  // enough to read at 15 fps. There is no observable condition to sync on
-  // here, the wait itself is the intended pacing (see the note above).
+  // Fixed dwell for the recorded video: it holds each frame long enough to
+  // read at 15 fps. There is no observable condition to sync on here. The
+  // wait itself is the pacing (see the note above).
   await page.waitForTimeout(ms); // NOSONAR: intentional GIF pacing
 }
 
-// Tour duration overruns the 30 s default once live-mode steps are
-// added. 60 s gives the same headroom as the previous version did
-// before live mode bumped the script length.
+// The live-mode steps push the tour past the 30 s default. 60 s gives the
+// full tour the headroom that 30 s gives it without those steps.
 test.setTimeout(60000);
 
 test("dashboard tour", async ({ page }, testInfo) => {
@@ -29,7 +27,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
 
   await page.goto("/dashboard-demo.html");
   await page.waitForSelector("[role=tablist]");
-  // Land on the new Overview, then move into Findings for the tour.
+  // Land on the Overview, then move into Findings for the tour.
   await pause(page, 1800);
   await page.locator("#tab-findings").click();
   await pause(page, 1200);
@@ -50,7 +48,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await page.keyboard.press("Escape");
   await pause(page, 900);
 
-  // Click first finding row -> the detail pane updates with the trace tree.
+  // Clicking the first finding row updates the detail pane with the trace tree.
   await page.locator("#findings-list .ps-row").first().click();
   await pause(page, 2400);
 
@@ -89,9 +87,9 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 2600);
 
   // Acks tab (live mode only): three pre-loaded acks come back from
-  // the mocked /api/acks endpoint, each row exposes a Revoke button.
-  // No vim-style shortcut is registered for this tab, click the tab
-  // header directly.
+  // the mocked /api/acks endpoint, and each row exposes a Revoke button.
+  // No vim-style shortcut is registered for this tab, so the tour clicks
+  // the tab header directly.
   await page.locator("#tab-acknowledgments").click();
   await pause(page, 2400);
 
@@ -107,9 +105,9 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 600);
 
   // --- Wink at the opposite theme and come back ---
-  // Cycle auto -> light -> dark -> auto. One click advances one
-  // notch; from a forced primary theme we need at most three clicks
-  // to land on any of the three states. Short 300 ms pauses between
+  // The toggle cycles auto, light, dark, then back to auto. One click
+  // advances one notch. From a forced primary theme, any of the three
+  // states is at most three clicks away. Short 300 ms pauses between
   // clicks keep the cycle readable without dragging the GIF. Throws
   // if the loop exits without reaching the target so a future cycle
   // change (e.g. adding a fourth state) surfaces loudly instead of
@@ -148,7 +146,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await page.waitForSelector("#cheatsheet[open]", { timeout: 2000 });
   // Final assertion: the tour reached the cheatsheet, signalling the
   // full keyboard-shortcut path is wired. Earlier waitForSelector calls
-  // are runtime checks only, this expect is what the reporter counts.
+  // are runtime checks only. The reporter counts this expect.
   await expect(page.locator("#cheatsheet")).toBeVisible();
   await pause(page, 2500);
   await page.keyboard.press("Escape");

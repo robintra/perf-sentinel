@@ -4,9 +4,6 @@ use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
 /// Build a `QueryApiState` for tests, wiring an optional correlator.
-/// The three concrete test-site constructions only differed by the
-/// correlator slot (None, Some(A), Some(B)); every other field used
-/// the same test defaults.
 fn make_state_with_correlator(
     correlator: Option<Arc<tokio::sync::Mutex<CrossTraceCorrelator>>>,
 ) -> Arc<QueryApiState> {
@@ -79,8 +76,6 @@ fn seed_correlator_with_pair(
 }
 
 /// The `snapshot_scope` warning messages an export carries, in order.
-/// Both export tests read the same field the same way, and the pair was
-/// the one duplication Qodana flagged in this file.
 fn snapshot_scope_messages(report: &Report) -> Vec<&str> {
     report
         .warning_details
@@ -1257,9 +1252,9 @@ async fn findings_limit_is_capped() {
 async fn handle_export_report_returns_200_with_empty_envelope_on_cold_start() {
     // No events processed yet: the daemon has nothing meaningful
     // to snapshot. Returns 200 with an empty Report envelope and a
-    // `warnings` entry. Pre-0.5.16 returned 503, which tripped
-    // Kubernetes probes. The empty shape lets clients distinguish
-    // "no events yet" from "ran and found nothing" without a 5xx.
+    // `warnings` entry, not a 503, which would trip Kubernetes probes.
+    // The empty shape lets clients distinguish "no events yet" from
+    // "ran and found nothing" without a 5xx.
     let app = query_api_router(make_state());
     let req = Request::builder()
         .uri("/api/export/report")
@@ -1399,9 +1394,8 @@ async fn handle_export_report_returns_report_shape_when_events_ingested() {
 
     assert_eq!(report.analysis.events_processed, 42);
     assert_eq!(report.analysis.traces_analyzed, 5);
-    // duration_ms is intentionally 0 on the export path (see
-    // handler doc), not the daemon uptime that an
-    // `as_millis()` would produce.
+    // duration_ms is 0 on the export path (see handler doc), not
+    // the daemon uptime that an `as_millis()` would produce.
     assert_eq!(report.analysis.duration_ms, 0);
     // The shared green_summary cell is initialized to disabled(0)
     // and this test does not seed it, so total_io_ops stays at 0.
@@ -1419,7 +1413,7 @@ async fn handle_export_report_gate_survives_a_reload() {
     // The snapshot is documented as shape-identical to `analyze --format
     // json`, and every consumer that reloads it re-derives the gate from
     // `findings`. Exporting a folded list beside a gate counted on
-    // instances made that recompute contradict the shipped verdict.
+    // instances would make that recompute contradict the shipped verdict.
     let state = make_state();
     state.metrics.events_processed_total.inc_by(30.0);
     state.metrics.traces_analyzed_total.inc_by(3.0);
@@ -1697,7 +1691,7 @@ async fn export_report_warning_details_includes_cold_start_kind() {
 async fn export_report_cold_start_still_names_a_zero_sampling_rate() {
     // At rate 0.0 the daemon never leaves cold start, so the dedicated
     // message must ride the cold-start envelope or it is unreachable
-    // (lab defect D2: cold_start alone points at the wrong cause).
+    // (cold_start alone points at the wrong cause).
     let mut state = make_state();
     Arc::get_mut(&mut state)
         .unwrap()
@@ -2054,8 +2048,8 @@ async fn energy_endpoint_reports_unconfigured_backends_without_metrics() {
         assert!(b.scrapes_ok.is_none(), "{}", b.backend);
     }
     // Order follows the measured-energy precedence chain, so Alumet
-    // leads. Pinned on purpose: the response order is a documented
-    // stable surface (docs/QUERY-API.md).
+    // leads. Pinned because the response order is a documented stable
+    // surface (docs/QUERY-API.md).
     let names: Vec<&str> = energy.backends.iter().map(|b| b.backend.as_str()).collect();
     assert_eq!(
         names,
@@ -2140,7 +2134,7 @@ async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
         .find(|b| b.backend == "electricity_maps")
         .expect("electricity_maps row");
     assert!(emaps.configured);
-    // No freshness gauge exists for the EM API by design.
+    // No freshness gauge exists for the EM API.
     assert!(emaps.last_scrape_age_seconds.is_none());
 }
 
@@ -2203,8 +2197,7 @@ fn toml_baseline_fixture(sig: &str) -> ResolvedTomlAck {
 }
 
 /// Build a POST `/api/findings/{sig}/ack` request with an empty
-/// JSON body and no auth headers. Centralizes the boilerplate so
-/// the per-test focus is the assertion, not the HTTP setup.
+/// JSON body and no auth headers.
 fn post_ack_request(sig: &str) -> Request<Body> {
     Request::builder()
         .method("POST")
@@ -2316,9 +2309,9 @@ async fn unack_endpoint_makes_finding_reappear() {
 async fn a_page_shortened_by_the_ack_screen_is_not_the_last_page() {
     // The ack screen runs after `offset` and `limit` have already cut the
     // page, so a page holding an acked row comes back short of `limit`
-    // with more pages behind it. `docs/QUERY-API.md` tells a collector to
-    // page until a request returns nothing rather than until one returns
-    // fewer rows than it asked for; this is what makes that true.
+    // with more pages behind it. `docs/QUERY-API.md` therefore tells a
+    // collector to page until a request returns nothing rather than until
+    // one returns fewer rows than it asked for.
     let (_dir, store) = fresh_ack_store().await;
     let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
     // Unsigned findings never fold together, so three pushes are three
@@ -2794,8 +2787,6 @@ fn finding_response_does_not_collide_with_stored_finding_fields() {
 
 impl QueryApiState {
     /// Test-only shallow clone, mirrors every slot via Arc cloning.
-    /// `scoring_config` is the only field the new test mutates,
-    /// every other field is shared with the original Arc.
     fn clone_for_test(&self) -> Self {
         Self {
             findings_store: Arc::clone(&self.findings_store),
@@ -2878,8 +2869,9 @@ async fn handle_export_report_states_what_the_snapshot_covers() {
 
 #[tokio::test]
 async fn export_findings_are_capped_by_max_export_findings() {
-    // The cap used to be the hardcoded MAX_FINDINGS_LIMIT, which left an
-    // operator reporting on a busy daemon with no way to widen the slice.
+    // The cap is `max_export_findings`, not the hardcoded
+    // MAX_FINDINGS_LIMIT, so an operator reporting on a busy daemon can
+    // widen the slice.
     let mut state = make_state_with_correlator(None).clone_for_test();
     state.daemon_config.max_export_findings = 3;
     let state = Arc::new(state);
@@ -2939,13 +2931,13 @@ fn tuning_advisor_flags_grouping_folding() {
     );
 }
 
-/// `req` with `key` as `X-API-Key`, or untouched when `None`.
 /// The status one request comes back with, which is all the key tests
 /// read. The router is cloned per call because `oneshot` consumes it.
 async fn status_of(app: &Router, req: Request<Body>) -> StatusCode {
     app.clone().oneshot(req).await.unwrap().status()
 }
 
+/// `req` with `key` as `X-API-Key`, or untouched when `None`.
 fn keyed(mut req: Request<Body>, key: Option<&str>) -> Request<Body> {
     if let Some(key) = key {
         req.headers_mut().insert(

@@ -1,5 +1,5 @@
 //! Kepler scraper task, HTTP client, and error types. Direct-scrape
-//! mode only this round; Prometheus-mediated mode is deferred. See
+//! mode only (Prometheus-mediated mode is deferred). See
 //! `docs/design/05-GREENOPS-AND-CARBON.md` for the methodology and
 //! `docs/LIMITATIONS.md` for the precision bounds.
 
@@ -282,7 +282,7 @@ fn handle_kepler_failure(
 ///
 /// Same two-cause split as the Alumet scraper: `no_samples` fires when
 /// the metric is absent from the wire (legacy Kepler names, wrong
-/// `metric_kind`), `no_match` fires when samples flow but zero
+/// `metric_kind`), and `no_match` fires when samples flow but zero
 /// `service_mappings` label values are present (mistyped values, or
 /// every mapped workload absent from the exposition). A tick with no
 /// samples says nothing about the mappings, so it neither advances nor

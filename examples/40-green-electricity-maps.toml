@@ -23,8 +23,8 @@ default_region = "eu-west-3"
 "chat-svc" = "ap-southeast-1"
 
 [green.electricity_maps]
-# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here, it takes
-# precedence over this file. There is no "env:VAR" indirection, a value in
+# Set the key through PERF_SENTINEL_EMAPS_TOKEN rather than here. It takes
+# precedence over this file. There is no "env:VAR" indirection: a value in
 # that shape is used literally.
 api_key = "your-api-key"   # no default, required
 # Default 300. The free tier is about 30 requests per zone per month, so it

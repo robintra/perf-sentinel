@@ -4,12 +4,11 @@
 # Showcases the `perf-sentinel inspect` TUI mode, a 4-panel interactive
 # explorer for traces, findings, finding details and cross-trace
 # correlations. The Correlations panel stays empty in batch mode (the
-# correlator is daemon-only), the tape exercises the other three. The
-# tape launches
-# the TUI, navigates down through the trace list one position at a time
-# with ~2s pauses so the viewer can watch the findings panel color flip
-# between severity levels (yellow WARNING → red CRITICAL → cyan INFO),
-# then Tabs into the detail panel and quits with 'q'.
+# correlator is daemon-only). The tape exercises the other three. It
+# launches the TUI and navigates down through the trace list one position
+# at a time, with ~2s pauses so the viewer can watch the findings panel
+# color flip between severity levels (yellow WARNING, then red CRITICAL,
+# then cyan INFO). It then Tabs into the detail panel and quits with 'q'.
 #
 # The trace list is sorted alphabetically by `trace_id` in `App::new`,
 # so the navigation below is deterministic across runs. With the demo
@@ -25,9 +24,9 @@
 #   8: slow-http      (WARNING)
 #   9: slow-sql       (WARNING)
 #
-# The screenshots still cover all three severity levels plus a rich
+# The screenshots cover all three severity levels plus a rich
 # detail-panel view with scrolling. Positions below are in the impact
-# ranking the list now opens on, not the trace-id order it used to:
+# ranking the list opens on, not the trace-id order above:
 #   - main.png           : position 0, the costliest trace
 #                          (N+1 SQL, CRITICAL red)
 #   - detail.png         : position 6 (fanout, WARNING yellow) with the
@@ -40,7 +39,7 @@
 #
 # There is no separate CRITICAL frame: impact ordering opens the list on
 # the one critical finding the demo fixture holds, so main.png already is
-# that frame. Capturing it twice produced two byte-identical files.
+# that frame. Capturing it twice would produce two byte-identical files.
 #
 # Install vhs: https://github.com/charmbracelet/vhs
 # Install ffmpeg: https://ffmpeg.org/download.html
@@ -54,7 +53,7 @@
 #   # Post-process the GIF. Required: the raw VHS output grows past
 #   # 1.5 MB because the tape is long (3 severity tours + a scroll
 #   # animation) and the full-width terminal has lots of varied pixels.
-#   # fps=20 keeps motion smooth; the filter lands it around 1.7 MB while
+#   # fps=20 keeps motion smooth. The filter lands it around 1.7 MB while
 #   # keeping text readable.
 #   ffmpeg -y -i docs/img/inspect/demo.gif \
 #     -vf "fps=20,scale=1200:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
@@ -92,7 +91,7 @@ Sleep 3s
 Screenshot docs/img/inspect/main.png
 Sleep 4s
 
-# The list opens on the highest-impact trace, so the walk down is now a
+# The list opens on the highest-impact trace, so the walk down is a
 # walk down the impact ranking. Six steps reach the fanout trace, whose
 # full 22-span tree of `POST /api/checkout/confirm` is the most visually
 # rich in the demo fixture, then Tab Tab drills into the detail panel.
@@ -115,13 +114,13 @@ Sleep 2s
 Screenshot docs/img/inspect/detail-scrolled.png
 Sleep 4s
 
-# Rewind back to the traces panel. Two Tabs because the cycle is now
-# Detail → Correlations → Traces (the Correlations panel was added in
-# the 4-panel layout). Then walk back up three places to the INFO trace
-# (redundant HTTP). `move_up` on Traces resets `scroll_offset` and
-# clears `cached_detail` just as `move_down` does, so the scrolled state
-# does not leak into the next trace's view. The findings panel header
-# flips to cyan INFO as the viewer watches the color shift.
+# Rewind back to the traces panel. Two Tabs because the cycle goes from
+# Detail to Correlations, then to Traces. Then walk back up three places
+# to the INFO trace (redundant HTTP). `move_up` on Traces resets
+# `scroll_offset` and clears `cached_detail` just as `move_down` does, so
+# the scrolled state does not leak into the next trace's view. The
+# findings panel header flips to cyan INFO as the viewer watches the
+# color shift.
 Tab
 Sleep 1s
 Tab

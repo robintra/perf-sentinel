@@ -2,7 +2,7 @@
 //!
 //! Both `tempo` and `jaeger_query` build query strings by hand and
 //! validate user-supplied endpoints with the same rules. This module
-//! hosts those two helpers once, each module applies its own error
+//! hosts those two helpers once. Each module applies its own error
 //! type at the call site.
 
 /// Minimal percent-encoding for URI query parameter values.
@@ -29,8 +29,8 @@ pub(crate) fn percent_encode_query_value(s: &str) -> String {
 /// Validate that an HTTP endpoint string is `http://` or `https://`
 /// scheme and does not embed credentials in the authority section.
 ///
-/// The check is intentionally narrow (authority only). A literal `@`
-/// in the path or query string stays accepted so URIs like
+/// The check covers the authority only. A literal `@` in the path or
+/// query string stays accepted so URIs like
 /// `/api/traces?owner=foo%40example.com` work. Returns the error
 /// message as a `&'static str` the caller converts into its own error
 /// variant.
@@ -43,7 +43,7 @@ pub(crate) fn validate_http_endpoint(endpoint: &str) -> Result<(), &'static str>
     if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
         return Err("endpoint must start with http:// or https://");
     }
-    // Control bytes can survive `hyper::Uri` on some path shapes and
+    // Control bytes can pass through `hyper::Uri` on some path shapes and
     // land verbatim in tracing output via the redacted endpoint.
     if endpoint.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return Err("endpoint must not contain ASCII control characters");

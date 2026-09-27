@@ -1,10 +1,10 @@
 //! Shared timestamp conversion helpers.
 //!
 //! This module is the **single source of truth** for civil-calendar
-//! arithmetic in the crate. Both directions are here: epoch → ISO 8601
-//! (via [`nanos_to_iso8601`] / [`micros_to_iso8601`]) and ISO 8601 →
+//! arithmetic in the crate. Both directions are here: epoch to ISO 8601
+//! (via [`nanos_to_iso8601`] / [`micros_to_iso8601`]) and ISO 8601 to
 //! epoch ms (via [`parse_iso8601_utc_to_ms`]). Do not reimplement the
-//! Howard-Hinnant `days_from_civil` formulas anywhere else, call these
+//! Howard-Hinnant `days_from_civil` formulas anywhere else. Call these
 //! helpers so a single bug fix propagates to every call site.
 
 /// Convert nanoseconds since epoch to an ISO 8601 timestamp string.
@@ -64,14 +64,14 @@ pub(crate) fn millis_to_iso8601(ms: u64) -> String {
 /// - non-numeric hour digits at positions 11-12
 /// - hours outside `0..24`
 /// - strings that do not end with `Z` (non-UTC offsets like `+02:00`
-///   are rejected rather than silently shifted, the embedded hourly
+///   are rejected rather than silently shifted: the embedded hourly
 ///   carbon profile table is UTC-anchored, so naive offset handling
-///   would poison CO₂ estimates)
+///   would skew CO₂ estimates)
 ///
 /// Used by the hourly carbon profile path in
 /// `score::compute_carbon_report`. Callers that receive `None` should
 /// fall back to the flat annual intensity for the region (no sentinel
-/// hour, a wrong hour would silently skew the estimate).
+/// hour: a wrong hour would silently skew the estimate).
 #[must_use]
 pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
     // Strict ASCII-only parsing. If the string contains non-ASCII bytes
@@ -99,9 +99,9 @@ pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
         return None;
     }
     // Must end with 'Z' to be UTC. This rejects the `+HH:MM` / `-HH:MM`
-    // offset forms deliberately, they would require a proper offset
-    // subtraction that we don't support yet and silently treating
-    // local hours as UTC would bias the carbon estimate systematically.
+    // offset forms: they would require an offset subtraction that we
+    // don't support yet, and silently treating local hours as UTC would
+    // bias the carbon estimate systematically.
     if !ts.ends_with('Z') {
         return None;
     }
@@ -152,7 +152,7 @@ pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
 ///
 /// - `T` or space between date and time
 /// - fractional seconds with 1 to 9 digits (truncated to 3 for ms)
-/// - must end with `Z` (UTC); non-UTC offsets are rejected
+/// - must end with `Z` (UTC): non-UTC offsets are rejected
 ///
 /// Uses Howard Hinnant's civil-date algorithm (the inverse of
 /// [`nanos_to_iso8601`]) so both directions share the same source of
@@ -168,7 +168,7 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     // Fast path: the canonical 24-byte layout every converter in this
     // crate emits (nanos_to_iso8601), "YYYY-MM-DDTHH:MM:SS.mmmZ".
     // Detectors and carbon scoring parse timestamps several times per
-    // span, so this path is hot; anything non-canonical falls through
+    // span, so this path is hot. Anything non-canonical falls through
     // to the general parser below.
     if let Some(ms) = parse_fixed_layout(s.as_bytes()) {
         return Ok(ms);
@@ -267,7 +267,8 @@ fn parse_date_ymd(date_part: &str) -> Result<(u64, u64, u64), String> {
 }
 
 /// Parse the `HH:MM:SS[.fff]` half into its numeric components. Fractional
-/// seconds shorter than 3 digits are left-padded; longer ones are truncated.
+/// seconds shorter than 3 digits are right-padded with zeros and longer ones
+/// truncated.
 fn parse_time_hms(time_part: &str) -> Result<(u64, u64, u64, u64), String> {
     let (time_no_frac, millis) = parse_fractional_seconds(time_part)?;
     // split_once chain: no Vec allocation on the success path.
@@ -300,7 +301,7 @@ fn parse_fractional_seconds(time_part: &str) -> Result<(&str, u64), String> {
         return Ok((time_part, 0u64));
     };
     let frac = &time_part[dot_pos + 1..];
-    // 1-digit → tenths, 2-digit → hundredths, 3-digit → ms, >3 → truncate.
+    // 1 digit is tenths, 2 hundredths, 3 ms. Digits past the third are truncated.
     let digits = frac.len().min(3);
     let ms: u64 = frac[..digits]
         .parse::<u64>()
@@ -505,9 +506,8 @@ mod tests {
 
     #[test]
     fn parse_iso8601_round_trips_with_nanos_to_iso8601() {
-        // Round-trip: nanos → ISO → ms → verify consistency. This is
-        // the critical cross-function invariant: both directions must
-        // agree on day counting and leap-year handling.
+        // Round-trip nanos to ISO to ms: both directions must agree on
+        // day counting and leap-year handling.
         let nanos = 1_720_621_921_123_000_000u64; // 2024-07-10T14:32:01.123Z
         let iso = nanos_to_iso8601(nanos);
         let ms = parse_iso8601_utc_to_ms(&iso).unwrap();

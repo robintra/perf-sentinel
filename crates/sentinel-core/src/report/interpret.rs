@@ -2,9 +2,9 @@
 //!
 //! These thresholds are heuristic rendering aids for the CLI text output.
 //! Two of the four are mechanically anchored on detector constants and one
-//! is an admitted rule of thumb, and the JSON output carries a split
-//! stability contract: the band names are stable across versions, the
-//! thresholds behind them are not. Both are spelled out in
+//! is a rule of thumb. The JSON output carries a split stability
+//! contract: the band names are stable across versions, the thresholds
+//! behind them are not. Both are spelled out in
 //! `docs/design/07-CLI-CONFIG-RELEASE.md`, "Interpretation bands".
 
 /// Four-level interpretation band for a numerical score.
@@ -66,8 +66,8 @@ impl InterpretationLevel {
     /// order `(moderate, high, critical)` both public wrappers use.
     ///
     /// `NaN` falls through to [`Healthy`] because NaN compares false
-    /// against every threshold, intentional: missing data should not
-    /// render as a red CLI warning.
+    /// against every threshold, which is the safe choice: missing data
+    /// should not render as a red CLI warning.
     ///
     /// [`for_iis`]: Self::for_iis
     /// [`for_waste_ratio`]: Self::for_waste_ratio
@@ -126,7 +126,7 @@ impl InterpretationLevel {
     /// rendering: `"healthy"`, `"moderate"`, `"high"`, `"critical"`.
     ///
     /// Takes `self` by value because `InterpretationLevel` is `Copy`
-    /// (fieldless enum); there's no reason to add a deref.
+    /// (fieldless enum).
     #[must_use]
     pub const fn short_label(self) -> &'static str {
         match self {
@@ -228,15 +228,15 @@ mod tests {
     /// This test reads the runtime value of `Config::default().n_plus_one_threshold`
     /// and asserts they match. A bare literal comparison (`IIS_HIGH == 5.0`)
     /// would not catch the case where someone bumps the config default but
-    /// forgets to update `IIS_HIGH`, the point of a drift guard is to
-    /// follow the anchor, not to freeze a magic number.
+    /// forgets to update `IIS_HIGH`. A drift guard follows the anchor
+    /// instead of freezing a magic number.
     ///
     /// `f64::from(u32)` is lossless today. If someone widens
     /// `n_plus_one_threshold` from `u32` to `usize`, `f64::from(usize)`
     /// does not exist and this test will stop compiling, forcing a
     /// manual decision on how to cast. That hard break is the drift
-    /// guard here: do NOT paper over it with `as f64`, the type
-    /// change should get human attention.
+    /// guard here. Do NOT paper over it with `as f64`: the type change
+    /// should get human attention.
     #[test]
     fn iis_high_matches_n_plus_one_threshold_default() {
         let default_threshold = crate::config::Config::default()
@@ -371,10 +371,10 @@ mod tests {
 
     /// `+Infinity` must classify as `Critical` (it satisfies every `>=`
     /// threshold). `-Infinity` must classify as `Healthy` (it satisfies
-    /// none). These document the behavior for downstream renderers that
-    /// format `f64` scores with `{:.1}` / `{:.6}`, Rust's `Display` impl
-    /// for infinities prints `"inf"` / `"-inf"` without panicking, so the
-    /// CLI stays crash-safe even on adversarial inputs.
+    /// none). These tests document the behavior for downstream renderers
+    /// that format `f64` scores with `{:.1}` / `{:.6}`. Rust's `Display`
+    /// impl for infinities prints `"inf"` / `"-inf"` without panicking, so
+    /// the CLI stays crash-safe even on adversarial inputs.
     #[test]
     fn positive_infinity_iis_classified_critical() {
         assert_eq!(

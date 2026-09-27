@@ -17,7 +17,7 @@ use std::time::Duration;
 /// rejected at config-load time.
 ///
 /// Kepler v1 / pre-0.10 deployments expose `kepler_container_joules_total`
-/// and have no `_cpu_` infix, perf-sentinel will scrape successfully
+/// and have no `_cpu_` infix. perf-sentinel will scrape successfully
 /// against them (HTTP 200) but find zero matching samples. Upgrade
 /// the cluster's Kepler to v0.10+ before enabling this section.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -61,7 +61,7 @@ impl KeplerMetricKind {
 /// service_mappings = { "order-svc" = "order-svc-deployment", "chat-svc" = "chat" }
 /// ```
 ///
-/// Absent config means no scraper spawned, every service falls back to
+/// Absent config means no scraper is spawned and every service falls back to
 /// the proxy or cloud path. This struct is only constructed when the
 /// user sets at least an `endpoint`.
 #[derive(Clone)]
@@ -84,7 +84,7 @@ pub struct KeplerConfig {
     /// to every Kepler request. Required when the exporter sits behind
     /// a reverse proxy with basic auth or bearer-token enforcement.
     /// Resolved via the `PERF_SENTINEL_KEPLER_AUTH_HEADER` environment
-    /// variable with fallback to this field, env wins when both are set.
+    /// variable with fallback to this field (env wins when both are set).
     pub auth_header: Option<String>,
 }
 

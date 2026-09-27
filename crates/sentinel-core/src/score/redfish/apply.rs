@@ -1,4 +1,4 @@
-//! Redfish node-level power → per-service energy-per-op attribution.
+//! Redfish node-level power to per-service energy-per-op attribution.
 //! Formula and node-level granularity trade-offs documented in design
 //! doc 05 "Kepler and Redfish attribution notes" and
 //! `docs/LIMITATIONS.md` "Redfish BMC precision bounds".
@@ -9,7 +9,7 @@ use super::state::ServiceEnergy;
 
 /// Build the `chassis_id → Vec<service>` reverse index once at scraper
 /// startup. Avoids walking the full `service_mappings` per chassis per
-/// tick (was O(C × S)).
+/// tick, an O(C × S) cost.
 #[must_use]
 #[allow(clippy::implicit_hasher)]
 pub(crate) fn build_chassis_services(
@@ -46,10 +46,9 @@ pub(crate) fn apply_chassis_scrape(
     {
         return false;
     }
-    // Single-pass collect of services with positive ops this window.
-    // Each service costs one `op_deltas.get(...)` lookup instead of
-    // the two-walk pattern (sum then filter) plus a redundant lookup
-    // inside the publish loop.
+    // One walk filters services with positive ops this window and sums
+    // their ops, with one `op_deltas.get(...)` lookup per service and
+    // none in the publish loop.
     let mut contributors: Vec<(&str, u64)> = Vec::with_capacity(chassis_services.len());
     let mut total_ops: u64 = 0;
     for svc in chassis_services {
@@ -62,7 +61,7 @@ pub(crate) fn apply_chassis_scrape(
     if total_ops == 0 {
         return false;
     }
-    // chassis_joules = watts × seconds; kWh = J / 3.6e6.
+    // chassis_joules = watts × seconds, kWh = J / 3.6e6.
     // Per-service contribution is implicitly proportional to its ops
     // since the published coefficient × service_ops sums back to
     // chassis_joules across the mapped set.

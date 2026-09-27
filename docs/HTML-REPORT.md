@@ -14,7 +14,7 @@ post-mortem exploration of a trace set. It runs in two modes:
   status indicator, an Acknowledgments panel, a `Show acknowledged`
   toggle, and a manual refresh button. The static panels (Findings,
   Explain, pg_stat, mysql_stat, Diff, Correlations, Carbon) keep the same
-  static-mode behavior, the live mode is purely additive.
+  static-mode behavior. The live mode is purely additive.
 
 ## Static mode
 
@@ -24,14 +24,14 @@ open report.html
 ```
 
 That is the artifact every CI job can produce. `--sort <KEY>` takes
-`impact` (the default) or `severity`, the same keys as `analyze --sort`:
-it orders the findings list the page opens on, and with
-`--max-traces-embedded <N>` it decides which span trees survive the cap,
-since the sink keeps the trees the top findings point at. Without
-`--daemon-url`, the generated HTML is fully static and deterministic for
-the same input. CSP (Content-Security-Policy, the browser header that
-declares which scripts and resources the page is allowed to load)
-stays strict (`default-src 'none'`), there is no
+`impact` (the default) or `severity`, the same keys as `analyze --sort`.
+It orders the findings list the page opens on. With
+`--max-traces-embedded <N>` it also decides which span trees the report
+carries under the cap, since the sink keeps the trees the top findings
+point at. Without `--daemon-url`, the generated HTML is fully static and
+deterministic for the same input. CSP (Content-Security-Policy, the
+browser header that declares which scripts and resources the page is
+allowed to load) stays strict (`default-src 'none'`), and there is no
 `fetch()` call against any host.
 
 Times on the page (the finding window, span times in the Explain tree,
@@ -57,7 +57,7 @@ the CSV exports stay in UTC.
   Two more knobs cover what a hand-written query changes beyond names.
   `--pg-stat-calls-metric <SERIES>` names the call counter, fetched in a
   second query and joined on `queryid`, because every exporter publishes
-  calls as a series of its own rather than a label; pass an empty value
+  calls as a series of its own rather than a label. Pass an empty value
   to skip that query: the calls ranking then stays at zero and the mean
   ranking repeats the total. `--pg-stat-unit seconds|milliseconds` states what the
   time series counts: `pg_stat_statements` itself counts milliseconds,
@@ -74,13 +74,13 @@ the CSV exports stay in UTC.
   `--collect.perf_schema.eventsstatements` on the exporter, which is off
   by default. The scrape assumes
   `mysql_perf_schema_events_statements_seconds_total` with a
-  `digest_text` label; a recording rule names its own series, so
+  `digest_text` label. A recording rule names its own series, so
   `--mysql-stat-metric <SERIES>` and `--mysql-stat-query-label <LABEL>`
   point the scrape at those names. Without a matching label the tab falls
   back to `digest` and shows opaque hashes instead of statements. The
   collector publishes `COUNT_STAR`, `SUM_ROWS_SENT` and
   `SUM_ROWS_EXAMINED` as series of their own rather than labels, so one
-  query each fetches them and joins on the digest identity;
+  query each fetches them and joins on the digest identity.
   `--mysql-stat-calls-metric <SERIES>`, `--mysql-stat-rows-sent-metric
   <SERIES>` and `--mysql-stat-rows-examined-metric <SERIES>` name them, and an
   empty value skips that query: the calls ranking then stays at zero and the mean
@@ -91,7 +91,8 @@ the CSV exports stay in UTC.
   states what the time series counts: Performance Schema counts
   `SUM_TIMER_WAIT` in picoseconds, the collector converts to seconds, and a
   recording rule usually forwards the column untouched. A file export needs
-  no collector enabled on the exporter, which is what still recommends it.
+  no collector enabled on the exporter, which is why it stays the
+  recommended input.
 
 ## Interactive features
 
@@ -171,7 +172,7 @@ searchable tab at once: Findings, pg_stat, mysql_stat, Diff and
 Correlations. Each of those tabs reports its own match count in its
 sidebar badge, so you can type from any tab, including Overview and
 Carbon, and read where the matches are before switching. The query
-survives a tab switch, and matches of two characters or more are
+is kept across a tab switch, and matches of two characters or more are
 highlighted in the panel you are looking at.
 
 Findings match on their severity, type (both the raw slug
@@ -267,8 +268,8 @@ later (GitLab Pages, GitHub Pages, an internal HTTPS reverse proxy)
 makes the browser block every ack/revoke fetch as mixed content,
 silently turning the Acks panel into a dead-end. The warning catches
 that mismatch before the operator opens the report. Loopback URLs
-(`localhost`, `127.0.0.1`, `[::1]`) are exempt because dev setups
-intentionally run the daemon on cleartext HTTP.
+(`localhost`, `127.0.0.1`, `[::1]`) are exempt because dev setups run
+the daemon on cleartext HTTP.
 
 ### Authentication flow
 
@@ -286,15 +287,15 @@ intentionally run the daemon on cleartext HTTP.
 
 ### What lives where
 
-| Element                           | Mode    | Details                                                                                                  |
-|-----------------------------------|---------|----------------------------------------------------------------------------------------------------------|
-| Top bar daemon status badge       | Live    | Three states: `Connected` (green), `Authentication required` (orange), `Disconnected` / `Unreachable` (red) |
-| Top bar refresh button            | Live    | Re-fetches `/api/status`, `/api/acks`, and re-renders the live state                                     |
-| Per-row `Ack` / `Revoke` buttons  | Live    | Hidden in static mode via CSS, revealed under `body.ps-live`                                             |
-| `Show acknowledged` toggle        | Live    | Filters the static findings list against the live `/api/acks` set                                        |
-| Acknowledgments panel             | Live    | New tab `Acks` listing the daemon-side acks (paginated at 1000, daemon cap)                              |
-| Authentication modal              | Live    | Triggered by the first 401 on a write call, never on `/api/status`                                       |
-| Acknowledgment modal              | Live    | Triggered by `Ack`. Form fields: reason (required), expires (Never / 24h / 7d / 30d), by (optional)      |
+| Element                          | Mode | Details                                                                                                     |
+|----------------------------------|------|-------------------------------------------------------------------------------------------------------------|
+| Top bar daemon status badge      | Live | Three states: `Connected` (green), `Authentication required` (orange), `Disconnected` / `Unreachable` (red) |
+| Top bar refresh button           | Live | Re-fetches `/api/status`, `/api/acks`, and re-renders the live state                                        |
+| Per-row `Ack` / `Revoke` buttons | Live | Hidden in static mode via CSS, revealed under `body.ps-live`                                                |
+| `Show acknowledged` toggle       | Live | Filters the static findings list against the live `/api/acks` set                                           |
+| Acknowledgments panel            | Live | New tab `Acks` listing the daemon-side acks (paginated at 1000, daemon cap)                                 |
+| Authentication modal             | Live | Triggered by the first 401 on a write call, never on `/api/status`                                          |
+| Acknowledgment modal             | Live | Triggered by `Ack`. Form fields: reason (required), expires (Never / 24h / 7d / 30d), by (optional)         |
 
 ### Limitations
 
@@ -305,13 +306,13 @@ intentionally run the daemon on cleartext HTTP.
   `perf-sentinel query findings --include-acked` or the daemon HTTP API
   directly.
 - No automatic refresh timer. The browser does not poll the daemon
-  unattended; use the manual refresh button. Real-time monitoring
+  unattended. Use the manual refresh button. Real-time monitoring
   belongs in Grafana, not in a per-MR HTML artifact.
 - No per-row `Explain` cross-link in live mode beyond the static
-  static behavior. Ack/Revoke does not take the user away from the
+  behavior. Ack/Revoke does not take the user away from the
   Findings tab.
 - No bulk operations. Ack one finding at a time.
-- `sessionStorage` is purged at tab close, by design. Do not stash
+- `sessionStorage` is purged at tab close. Do not stash
   long-lived secrets in a CI artifact opened in a shared browser
   profile.
 

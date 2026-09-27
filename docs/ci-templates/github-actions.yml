@@ -7,7 +7,7 @@
 #
 # What you must adapt before using this template:
 #   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
-#      'latest'). Bump deliberately and review the CHANGELOG before each bump.
+#      'latest'). Review the CHANGELOG before each bump.
 #   2. PERF_SENTINEL_TRACES: path to a trace file produced by your integration
 #      test stage. The trace file must be present in the workspace at the
 #      moment perf-sentinel runs. Common patterns:
@@ -27,8 +27,8 @@
 #      Verify each SHA against the upstream repo before committing this
 #      template to your project. Pinned SHAs protect against a force-pushed
 #      tag pointing at malicious code, especially for third-party Actions
-#      like marocchino/sticky-pull-request-comment. Bump SHAs deliberately
-#      using a tool such as Dependabot configured with `update-types: ["sha"]`.
+#      like marocchino/sticky-pull-request-comment. Bump SHAs using a tool
+#      such as Dependabot configured with `update-types: ["sha"]`.
 #
 # See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
 # integration guide and the quality-gate philosophy.
@@ -100,8 +100,8 @@ jobs:
         # performance regression. It must not fail the job the same way a
         # real threshold breach would. The "Report tooling failure" step
         # at the end of this job surfaces it as a warning instead.
-        # Checksum verification is a separate step below and is deliberately
-        # NOT given the same tolerance, see its comment.
+        # Checksum verification is a separate step below and is NOT given
+        # the same tolerance, see its comment.
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -301,7 +301,7 @@ jobs:
         # marocchino/sticky-pull-request-comment fails with "Resource
         # not accessible by integration". We tolerate that failure to
         # keep the build green, at the price of no sticky comment on
-        # fork PRs. SARIF upload still runs, reviewers see findings in
+        # fork PRs. SARIF upload still runs, so reviewers see findings in
         # the Checks UI. Projects that need the sticky comment on fork
         # PRs should migrate to the pull_request_target + workflow_run
         # split. See docs/CI.md "Fork PR limitations".
@@ -322,9 +322,9 @@ jobs:
         #
         # Reads quality_gate.passed from the analyze step's report.json
         # instead of re-running perf-sentinel: the report already carries
-        # the gate result regardless of the --ci flag, --ci only changes
-        # perf-sentinel's own exit code. Only reached when analyze already
-        # succeeded, so a failing gate here is a genuine threshold breach,
+        # the gate result regardless of the --ci flag, since --ci only
+        # changes perf-sentinel's own exit code. Only reached when analyze
+        # already succeeded, so a failing gate here is a threshold breach,
         # not a tooling problem.
         if: github.event_name == 'pull_request' && steps.analyze.outcome == 'success'
         run: |
@@ -336,9 +336,9 @@ jobs:
 
       - name: Report quality gate outcome (trunk)
         # Surface the gate outcome on trunk as a warning, without
-        # failing the run. The workflow stays green. The SARIF
-        # upload still feeds Code Scanning for dashboarding and
-        # trend analysis. Same report.json reuse as the PR step above.
+        # failing the run. The SARIF upload still feeds Code Scanning
+        # for dashboarding and trend analysis. Same report.json reuse
+        # as the PR step above.
         if: github.event_name == 'push' && steps.analyze.outcome == 'success'
         run: |
           set -euo pipefail
@@ -348,9 +348,9 @@ jobs:
 
       - name: Report tooling failure
         # Reached when the download, install, or analyze step above failed
-        # or was skipped. The gate steps above were skipped too rather than
-        # silently passed, this warning is the visible signal that
-        # perf-sentinel did not actually run this build. See the
+        # or was skipped. The gate steps above were skipped too, not
+        # silently passed. This warning is the visible signal that
+        # perf-sentinel did not run on this build. See the
         # "Download perf-sentinel" / "Verify and install perf-sentinel" /
         # "Run perf-sentinel analyze" step logs to fix the underlying issue.
         if: always() && steps.analyze.outcome != 'success'

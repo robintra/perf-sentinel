@@ -24,7 +24,7 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
 /// `ingest_stats` is the OTLP span-filter tally from
 /// [`crate::ingest::json::JsonIngest::ingest_with_stats`]. When `Some` it
 /// lands in `analysis.ingest` and feeds the opt-in `min_usable_span_ratio`
-/// gate rule; pass `None` when the input carried no tally.
+/// gate rule. Pass `None` when the input carried no tally.
 #[must_use]
 pub fn analyze_with_traces(
     events: Vec<SpanEvent>,
@@ -63,11 +63,11 @@ pub fn analyze_with_traces(
 
     // Stamp confidence on every finding. `analyze` is the batch path: it
     // stamps CiBatch when a CI environment is detected, otherwise LocalBatch
-    // (a developer-machine run). The real daemon path
-    // (daemon::process_traces) stamps Staging or Production from
-    // Config::confidence() instead. Detectors themselves never reason about
-    // confidence; they emit Confidence::default() and the pipeline overrides
-    // it here. Env detection is the one impure step, kept to a helper.
+    // (a developer-machine run). The daemon path (daemon::process_traces)
+    // stamps Staging or Production from Config::confidence() instead.
+    // Detectors themselves never reason about confidence. They emit
+    // Confidence::default() and the pipeline overrides it here. Env
+    // detection is the one impure step, kept to a helper.
     detect::apply_confidence(
         &mut findings,
         Confidence::batch_for_ci(ci_environment_detected()),
@@ -118,10 +118,10 @@ pub fn analyze_with_traces(
     (report, traces)
 }
 
-/// A configured `min_usable_span_ratio` that could not be evaluated is
-/// worth saying out loud: the rule exists to stop a false green, so
-/// silently skipping it reproduces exactly what it guards against. The
-/// sample floor and a non-OTLP input are the two ways that happens.
+/// Warning for a configured `min_usable_span_ratio` that could not be
+/// evaluated. The rule exists to stop a false green, so silently skipping
+/// it reproduces what it guards against. The sample floor and a non-OTLP
+/// input are the two ways that happens.
 fn skipped_usable_span_rule_warning(
     thresholds: &crate::config::ThresholdsConfig,
     ingest: Option<&crate::report::IngestStats>,
@@ -213,9 +213,9 @@ pub fn trace_sql_template_counts(
 /// export a truthy `CI` env var. `CI=false` and `CI=0` count as "not CI" so
 /// an operator can force a local context. Jenkins does not set `CI` (it
 /// exports `JENKINS_URL`), so a present `JENKINS_URL` also counts as CI
-/// unless `CI` is explicitly false. The single source of truth: the batch
-/// [`Confidence`] here and the disclosure `generated_by` attribution both
-/// call it.
+/// unless `CI` is explicitly false. The batch [`Confidence`] here and the
+/// disclosure `generated_by` attribution both call it, so CI detection has a
+/// single source of truth.
 #[must_use]
 pub fn ci_environment_detected() -> bool {
     match std::env::var("CI") {
@@ -273,8 +273,8 @@ mod tests {
     fn waste_dedup_no_double_count() {
         use crate::test_helpers::{make_sql_event, make_sql_series_events};
         // 5 different params + 2 duplicates of param 1 = 7 events, same template
-        // N+1 sees 7 occurrences with 5 distinct params -> finding (avoidable = 6)
-        // Redundant sees 3 occurrences of order_id=1 -> finding (avoidable = 2)
+        // N+1 fires on 7 occurrences with 5 distinct params (avoidable = 6)
+        // Redundant fires on 3 occurrences of order_id=1 (avoidable = 2)
         // Without dedup: 6 + 2 = 8. With dedup: max(6, 2) = 6.
         let mut events: Vec<SpanEvent> = make_sql_series_events(5);
         // Add 2 more with order_id = 1 (duplicates)
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn clean_events_zero_waste_ratio() {
         use crate::test_helpers::make_sql_event;
-        // 4 events with different templates -> no N+1 (below threshold), no redundant
+        // 4 events with different templates: no N+1 (below threshold), no redundant
         let events = vec![
             make_sql_event(
                 "trace-1",
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn pipeline_with_findings_computes_green_summary() {
         use crate::test_helpers::make_n_plus_one_events;
-        // 6 events with different params -> N+1 finding
+        // 6 events with different params trigger an N+1 finding
         let events = make_n_plus_one_events();
 
         let config = Config::default();
@@ -382,7 +382,7 @@ mod tests {
         let config = Config::default();
         let report = analyze(events, &config);
 
-        // Each trace has 3 redundant -> avoidable = 2 each -> total = 4
+        // Each trace has 3 redundant, so avoidable = 2 each, total = 4
         assert_eq!(report.green_summary.avoidable_io_ops, 4);
         assert_eq!(report.green_summary.total_io_ops, 6);
     }
@@ -412,8 +412,8 @@ mod tests {
 
     #[test]
     fn pipeline_empty_traces_no_co2() {
-        // With 0 events, compute_carbon_report early-returns
-        // (None, vec![]), nothing meaningful to report.
+        // With 0 events there is nothing meaningful to report, so
+        // compute_carbon_report early-returns (None, vec![]).
         // Avoids emitting a noisy all-zeros co2 object for empty daemon ticks.
         let config = Config::default();
         let report = analyze(vec![], &config);
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn green_disabled_skips_scoring() {
         use crate::test_helpers::make_n_plus_one_events;
-        // 6 events -> N+1 finding, but green scoring disabled
+        // 6 events trigger an N+1 finding, but green scoring is disabled
         let events = make_n_plus_one_events();
 
         let config = Config {
@@ -449,7 +449,6 @@ mod tests {
         assert!(report.green_summary.regions.is_empty());
         // total_io_ops still counted
         assert_eq!(report.green_summary.total_io_ops, 6);
-        // green_impact on findings should be None
         for f in &report.findings {
             assert!(f.green_impact.is_none());
         }
@@ -552,8 +551,6 @@ mod tests {
         assert!(message.contains("[green.electricity_maps]"), "{message}");
     }
 
-    /// Green off means the whole scoring pass is skipped, so the backend was
-    /// already inert for a more obvious reason.
     /// The Rust field is `cloud_energy` but the TOML section is
     /// `[green.cloud]`: a message naming the field sends the operator
     /// grepping for a section that does not exist.
@@ -594,6 +591,8 @@ mod tests {
         );
     }
 
+    /// Green off means the whole scoring pass is skipped, so the backend was
+    /// already inert for a more obvious reason.
     #[test]
     fn green_disabled_does_not_warn_about_backends() {
         let config = crate::config::load_from_str(
@@ -659,7 +658,7 @@ mod tests {
         let events = make_n_plus_one_events();
         // Even with a production environment in config, batch analyze must
         // stamp a batch confidence (CiBatch in CI, LocalBatch otherwise),
-        // never a daemon level: confidence is mode-driven for `analyze`, the
+        // never a daemon level. Confidence is mode-driven for `analyze`: the
         // config `daemon.environment` only affects `watch` daemon mode. The
         // exact batch variant depends on the host env (CI var), so assert
         // the family, not a specific value (see batch_for_ci for the map).

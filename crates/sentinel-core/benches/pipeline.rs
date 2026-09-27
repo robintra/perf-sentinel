@@ -162,7 +162,7 @@ fn bench_score_green(c: &mut Criterion) {
 
 /// `score_green` over a real finding set. The dedup that builds the
 /// per-service avoidable split walks the findings, and `bench_score_green`
-/// passes an empty vector, so nothing measured that pass. `carbon: None`
+/// passes an empty vector, so it does not measure that pass. `carbon: None`
 /// keeps the carbon pipeline out of the number, leaving the endpoint
 /// counting, the dedup and the IIS enrichment.
 ///

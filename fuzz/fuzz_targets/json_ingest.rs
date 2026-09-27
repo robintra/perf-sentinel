@@ -1,8 +1,9 @@
 //! Fuzz the JSON ingest path end to end: format auto-detection
 //! (native / OTLP JSON+NDJSON / Jaeger / Zipkin), the depth and size
-//! caps, and each format-specific parser. Any panic is a finding; the
-//! lab's batch-otlp-file negatives cover imagined failures, this covers
-//! the rest (truncation, giant attributes, deep nesting, invalid UTF-8).
+//! caps, and each format-specific parser. Any panic is a finding. The
+//! lab's batch-otlp-file negatives cover imagined failures, while this
+//! target covers the rest (truncation, giant attributes, deep nesting,
+//! invalid UTF-8).
 
 #![no_main]
 

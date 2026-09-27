@@ -109,7 +109,7 @@ pub(super) struct EnergySources<'a> {
 
 /// One evicted/expired/drained batch handed to the analysis worker. The
 /// `CarbonContext` is built on the loop side at eviction time, so energy
-/// scraper readings keep their current sampling instant.
+/// scraper readings are sampled then, not when the worker runs.
 struct AnalysisBatch {
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
     carbon_ctx: Arc<score::carbon::CarbonContext>,
@@ -181,8 +181,8 @@ pub(super) async fn run_event_loop(
     archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
 ) -> Result<(), super::DaemonError> {
     // detect+score run on this single worker, off the select! loop, so a
-    // long analysis pass can no longer stall ingestion (rx) or TTL
-    // eviction (ticker). One channel, one worker, FIFO: the stateful
+    // long analysis pass cannot stall ingestion (rx) or TTL eviction
+    // (ticker). One channel, one worker, FIFO: the stateful
     // cross-trace correlator still sees a deterministic batch sequence.
     let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(loop_cfg.analysis_queue_capacity);
     let worker = tokio::spawn(run_analysis_worker(
@@ -228,7 +228,7 @@ pub(super) async fn run_event_loop(
 /// Inner select! loop, split out from [`run_event_loop`] so the worker
 /// handle and shutdown future are parameters (testable). Returns
 /// [`super::DaemonError::AnalysisWorkerStopped`] if `worker` stops before
-/// `shutdown_fut` fires; otherwise drains queued ingest and the window into
+/// `shutdown_fut` fires. Otherwise drains queued ingest and the window into
 /// the worker and returns `Ok(())`.
 #[allow(clippy::too_many_arguments)]
 async fn drive_event_loop(
@@ -278,8 +278,7 @@ async fn drive_event_loop(
                 // The single analysis worker finished before shutdown, so it
                 // panicked or aborted. Fail loud: exit instead of running on
                 // while silently analyzing nothing, so a supervisor restarts
-                // the process (the inline-detection design crashed the daemon
-                // on the same fault).
+                // the process.
                 tracing::error!(result = ?res, "analysis worker stopped unexpectedly; daemon exiting for restart");
                 break false;
             }
@@ -464,14 +463,14 @@ impl CappedServices {
 /// Admission policy for the `grouping` axis: a bounded set of admitted
 /// (service, grouping) pairs keyed on the effective service label, an
 /// overflow counter and a one-shot warning. The service axis is capped
-/// first by [`CappedServices`]; this is the second gate. A pair past
-/// the cap keeps its service and folds its grouping, so per-service
+/// first by [`CappedServices`]. This pair cap is the second gate. A pair
+/// past the cap keeps its service and folds its grouping, so per-service
 /// sums stay exact. [`SERVICE_OVERFLOW_LABEL`] and the empty value pass
 /// through without a slot, as they do for services. Where a meter also
 /// keeps a child cache keyed on the same pairs, the admitted set
-/// duplicates the cache's keys and only `len` gates; the set is what
-/// keeps `len` exact where a folded service re-hits an admitted pair
-/// (the histogram) and where no cache exists (findings).
+/// duplicates the cache's keys and only `len` gates. The set keeps
+/// `len` exact where a folded service re-hits an admitted pair (the
+/// histogram) and where no cache exists (findings).
 struct CappedPairs {
     admitted: HashMap<String, HashSet<String>>,
     len: usize,
@@ -534,7 +533,7 @@ impl CappedPairs {
 /// Per-service I/O op counter cache over [`CappedServices`]. Caps
 /// cardinality against hostile `service.name` floods and caches the
 /// labeled children so the hit path is two `HashMap` lookups plus an
-/// atomic add; an event whose grouping folded past its cap misses that
+/// atomic add. An event whose grouping folded past its cap misses that
 /// path and pays the three admission probes plus the overflow increment
 /// on every occurrence. Ingest drops past the service cap: the overflow
 /// counter moves on every unattributed op. The grouping axis is capped
@@ -636,9 +635,9 @@ impl ServiceMeter {
 
 /// The three slow-duration histogram children of one (service, grouping)
 /// label pair.
-/// Named rather than a positional array: the index-to-`EventType` map
-/// used to live in `record_slow_durations`, one reorder away from
-/// filing every duration under the wrong `type`.
+/// Named rather than a positional array: an index-to-`EventType` map
+/// is one reorder away from filing every duration under the wrong
+/// `type`.
 struct SlowHists {
     sql: prometheus::Histogram,
     http_out: prometheus::Histogram,
@@ -674,11 +673,11 @@ impl SlowHists {
 /// [`SERVICE_OVERFLOW_LABEL`] on that axis so sums stay exact: the
 /// service by value, then the grouping by admitted (service, grouping)
 /// pair keyed on the effective service, so a fleet under the pair cap
-/// never folds a grouping. With
-/// `[daemon] per_service_labels = false`, findings and histogram series
-/// carry an empty `service` (the per-service I/O counters ignore that
-/// knob); with `per_grouping_labels = false` every family carries an
-/// empty `grouping`.
+/// never folds a grouping. With `[daemon] per_service_labels = false`,
+/// findings and histogram series carry an empty `service` (the
+/// per-service I/O counters ignore that knob). With
+/// `per_grouping_labels = false` every family carries an empty
+/// `grouping`.
 struct AnalysisServiceMeter {
     per_service_labels: bool,
     per_grouping_labels: bool,
@@ -693,14 +692,13 @@ struct AnalysisServiceMeter {
 
 impl AnalysisServiceMeter {
     /// With both knobs off there is a single histogram label pair, so it
-    /// is materialized up front (0.17 resolved the children on every
-    /// batch) and "series absent" keeps meaning "worker not running"
-    /// rather than "no slow span yet". With either knob on nothing is
-    /// pre-warmed: the only values known before traffic arrives are
-    /// [`SERVICE_OVERFLOW_LABEL`] on the labeled axes, and minting them
-    /// would publish a permanent `_other` series on a daemon that never
-    /// hit a cap, which reads as overflow and shows up in the dashboard's
-    /// pickers.
+    /// is materialized up front and "series absent" keeps meaning "worker
+    /// not running" rather than "no slow span yet". With either knob on
+    /// nothing is pre-warmed: the only values known before traffic
+    /// arrives are [`SERVICE_OVERFLOW_LABEL`] on the labeled axes.
+    /// Minting them would publish a permanent `_other` series on a daemon
+    /// that never hit a cap, which reads as overflow and shows up in the
+    /// dashboard's pickers.
     fn new(per_service_labels: bool, per_grouping_labels: bool, metrics: &MetricsState) -> Self {
         let mut meter = Self {
             per_service_labels,
@@ -772,7 +770,7 @@ impl AnalysisServiceMeter {
 
     /// Label pair for `findings_total`. The pair is keyed on the effective
     /// service whatever the knob says, so a finding and its I/O counter
-    /// rows share one slot; only the emitted service half is blanked with
+    /// rows share one slot. Only the emitted service half is blanked with
     /// `per_service_labels` off.
     fn finding_labels<'a>(
         &mut self,
@@ -789,7 +787,7 @@ impl AnalysisServiceMeter {
     /// histogram, under the histogram's own caps. Observing here rather
     /// than handing back a `&SlowHists` keeps the hit path at two
     /// `HashMap` lookups: returning a reference out of a `&mut self`
-    /// method forces the `contains_key`-then-index dance.
+    /// method forces a `contains_key` check followed by an index lookup.
     fn observe_slow(
         &mut self,
         service: &str,
@@ -953,11 +951,11 @@ async fn ingest_event_batch(
     let mut lru_evicted = Vec::new();
     let mut source_endpoint_generations = HashMap::new();
     {
-        // Each push performs at most the fixed ancestor-depth bound of lookups;
-        // payload and queue caps bound work held behind this lock.
+        // Each push performs at most the fixed ancestor-depth bound of lookups.
+        // Payload and queue caps bound work held behind this lock.
         let mut w = window.lock().await;
-        // Repair existing traces before a new context-only trace can evict them;
-        // the second pass retains context that preceded the first I/O event.
+        // Repair existing traces before a new context-only trace can evict them.
+        // The second pass retains context that preceded the first I/O event.
         let existing_update_ids: Vec<_> = source_context
             .parents
             .keys()
@@ -1030,8 +1028,8 @@ async fn evict_expired_traces(
 }
 
 /// Build the per-tick `CarbonContext` from the current scraper snapshots,
-/// owned so it can travel to the worker. Sampling the energy sources here
-/// (on the loop side, at eviction time) preserves the previous timing.
+/// owned so it can travel to the worker. The energy sources are sampled
+/// here, on the loop side at eviction time.
 fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> Arc<score::carbon::CarbonContext> {
     match build_tick_ctx(sources, score::scaphandre::monotonic_ms()) {
         // Fast path (no scraper produced fresh data, the common case):
@@ -1043,7 +1041,7 @@ fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> Arc<score::carbon::Carbo
 }
 
 /// Hand an evicted/expired batch to the analysis worker without blocking.
-/// Synchronous and `try_reserve`-based on purpose: the select! loop never
+/// Synchronous and `try_reserve`-based: the select! loop never
 /// awaits analysis, so ingestion and eviction stay live. When the queue is
 /// full (or the worker has stopped) the whole batch is shed and counted
 /// (batches + traces) instead of being silently dropped. The owned
@@ -1162,9 +1160,9 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 /// the highest-fidelity entry wins for any service that appears in
 /// multiple snapshots.
 // Takes the whole `EnergySources` bundle rather than thirteen
-// positional arguments: six of those were mutually type-compatible
-// `u64` staleness windows, so a mis-paired argument compiled silently
-// and gated one backend's readings by another's staleness.
+// positional arguments: six of those would be mutually type-compatible
+// `u64` staleness windows, so a mis-paired argument would compile
+// silently and gate one backend's readings by another's staleness.
 fn build_tick_ctx<'s>(
     sources: &'s EnergySources<'_>,
     now: u64,
@@ -1224,7 +1222,7 @@ fn build_tick_ctx<'s>(
         alumet_staleness_ms,
     );
 
-    // Fast path: nothing fresh this tick → no clone, just borrow base.
+    // Fast path: with nothing fresh this tick, borrow base instead of cloning.
     if cloud_snap.is_empty()
         && redfish_snap.is_empty()
         && kepler_snap.is_empty()
@@ -1289,8 +1287,8 @@ fn build_tick_ctx<'s>(
 ///
 /// The arbitration rules and why each is needed are in
 /// `docs/design/05-GREENOPS-AND-CARBON.md`, "Broker energy attribution".
-/// They are not obvious and three review passes were needed to settle
-/// them, so change this against that section, not against intuition.
+/// They are not obvious, so change this against that section, not
+/// against intuition.
 fn take_broker_energy(
     alumet_state: Option<&DbEnergyState>,
     declared: Option<&score::broker_static::StaticBrokerState>,
@@ -1359,8 +1357,8 @@ fn take_broker_energy_stale(
     (None, declared_kwh)
 }
 
-/// The tag and region follow the source that actually filled the
-/// window, so a fallback tick is never published as a measurement.
+/// The tag and region follow the source that filled the window, so a
+/// fallback tick is never published as a measurement.
 fn patch_broker_energy(
     broker: &mut score::carbon::DbEnergyContext,
     measured_kwh: Option<f64>,
@@ -1430,7 +1428,7 @@ fn emit_findings_and_update_metrics(
             .set(metrics.avoidable_io_ops.get() / cumulative_total);
     }
     // Window-scoped energy/carbon scalars for the Grafana Trends panels.
-    // Per-service/region breakdown stays off /metrics (cardinality); the
+    // Per-service/region breakdown stays off /metrics (cardinality). The
     // totals are bounded and safe to expose as gauges.
     metrics.energy_kwh.set(green_summary.energy_kwh);
     metrics
@@ -1458,7 +1456,7 @@ fn emit_findings_and_update_metrics(
             .inc_by(*ops as f64);
     }
 
-    // Resolve effective labels once, the counter and its exemplars must
+    // Resolve effective labels once: the counter and its exemplars must
     // land on the same series.
     let labeled: Vec<(&detect::Finding, &str, &str)> = findings
         .iter()
@@ -1584,7 +1582,7 @@ struct ProcessTracesCtx<'a> {
     /// timestamp, see [`sticky_waste_figure`].
     db_waste_sticky: &'a mut Option<(DatabaseWaste, u64)>,
     /// Same for `messaging_waste`: the broker figure has the same duty
-    /// cycle, it is filled only on batches where a scrape landed.
+    /// cycle and is filled only on batches where a scrape landed.
     msg_waste_sticky: &'a mut Option<(MessagingWaste, u64)>,
     waste_sticky_ttl_ms: u64,
     /// Worker-owned cross-batch slow window, `None` when disabled.
@@ -1593,7 +1591,7 @@ struct ProcessTracesCtx<'a> {
 
 /// Copy the batch summary onto the shared cell, with both waste figures
 /// bridged over their scrape gaps. The per-window archive keeps the
-/// batch-scoped truth, only the live cell gets the TTL-bounded figures.
+/// batch-scoped truth. Only the live cell gets the TTL-bounded figures.
 async fn publish_live_summary(green_summary: &GreenSummary, ctx: &mut ProcessTracesCtx<'_>) {
     let now_ms = current_time_ms();
     let restored = sticky_waste_figure(
@@ -1642,9 +1640,9 @@ fn sticky_waste_figure<T: Clone>(
     }
 }
 
-/// stamps `confidence` on every finding after detection. The
+/// Stamps `confidence` on every finding after detection. The
 /// value is derived from `config.daemon.environment` in `run()` and passed
-/// here unchanged. `analyze` batch mode does not call this function; it
+/// here unchanged. `analyze` batch mode does not call this function. It
 /// uses `pipeline::analyze_with_traces` which hardcodes
 /// `Confidence::CiBatch`.
 async fn process_traces(
@@ -1745,7 +1743,7 @@ async fn process_traces(
                 traces_analyzed: trace_count,
                 ingest: None,
             },
-            // Move owned data into the archive; aggregator consumes
+            // Move owned data into the archive. The aggregator consumes
             // findings, green_summary, and per_endpoint_io_ops. Other
             // fields are placeholders, see design doc 08.
             findings,
@@ -1776,7 +1774,7 @@ async fn process_traces(
 ///
 /// Returns 0 and logs a warning if the system clock is set before the
 /// Unix epoch (effectively a configuration error). Downstream code treats
-/// the timestamp as a monotonic-ish sort key; a single zero tick produces
+/// the timestamp as a monotonic-ish sort key. A single zero tick produces
 /// visible bucketing but no correctness issue.
 ///
 /// Shared with `daemon::hub_export`: its hourly re-send suppression compares
@@ -1941,16 +1939,16 @@ mod tests {
         score::carbon::CarbonContext::default()
     }
 
-    /// Build a `ProcessTracesCtx` for tests with sensible defaults.
-    /// The sticky slot is leaked per call: test-only, a few bytes each.
     /// Zero-capacity store shared by the `process_traces` tests: they
-    /// assert on findings and metrics, retention has its own suite.
+    /// assert on findings and metrics. Retention has its own suite.
     fn noop_traces_store() -> &'static crate::daemon::traces_store::TracesStore {
         static STORE: std::sync::OnceLock<crate::daemon::traces_store::TracesStore> =
             std::sync::OnceLock::new();
         STORE.get_or_init(|| crate::daemon::traces_store::TracesStore::new(0, 0))
     }
 
+    /// Build a `ProcessTracesCtx` for tests with sensible defaults.
+    /// The sticky slot is leaked per call: test-only, a few bytes each.
     fn test_ctx<'a>(
         detect_config: &'a DetectConfig,
         carbon_ctx: &'a score::carbon::CarbonContext,
@@ -1999,7 +1997,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_traces_with_n_plus_one() {
-        // 6 events with different params -> N+1 finding
+        // 6 events with different params produce an N+1 finding
         let events: Vec<_> = (1..=6)
             .map(|i| {
                 make_normalized(
@@ -2022,7 +2020,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_traces_clean_no_finding() {
-        // 2 events with different templates -> no finding
+        // 2 events with different templates produce no finding
         let events = vec![
             make_normalized("t1", "SELECT * FROM users WHERE id = 1"),
             make_normalized("t1", "SELECT * FROM orders WHERE id = 2"),
@@ -3171,7 +3169,7 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_no_scrapers_yields_borrowed_cow() {
-        // Fast path: no scrapers → Cow::Borrowed, no clone.
+        // Fast path: no scrapers yields Cow::Borrowed, no clone.
         let base = Arc::new(score::carbon::CarbonContext::default());
         let sources = no_scrapers(&base);
         let ctx = build_tick_ctx(&sources, score::scaphandre::monotonic_ms());
@@ -3453,7 +3451,8 @@ mod tests {
         assert!(m.is_none(), "the recovery delta covers billed wall clock");
         assert!(d2.is_none(), "the measurement owns the timeline again");
 
-        // The next delta is genuinely new and is delivered in full.
+        // The next delta covers no wall clock already billed and is
+        // delivered in full.
         measured.add_window_kwh(3e-6, 102_000);
         let (m2, _) = take_broker_energy(Some(&measured), Some(&state), 102_000, 10_000);
         let delivered = m2.expect("the measurement resumes");
@@ -3492,9 +3491,9 @@ mod tests {
 
     #[test]
     fn sub_second_stale_ticks_do_not_erase_the_outage_marker() {
-        // Regression: the marker states a fact about the timeline. A stale
-        // tick spaced under MIN_BILLABLE_MS bills nothing, so consuming it
-        // there lost the fact and the recovery delta was billed twice. With
+        // The marker states a fact about the timeline. A stale tick spaced
+        // under MIN_BILLABLE_MS bills nothing, so consuming it there would
+        // lose the fact and bill the recovery delta twice. With
         // trace_ttl_ms = 1000 the eviction sweep lands every 500 ms, so this
         // cadence is the default under continuous traffic, not an edge case.
         let measured = DbEnergyState::new();
@@ -3612,8 +3611,8 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_keeps_the_fast_path_on_a_sub_second_tick() {
-        // MIN_BILLABLE_MS accrues rather than bills, which is what keeps a
-        // busy daemon off the CarbonContext clone.
+        // MIN_BILLABLE_MS accrues rather than bills, which keeps a busy
+        // daemon off the CarbonContext clone.
         let base = Arc::new(score::carbon::CarbonContext {
             broker_energy: Some(score::carbon::DbEnergyContext::default()),
             ..score::carbon::CarbonContext::default()
@@ -3652,7 +3651,7 @@ mod tests {
         measured.add_window_kwh(4e-6, 10_000);
         let cfg = declared_cfg(3);
         let state = score::broker_static::StaticBrokerState::new(0, &cfg);
-        // The scraper still answers, so liveness stays fresh; only the
+        // The scraper still answers, so liveness stays fresh. Only the
         // labelled sample is gone.
         measured.mark_alive(100_000);
 
@@ -3684,10 +3683,10 @@ mod tests {
 
     #[test]
     fn build_tick_ctx_alumet_overrides_scaphandre_for_same_service() {
-        // The one genuinely new precedence edge: Alumet sits above
-        // Scaphandre, so a service measured by both must carry Alumet's
-        // coefficient and tag. Guards the insertion order in
-        // `build_tick_ctx` (reverse precedence, Alumet inserted last).
+        // Alumet sits above Scaphandre in precedence, so a service
+        // measured by both must carry Alumet's coefficient and tag. Guards
+        // the insertion order in `build_tick_ctx` (reverse precedence,
+        // Alumet inserted last).
         let base = Arc::new(score::carbon::CarbonContext::default());
         let alumet = AlumetState::new();
         alumet.insert_for_test("svc-a".into(), 1e-7, 100);
@@ -3921,7 +3920,7 @@ mod tests {
             meter.record(service, "", &metrics, 1000.0);
         }
 
-        // svc-c arrived after the cap: both its ops overflow, the two
+        // svc-c arrived after the cap: both its ops overflow. The two
         // attributed services keep counting.
         assert_eq!(metrics.service_io_ops_overflow_total.get(), 2);
         for service in ["svc-a", "svc-b"] {
@@ -3939,8 +3938,8 @@ mod tests {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(1, true);
         meter.record("svc-a", "prod", &metrics, 1_700_000_000.0);
-        // A later batch of the same service moves the stamp forward, which
-        // is the whole point: a frozen gauge would read as an outage.
+        // A later batch of the same service moves the stamp forward. A
+        // frozen gauge would read as an outage.
         meter.record("svc-a", "prod", &metrics, 1_700_000_042.0);
         // Refused by the cap, so it mints no series and cannot widen
         // cardinality past the bound the counter already respects.
@@ -4333,7 +4332,7 @@ mod tests {
         EventLoopConfig {
             green_enabled: true,
             sampling_rate: 1.0,
-            // Large interval; only the immediate first tick can fire, and on
+            // Large interval. Only the immediate first tick can fire, and on
             // an empty/fresh window it is a no-op.
             evict_ms: 60_000,
             slow_window_ms: 0,
@@ -4394,7 +4393,7 @@ mod tests {
         {
             let mut w = window.lock().await;
             // Fresh timestamps so the immediate ticker tick does not TTL-evict
-            // them; the shutdown drain is what must process them.
+            // them. The shutdown drain must process them.
             for id in ["w1", "w2", "w3"] {
                 w.push(make_normalized(id, "SELECT 1"), current_time_ms());
             }
@@ -4543,7 +4542,7 @@ mod tests {
             meter.record("svc-a", grouping, &metrics, 1000.0);
         }
 
-        // Only the grouping axis folded; the service axis never overflowed.
+        // Only the grouping axis folded. The service axis never overflowed.
         assert_eq!(metrics.service_io_ops_grouping_overflow_total.get(), 2);
         assert_eq!(metrics.service_io_ops_overflow_total.get(), 0);
         let per = |grouping: &str| {
@@ -4723,7 +4722,7 @@ mod tests {
             meter.finding_labels("svc-a", "prod", &metrics),
             ("svc-a", "prod")
         );
-        // The service axis folds first; the folded service then owns
+        // The service axis folds first. The folded service then owns
         // its own pairs.
         assert_eq!(
             meter.finding_labels("svc-b", "prod", &metrics),
@@ -5000,7 +4999,7 @@ mod tests {
     #[tokio::test]
     async fn analysis_worker_honours_per_grouping_labels_off() {
         // The knob travels `DaemonConfig` -> `EventLoopConfig` ->
-        // `AnalysisWorkerCtx` -> `AnalysisServiceMeter::new`; every other
+        // `AnalysisWorkerCtx` -> `AnalysisServiceMeter::new`. Every other
         // test hardcodes it true on both sides, which a swapped argument
         // would satisfy.
         let metrics = Arc::new(MetricsState::new());
@@ -5033,7 +5032,7 @@ mod tests {
     #[tokio::test]
     async fn event_loop_honours_per_grouping_labels_off_on_ingest() {
         // The ingest meter is built inside `drive_event_loop` from
-        // `loop_cfg.per_grouping_labels`; the batch is sent from the
+        // `loop_cfg.per_grouping_labels`. The batch is sent from the
         // shutdown future so the loop ingests it during the final drain,
         // same shape as the queued-root-context test above.
         let metrics = Arc::new(MetricsState::new());
@@ -5131,7 +5130,7 @@ mod tests {
     #[test]
     fn ingest_pair_cap_keys_on_the_service() {
         // A grouping already admitted under one service is a new pair
-        // under another: this is what tells a pair cap from a value cap
+        // under another, which distinguishes a pair cap from a value cap
         // on the ingest side.
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter::new(2, true);

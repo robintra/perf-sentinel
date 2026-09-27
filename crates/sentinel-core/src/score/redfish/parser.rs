@@ -4,7 +4,7 @@
 //! Resolves the canonical JSON pointer for the configured schema (see
 //! [`RedfishSchema`]) and validates that the value is a
 //! finite, strictly positive number. Vendor responses with `null`, `0`,
-//! negative or `NaN` wattage are rejected as transitional states, the
+//! negative or `NaN` wattage are rejected as transitional states. The
 //! caller keeps the previous coefficient in that case.
 
 use super::config::RedfishSchema;

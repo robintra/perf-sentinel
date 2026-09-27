@@ -9,10 +9,10 @@
 <style>
 {{FONT_FACES}}
   /* ============================================================
-     perf-sentinel HTML report, app-shell redesign (release/0.9.0)
+     perf-sentinel HTML report (app shell).
      Design tokens ported verbatim from the hi-fi handoff prototype.
      @font-face blocks for embedded DM Sans / JetBrains Mono are
-     injected in the font-embedding step; the stacks below fall back
+     injected in the font-embedding step. The stacks below fall back
      to system fonts until then.
      ============================================================ */
   :root {
@@ -27,8 +27,7 @@
     --border: #2b352e; --border-2: #3b473f;
     /* --text-3 #95a199 is the AA-contrast floor on the dark surfaces, do not
        darken it back to #7d8c83, which fell to 3.97 on --surface-2 and 3.50 on
-       --surface-3. The light theme's floor below was set first, this is its
-       other half. */
+       --surface-3. The light theme's floor below is its counterpart. */
     --text: #e8ede9; --text-2: #a3b5ab; --text-3: #95a199;
     --brand: #0ba671; --brand-2: #2fd49a; --brand-text: #3ecf9d; --accent-bg: rgba(11,166,113,.13);
     --crit-fg: #ffa79e; --crit-bg: #3a1f1c; --crit-bd: #573029;
@@ -43,7 +42,7 @@
     --bg: #ffffff; --surface: #f7f7f7; --surface-2: #ffffff; --surface-3: #eef1ef;
     --border: #ebebeb; --border-2: #dcdcdc;
     /* --text-3 #6a6a6a is the AA-contrast floor on the grey surfaces, do not
-       lighten it back to #767676 (handoff a11y polish). */
+       lighten it back to #767676. */
     --text: #20261f; --text-2: #556b5c; --text-3: #6a6a6a;
     /* --brand-text #107a56 is the AA-contrast floor on the light surfaces, do
        not lighten it back to #11845d, which fell to 4.09 on --accent-bg, 4.12
@@ -151,9 +150,9 @@
 
   .ps-main { display: flex; flex-direction: column; min-width: 0; }
   /* Three tracks rather than a flex row: the search must sit on the bar's
-     centre line, and two flex siblings with the same grow factor only share the
-     free space evenly, they do not end up the same width when their contents
-     differ. minmax(0, 1fr) makes the side tracks equal outright. */
+     centre line. Two flex siblings with the same grow factor only share the
+     free space evenly, so they do not end up the same width when their
+     contents differ. minmax(0, 1fr) makes the side tracks equal outright. */
   .ps-topbar { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; row-gap: 10px; padding: 18px 28px 8px; border-bottom: 0; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(8px); }
   /* Title and actions share an identical basis of zero so the free space splits
      evenly and the search box between them lands on the bar's centre line,
@@ -196,7 +195,7 @@
      report. The focus ring lives on the box (see .ps-search-box:focus-within),
      the input itself is borderless and transparent inside it. */
   .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-2); background: var(--surface-2); border-radius: 999px; padding: 0 11px; height: 34px; width: 390px; max-width: 100%; min-width: 0; }
-  /* Real magnifier icon (CSS mask) instead of the text glyph. */
+  /* Magnifier icon (CSS mask) instead of the text glyph. */
   .ps-search-box .ps-search-glyph { font-size: 0; flex: none; width: 14px; height: 14px; background-color: var(--text-3);
     -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>') center / contain no-repeat;
     mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>') center / contain no-repeat; }
@@ -257,7 +256,7 @@
   .ps-hero-left[data-tone="crit"] { background: var(--crit-bg); }
   .ps-hero-verdict { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   .ps-hero-dot { width: 13px; height: 13px; border-radius: 50%; background: currentColor; flex: none; }
-  /* .02em: the original -1px was calibrated for Geist and crushes DM Sans caps. */
+  /* .02em: the prototype's -1px suits Geist but crushes DM Sans caps. */
   .ps-hero-big { font-size: 44px; font-weight: 700; letter-spacing: .02em; line-height: 1; }
   .ps-hero-line { margin: 14px 0 0; font-size: 13px; color: var(--text-2); max-width: 230px; }
   .ps-hero-right { padding: 20px 24px; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
@@ -272,7 +271,7 @@
   .ps-hero-ingest[data-gap="true"] { color: var(--warn-fg); }
   /* correlations cards */
   #correlations-list { display: flex; flex-direction: column; gap: 10px; }
-  /* The meta column cannot shrink (nowrap), so on a narrow viewport it used to
+  /* The meta column cannot shrink (nowrap), so on a narrow viewport it would
      push the card past the panel. Wrapping drops it to its own line instead. */
   .ps-corr-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; border: 1px solid transparent; border-radius: var(--r); background: var(--surface); padding: 15px 18px; }
   .ps-corr-tag { padding: 3px 8px; border-radius: 5px; font-size: 11.5px; }
@@ -331,8 +330,8 @@
   .ps-findings-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 6px; }
 
   /* One disclosure per filter family. The trigger is a .ps-chip so a collapsed
-     menu is indistinguishable from the pills it replaced, and it takes .active
-     from the same rule when the group filters. */
+     menu is indistinguishable from the other pills in the row, and it takes
+     .active from the same rule when the group filters. */
   .ps-filter-menu { position: relative; display: inline-flex; }
   .ps-filter-trigger { display: inline-flex; align-items: center; gap: 6px; list-style: none; user-select: none; }
   .ps-filter-trigger::-webkit-details-marker { display: none; }
@@ -345,8 +344,8 @@
   .ps-filter-option:hover { background: var(--surface-2); }
   .ps-filter-option input { flex: none; accent-color: var(--brand); cursor: pointer; }
 
-  /* No margin-left: auto any more. Sort sits at the start of the panel toolbar,
-     whose left edge already lines up with the findings column below it. */
+  /* Sort sits at the start of the panel toolbar, whose left edge already
+     lines up with the findings column below it, so it needs no margin-left: auto. */
   .ps-sort-group { display: inline-flex; align-items: center; gap: 8px; }
   .ps-sort-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
@@ -383,9 +382,9 @@
   /* -------- findings master / detail -------- */
   .ps-triage { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
   /* min-width: 0, same reason as .ps-span-text: a grid child sizes to its
-     content by default, so one long template widened the whole page. */
+     content by default, so one long template would widen the whole page. */
   .ps-detail { min-width: 0; border: 1px solid transparent; border-radius: var(--r); background: var(--surface); padding: 20px 22px; display: flex; flex-direction: column; gap: 17px; }
-  /* Space the detail sections evenly (title -> meta -> template, breadcrumb -> tree -> pg_stat -> fix). */
+  /* Space the detail sections evenly (title, meta, template in the head, then breadcrumb, tree, pg_stat, fix). */
   #explain-detail-head, #explain-content { display: flex; flex-direction: column; gap: 18px; }
   .ps-detail-empty { color: var(--text-3); font-size: 13px; }
   .ps-copy-trace { margin-left: 10px; padding: 2px 9px; font-size: 10.5px; vertical-align: middle; }
@@ -395,7 +394,7 @@
   .ps-detail-suggestion { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text); }
   /* auto-fit, not repeat(4): in a squeezed detail column (two-column
      triage between the 920px stack point and ~1180px, e.g. the site's
-     embed iframe) four fixed tracks overflow; auto-fit reflows 2x2. */
+     embed iframe) four fixed tracks overflow, while auto-fit reflows 2x2. */
   .ps-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
   .ps-meta-cell { min-width: 0; border: 0; border-radius: 10px; background: var(--surface-2); padding: 11px 12px; }
   .ps-meta-cell-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
@@ -437,7 +436,7 @@
   [data-fsev="info"] .ps-span.hilite .ps-span-flag,
   [data-fsev="info"] .ps-span.hilite .ps-span-count { color: var(--info-fg); }
   /* min-width: 0 is what lets the ellipsis fire: a flex child defaults to
-     min-width: auto, so a long template pushed the whole panel wider. */
+     min-width: auto, so a long template would push the whole panel wider. */
   .ps-span-text { font-family: var(--font-mono); font-size: 12px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ps-span-flag { padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
   .ps-span-time { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
@@ -450,11 +449,11 @@
   /* -------- suggested fix (mint callout, white content cartridges) -------- */
   .ps-fix { border: 0; border-radius: 12px; background: var(--fix-bg); padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
   .ps-fix .ps-eyebrow { color: var(--fix-fg); }
-  /* pg_stat cross-ref (left) + suggested fix (right), side by side like the model; collapses to one column when only one is present. */
+  /* pg_stat cross-ref (left) + suggested fix (right), side by side like the model. Collapses to one column when only one is present. */
   .ps-detail-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
   .ps-detail-cols.single { grid-template-columns: 1fr; }
   /* overflow-wrap: a source path is one long unbreakable token and the
-     recurrence window lengthened this line. */
+     recurrence window lengthens this line. */
   .ps-detail-foot { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 13px; overflow-wrap: anywhere; }
   .ps-pgstat-xref { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; background: var(--surface-2); border: 0; border-radius: 10px; font-family: var(--font-mono); font-size: 12px; }
   .ps-pgstat-xref-stat { color: var(--text-3); white-space: nowrap; }
@@ -521,7 +520,7 @@
   /* -------- footer -------- */
   /* Sticky like the topbar: the shortcut hints stay readable mid-scroll.
      The rule is a ::before inset to the content padding, a border-top
-     would span the full column now the footer sits outside .ps-content. */
+     would span the full column since the footer sits outside .ps-content. */
   .ps-footer { --footer-inset: 28px; position: sticky; bottom: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); margin-top: auto; min-height: 62px; padding: 0 var(--footer-inset); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
   .ps-footer::before { content: ""; position: absolute; top: 0; left: var(--footer-inset); right: var(--footer-inset); height: 1px; background: var(--border); }
   :root[data-density="compact"] .ps-footer { --footer-inset: 22px; }
@@ -567,7 +566,7 @@
   .ps-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .ps-export-btn, .ps-copy-link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 11.5px; border-radius: 999px; border: 1px solid var(--btn-bd); background: var(--surface-2); cursor: pointer; color: var(--btn-fg); font-family: var(--font-ui); font-weight: 600; }
   .ps-export-btn:hover, .ps-copy-link-btn:hover { border-color: var(--brand); color: var(--brand-2); background: var(--accent-bg); }
-  /* Button icons as CSS masks: they survive textContent swaps ("Copied"). */
+  /* Button icons as CSS masks: they persist across textContent swaps ("Copied"). */
   .ps-export-btn::before { content: ""; flex: none; width: 12px; height: 12px; background-color: currentColor;
     -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8M12 13v4"/></svg>') center / contain no-repeat;
     mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8M12 13v4"/></svg>') center / contain no-repeat; }
@@ -613,7 +612,7 @@
   dialog.ps-modal .ps-modal-scope { display: none; margin: 8px 0 0; padding: 8px 10px; font-size: 11px; background: var(--surface-2); color: var(--text-2); border-radius: var(--r-sm); }
   dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--crit-bg); color: var(--crit-fg); border-radius: var(--r-sm); }
 
-  /* -------- live mode (since 0.5.23) -------- */
+  /* -------- live mode -------- */
   .ps-daemon-status { display: none; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); }
   body.ps-live .ps-daemon-status { display: inline-flex; }
   .ps-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); display: inline-block; }
@@ -675,7 +674,7 @@
   :root[data-density="compact"] .ps-hero-right { padding: 14px 18px; }
   :root[data-density="compact"] .ps-table th { padding: 8px 10px; }
   :root[data-density="compact"] .ps-table td { padding: 8px 10px; }
-  /* Fixed width fits either label; outer bars preview the other mode on hover. */
+  /* Fixed width fits either label. Outer bars preview the other mode on hover. */
   #density-toggle { width: 103px; padding: 0 14px; gap: 6px; }
   #density-toggle svg { flex: none; color: var(--brand-text); }
   #density-toggle .b1, #density-toggle .b3 { transition: transform .28s cubic-bezier(.34,1.4,.5,1); }
@@ -720,8 +719,8 @@
     .ps-metrics { grid-template-columns: repeat(2, 1fr); }
     .ps-overview-cols, .ps-diff-cols, .ps-triage { grid-template-columns: 1fr; }
     .ps-meta-grid { grid-template-columns: repeat(2, 1fr); }
-    /* Too narrow for three tracks: stack them, which is what the flex-wrap did
-       before, and let the search span the full row. */
+    /* Too narrow for three tracks: stack them and let the search span the
+       full row. */
     .ps-topbar { grid-template-columns: 1fr; }
     .ps-topbar-actions { justify-content: flex-start; }
     .ps-search-box { width: 100%; min-width: 0; }
@@ -1057,8 +1056,7 @@
       return globalThis.sessionStorage.getItem(key);
     } catch {
       // Safari private mode or a locked-down enterprise policy:
-      // fall back to the in-memory default rather than surfacing
-      // a runtime error to the user.
+      // fall back to the in-memory default.
       return null;
     }
   }
@@ -1066,7 +1064,7 @@
     try {
       globalThis.sessionStorage.setItem(key, value);
     } catch {
-      // See sessionGet: silent fallback is the intended posture.
+      // See sessionGet: the fallback stays silent.
       return;
     }
   }
@@ -1164,8 +1162,8 @@
     // Null-prototype map so a hostile trace_id like "__proto__" or
     // "toString" cannot corrupt the lookup by reparenting Object's
     // prototype chain. Not currently exploitable to code execution
-    // (downstream consumption is textContent-only), but the fix is
-    // a one-liner and removes the family of defects.
+    // (downstream consumption is textContent-only), but the null
+    // prototype removes the family of defects.
     var map = Object.create(null);
     list.forEach(function (trace) { map[trace.trace_id] = trace; });
     return map;
@@ -1269,7 +1267,7 @@
   // <span> nodes via el() (textContent each), never innerHTML, so the
   // CSP + no_forbidden_apis_in_template invariants hold. Token colors map
   // to the severity/info/ok/brand CSS variables. The tokenizers are pure
-  // regex scans (first-match-wins) and cannot throw on odd input; the
+  // regex scans (first-match-wins) and cannot throw on odd input. The
   // outer guard falls back to a plain text node just in case.
   function buildKwSet(words) {
     var set = Object.create(null);
@@ -1380,7 +1378,7 @@
           while (gtk[j] && gtk[j].t === "ws") j++;
           var nx = gtk[j] && gtk[j].t === "op" ? gtk[j].v : "";
           // IDE-style: functions, macros and snake_case method/property names
-          // are amber; PascalCase types are teal; plain identifiers and module
+          // are amber. PascalCase types are teal. Plain identifiers and module
           // path segments keep the default text color.
           if (x.v.slice(-1) === "!" || nx[0] === "(" || /_/.test(x.v)) color = "var(--warn-fg)";
           else if (/^[A-Z].*[a-z]/.test(x.v)) color = "var(--brand-text)";
@@ -1391,7 +1389,7 @@
     });
   }
   // Highlight `text` (SQL or generic code / HTTP) into `target`. SQL is
-  // detected by a leading statement keyword; everything else goes through
+  // detected by a leading statement keyword. Everything else goes through
   // the generic multi-language branch.
   // Endpoint / metadata highlighter: colors only the HTTP method, {path
   // params} and numbers, leaving service names and path segments plain. A
@@ -1481,7 +1479,7 @@
   // severity + finding-type display maps
   var SEV_LABEL = { critical: "CRIT", warning: "WARN", info: "INFO" };
   // Maps a finding severity to the [data-sev] attribute value driving the
-  // severity-pill colors in the redesigned stylesheet.
+  // severity-pill colors in the stylesheet.
   var SEV_DATA = { critical: "crit", warning: "warn", info: "info" };
   // Builds a label/value cell for the finding detail meta grid.
   function metaCell(label, value, mono, brand, code) {
@@ -1746,12 +1744,12 @@
   // -------- top bar / sidebar chrome --------
   // The brand wordmark is static markup in the sidebar (inline SVG,
   // theme-swapped by CSS). renderTopbar fills the sidebar version line
-  // and the top-bar quality-gate pill; the per-route eyebrow + title
-  // are set by switchTab via updateTopbarTitle.
+  // and the top-bar quality-gate pill. switchTab sets the per-route
+  // eyebrow + title via updateTopbarTitle.
   // Run-context line in the sidebar foot, derived from the Finding
   // `confidence` the producing instance stamps (mode-driven, uniform per
   // run). Batch runs stamp local_batch (developer machine) or ci_batch
-  // (CI env detected); daemon runs stamp staging/production from the
+  // (CI env detected). Daemon runs stamp staging/production from the
   // [daemon] environment. See detect/mod.rs::Confidence and pipeline.rs.
   var CONFIDENCE_CONTEXT = {
     local_batch: { label: "batch · local", tone: "neutral" },
@@ -1862,8 +1860,8 @@
       document.addEventListener("click", sweepTips, true);
     }
     // The icon sits beside its heading rather than inside it, so nothing
-    // folds the help text into the heading name any more: make it a real
-    // control instead, reachable by tab and readable on focus.
+    // folds the help text into the heading name. Make it a real control,
+    // reachable by tab and readable on focus.
     setAttr(anchor, "role", "button");
     setAttr(anchor, "tabindex", "0");
     var box = null;
@@ -1923,9 +1921,9 @@
   function renderTabs() {
     var bar = document.getElementById("tabs");
     tabs.forEach(function (t) {
-      // Sidebar nav item. `data-nav` drives the hover/active styling;
-      // the `ps-tab` class + role="tab" preserve the existing ARIA
-      // tablist semantics and let switchTab find every nav item.
+      // Sidebar nav item. `data-nav` drives the hover/active styling.
+      // The `ps-tab` class + role="tab" keep the ARIA tablist semantics
+      // and let switchTab find every nav item.
       var btn = el("button", "ps-tab");
       btn.type = "button";
       btn.appendChild(el("span", "ps-nav-dot"));
@@ -2027,8 +2025,9 @@
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
     updateTopbarTitle(key);
-    // The search is global and survives the switch: re-run it so the panel
-    // being revealed picks up the match highlighting the hidden panels skip.
+    // The search is global and persists across the switch: re-run it so the
+    // panel being revealed picks up the match highlighting the hidden panels
+    // skip.
     applyGlobalSearch();
     // Render the detail pane when landing on Findings if it is not already
     // showing the current selection. Covers the lazy first render (detailFinding
@@ -2056,7 +2055,7 @@
   }
   // Overview KPI row: Findings / Critical / Δ baseline / co2.total, with
   // tone-colored values. Adapted to the real payload (Δ baseline reads the
-  // diff when present; co2.total reads green_summary).
+  // diff when present, and co2.total reads green_summary).
   function tonedValue(card, tone) {
     var v = card.querySelector(".ps-metric-value");
     if (v) setAttr(v, "data-tone", tone);
@@ -2117,7 +2116,7 @@
     root.appendChild(wireKpiCard(findingsCard, "findings", "all"));
 
     // Dominant-severity card: label, count and pastel tone all follow the
-    // highest severity present; the sub line lists only the lower ones.
+    // highest severity present. The sub line lists only the lower ones.
     var domCard, domChip;
     if (sev.critical > 0) {
       domCard = tonedValue(
@@ -2147,7 +2146,7 @@
       dv.appendChild(makeTokenSpan("+" + nNew, "var(--crit-fg)", false));
       dv.appendChild(document.createTextNode(" / "));
       dv.appendChild(makeTokenSpan("−" + nRes, "var(--ok-fg)", false));
-      // Card tint follows the net direction; the tokens keep their colors.
+      // Card tint follows the net direction. The tokens keep their colors.
       if (nNew !== nRes) setAttr(dCard, "data-grad", nNew > nRes ? "crit" : "ok");
       root.appendChild(wireKpiCard(dCard, "diff"));
     } else {
@@ -2167,7 +2166,7 @@
   }
 
   // -------- quality gate --------
-  // Gate rules render inside the Overview hero (renderOverviewHero); this
+  // Gate rules render inside the Overview hero (renderOverviewHero). This
   // shared formatter is used there for the actual / threshold numbers.
   function formatRuleNumber(n) {
     if (!Number.isFinite(n)) return "-";
@@ -2341,7 +2340,7 @@
       row.appendChild(left);
       // Right column: per-finding green impact (IIS + avoidable-I/O share).
       // The prototype showed a co2-per-finding figure, which the pipeline
-      // does not compute; green_impact is the real equivalent.
+      // does not compute. green_impact is the real equivalent.
       var gi = f.green_impact || {};
       var right = el("div", "ps-of-right");
       if (Number.isFinite(gi.io_intensity_score)) {
@@ -2379,7 +2378,7 @@
       // The target may be hidden by a chip, by the acked filter (live mode),
       // or sitting past the first page. Clear the chips, reveal acked findings
       // if the target is one, and grow the shown count to its position, else
-      // resetShownCount would cap the render at LIST_CAP and the click dies.
+      // resetShownCount would cap the render at LIST_CAP and the click is lost.
       resetFilterState();
       syncFilterChips();
       if (findingHiddenByAck(f)) {
@@ -2490,7 +2489,8 @@
     return FILTER_GROUPS.find(function (g) { return g.prefix === prefix; }) || null;
   }
   // The grouping menu is renamed after its attribute key when the report only
-  // has one; captured here so the generic name is not spelled a second time.
+  // has one. The generic name is captured here so it is not spelled a second
+  // time.
   var GROUPING_MENU_LABEL = filterGroupByPrefix("group").label;
   function toggleFilterValue(field, value) {
     var list = filterState[field];
@@ -2503,10 +2503,10 @@
   // single worst detection, "impact" ranks the signature's aggregate
   // avoidable ops, so a frequent info problem can outrank a rare
   // critical one.
-  // The producer's own ranking when it declared one, impact otherwise: a
+  // The producer's own ranking when it declared one, impact otherwise. A
   // reader opening a report wants what costs the most first, and the sink
-  // kept the span trees of exactly the top rows of THAT order, so opening
-  // on any other key would strand the first rows without their trees.
+  // kept the span trees of exactly the top rows of THAT order. Opening on
+  // any other key would strand the first rows without their trees.
   var DEFAULT_SORT_KEY = payload.initial_sort === "severity" ? "severity" : "impact";
   var sortState = { key: DEFAULT_SORT_KEY, dir: "desc" };
   function severityRankOf(f) {
@@ -2625,18 +2625,18 @@
       else if (grouping.key !== groupingKey) mixedGroupingKeys = true;
     });
     var groupingGroup = filterGroupByPrefix("group");
-    // Name the menu after the attribute it filters on, since that key is what
-    // the pills used to spell out on every one of them. Only when the report
-    // has a single key: one mixing k8s.namespace.name with service.namespace
-    // would otherwise file the second one's values under the first one's name.
+    // Name the menu after the attribute it filters on, so the options need not
+    // spell that key out on every one of them. Only when the report has a
+    // single key: one mixing k8s.namespace.name with service.namespace would
+    // otherwise file the second one's values under the first one's name.
     var oneGroupingKey = !!groupingKey && !mixedGroupingKeys;
     groupingGroup.label = oneGroupingKey ? groupingKey : GROUPING_MENU_LABEL;
     appendMenu(groupingGroup, Object.keys(groupings).sort(function (a, b) {
       return groupings[a].localeCompare(groupings[b]);
     }).map(function (identity) {
-      // The pill label repeated "key=value"; inside a menu named after the key,
-      // only the value carries information. With several keys in one report the
-      // key is what tells the values apart, so it stays.
+      // Inside a menu named after the key, only the value of the "key=value"
+      // label carries information. With several keys in one report the key is
+      // what tells the values apart, so it stays.
       var label = groupings[identity];
       var eq = label.indexOf("=");
       return {
@@ -2646,8 +2646,8 @@
     }));
 
     // Last in the row, and only once something is filtered: Escape clears the
-    // lot, but a pointer user had to un-press every pill and untick every box
-    // one by one since the "All" chip went away.
+    // lot, but without this button a pointer user would have to un-press every
+    // pill and untick every box one by one.
     var clear = el("button", "ps-chip ps-filter-clear", "Clear filters");
     clear.type = "button";
     setAttr(clear, "id", "findings-clear");
@@ -2784,12 +2784,13 @@
   // search or hash apply resets `shownCount` to LIST_CAP so the user
   // never ends up paginated into rows that no longer match.
   // Initial page size and "Show more" increment. Kept small so a long
-  // findings list stays scannable; the rest reveals via #findings-show-more.
+  // findings list stays scannable.
   var LIST_CAP = 8;
   var visibleFindings = [];
   var selectedIndex = -1;
   // The selected finding object (not just its index) so the selection and
-  // its detail pane survive a list re-render (filter change, "Show more").
+  // its detail pane persist across a list re-render (filter change,
+  // "Show more").
   var selectedFinding = null;
   // The finding whose detail pane is currently rendered. Lets renderFindingsList
   // skip the expensive trace-tree rebuild when a re-render (e.g. every keystroke
@@ -2835,7 +2836,7 @@
   function applyFilters() {
     var term = globalSearchTerm();
     // Sorted by the active sortState (impact-first by default)
-    // and stable, so the report's own type/trace order survives inside
+    // and stable, so the report's own type/trace order holds inside
     // each band. The CSV export shares this order.
     // OR inside a group, AND between groups: an empty group filters nothing.
     return findings.filter(function (f) {
@@ -2874,7 +2875,7 @@
     visibleFindings.forEach(function (f, idx) {
       root.appendChild(buildFindingRow(f, idx));
     });
-    // Preserve the prior selection across "Show more" / re-renders; fall
+    // Preserve the prior selection across "Show more" / re-renders, and fall
     // back to the first row when it is gone (e.g. a filter narrowed it out).
     selectedIndex = selectedFinding ? visibleFindings.indexOf(selectedFinding) : -1;
     if (selectedIndex < 0) {
@@ -2992,7 +2993,8 @@
       var t = event.target;
       // Bail only when the click landed on the action button itself, so
       // its handler runs without ALSO opening the detail pane. Matching
-      // the whole .ps-fin-actions container made its full row a dead zone.
+      // the whole .ps-fin-actions container would make its full row a
+      // dead zone.
       if (t && t.closest && t.closest(".ps-fin-action-btn")) {
         return;
       }
@@ -3012,7 +3014,7 @@
   // Finding header for the detail pane: severity pill, type, a one-line
   // description, the service/endpoint/occurrences/trace meta grid, and the
   // normalized template code block. Always rendered when a finding is
-  // selected, independently of whether its trace survived the embed cap.
+  // selected, independently of whether the embed cap kept its trace.
   // One-line plain-language summary for the detail title. Prefers a
   // server-provided message, else derives a sentence from type + count.
   function findingSummary(f) {
@@ -3071,9 +3073,9 @@
   }
 
   // A 32-hex id that wraps across lines is painful to select by hand, and
-  // selecting it is the whole point: it goes straight into an `explain`
-  // command. Reuses the deep-link clipboard helper, execCommand fallback
-  // included, since a report opened over file:// has no async clipboard.
+  // the id goes straight into an `explain` command. Reuses the deep-link
+  // clipboard helper, execCommand fallback included, since a report opened
+  // over file:// has no async clipboard.
   function appendCopyTraceIdButton(host, traceId) {
     if (!traceId) return;
     var btn = el("button", "ps-copy-link-btn ps-copy-trace", "Copy trace_id");
@@ -3135,7 +3137,7 @@
     if (timing.length) grid.appendChild(metaCell("span timing", timing.join(" · ")));
     head.appendChild(grid);
 
-    // Every sink but this one showed `suggestion`. It reads the finding, so
+    // Every other sink shows `suggestion`. It reads the finding, so
     // it belongs in the head, where no missing trace can hide it.
     if (f.suggestion) {
       var sugSec = el("div", "ps-section");
@@ -3161,7 +3163,7 @@
   function openExplain(f) {
     // The detail pane is about to be rebuilt: a tooltip anchored to the
     // old "?" would never see its mouseleave. Swept here rather than in
-    // one caller, openExplain has four.
+    // a caller: openExplain has four.
     sweepTips();
     detailFinding = f;
     document.getElementById("explain-empty").style.display = "none";
@@ -3170,8 +3172,8 @@
     notEmbedded.style.display = "none";
     notEmbedded.textContent = "";
 
-    // The finding header renders inline regardless of whether the trace
-    // itself survived the embed cap.
+    // The finding header renders inline regardless of whether the embed
+    // cap kept the trace itself.
     renderDetailHead(f);
 
     // Only the tree needs the trace. The suggested fix, the pg_stat
@@ -3210,13 +3212,13 @@
       // sends the reader tuning a flag that changes nothing.
       // payload.trimmed_traces says whether THIS render trimmed, on the
       // batch and snapshot paths alike, so the cap message only shows
-      // when the cap is actually the knob. The breadcrumb above already
-      // carries the id and its copy button.
+      // when the cap is the knob. The breadcrumb above already carries
+      // the id and its copy button.
       notEmbedded.style.display = "";
       if (payload.trimmed_traces) {
-        // Deliberately silent on which cap cut it: the page cannot tell an
-        // explicit --max-traces-embedded from the size budget, and naming
-        // the wrong one is what this whole message exists to avoid.
+        // Silent on which cap cut it: the page cannot tell an explicit
+        // --max-traces-embedded from the size budget, and naming the wrong
+        // one is what this whole message exists to avoid.
         proseInto(notEmbedded, "Trace not embedded: " + payload.trimmed_traces.kept +
           " of " + payload.trimmed_traces.total + " span trees are in this report, kept for the " +
           "findings ranked highest. Rerun on the trace id above to read this one on its own.");
@@ -3349,13 +3351,13 @@
     };
   }
 
-  /// Build the parent -> children adjacency for a span list plus the
+  /// Build the parent-to-children adjacency for a span list plus the
   /// roots array. Extracted from `renderTree` to keep its cognitive
   /// complexity under Sonar's 15-point threshold.
   function buildSpanTree(spans) {
     // Null-prototype maps for all user-controlled keys (span_id,
     // parent_span_id) so hostile identifiers like "__proto__" cannot
-    // corrupt the lookup chain. Mirrors the indexTracesById fix.
+    // corrupt the lookup chain. Same guard as indexTracesById.
     var byId = Object.create(null);
     spans.forEach(function (s) { byId[s.span_id] = s; });
     var childrenByParent = Object.create(null);
@@ -3397,7 +3399,7 @@
              !(treeChildren[span.span_id] || []).length);
   }
   // Fold a sibling list into groups: runs of consecutive same-key leaf
-  // siblings become one multi-member group; everything else stays singleton.
+  // siblings become one multi-member group. Everything else stays singleton.
   function groupSiblings(indices, spans, tree, targetTpl) {
     var groups = [];
     var i = 0;
@@ -3521,7 +3523,7 @@
     var host = root.closest ? root.closest(".ps-tree") : null;
     setAttr(host || root, "data-fsev", finding.severity || "");
     emitSpanTreeRows(root, spans, tree, targetTpl);
-    // Decided on what was actually rendered, not on the whole trace: the
+    // Decided on what was rendered, not on the whole trace: the
     // emitter caps rows and depth, so a matching span can exist and never
     // reach the DOM. Dimming everything with nothing lit is unreadable.
     if (!root.querySelector(".ps-span.hilite")) {
@@ -3716,7 +3718,7 @@
     metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term", null,
       "Hardware manufacturing carbon amortized over traffic: `[green] embodied_carbon_per_request_gco2` per request. Real, but irreducible by fixing an anti-pattern.", "embodied_co2"));
     var avoidMid = co2.avoidable.mid;
-    // Accent marks actionable savings; a zero amount has nothing to act on.
+    // Accent marks actionable savings. A zero amount has nothing to act on.
     metrics.appendChild(greenCard(
       "Avoidable",
       formatGco2(avoidMid),
@@ -3745,7 +3747,7 @@
       "iis"
     ));
     // Measured on the declared Alumet database cgroup, or estimated
-    // from the modeled SQL energy; the model tag says which. Excluded
+    // from the modeled SQL energy. The model tag says which. Excluded
     // from every total, hence its own card.
     var dbw = greenSummary.database_waste;
     if (dbw) {
@@ -3834,7 +3836,7 @@
 
   // Renders three chips above the green-regions table: API version,
   // emission factor type, temporal granularity. Hidden unless the payload
-  // says Electricity Maps is configured: scoring_config now ships on every
+  // says Electricity Maps is configured: scoring_config ships on every
   // run to carry the applied coefficients, so its presence alone means
   // nothing here. The 3 fields are bounded enums on the Rust side, no
   // escaping needed.
@@ -3864,7 +3866,7 @@
   // values and fall through to a verbatim-text neutral chip on
   // anything else. This keeps a forward-rolled enum variant (a
   // future EmissionFactorType added in a later perf-sentinel
-  // release) from silently masquerading as the default chip when an
+  // release) from silently rendering as the default chip when an
   // older dashboard renders a newer baseline. The bounded-input
   // invariant on the Rust side (typed enum, no #[serde(other)])
   // keeps the textContent path safe for in-version rendering.
@@ -3958,8 +3960,8 @@
     return loc ? code + " (" + loc + ")" : (code || "-");
   }
 
-  // Source cell: real_time rows link "Electricity Maps" to its live map;
-  // other (embedded proxy) sources render as plain text.
+  // Source cell: real_time rows link "Electricity Maps" to its live map.
+  // Other (embedded proxy) sources render as plain text.
   function buildSourceCell(r) {
     var td = document.createElement("td");
     if (r.intensity_source === "real_time") {
@@ -4030,9 +4032,8 @@
   var hasDiff = !!diffData;
 
   // Correlations are populated only in daemon-produced reports. The batch
-  // pipeline does not emit them. This branch lights up automatically
-  // when a future daemon report is fed into
-  // `perf-sentinel report --input <daemon.json>`.
+  // pipeline does not emit them. This branch lights up when a daemon report
+  // is fed into `perf-sentinel report --input <daemon.json>`.
   var correlations =
     report.correlations && report.correlations.length > 0 ? report.correlations : [];
   var hasCorrelations = correlations.length > 0;
@@ -4159,7 +4160,7 @@
     renderPgStatTable();
     scheduleHashWrite();
     // Preserve the hilite when the previously-hilited template exists
-    // in the new ranking; else silently clear the drill + hilite.
+    // in the new ranking, else silently clear the drill + hilite.
     if (pgStatHiliteTemplate) {
       var stillPresent = activePgStatEntries().some(function (entry) {
         return entry.normalized_template === pgStatHiliteTemplate;
@@ -4243,10 +4244,9 @@
 
   // -------- mysql_stat panel --------
   // Same sub-switcher pattern as pg_stat, without the Explain drill and
-  // the session/hash ranking persistence (deliberate simplification: no
-  // cross-nav feeds this tab). Rankings stay in the stable order
-  // `rank_mysql_stat` emits: [by_total_time, by_calls, by_mean_time,
-  // by_rows_examined].
+  // the session/hash ranking persistence (no cross-nav feeds this tab).
+  // Rankings stay in the stable order `rank_mysql_stat` emits:
+  // [by_total_time, by_calls, by_mean_time, by_rows_examined].
   var activeMysqlRankingIndex = 0;
 
   var MYSQLSTAT_LABELS = {
@@ -4353,7 +4353,7 @@
   }
   // Template mutations: the same detector, service and endpoint whose
   // template changed. Counted neither as new nor as resolved, so this
-  // table is their only trace on the dashboard; a pair whose severity
+  // table is their only trace on the dashboard. A pair whose severity
   // worsened shows both pills.
   function renderDiffMutTable(items) {
     var hdr = document.getElementById("diff-mut-header");
@@ -4427,7 +4427,7 @@
   }
   // The section headers carry counts, so they have to track the search: a
   // query typed on another tab can hide every row, and a header still claiming
-  // "New findings (3)" over a blank list is a lie.
+  // "New findings (3)" over a blank list is wrong.
   function syncDiffHeaders() {
     DIFF_SECTIONS.forEach(function (s) {
       var shown = countVisible("#" + s.listId + " .ps-row");
@@ -4570,7 +4570,7 @@
   // `CorrelationEndpoint { finding_type, service, template, grouping_key, namespace }`,
   // timing is `median_lag_ms` and `co_occurrence_count`.
   // A correlation carries no severity of its own: borrow the matched
-  // real finding's per side (warn when unmatched, cards always were).
+  // real finding's per side (warn when unmatched).
   function severityRankOfMatch(real) {
     return (real && SEV_RANK[real.severity]) ?? 3;
   }
@@ -4697,7 +4697,7 @@
   // sole source of truth. It filters every searchable tab at once, and each
   // tab reports its match count through its sidebar badge, so typing from a
   // non-searchable tab (Overview, Carbon) still gives feedback. The filter
-  // survives tab switches.
+  // persists across tab switches.
   function matchRowByText(row, q) {
     return (row.textContent || "").toLowerCase().includes(q);
   }
@@ -4719,7 +4719,7 @@
       rowsSelector: "#mysqlstat-body tr"
     },
     diff: {
-      // Filter only the two findings lists; the severity_changes and
+      // Filter only the two findings lists. The severity_changes and
       // endpoint_metric_deltas tables stay unfiltered (short lists).
       rowsSelector: "#diff-new-list .ps-row, #diff-resolved-list .ps-row",
       afterFilter: syncDiffHeaders
@@ -4904,7 +4904,7 @@
     if (!rows.length) return;
     var b = document.getElementById("report-warnings");
     b.style.display = "";
-    // Only lost data earns the warn tone; the other kinds are advisory.
+    // Only lost data earns the warn tone. The other kinds are advisory.
     var lostData = rows.some(function (w) { return w.kind === "ingestion_drops"; });
     setAttr(b, "data-tone", lostData ? "warn" : "info");
     rows.forEach(function (w) {
@@ -4918,7 +4918,7 @@
   }
 
   // -------- theme toggle --------
-  // Click cycles through auto -> light -> dark -> auto. The actual
+  // Click cycles through auto, light, dark, then back to auto. The
   // data-theme attribute and button label are handled by applyTheme,
   // defined above alongside the initial boot-time resolution.
   document.getElementById("theme-toggle").addEventListener("click", function () {
@@ -4958,9 +4958,9 @@
   })();
 
   // -------- sortable tables --------
-  // Every .ps-table with an id gets clickable headers. Click cycles
-  // default -> first direction -> reverse -> default (numeric columns
-  // start descending, text ascending). Shift+click adds a secondary
+  // Every .ps-table with an id gets clickable headers. Click cycles through
+  // default, first direction, reverse, then back to default (numeric
+  // columns start descending, text ascending). Shift+click adds a secondary
   // tie-breaker key. State persists per table in localStorage and can be
   // shared through the `tsort` hash key (ignored by readHash's router).
   // Renderers that rebuild a tbody call refreshTableSort() afterwards:
@@ -5119,7 +5119,7 @@
     var keys = tableSortState[table.id] || [];
     var pos = keys.findIndex(function (k) { return k.i === i; });
     if (ev && ev.shiftKey && keys.length && pos !== 0) {
-      // Shift+click: secondary tie-breaker (cycle down -> up -> removed).
+      // Shift+click: secondary tie-breaker (cycles down, up, then removed).
       if (pos < 0) keys.push({ i: i, dir: sortFirstDir(kind) });
       else if (keys[pos].dir === sortFirstDir(kind)) keys[pos].dir = sortFirstDir(kind) === "ascending" ? "descending" : "ascending";
       else keys.splice(pos, 1);
@@ -5195,7 +5195,7 @@
   function csvLine(cells) {
     return cells.map(csvEscape).join(",");
   }
-  // Note on numeric cells: producers pass JS numbers straight through
+  // Numeric cells: producers pass JS numbers straight through
   // csvEscape, which calls String(n). That drops trailing zeros
   // (`840.0` -> `"840"`) because V8 Number.toString() normalizes the
   // decimal representation. Excel and every major CSV consumer handle
@@ -5256,7 +5256,7 @@
   function exportFindingsCsv() {
     // trace_id first among the identifiers: the export's main downstream
     // use is feeding an id back into `explain` or a trace backend, and it
-    // was the one field the table never showed in full.
+    // is the one field the table never shows in full.
     var header = [
       "severity", "type", "service", "grouping_key", "grouping_value",
       "grouping_all", "endpoint", "trace_id", "template",
@@ -5415,9 +5415,9 @@
     // the export must not drop their rows either, or it would omit rows the
     // user can see.
     // A mutation is counted neither as new nor as resolved, so without this
-    // section it would vanish from the export the way it used to vanish
-    // from the panel. The severity column stays empty as it does for a
-    // severity_change row, and before_severity/after_severity carry the pair.
+    // section it would vanish from the export. The severity column stays
+    // empty as it does for a severity_change row, and
+    // before_severity/after_severity carry the pair.
     (diffData.mutated_findings || []).forEach(function (m) {
       var before = m.before || {};
       var after = m.after || {};
@@ -5594,7 +5594,7 @@
   }
 
   // Debounce writeHash to smooth keystrokes in search inputs and bursty
-  // chip clicks; 200ms is barely perceptible and keeps history quiet.
+  // chip clicks. 200ms is barely perceptible and keeps history quiet.
   var hashWriteTimer = null;
   function scheduleHashWrite() {
     if (hashWriteTimer) clearTimeout(hashWriteTimer);
@@ -5617,7 +5617,7 @@
     // filterState and re-render the findings list.
     if (state.tab === "findings") {
       resetFilterState();
-      // Only honor values an option actually exists for. A stale or hand-edited
+      // Only honor values an option exists for. A stale or hand-edited
       // hash naming an absent service would filter the list to nothing with no
       // checked box to explain why. A severity with no finding has no chip
       // either, so it goes through the same gate.
@@ -5824,7 +5824,7 @@
     }
     ev.preventDefault();
   }
-  // g-prefixed tab shortcuts. `g` alone arms a 1000ms window; the next
+  // g-prefixed tab shortcuts. `g` alone arms a 1000ms window. The next
   // key consumes it regardless of whether it matches a tab. Hidden tabs
   // are a silent no-op (no feedback, no flash).
   var pendingGTimer = null;
@@ -5988,8 +5988,8 @@
     renderReportWarnings();
     renderTrimBanner();
     renderFindingsMetrics();
-    // Gate rules render inside the Overview hero (renderOverviewHero); there
-    // is no longer a standalone gate-rules table.
+    // Gate rules render inside the Overview hero (renderOverviewHero). There
+    // is no standalone gate-rules table.
     renderOverviewPanel();
     renderSortChips();
     renderFilterChips();
@@ -6167,7 +6167,7 @@
     });
   }
 
-  // -------- live mode (since 0.5.23) --------
+  // -------- live mode --------
   // The whole live-mode block stays inside the existing IIFE so it
   // shares scope with `payload`, `findings`, `renderTabs`,
   // `renderFindingsList` and the `el`/`setAttr` helpers. Running
@@ -6175,7 +6175,7 @@
   // pure overhead.
   //
   // Activation: only when the embedded payload carries
-  // `payload.daemon.url`. Static reports (the 0.5.22 default) never
+  // `payload.daemon.url`. Static reports (the default) never
   // touch this code path.
   //
   // Security:
@@ -6211,7 +6211,7 @@
     // Guard against an empty / whitespace-only value reaching live
     // state. `submitAuthModal` already trims and rejects empty
     // before getting here, but keep this helper safe to call from
-    // anywhere; an accidental empty write would put liveState and
+    // anywhere. An accidental empty write would put liveState and
     // sessionStorage into an asymmetric state where one side reads
     // truthy and the other falsy.
     if (typeof value !== "string" || value.trim() === "") {
@@ -6226,7 +6226,7 @@
     liveState.apiKey = null;
     // Use removeItem rather than `sessionSet(KEY, "")` so a debugger
     // inspecting sessionStorage does not see a stale empty entry that
-    // could mistake for "key was set, then someone null'd it".
+    // could be mistaken for "key was set, then someone null'd it".
     try {
       globalThis.sessionStorage.removeItem(DAEMON_API_KEY_STORAGE);
     } catch {
@@ -6466,15 +6466,15 @@
     });
   }
 
-  // An acknowledgment is keyed on the signature alone, which is deliberate:
-  // it states the code is accepted debt, and that does not vary by
-  // deployment. But the list shows one row per grouping, so the operator
-  // clicking Ack on one row must be told the other rows go with it.
+  // An acknowledgment is keyed on the signature alone because it states
+  // the code is accepted debt, and that does not vary by deployment. But
+  // the list shows one row per grouping, so the operator clicking Ack on
+  // one row must be told the other rows go with it.
   function ackScopeText(sig) {
     var groupings = [];
     // An ungrouped row counts too: a signature shared by one grouped and one
     // ungrouped finding still covers both, and staying silent there is
-    // exactly the mis-scoped ack this note exists to prevent.
+    // the mis-scoped ack this note exists to prevent.
     var ungrouped = false;
     findings.forEach(function (f) {
       if (f.signature !== sig) return;
@@ -6623,7 +6623,7 @@
     }
     if (typeof dlg.showModal === "function") dlg.showModal();
     if (keyInput) {
-      // Defer focus until after the dialog has actually opened.
+      // Defer focus until after the dialog has opened.
       setTimeout(function () { keyInput.focus(); }, 0);
     }
   }
@@ -6665,13 +6665,12 @@
   function syncAcksTabBadge() {
     // The tab badge is rendered once at boot via `renderTabs` from the
     // `countFn` we registered for "acknowledgments". After an
-    // ack/revoke that changed `liveState.acks.length`, the badge is
-    // stale until the user switches tabs (which would re-trigger
-    // nothing since `renderTabs` is not re-run). Patch the DOM
-    // directly: the cheapest correct refresh path. Recreate the
-    // badge span when missing so a deferred-fetch boot path (badge
-    // not created because countFn returned null) still surfaces the
-    // count once acks load.
+    // ack/revoke that changed `liveState.acks.length`, the badge stays
+    // stale, and a tab switch does not refresh it since `renderTabs` is
+    // not re-run. Patch the DOM directly: the cheapest correct refresh
+    // path. Recreate the badge span when missing so a deferred-fetch boot
+    // path (badge not created because countFn returned null) still
+    // surfaces the count once acks load.
     var btn = document.getElementById("tab-acknowledgments");
     if (!btn) return;
     var count = liveAcksCount();

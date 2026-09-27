@@ -4,9 +4,9 @@
 //! perf-sentinel does not detect a crash and cannot see an observed
 //! service's memory: it has no OTLP metrics path, and a service that
 //! saturates usually keeps emitting spans, more slowly. The operator's
-//! alerting owns the moment. What perf-sentinel owns is the findings of
-//! a period, and it is the only thing that can freeze them before the
-//! FIFO ring evicts them, which on a busy fleet takes minutes.
+//! alerting detects the incident. perf-sentinel holds the findings of a
+//! period and is the only component that can freeze them before the FIFO
+//! ring evicts them, which on a busy fleet takes minutes.
 //!
 //! So an incident arrives by POST and resolves its window immediately.
 //! Nothing here polls, scrapes or judges whether a service is alive.
@@ -71,9 +71,9 @@ impl IncidentKind {
         Self::Other,
     ];
 
-    /// Parse a declared kind. Deliberately exact rather than a keyword
+    /// Parse a declared kind. An exact match rather than a keyword
     /// heuristic: an operator who wants a precise kind writes it, and
-    /// everything else is honestly `Other` instead of silently guessed.
+    /// everything else is `Other` instead of silently guessed.
     #[must_use]
     pub fn parse(raw: &str) -> Self {
         Self::ALL
@@ -91,9 +91,9 @@ impl IncidentKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Incident {
     /// Content-derived id, see [`Incident::compute_id`], 32 hex
-    /// characters, the same shape and taste as an acknowledgment
-    /// signature. Reposting the same alert is idempotent without a
-    /// dedup table and without a server-assigned id round trip.
+    /// characters, the same shape as an acknowledgment signature.
+    /// Reposting the same alert is idempotent without a dedup table and
+    /// without a server-assigned id round trip.
     pub id: String,
     /// The perf-sentinel service the incident is about. This is the join
     /// key to the findings, so an alert without one is refused.
@@ -233,9 +233,9 @@ impl IncidentSummary {
 
 /// Bounded ring of recorded incidents, newest last.
 ///
-/// The shape of [`super::findings_store::FindingsStore`] on purpose,
-/// copied rather than generalized into a shared ring: two similar rings
-/// beat a trait with two implementations.
+/// The shape of [`super::findings_store::FindingsStore`], copied rather
+/// than generalized into a shared ring: two similar rings beat a trait
+/// with two implementations.
 ///
 /// It lives in memory. A node-level memory event that kills the observed
 /// service often takes a co-located daemon with it, so the durable record
@@ -465,7 +465,7 @@ pub fn spawn_archive(
 /// Hand one serialized record to the writer without blocking. A full or
 /// closed channel drops it, counted on
 /// `perf_sentinel_incidents_archive_failed_total` and logged. The ring
-/// still holds the incident, durability is what was lost.
+/// still holds the incident, so only durability is lost.
 pub fn try_send(
     tx: &mpsc::Sender<Vec<u8>>,
     line: Vec<u8>,
@@ -704,9 +704,9 @@ pub struct IncidentRequest {
 /// Read one alert into an [`IncidentRequest`].
 ///
 /// `service_label`, `kind_label` and `namespace_label` name the labels to
-/// read. A missing or unrecognized kind is [`IncidentKind::Other`], which
-/// is honest, whereas guessing from `alertname` would be a heuristic
-/// nobody can see failing. A missing namespace is simply absent.
+/// read. A missing or unrecognized kind is [`IncidentKind::Other`].
+/// Guessing it from `alertname` would be a heuristic nobody can see
+/// failing. A missing namespace is left absent.
 ///
 /// # Errors
 ///
@@ -727,8 +727,8 @@ pub fn read_alert(
         .filter(|s| !s.is_empty());
     let at_ms = parse_rfc3339_ms(&alert.starts_at).ok_or(RejectedAlert::UnparsableTime)?;
     // Alertmanager sends the zero time while an alert is firing, which
-    // is before 1970 and does not fit a `u64`, so a failure here is
-    // simply "still firing". An end before the start is a bad clock or a
+    // is before 1970 and does not fit a `u64`, so a failure here means
+    // "still firing". An end before the start is a bad clock or a
     // bad body, and is treated the same way rather than sealed for good.
     let ended_at_ms = (alert.status == "resolved")
         .then(|| parse_rfc3339_ms(&alert.ends_at))

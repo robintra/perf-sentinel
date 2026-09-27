@@ -3,8 +3,7 @@
 //! pipeline.
 //!
 //! The two subcommands are one command over two backends. They differ by
-//! the ingest they call and by how the backend is named to the operator,
-//! and they were two files that a diff put seven tokens apart.
+//! the ingest they call and by how the backend is named to the operator.
 
 #![cfg(any(feature = "tempo", feature = "jaeger-query"))]
 
@@ -132,9 +131,9 @@ pub(crate) async fn cmd_backend_query(
         no_acknowledgments,
         sentinel_core::acknowledgments::ReportOrigin::FreshAnalysis,
     );
-    // The seam embeds the findings' masked spans into the JSON sink, so
-    // this JSON still draws span trees when `report --input` renders it
-    // later without its input, the way the daemon export does.
+    // `emit_report_and_gate` embeds the findings' masked spans into the JSON
+    // sink, so this JSON still draws span trees when `report --input` renders
+    // it later without its input, the way the daemon export does.
     emit_report_and_gate(
         &mut report,
         format,

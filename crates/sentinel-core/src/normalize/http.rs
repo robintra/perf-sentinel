@@ -59,10 +59,10 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
     };
 
     // Collect query params as extracted values (capped to prevent unbounded allocation).
-    // Each pair is heap-allocated via to_string(). A Cow<str> backed by the source
-    // would avoid this, but NormalizedEvent.params is Vec<String> throughout the
-    // pipeline, so the allocation is unavoidable without a larger refactor. Pre-size
-    // the Vec from the ampersand count to avoid the doubling growth on the hot path.
+    // Each pair is heap-allocated via to_string() because NormalizedEvent.params
+    // is Vec<String> throughout the pipeline (a Cow<str> backed by the source
+    // would avoid that, but needs a larger refactor). Pre-size the Vec from the
+    // ampersand count to avoid the doubling growth on the hot path.
     let mut params = match query_params {
         Some(q) => {
             let cap = (bytecount(q, b'&') + 1).min(100);
@@ -127,8 +127,8 @@ fn split_origin(target: &str) -> (Option<&str>, &str) {
         // grouping template on a URL with no path (`http://host?token=...`).
         // A '#' terminator means there is no path (fragments never carry a
         // path), and the fragment is never sent to the server, so the path
-        // is just `/`. A fragment that follows an actual path is left in the
-        // path unchanged (it is handled by `normalize_path_segments`).
+        // is just `/`. A fragment that follows a path is left in the path
+        // unchanged (it is handled by `normalize_path_segments`).
         Some(rest) => match rest.find(['/', '?', '#']) {
             Some(idx) if rest.as_bytes()[idx] == b'#' => (Some(&rest[..idx]), "/"),
             Some(idx) => (Some(&rest[..idx]), &rest[idx..]),
@@ -267,8 +267,8 @@ mod tests {
 
     #[test]
     fn dns_hosts_disambiguate_same_path() {
-        // The core fix: same method + path on two DNS backends must NOT
-        // collapse into one template (which would raise a false redundant).
+        // Same method + path on two DNS backends must NOT collapse into
+        // one template (which would raise a false redundant).
         let a = normalize_http("POST", "http://ms-23205/vs2nqhh1hq");
         let b = normalize_http("POST", "http://ms-53745/vs2nqhh1hq");
         assert_eq!(a.template, "POST ms-23205/vs2nqhh1hq");
@@ -278,8 +278,8 @@ mod tests {
 
     #[test]
     fn ipv4_hosts_are_dropped_keeping_replica_dedup() {
-        // Load-balanced pod replicas share a service; their IP authorities
-        // must collapse to one template so the dedup stays intentional.
+        // Load-balanced pod replicas share a service. Their IP authorities
+        // must collapse to one template so replica calls still group together.
         let a = normalize_http("GET", "http://10.0.0.1:8080/api/x");
         let b = normalize_http("GET", "http://10.0.0.2:8080/api/x");
         assert_eq!(a.template, "GET /api/x");
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn relative_url_has_no_host() {
-        // No authority to key on, behavior unchanged from before the fix.
+        // No authority to key on, so no host prefix.
         let r = normalize_http("GET", "/api/x");
         assert_eq!(r.template, "GET /api/x");
     }
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn fragment_not_stripped_from_path() {
-        // Fragments are rare in server-side URLs; the segment "42#section" is not
+        // Fragments are rare in server-side URLs. The segment "42#section" is not
         // purely numeric so it passes through as-is (fragment is not separated)
         let r = normalize_http("GET", "/api/users/42#section");
         assert_eq!(r.template, "GET /api/users/42#section");

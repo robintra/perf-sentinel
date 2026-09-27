@@ -95,7 +95,7 @@ fn next_high_water(prev: bool, ratio: f64, high: f64, low: f64) -> bool {
 /// updates `metrics.set_memory_high_water`. Warns once if the cgroup is
 /// unreadable while the guard is enabled, so an operator on an unsupported
 /// host learns the guard is inert. `high_pct` is the caller-validated
-/// percentage (`0` disables the guard; validation enforces
+/// percentage (`0` disables the guard, and validation enforces
 /// `> HYSTERESIS_PCT` otherwise).
 pub(super) fn spawn_if_enabled(
     metrics: &Arc<MetricsState>,

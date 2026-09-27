@@ -21,8 +21,8 @@ use tokio::sync::mpsc;
 use crate::ingest::otlp::{OtlpGrpcService, OtlpSink, otlp_http_router_with_sink};
 
 /// Requests buffered between the listeners and the writer task. The writer
-/// only serialises and appends, so it never falls far behind; this bound is
-/// what keeps a flood bounded in memory rather than a promise of throughput.
+/// only serialises and appends, so it never falls far behind. This bound
+/// keeps a flood bounded in memory and makes no promise of throughput.
 const CHANNEL_CAPACITY: usize = 256;
 
 /// Per-request decode cap, fixed here where the daemon makes it configurable.
@@ -63,7 +63,7 @@ pub struct CaptureStats {
     /// which is a misconfigured exporter rather than a slow writer.
     pub rejected_unusable: u64,
     /// True when `max_file_bytes` was hit and spans were dropped. The file
-    /// stays valid NDJSON, but it no longer describes the whole run, so a
+    /// stays valid NDJSON, but it does not describe the whole run, so a
     /// verdict computed from it would be optimistic.
     pub truncated: bool,
 }
@@ -99,7 +99,7 @@ pub enum CaptureError {
 ///
 /// The output is read back by [`crate::ingest::json::JsonIngest`], which
 /// parses this exact shape into the same type, so the round trip is symmetric
-/// by construction. `ndjson_line_round_trips_through_analyze` is what proves it.
+/// by construction. `ndjson_line_round_trips_through_analyze` proves it.
 fn encode_request(request: &ExportTraceServiceRequest) -> serde_json::Result<Vec<u8>> {
     let mut line = serde_json::to_vec(request)?;
     line.push(b'\n');
@@ -201,7 +201,7 @@ async fn write_one<W: tokio::io::AsyncWrite + Unpin>(
 /// The loop ends on `stop`, then drains what is already queued. It does not
 /// wait for the senders to be dropped: tonic spawns a task per connection and
 /// aborting the accept loop leaves those tasks, and their sender clones,
-/// alive. Closing the receiver is what makes shutdown deterministic.
+/// alive. Closing the receiver makes shutdown deterministic.
 async fn write_loop(
     mut rx: mpsc::Receiver<ExportTraceServiceRequest>,
     mut stop: tokio::sync::oneshot::Receiver<()>,
@@ -303,8 +303,8 @@ fn spawn_http(
 
 /// A capture that is already listening, returned by [`start`].
 ///
-/// The split from [`Capture::finish`] is what lets wrapper mode bind the
-/// ports and open the file before it spawns the test command.
+/// The split from [`Capture::finish`] lets wrapper mode bind the ports and
+/// open the file before it spawns the test command.
 #[derive(Debug)]
 pub struct Capture {
     grpc: tokio::task::JoinHandle<()>,
@@ -351,8 +351,8 @@ fn output_identity(_metadata: &std::fs::Metadata) -> OutputIdentity {}
 ///
 /// The directory is created because the documented CI recipe writes to
 /// `target/traces.json` and a clean CI workspace has no `target/` yet: Maven
-/// is what creates it, and in wrapper mode Maven has not run. Refusing there
-/// would keep the wrapped test suite from running at all.
+/// creates it, and in wrapper mode Maven has not run. Refusing there would
+/// keep the wrapped test suite from running at all.
 ///
 /// # Errors
 ///
@@ -565,8 +565,8 @@ mod tests {
     async fn captured_file_analyzes_into_the_expected_finding() {
         // End to end in one process: what capture writes must let the batch
         // pipeline reach the same verdict the daemon would on the same spans.
-        // Comparing the occurrence count, not just the finding type, is what
-        // catches a capture that silently loses spans.
+        // Comparing the occurrence count, not only the finding type, catches
+        // a capture that silently loses spans.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("traces.json");
         let (tx, rx) = mpsc::channel(4);
@@ -597,10 +597,10 @@ mod tests {
 
     #[test]
     fn ndjson_line_round_trips_through_analyze() {
-        // The whole feature rests on this: what capture writes must produce
-        // the same events as converting the received request directly. A
-        // codec that is not symmetric (bytes vs hex trace ids, notably)
-        // would silently yield a file that analyzes differently.
+        // What capture writes must produce the same events as converting the
+        // received request directly. A codec that is not symmetric (bytes vs
+        // hex trace ids, notably) would silently yield a file that analyzes
+        // differently.
         let request = sample_request();
         let expected = crate::ingest::otlp::convert_otlp_request(&request);
         assert!(
@@ -692,7 +692,7 @@ mod tests {
         assert!(stats.truncated, "hitting the cap must be reported");
         assert_eq!(stats.requests, 1);
 
-        // What did land stays parseable, a truncated capture is still a
+        // What did land stays parseable, so a truncated capture is still a
         // usable file rather than a corrupt one.
         let raw = std::fs::read(&path).unwrap();
         let events = crate::ingest::json::JsonIngest::new(1_048_576)
@@ -738,8 +738,8 @@ mod tests {
             })
             .await
         });
-        // The listeners are bound inside run(); poll the gRPC one instead of
-        // sleeping a fixed delay, which is what makes this test not flaky.
+        // The listeners are bound inside run(). Polling the gRPC one instead
+        // of sleeping a fixed delay keeps this test from being flaky.
         let mut client = None;
         for _ in 0..50 {
             if let Ok(c) = TraceServiceClient::connect(grpc_url.clone()).await {
@@ -805,8 +805,8 @@ mod tests {
         // to exist.
         //
         // The parent is a regular file, which no uid can turn into a
-        // directory: a missing directory is created now, an impossible one
-        // still has to fail.
+        // directory: `start` creates a missing directory, but an impossible
+        // one still has to fail.
         let dir = tempfile::tempdir().unwrap();
         let blocker = dir.path().join("not-a-dir");
         std::fs::write(&blocker, b"x").unwrap();
@@ -826,8 +826,8 @@ mod tests {
     #[tokio::test]
     async fn a_deleted_output_file_fails_instead_of_reporting_success() {
         // `capture -- mvn clean verify` removes `target/` after the file is
-        // open. Creating the directory up front took away the start-up
-        // failure that used to catch this, so the end of the run has to.
+        // open. Because `start` creates the missing directory, nothing fails
+        // at start-up, so the end of the run has to catch this.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("target").join("traces.json");
         let cfg = CaptureConfig {
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn incomplete_covers_both_causes_of_a_short_file() {
         // The CLI turns this into a non-zero exit, so it has to catch the
-        // channel-drop path too, not only the size cap.
+        // channel-drop path as well as the size cap.
         let base = CaptureStats::default();
         assert!(!base.is_incomplete());
         assert!(

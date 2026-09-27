@@ -4,7 +4,7 @@ Design notes for the runtime-calibrated per-service energy and carbon attributio
 
 ## Why
 
-The first disclosure release recomputed `aggregate.total_energy_kwh` via a proxy at aggregate time, even when the underlying daemon had measured energy through Scaphandre or cloud SPECpower. It also distributed window-level CO2 to services proportionally to per-service I/O ops, ignoring the fact that two services in different regions emit at very different grid intensities.
+The first disclosure release recomputed `aggregate.total_energy_kwh` via a proxy at aggregate time, even when the underlying daemon had measured energy through Scaphandre or cloud SPECpower. It also distributed window-level CO2 to services proportionally to per-service I/O ops, ignoring that two services in different regions emit at very different grid intensities.
 
 The fix is to compute and serialise per-service energy + carbon at scoring time, so the aggregator can sum directly. Per-service values are runtime-calibrated end to end: the daemon sees the real region for each service and the real energy backend tag.
 
@@ -12,7 +12,7 @@ The fix is to compute and serialise per-service energy + carbon at scoring time,
 
 Scoring runs in `score::compute_carbon_report`. The function already loops once over all spans in the batch and accumulates per-region carbon into `RegionAccumulator`. Per-service attribution adds a parallel `BTreeMap<String, ServiceCarbonAccumulator>` that follows the same single-pass shape.
 
-For each span, after computing the per-span energy, region, intensity, and PUE, the inner loop now also runs:
+For each span, after computing the per-span energy, region, intensity, and PUE, the inner loop also runs:
 
 ```rust
 let svc = state
@@ -82,10 +82,10 @@ A single `tracing::warn!` per archive file flags fallback usage so operators can
 Archive lines are operator-controlled state on disk. The aggregator treats every f64 field read out of an archive as untrusted:
 
 - `energy_kwh`, `per_service_energy_kwh.values()` and `per_service_carbon_kgco2eq.values()` go through `sanitize_f64` which clamps `NaN`, `+/-Inf` and negative numbers to `0.0`. Without this guard a single poisoned line would propagate `NaN` to every downstream sum.
-- The `per_service` map is capped at `MAX_SERVICES = 4096` entries. Once the cap is reached, additional distinct services from the archive are silently dropped on the floor. Findings already routed to a known bucket continue to accumulate.
+- The `per_service` map is capped at `MAX_SERVICES = 4096` entries. Once the cap is reached, additional distinct services from the archive are silently dropped. Findings already routed to a known bucket continue to accumulate.
 - `energy_source_models` is capped at `MAX_ENERGY_MODELS = 64` entries and each `energy_model` string is rejected when longer than 64 bytes. Tags differing only by the `+cal` suffix collapse into a single bare entry, so the set never carries both `scaphandre_rapl` and `scaphandre_rapl+cal`.
 
-These caps mirror the runtime-side `MAX_REGIONS` cap in `score::carbon_compute`. They are silent (no error), the aggregator treats them as best-effort folding.
+These caps mirror the runtime-side `MAX_REGIONS` cap in `score::carbon_compute`. They are silent (no error). The aggregator treats them as best-effort folding.
 
 ## Backward compatibility
 
@@ -96,5 +96,5 @@ This change did not bump the schema version on its own. The added fields are `#[
 ## What we did not do
 
 - Multi-region per-service splits. The wire shape stays simple at the cost of approximate attribution for services that move regions mid-window.
-- Embodied carbon attribution per service. Deliberately excluded.
+- Embodied carbon attribution per service. See § "Embodied carbon stays at the global level".
 - Bump the schema version for this change alone. The added fields are strictly additive (the schema later reached v1.3 through other additive revisions).
