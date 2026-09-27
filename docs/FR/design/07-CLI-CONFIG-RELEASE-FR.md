@@ -458,7 +458,7 @@ Pour citer le débit de perf-sentinel à l'extérieur, préférer le chiffre end
 
 0.8.7 remplace les fixtures ad hoc par une infrastructure de mesure permanente : un générateur synthétique avec graine (`sentinel_core::synth`, masqué de la doc), une suite criterion sur chaque étape du pipeline (`crates/sentinel-core/benches/pipeline.rs`, baselines via `cargo bench -p perf-sentinel-core -- --save-baseline main`), `bench --synthetic-events N` pour des runs sans fixture, et un profil de build `profiling` (release plus symboles) pour les flamegraphs. Les flamegraphs s'obtiennent avec `cargo flamegraph --profile profiling -- bench --synthetic-events 1000000` sous Linux et avec `samply record` sous macOS.
 
-Le corpus synthétique est plus lourd que les fixtures historiques dérivées de la démo (mix d'anti-patterns réaliste, multi-services, scoring carbone actif), ses chiffres forment donc une nouvelle série de référence plutôt qu'un prolongement des tables précédentes. Sur ce corpus, `bench --synthetic-events 100000` atteint ~1,0-1,1M événements/s (macOS natif, bruit hôte inclus), et les médianes criterion du pipeline complet sont de 85 ms / 100k événements et 926 ms / 1M événements.
+Le corpus synthétique est plus lourd que les fixtures historiques dérivées de la démo (mix d'anti-patterns réaliste, multi-services, scoring carbone actif), ses chiffres forment donc une nouvelle série de référence plutôt qu'un prolongement des tables des campagnes historiques. Sur ce corpus, `bench --synthetic-events 100000` atteint ~1,0-1,1M événements/s (macOS natif, bruit hôte inclus), et les médianes criterion du pipeline complet sont de 85 ms / 100k événements et 926 ms / 1M événements.
 
 Optimisations livrées, chacune avec sa preuve criterion avant/après :
 
@@ -513,7 +513,7 @@ Le quality gate `analyze --ci` n'est pas dupliqué sur `diff` : le diff lui-mêm
 
 ## Bandes d'interprétation : ce qui est ancré et ce qui est une règle empirique
 
-`report/interpret.rs` transforme deux métriques brutes en une étiquette `healthy | moderate | high | critical`. Les étiquettes sont une aide au rendu, mais deux des seuils derrière elles ne sont pas arbitraires, et la différence compte pour qui serait tenté de les régler.
+`report/interpret.rs` transforme deux métriques brutes en une étiquette `healthy | moderate | high | critical`. Les étiquettes sont une aide au rendu, mais trois des seuils derrière elles ne sont pas arbitraires, et la différence compte pour qui serait tenté de les régler.
 
 - `IIS_HIGH` (5.0) est ancré sur le `n_plus_one_threshold` par défaut du détecteur N+1. Un endpoint qui l'atteint est arithmétiquement au point où `detect_n_plus_one` commence à émettre.
 - `IIS_CRITICAL` (10.0) est mécaniquement ancré sur `detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD`, avec un test garde-fou qui casse le build si l'une des deux valeurs bouge sans l'autre.

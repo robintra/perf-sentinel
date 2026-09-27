@@ -457,7 +457,7 @@ When citing perf-sentinel throughput externally, prefer the end-to-end number (o
 
 0.8.7 replaces ad-hoc fixtures with permanent measurement infrastructure: a seeded synthetic generator (`sentinel_core::synth`, doc-hidden), a criterion suite over every pipeline stage (`crates/sentinel-core/benches/pipeline.rs`, baselines via `cargo bench -p perf-sentinel-core -- --save-baseline main`), `bench --synthetic-events N` for fixture-free runs, and a `profiling` build profile (release plus symbols) for flamegraphs. Flamegraphs are recorded with `cargo flamegraph --profile profiling -- bench --synthetic-events 1000000` on Linux and with `samply record` on macOS.
 
-The synthetic corpus is heavier than the historical demo-derived fixtures (realistic anti-pattern mix, multi-service, carbon scoring active), so its numbers form a new reference series rather than extending the tables above. On this corpus, `bench --synthetic-events 100000` reaches ~1.0-1.1M events/s (macOS native, host noise included), and the criterion medians for the full pipeline are 85 ms / 100k events and 926 ms / 1M events.
+The synthetic corpus is heavier than the historical demo-derived fixtures (realistic anti-pattern mix, multi-service, carbon scoring active), so its numbers form a new reference series rather than extending the historical campaign tables. On this corpus, `bench --synthetic-events 100000` reaches ~1.0-1.1M events/s (macOS native, host noise included), and the criterion medians for the full pipeline are 85 ms / 100k events and 926 ms / 1M events.
 
 Landed optimizations, each with before/after criterion evidence:
 
@@ -512,7 +512,7 @@ The `analyze --ci` quality gate is not duplicated on `diff`: the diff itself is 
 
 ## Interpretation bands: what is anchored and what is a rule of thumb
 
-`report/interpret.rs` turns two raw metrics into a `healthy | moderate | high | critical` label. The labels are a rendering aid, but two of the thresholds behind them are not arbitrary, and the difference matters to anyone tempted to tune them.
+`report/interpret.rs` turns two raw metrics into a `healthy | moderate | high | critical` label. The labels are a rendering aid, but three of the thresholds behind them are not arbitrary, and the difference matters to anyone tempted to tune them.
 
 - `IIS_HIGH` (5.0) is anchored on the N+1 detector's default `n_plus_one_threshold`. An endpoint reaching it is arithmetically at the point where `detect_n_plus_one` starts emitting.
 - `IIS_CRITICAL` (10.0) is mechanically anchored on `detect::n_plus_one::CRITICAL_OCCURRENCE_THRESHOLD`, with a drift-guard test that fails the build if either value moves without the other.
