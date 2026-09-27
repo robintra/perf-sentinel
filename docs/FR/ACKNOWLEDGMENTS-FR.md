@@ -1,6 +1,6 @@
 # Acquittements (acknowledgments)
 
-Une façon de dire à perf-sentinel "oui, ce finding est réel, et nous avons décidé de ne pas le corriger (pour l'instant)". Les findings acquittés sont retirés de la sortie CLI et exclus de la quality gate. Les décisions vivent dans `.perf-sentinel-acknowledgments.toml` à la racine du repo, donc chaque modification passe par la revue de PR habituelle et `git log` est la trace d'audit.
+Une façon de dire à Perf Sentinel "oui, ce finding est réel, et nous avons décidé de ne pas le corriger (pour l'instant)". Les findings acquittés sont retirés de la sortie CLI et exclus de la quality gate. Les décisions vivent dans `.perf-sentinel-acknowledgments.toml` à la racine du repo, donc chaque modification passe par la revue de PR habituelle et `git log` est la trace d'audit.
 
 Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus : la sous-commande CLI `perf-sentinel ack`, le dashboard HTML live (`perf-sentinel report --daemon-url ...`) et la TUI (`perf-sentinel query inspect`, touche `a` pour acquitter un finding, `u` pour révoquer).
 
@@ -110,7 +110,7 @@ Trois findings produisent trois signatures différentes. Deux findings produits 
 
 ## Workflow
 
-1. Lancez perf-sentinel et identifiez le finding à acquitter.
+1. Lancez Perf Sentinel et identifiez le finding à acquitter.
 2. Capturez sa signature :
    ```bash
    perf-sentinel analyze --input traces.json --format json \

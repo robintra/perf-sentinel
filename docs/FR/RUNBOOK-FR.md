@@ -1,8 +1,8 @@
 # Runbook d'incident
 
-Guide opérationnel pour perf-sentinel en production. Chaque section est autonome : partez du symptôme qui correspond au vôtre, déroulez la liste des **premiers contrôles**, puis escaladez.
+Guide opérationnel pour Perf Sentinel en production. Chaque section est autonome : partez du symptôme qui correspond au vôtre, déroulez la liste des **premiers contrôles**, puis escaladez.
 
-Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-FR.md](INTEGRATION-FR.md). Pour la référence de l'API HTTP, voir [QUERY-API-FR.md](QUERY-API-FR.md). Pour les options de configuration, voir [CONFIGURATION-FR.md](CONFIGURATION-FR.md). Pour la liste de ce que le daemon ne garantit *pas*, voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
+Si vous configurez Perf Sentinel pour la première fois, consultez [INTEGRATION-FR.md](INTEGRATION-FR.md). Pour la référence de l'API HTTP, voir [QUERY-API-FR.md](QUERY-API-FR.md). Pour les options de configuration, voir [CONFIGURATION-FR.md](CONFIGURATION-FR.md). Pour la liste de ce que le daemon ne garantit *pas*, voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md).
 
 ## Sommaire
 
@@ -113,7 +113,7 @@ parse que `%Y-%m-%dT%H:%M:%SZ`.
 
 L'archivage est **désactivé par défaut** (`archive` non défini). S'il n'a jamais été configuré, rien n'a été écrit et le rejeu Tempo est la seule voie restante.
 
-**Un backend de logs garde chaque détection, si vous collectez déjà les logs du daemon.** Le daemon écrit chaque finding comme une ligne JSON sur stdout et ses propres logs en texte sur stderr, donc un collecteur qui suit le conteneur garde les findings aussi longtemps que ce backend les retient, sans aucun réglage côté perf-sentinel. Avec Loki, l'étape `json` distingue les deux d'elle-même, parce qu'une ligne de texte échoue à l'analyse :
+**Un backend de logs garde chaque détection, si vous collectez déjà les logs du daemon.** Le daemon écrit chaque finding comme une ligne JSON sur stdout et ses propres logs en texte sur stderr, donc un collecteur qui suit le conteneur garde les findings aussi longtemps que ce backend les retient, sans aucun réglage côté Perf Sentinel. Avec Loki, l'étape `json` distingue les deux d'elle-même, parce qu'une ligne de texte échoue à l'analyse :
 
 ```logql
 sum by (signature, type, severity, service) (
@@ -208,10 +208,10 @@ max_retained_findings = 50000
 ## Ce qui brûlait quand un service est tombé
 
 **Pourquoi vous en avez besoin.** Un service a été tué par l'OOM ou a redémarré à
-14h03, et la question est ce que perf-sentinel rapportait déjà à son sujet.
+14h03, et la question est ce que Perf Sentinel rapportait déjà à son sujet.
 perf-sentinel ne détecte pas le crash : il n'a aucun signal mémoire sur un service
 observé, et un service qui sature continue en général d'émettre des spans, plus
-lentement. Votre système d'alerte vous donne le moment du crash, et perf-sentinel
+lentement. Votre système d'alerte vous donne le moment du crash, et Perf Sentinel
 vous donne les findings de la fenêtre qui le précède.
 
 Bornez le listing aux deux bouts. Deux bornes, c'est une requête de fenêtre, donc
@@ -259,7 +259,7 @@ nœud.
 **Détecter le moment sans alerte externe.** Le daemon ne juge pas si un service
 est vivant, mais il publie quand il en a entendu parler pour la dernière fois.
 `time() - perf_sentinel_service_last_span_timestamp_seconds{service="cart-svc"} > 120`
-dit que perf-sentinel n'en a plus reçu de span depuis deux minutes. À la
+dit que Perf Sentinel n'en a plus reçu de span depuis deux minutes. À la
 différence de `increase(perf_sentinel_service_io_ops_total[10m]) == 0`, cela
 survit à un redémarrage du daemon, où tous les compteurs repartent de zéro et se
 lisent comme un arrêt de flotte. À lire comme un signal de trafic, pas de vie :
@@ -352,8 +352,8 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 
 **Causes probables.**
 
-1. **Trafic amont effondré.** Le trafic réel vers vos services a chuté, et perf-sentinel le reflète fidèlement. Recoupez avec les métriques de votre load balancer ou HTTP.
-2. **OTel collector indisponible.** Si un collector central est entre les services et perf-sentinel, vérifiez d'abord sa santé et ses métriques de réception.
+1. **Trafic amont effondré.** Le trafic réel vers vos services a chuté, et Perf Sentinel le reflète fidèlement. Recoupez avec les métriques de votre load balancer ou HTTP.
+2. **OTel collector indisponible.** Si un collector central est entre les services et Perf Sentinel, vérifiez d'abord sa santé et ses métriques de réception.
 3. **Changement de sampling.** Une modification de config a baissé le taux de sampling. Auditez les commits récents dans le repo de config OTel.
 4. **Backpressure du daemon.** Trois points de pression distincts. Si l'ingestion dépasse la boucle de réception, le canal OTLP se remplit et les events sont rejetés : cherchez les avertissements `channel full` (`RUST_LOG=sentinel_core::ingest=debug`) et `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. Si la détection ne suit pas, la file du worker d'analyse se remplit et des lots entiers sont délestés : surveillez `perf_sentinel_analysis_queue_depth` et `perf_sentinel_analysis_shed_batches_total`. Un troisième point de pression, plus discret, est l'archive de divulgation : quand son écrivain prend du retard sur les I/O disque, des fenêtres entières sont perdues alors même que leurs findings ont été analysés et servis en direct. La perte n'est visible que sur `perf_sentinel_archive_windows_dropped_total` (par `reason`), jamais dans l'archive elle-même. Déclencheurs fréquents : une trace pathologique qui ralentit detect+score, `max_active_traces` trop bas pour le débit courant, ou un stockage lent ou plein sous le chemin d'archive.
 
@@ -556,7 +556,7 @@ kubectl logs -n observability deploy/tempo-query-frontend --tail=50 \
 
 **Causes probables.**
 
-1. **Mauvais composant en déploiement microservices.** Dans les déploiements Helm `tempo-distributed`, l'API HTTP de requête est servie exclusivement par `tempo-query-frontend`. Pointer `--endpoint` sur `tempo-querier` (worker interne, pas d'API publique) ou `tempo-ingester` (chemin d'écriture uniquement) renvoie 404 sur chaque `/api/search`. Le message 404 émis par perf-sentinel inclut l'URL qui a échoué, ce qui rend la mauvaise configuration visible d'un coup d'œil.
+1. **Mauvais composant en déploiement microservices.** Dans les déploiements Helm `tempo-distributed`, l'API HTTP de requête est servie exclusivement par `tempo-query-frontend`. Pointer `--endpoint` sur `tempo-querier` (worker interne, pas d'API publique) ou `tempo-ingester` (chemin d'écriture uniquement) renvoie 404 sur chaque `/api/search`. Le message 404 émis par Perf Sentinel inclut l'URL qui a échoué, ce qui rend la mauvaise configuration visible d'un coup d'œil.
 2. **Endpoint qui pointe sur Grafana au lieu de Tempo.** Grafana écoute sur 3000 par défaut, l'API HTTP de Tempo sur 3200. `http://grafana:3000/api/search` n'a pas de route correspondante et retourne 404.
 3. **Préfixe de reverse proxy oublié.** Si Tempo est derrière un ingress avec un préfixe de path (ex. `https://observability.example.com/tempo/...`), `--endpoint` doit inclure ce préfixe.
 4. **Tempo dégradé sous charge de récupération.** La recherche a réussi mais les récupérations par trace expirent. Déclencheurs courants : `--lookback` long (24 h sur un gros service), réplicas de `tempo-query-frontend` en nombre insuffisant, plafond `max_concurrent_queries` atteint, limites de ressources sur les ingesters (un ingester OOM-killed provoque des échecs de récupération en cascade).
@@ -564,7 +564,7 @@ kubectl logs -n observability deploy/tempo-query-frontend --tail=50 \
 **Correctif.**
 
 - Causes (1), (2), (3) : pointer `--endpoint` sur la vraie URL de query-frontend, validée par le `curl` ci-dessus.
-- Cause (4) : côté perf-sentinel, réduire `--lookback` (commencer à 1 h, élargir progressivement) ou basculer sur `--trace-id <id>` pour le rejeu d'une trace unique. Côté Tempo, mettre à l'échelle `tempo-query-frontend` horizontalement, remonter `max_concurrent_queries`, et vérifier les plafonds mémoire/CPU des ingesters.
+- Cause (4) : côté Perf Sentinel, réduire `--lookback` (commencer à 1 h, élargir progressivement) ou basculer sur `--trace-id <id>` pour le rejeu d'une trace unique. Côté Tempo, mettre à l'échelle `tempo-query-frontend` horizontalement, remonter `max_concurrent_queries`, et vérifier les plafonds mémoire/CPU des ingesters.
 
 Perf-sentinel plafonne les récupérations en cours à 16 en parallèle par défaut : le client n'inonde pas lui-même Tempo. Si Tempo s'effondre quand même sur un run de 100 traces, c'est la capacité qui bouche, pas le client. Ctrl-C pendant un run long retourne un résultat partiel avec les traces déjà complétées (voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md) § "Ingestion Tempo"). Quand aucune trace n'a eu le temps de se compléter, la CLI renvoie `Tempo fetch was interrupted by Ctrl-C before any trace completed`, distinct du `NoTracesFound` générique.
 
@@ -582,14 +582,14 @@ curl -s http://perf-sentinel:4318/metrics \
   | grep -E 'findings_total|io_waste_ratio'
 ```
 
-Si les annotations sont présentes dans la sortie brute mais que Grafana ne les rend pas, c'est un problème de config côté Grafana ou Prometheus. Si absentes, perf-sentinel n'a encore enregistré aucun exemplar.
+Si les annotations sont présentes dans la sortie brute mais que Grafana ne les rend pas, c'est un problème de config côté Grafana ou Prometheus. Si absentes, Perf Sentinel n'a encore enregistré aucun exemplar.
 
 **Causes probables.**
 
 1. **Aucun finding encore.** Les exemplars ne sont posés qu'à la détection. Un daemon à zéro finding n'en a aucun. Déclenchez du trafic sur un chemin qui produit un N+1 ou une requête lente.
 2. **Stockage d'exemplars Prometheus non activé.** Prometheus doit être lancé avec `--enable-feature=exemplar-storage`. Vérifiez sur la page des flags Prometheus.
 3. **Datasource Grafana pas liée à Tempo.** Dans Grafana → Connections → datasource Prometheus → Exemplars, configurez un exemplar avec `datasourceUid` pointant vers votre datasource Tempo et `labelName: trace_id`.
-4. **`trace_id` épuré.** perf-sentinel filtre les valeurs d'exemplar à `[a-zA-Z0-9_-]` et tronque à 64 caractères. Des formats de trace ID inhabituels (UUIDs avec accolades, encodages personnalisés) peuvent être déformés. Voir `sanitize_exemplar_value` dans `report/metrics.rs`.
+4. **`trace_id` épuré.** Perf Sentinel filtre les valeurs d'exemplar à `[a-zA-Z0-9_-]` et tronque à 64 caractères. Des formats de trace ID inhabituels (UUIDs avec accolades, encodages personnalisés) peuvent être déformés. Voir `sanitize_exemplar_value` dans `report/metrics.rs`.
 
 ---
 
@@ -613,7 +613,7 @@ RUST_LOG=sentinel_core::score=debug
 **Causes probables.**
 
 1. **Permissions du container Scaphandre.** Les compteurs RAPL nécessitent `CAP_SYS_RAWIO`, le mode privileged, ou un hostPath vers `/sys/class/powercap`. Sans ça, les scrapes échouent au niveau des privilèges.
-2. **Endpoint injoignable.** Vérifiez l'URL dans `[green.scaphandre] endpoint`. Le réseau entre perf-sentinel et l'exporteur Scaphandre doit être ouvert.
+2. **Endpoint injoignable.** Vérifiez l'URL dans `[green.scaphandre] endpoint`. Le réseau entre Perf Sentinel et l'exporteur Scaphandre doit être ouvert.
 3. **API d'énergie cloud indisponible ou soumise à une limite de débit.** Si vous utilisez Electricity Maps ou une API de cloud provider, vérifiez son statut et votre quota API.
 4. **Nom de service qui ne correspond pas.** Les clés `[green.cloud.services.<name>]` doivent correspondre à l'attribut `service.name` des spans entrants. Sans correspondance, pas d'attribution par service.
 
@@ -776,7 +776,7 @@ aucune erreur.
      Vérifier la version du SDK client et la compatibilité protobuf
      contre la spec OTLP.
    - `unsupported_media_type` élevé : les clients utilisent la variante
-     OTLP encodée en JSON ou un mauvais `Content-Type`. perf-sentinel
+     OTLP encodée en JSON ou un mauvais `Content-Type`. Perf Sentinel
      n'accepte que `application/x-protobuf`.
 
 2. `Report.warning_details` fait remonter une entrée `ingestion_drops` dès

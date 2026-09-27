@@ -24,7 +24,7 @@ Two further checks tighten consistency. The validator hard-rejects a `days_cover
 
 ## Granularity
 
-perf-sentinel publishes reports at two granularity levels, controlled by `--confidentiality`. The validator refuses to publish a `confidentiality = public` disclosure that carries G1 entries, and vice versa.
+Perf Sentinel publishes reports at two granularity levels, controlled by `--confidentiality`. The validator refuses to publish a `confidentiality = public` disclosure that carries G1 entries, and vice versa.
 
 - **G1** (Granularity level 1, "internal detail"). Activated by `--confidentiality internal`. Each `applications[*]` entry carries a full `anti_patterns: [...]` array breaking down every anti-pattern type detected on that service with occurrences, estimated waste energy, and waste carbon. Use for internal optimization decisions, not for public publication: the per-pattern detail exposes internal performance signals an operator may not want broadcast.
 - **G2** (Granularity level 2, "public aggregate"). Activated by `--confidentiality public`. Each `applications[*]` entry carries the same service-level totals (energy, carbon, efficiency score) but replaces the array with a single `anti_patterns_detected_count` integer. Suitable for publication on an organization's transparency URL.
@@ -37,11 +37,11 @@ perf-sentinel publishes reports at two granularity levels, controlled by `--conf
 - `--confidentiality <internal|public>` (required). Drives G1 vs G2 granularity, see above.
 - `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (required). Hints the period semantics for downstream consumers. `custom` uses `--from` and `--to` as-is and is the right choice for non-aligned windows (e.g. a 6-week pilot).
 - `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>` (required, inclusive). UTC calendar dates.
-- `--input <PATH>` (required, repeatable). Each path can be a single `.ndjson` file, a directory whose `*.ndjson` files are unioned (sorted by name), or a shell-expanded glob. perf-sentinel itself does not expand globs, so `--input archive/2026Q1/*.ndjson` works in a shell but fails when called via direct `exec` without shell expansion. In CI runners that exec the binary directly, prefer a directory or a single file.
+- `--input <PATH>` (required, repeatable). Each path can be a single `.ndjson` file, a directory whose `*.ndjson` files are unioned (sorted by name), or a shell-expanded glob. Perf Sentinel itself does not expand globs, so `--input archive/2026Q1/*.ndjson` works in a shell but fails when called via direct `exec` without shell expansion. In CI runners that exec the binary directly, prefer a directory or a single file.
 - `--output <PATH>` (required). Where to write `perf-sentinel-report.json`.
 - `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the org-config TOML section below.
 - `--emit-attestation <PATH>` (optional). When set, also writes the in-toto v1 statement sidecar at this path. Needed for the signing workflow.
-- `--strict-attribution` (optional). By default, perf-sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
+- `--strict-attribution` (optional). By default, Perf Sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
 - `--tui` (optional, needs the `tui` build feature). Opens a read-only preview instead of writing a report, see below. It relaxes `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to`, and `--output` to optional, since you dial them in the interface. Conflicts with `--emit-attestation`.
 
 ## Interactive preview (`--tui`)
@@ -85,7 +85,7 @@ Publishing both lets a reader compare the two and see how much avoidable waste a
 
 Every report carries `methodology.standard_crosswalk`, an interpretive map from its figures to the EU climate-reporting standard ESRS E1 (Delegated Regulation (EU) 2023/5303):
 
-- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), to be converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
+- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), to be converted to MWh. Perf Sentinel does not split the figure by fossil, nuclear or renewable source.
 - the operational carbon term feeds **E1-6 Scope 2** on a location-based basis. ESRS also requires a market-based Scope 2 figure, which SCI excludes, so this is a partial input.
 - embodied carbon (the SCI `M` term, aggregate only) feeds **E1-6 Scope 3** (categories 1 and 2). ESRS admits estimates and proxy data for Scope 3.
 
@@ -112,13 +112,13 @@ max_size_mb = 100
 max_files = 12
 ```
 
-When the active file exceeds `max_size_mb`, perf-sentinel renames it to `reports-<utc-timestamp>.ndjson` and starts a fresh file. Older rotated files beyond `max_files` are pruned by modification time.
+When the active file exceeds `max_size_mb`, Perf Sentinel renames it to `reports-<utc-timestamp>.ndjson` and starts a fresh file. Older rotated files beyond `max_files` are pruned by modification time.
 
 Operators that already collect daemon stdout via a sidecar can pass the resulting file (or directory) to `--input` directly, as long as each line is one `{ts, report}` envelope.
 
 ## org-config TOML
 
-The static organisation/methodology/scope fields live in a TOML file you check into your infrastructure repository alongside the rest of the perf-sentinel config. A complete example sits in `docs/examples/perf-sentinel-org.toml`. The same file is referenced by `[reporting] org_config_path` when the daemon is asked to validate publishable disclosures at startup.
+The static organisation/methodology/scope fields live in a TOML file you check into your infrastructure repository alongside the rest of the Perf Sentinel config. A complete example sits in `docs/examples/perf-sentinel-org.toml`. The same file is referenced by `[reporting] org_config_path` when the daemon is asked to validate publishable disclosures at startup.
 
 ## Example: internal draft (G1)
 
@@ -246,7 +246,7 @@ verifier expects, see [Identity verification](#identity-verification).
 
 If you have not used Sigstore before, this short primer is a prerequisite for the commands that follow.
 
-**Why Sigstore.** Sigstore is an open-source toolkit hosted by the Open Source Security Foundation (OpenSSF) and maintained by Google, Red Hat, Chainguard, GitHub and the Linux Foundation. It is the de-facto standard for verifiable artefact signatures in the cloud-native ecosystem (Kubernetes, Helm, npm provenance and PyPI attestations all rely on it). The choice for perf-sentinel disclosures comes from three properties:
+**Why Sigstore.** Sigstore is an open-source toolkit hosted by the Open Source Security Foundation (OpenSSF) and maintained by Google, Red Hat, Chainguard, GitHub and the Linux Foundation. It is the de-facto standard for verifiable artefact signatures in the cloud-native ecosystem (Kubernetes, Helm, npm provenance and PyPI attestations all rely on it). The choice for Perf Sentinel disclosures comes from three properties:
 
 1. **Keyless signing**, no long-lived private key to manage or leak on the signer side.
 2. **A public, tamper-evident log** (Rekor), so a third party can independently verify that a signature existed at a given point in time.
@@ -525,7 +525,7 @@ This is an interim workaround. `perf-sentinel sign` will replace
 the bash + jq combo with a single subcommand once it ships.
 
 Operators who run a private Rekor instance set
-`[reporting.sigstore] rekor_url = "..."` in their perf-sentinel
+`[reporting.sigstore] rekor_url = "..."` in their Perf Sentinel
 config and pass the same URL to `cosign --rekor-url`.
 `verify-hash` rejects bundles signed with
 `cosign sign-blob --no-tlog-upload`, because such bundles lack a
@@ -642,10 +642,10 @@ have signed the report. Three modes:
 
 ### Binary build provenance
 
-`integrity.binary_hash` is the SHA-256 of the perf-sentinel binary
+`integrity.binary_hash` is the SHA-256 of the Perf Sentinel binary
 that produced the report. For an official disclosure, the value
 should match an official release binary published on the project's
-GitHub releases. Operators who build perf-sentinel from source can
+GitHub releases. Operators who build Perf Sentinel from source can
 still produce official reports, but their `binary_hash` will not
 match any published release. In that case
 `integrity.binary_attestation` is absent (no SLSA provenance for a
@@ -657,7 +657,7 @@ the released binary matching the tag declared in
 
 ## Computing a canonical content hash with `hash-bake` (0.7.2+)
 
-For test fixtures and debugging workflows where you need a report whose `content_hash` already matches what perf-sentinel itself would write, use `hash-bake`:
+For test fixtures and debugging workflows where you need a report whose `content_hash` already matches what Perf Sentinel itself would write, use `hash-bake`:
 
 ```bash
 perf-sentinel hash-bake --report input.json --output output.json

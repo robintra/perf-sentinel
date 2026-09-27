@@ -39,7 +39,7 @@ Le domaine de publication (par exemple `transparency.example.fr`) est traité co
 
 ## Manifeste de scope
 
-`total_applications_declared` est la taille du portefeuille applicatif de l'organisation. `applications_measured` est le nombre de services pour lesquels le rapport porte des données. Chaque entrée de `applications_excluded` porte `service_name` et un `reason` non vide. `environments_measured` liste les environnements définis par l'opérateur et observés (par exemple `["prod"]`). `total_requests_in_period` est une estimation opérateur optionnelle, `requests_measured` est ce que perf-sentinel a observé. `coverage_percentage` vaut `requests_measured / total_requests_in_period * 100` quand le premier est renseigné.
+`total_applications_declared` est la taille du portefeuille applicatif de l'organisation. `applications_measured` est le nombre de services pour lesquels le rapport porte des données. Chaque entrée de `applications_excluded` porte `service_name` et un `reason` non vide. `environments_measured` liste les environnements définis par l'opérateur et observés (par exemple `["prod"]`). `total_requests_in_period` est une estimation opérateur optionnelle, `requests_measured` est ce que Perf Sentinel a observé. `coverage_percentage` vaut `requests_measured / total_requests_in_period * 100` quand le premier est renseigné.
 
 `coverage_basis` (v1.2) rend la frontière de confiance explicite, en bande. Il liste quels champs de scope sont `operator_declared` (assertions non auditées que le binaire ne peut pas vérifier : les dénominateurs `total_applications_declared` et `total_requests_in_period`, plus les listes d'exclusion) versus `machine_derived` (calculés par l'agrégateur depuis les archives : `applications_measured`, `requests_measured`, `coverage_percentage`). Un lecteur de `coverage_percentage` doit traiter son dénominateur comme une assertion opérateur : un opérateur qui fixe `total_requests_in_period` bas peut présenter une couverture proche de 100 % d'un univers qu'il a lui-même défini. C'est inhérent à un modèle d'auto-déclaration. Les garanties d'intégrité cryptographique lient le rapport publié, pas l'honnêteté de la taille de portefeuille déclarée. Voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md).
 
@@ -74,7 +74,7 @@ L'agrégat porte quatre champs optionnels qui décrivent la qualité des archive
 
 - `period_coverage` est dans `[0, 1]` et vaut `runtime_windows / (runtime_windows + fallback_windows)`. Une valeur de `1.0` signifie que toutes les fenêtres de scoring de la période portaient une énergie calibrée au runtime (Scaphandre ou cloud SPECpower). Une valeur de `0.0` signifie que toutes les fenêtres se sont rabattues sur le proxy I/O. Le validateur refuse un rapport `intent = "official"` avec `period_coverage < 0.75`, voir `docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md` pour la justification du seuil.
 - `runtime_windows_count` et `fallback_windows_count` portent les compteurs absolus derrière ce ratio, pour qu'un lecteur puisse distinguer "9 fenêtres sur 10 calibrées au runtime" de "900 sur 1000".
-- `binary_versions` est l'ensemble des versions distinctes du binaire perf-sentinel qui ont produit les archives repliées dans cette période. Une période qui couvre plusieurs versions (mise à jour du daemon en milieu de trimestre, releases asynchrones entre équipes) porte plus d'une entrée dans cet ensemble, ce que signale le disclaimer du rapport.
+- `binary_versions` est l'ensemble des versions distinctes du binaire Perf Sentinel qui ont produit les archives repliées dans cette période. Une période qui couvre plusieurs versions (mise à jour du daemon en milieu de trimestre, releases asynchrones entre équipes) porte plus d'une entrée dans cet ensemble, ce que signale le disclaimer du rapport.
 
 ### Champs de qualité par service (0.7.0+)
 
@@ -105,7 +105,7 @@ Les deux granularités sont encodées dans le JSON Schema avec des clauses `not:
 
 > **Voir aussi.** L'[introduction à Sigstore](SUPPLY-CHAIN-FR.md#introduction-à-sigstore) dans la doc supply-chain définit Cosign, Fulcio, Rekor, in-toto, OIDC et SLSA utilisés dans cette section.
 
-`content_hash` est `"sha256:<64-hex>"` sur la forme JSON canonique du document avec le champ `content_hash` mis à chaîne vide. Le schéma accepte aussi une chaîne vide pour ce champ afin que les exemples puissent être livrés sans hash intégré. `binary_hash` est `"sha256:<64-hex>"` du binaire perf-sentinel qui a produit le fichier. `binary_verification_url` pointe vers l'artefact de release où les consommateurs récupèrent le même binaire. `trace_integrity_chain` porte le verdict de la chaîne source depuis la v1.6 et vaut `null` sur les rapports antérieurs, jamais omis, puisque retirer la clé changerait les octets canoniques de tout rapport déjà publié.
+`content_hash` est `"sha256:<64-hex>"` sur la forme JSON canonique du document avec le champ `content_hash` mis à chaîne vide. Le schéma accepte aussi une chaîne vide pour ce champ afin que les exemples puissent être livrés sans hash intégré. `binary_hash` est `"sha256:<64-hex>"` du binaire Perf Sentinel qui a produit le fichier. `binary_verification_url` pointe vers l'artefact de release où les consommateurs récupèrent le même binaire. `trace_integrity_chain` porte le verdict de la chaîne source depuis la v1.6 et vaut `null` sur les rapports antérieurs, jamais omis, puisque retirer la clé changerait les octets canoniques de tout rapport déjà publié.
 
 `signature` (0.7.0+) vaut soit `null` (rapport hash-only) soit un objet typé avec `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, et `signed_at`. Les champs permettent collectivement à un vérifieur de localiser le bundle cosign et la preuve d'inclusion Rekor.
 
@@ -121,7 +121,7 @@ Les deux granularités sont encodées dans le JSON Schema avec des clauses `not:
 
 ## Boavizta et autres champs omis
 
-`boavizta_version` a été envisagé pour `calibration_inputs` mais ne fait pas partie du schéma actuel parce que perf-sentinel ne consomme pas de données Boavizta aujourd'hui. Le champ reviendra quand l'intégration sera livrée. Les consommateurs de schéma DOIVENT tolérer des champs inconnus sans erreur parce que perf-sentinel en ajoutera dans des révisions mineures.
+`boavizta_version` a été envisagé pour `calibration_inputs` mais ne fait pas partie du schéma actuel parce que Perf Sentinel ne consomme pas de données Boavizta aujourd'hui. Le champ reviendra quand l'intégration sera livrée. Les consommateurs de schéma DOIVENT tolérer des champs inconnus sans erreur parce que Perf Sentinel en ajoutera dans des révisions mineures.
 
 ## Versionnement
 

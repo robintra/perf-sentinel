@@ -1,6 +1,6 @@
 # Architecture
 
-perf-sentinel is a polyglot performance anti-pattern detector built as a Rust workspace with two crates:
+Perf Sentinel is a polyglot performance anti-pattern detector built as a Rust workspace with two crates:
 
 - **sentinel-core** : library containing all pipeline logic
 - **sentinel-cli** : binary providing the CLI entry point (`perf-sentinel`)

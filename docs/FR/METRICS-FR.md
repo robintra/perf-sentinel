@@ -1,6 +1,6 @@
 # Référence des metrics exposées
 
-Ce document liste toutes les metrics exposées par le daemon perf-sentinel
+Ce document liste toutes les metrics exposées par le daemon Perf Sentinel
 sur `/metrics` (format texte Prometheus). L'endpoint sert à la fois
 `text/plain; version=0.0.4` (Prometheus historique) et
 `application/openmetrics-text; version=1.0.0` (OpenMetrics) via la
@@ -18,14 +18,14 @@ explicitement si vous voulez le clic vers la trace dans Grafana.
 
 ## Introduction à Prometheus et OpenMetrics
 
-Si vous n'avez jamais utilisé Prometheus, cette introduction courte est un préalable pour la suite du document. Elle suppose que vous savez ce qu'est HTTP et ce qu'est une métrique. Elle ne suppose pas de familiarité avec le langage de requête Prometheus ou l'opérateur Prometheus. Les autres docs perf-sentinel renvoient ici pour les concepts Prometheus, voir [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité) et [docs/FR/QUERY-API-FR.md](QUERY-API-FR.md).
+Si vous n'avez jamais utilisé Prometheus, cette introduction courte est un préalable pour la suite du document. Elle suppose que vous savez ce qu'est HTTP et ce qu'est une métrique. Elle ne suppose pas de familiarité avec le langage de requête Prometheus ou l'opérateur Prometheus. Les autres docs Perf Sentinel renvoient ici pour les concepts Prometheus, voir [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité) et [docs/FR/QUERY-API-FR.md](QUERY-API-FR.md).
 
-**Qu'est-ce que Prometheus.** Prometheus est un projet de la Cloud Native Computing Foundation (CNCF), le système de métriques open source le plus largement déployé dans l'écosystème cloud-native. Il fonctionne par *scraping* : toutes les 15 à 60 secondes, le serveur Prometheus fait une requête HTTP GET sur l'endpoint `/metrics` de chaque cible, parse la réponse, et stocke les valeurs sous forme de séries temporelles. perf-sentinel expose un tel endpoint `/metrics` quand il tourne en mode daemon. Les opérateurs qui font déjà tourner Prometheus ajoutent perf-sentinel à leurs `scrape_configs`, et les métriques du daemon apparaissent à côté du reste de leur infrastructure.
+**Qu'est-ce que Prometheus.** Prometheus est un projet de la Cloud Native Computing Foundation (CNCF), le système de métriques open source le plus largement déployé dans l'écosystème cloud-native. Il fonctionne par *scraping* : toutes les 15 à 60 secondes, le serveur Prometheus fait une requête HTTP GET sur l'endpoint `/metrics` de chaque cible, parse la réponse, et stocke les valeurs sous forme de séries temporelles. Perf Sentinel expose un tel endpoint `/metrics` quand il tourne en mode daemon. Les opérateurs qui font déjà tourner Prometheus ajoutent Perf Sentinel à leurs `scrape_configs`, et les métriques du daemon apparaissent à côté du reste de leur infrastructure.
 
-**Deux formats texte servis par perf-sentinel.** La négociation de contenu choisit lequel le scraper reçoit.
+**Deux formats texte servis par Perf Sentinel.** La négociation de contenu choisit lequel le scraper reçoit.
 
 - `text/plain; version=0.0.4` est le format d'exposition Prometheus original. Stable depuis 2014.
-- `application/openmetrics-text; version=1.0.0` est **OpenMetrics**, l'évolution standardisée du format Prometheus publiée par la CNCF en 2020. C'est principalement un sur-ensemble, avec deux ajouts pratiques utilisés par perf-sentinel : les en-têtes `# UNIT` par métrique, et les **exemplars** (références de trace par point qui permettent à un panel Grafana de sauter d'un pic de métrique vers la trace exacte qui l'a produit).
+- `application/openmetrics-text; version=1.0.0` est **OpenMetrics**, l'évolution standardisée du format Prometheus publiée par la CNCF en 2020. C'est principalement un sur-ensemble, avec deux ajouts pratiques utilisés par Perf Sentinel : les en-têtes `# UNIT` par métrique, et les **exemplars** (références de trace par point qui permettent à un panel Grafana de sauter d'un pic de métrique vers la trace exacte qui l'a produit).
 
 **Types de métriques.** Chaque métrique ci-dessous porte un des trois types.
 
@@ -87,7 +87,7 @@ daemon librement.
 Valeurs du label `reason` :
 
 - `unsupported_media_type` (HTTP uniquement) : `Content-Type` n'est pas
-  `application/x-protobuf`. perf-sentinel n'implémente pas la variante
+  `application/x-protobuf`. Perf Sentinel n'implémente pas la variante
   OTLP encodée en JSON.
 - `parse_error` (HTTP uniquement) : décodage protobuf raté.
 - `channel_full` (HTTP et gRPC) : le canal d'événements est saturé ou

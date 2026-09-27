@@ -1,4 +1,4 @@
-# Procédure de release de perf-sentinel
+# Procédure de release de Perf Sentinel
 
 Ce document décrit la procédure de release de bout en bout pour `perf-sentinel`, applicable à partir de 0.7.0. La procédure inclut un gate de validation obligatoire sur le simulation lab qui bloque le tag d'une version qui n'a pas été éprouvée de bout en bout sur un cluster k3d réel.
 

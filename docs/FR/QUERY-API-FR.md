@@ -1,6 +1,6 @@
 # API de requêtage du daemon
 
-Le daemon perf-sentinel expose une API HTTP de requêtage qui permet à des
+Le daemon Perf Sentinel expose une API HTTP de requêtage qui permet à des
 systèmes externes de récupérer les findings, les explications de traces,
 les corrélations cross-trace et la liveness du daemon. Utilisez-la pour
 alimenter des alertes Prometheus, des dashboards Grafana, des runbooks
@@ -1019,11 +1019,11 @@ Donner au daemon le moment où un service observé est tombé ou a saturé,
 pour qu'il fige les findings de la fenêtre qui a précédé (depuis 0.20.0).
 Opt-in via `[daemon.incidents]`, `503` quand la section est absente.
 
-**Pourquoi cela existe.** perf-sentinel ne détecte pas un crash et ne
+**Pourquoi cela existe.** Perf Sentinel ne détecte pas un crash et ne
 peut pas voir la mémoire d'un service observé : il n'a aucun chemin
 d'ingestion de métriques OTLP, et un service qui sature continue en
 général d'émettre des spans, plus lentement. Votre alerting possède le
-moment. perf-sentinel possède les findings d'une période et il est le
+moment. Perf Sentinel possède les findings d'une période et il est le
 seul à pouvoir les capturer avant que le ring ne les évince, ce qui
 prend quelques minutes sur une flotte chargée.
 
@@ -1075,7 +1075,7 @@ Trois libellés sont lus, tous configurables :
 
 | Libellé                              | Défaut               | Signification                                                                                                                                                                                                                           |
 |--------------------------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `[daemon.incidents] service_label`   | `service`            | Le nom de service perf-sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée                                                                                                                 |
+| `[daemon.incidents] service_label`   | `service`            | Le nom de service Perf Sentinel. C'est la clé de jointure avec les findings, une alerte qui ne le porte pas est refusée                                                                                                                 |
 | `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | L'un de `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Tout le reste vaut `other`                                                                                                                                       |
 | `[daemon.incidents] namespace_label` | `namespace`          | Optionnel. Sa valeur est portée sur l'incident comme `namespace`, restreint le gel aux findings de ce namespace (voir plus bas) et c'est sur elle que filtre le paramètre `namespace` de `GET /api/incidents`. Jamais un motif de refus |
 

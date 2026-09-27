@@ -1,4 +1,4 @@
-# Tests navigateur du tableau de bord perf-sentinel
+# Tests navigateur du tableau de bord Perf Sentinel
 
 Suite de tests de fumée Playwright pour le tableau de bord HTML
 mono-fichier émis par `perf-sentinel report`. Couvre les interactions

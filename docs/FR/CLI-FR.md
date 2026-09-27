@@ -29,7 +29,7 @@ n'analyse jamais : le verdict reste à `analyze`, sur un fichier que vous
 pouvez conserver comme artefact de build, rejouer avec d'autres seuils,
 ou comparer à une référence avec `diff`.
 
-L'application n'a besoin d'aucun réglage propre à perf-sentinel, juste
+L'application n'a besoin d'aucun réglage propre à Perf Sentinel, juste
 des variables d'endpoint standard. Précisez aussi le protocole : les SDK
 ne s'accordent pas sur leur défaut, et un endpoint pointé sur le mauvais
 n'exporte rien sans le dire.

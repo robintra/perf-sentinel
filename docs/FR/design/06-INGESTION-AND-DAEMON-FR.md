@@ -127,7 +127,7 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 - Commence par `{` et contient `"resourceSpans"` (ou `"resource_spans"`) dans le premier Ko : **OTLP/JSON** (un `ExportTraceServiceRequest` unique ou le NDJSON de l'exporter `file` du Collector, décodé via un désérialiseur serde en flux et converti par le même `convert_otlp_request` que celui des listeners du daemon)
 - Commence par `{` et contient `"data"` + `"spans"` dans les 4 premiers Ko : **Jaeger**
 - Commence par `[` et contient `"traceId"` + `"localEndpoint"` dans le premier Ko : **Zipkin**
-- Sinon : format **natif** perf-sentinel
+- Sinon : format **natif** Perf Sentinel
 
 Cela évite de parser tout le payload en `serde_json::Value` pour la détection, ce qui supprime un coût de parsing doublé. L'heuristique travaille sur les octets bruts (`std::str::from_utf8` sur un préfixe borné), ce qui la rend O(1) quelle que soit la taille du payload.
 
@@ -362,7 +362,7 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 
 **Auto-détection du format :** suit le même principe d'heuristique au niveau des octets que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON, sinon en CSV. Pas de crate csv externe, le parseur CSV gère manuellement les guillemets RFC 4180 (champs entre guillemets doubles, `""` échappé).
 
-**Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces. PostgreSQL normalise les requêtes côté serveur (par ex. les paramètres positionnels `$1`), mais perf-sentinel les renormalise pour rester cohérent avec son propre format de template.
+**Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces. PostgreSQL normalise les requêtes côté serveur (par ex. les paramètres positionnels `$1`), mais Perf Sentinel les renormalise pour rester cohérent avec son propre format de template.
 
 ### Sortie à quatre classements
 

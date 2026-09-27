@@ -1,6 +1,6 @@
 # Politique de pinning supply chain
 
-Ce document décrit comment perf-sentinel maintient l'immutabilité de
+Ce document décrit comment Perf Sentinel maintient l'immutabilité de
 ses entrées de build. L'objectif est qu'un checkout d'une release
 taggée produise des runs CI et des binaires identiques au bit près
 des semaines ou des années plus tard, et qu'un upstream compromis ne
@@ -214,9 +214,9 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 ### Introduction à Sigstore
 
-Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour les références à SLSA, Cosign, Rekor et in-toto qui suivent. Les autres docs perf-sentinel renvoient ici pour les définitions canoniques, voir [docs/FR/REPORTING-FR.md](REPORTING-FR.md#introduction-à-sigstore), [docs/FR/METHODOLOGY-FR.md](METHODOLOGY-FR.md#intégrité-cryptographique-070), [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#chaîne-dapprovisionnement-logicielle), [docs/FR/SCHEMA-FR.md](SCHEMA-FR.md#intégrité).
+Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour les références à SLSA, Cosign, Rekor et in-toto qui suivent. Les autres docs Perf Sentinel renvoient ici pour les définitions canoniques, voir [docs/FR/REPORTING-FR.md](REPORTING-FR.md#introduction-à-sigstore), [docs/FR/METHODOLOGY-FR.md](METHODOLOGY-FR.md#intégrité-cryptographique-070), [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#chaîne-dapprovisionnement-logicielle), [docs/FR/SCHEMA-FR.md](SCHEMA-FR.md#intégrité).
 
-**Pourquoi Sigstore.** Sigstore est une boîte à outils open source hébergée par l'Open Source Security Foundation (OpenSSF), maintenue par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). perf-sentinel l'utilise à trois endroits : signature des binaires de release officiels (attestation SLSA Build L3), signature du chart Helm (signature Cosign vérifiable via `cosign verify`), signature des rapports de divulgation périodiques (`integrity.signature` avec preuve d'inclusion Rekor). Trois propriétés motivent ce choix :
+**Pourquoi Sigstore.** Sigstore est une boîte à outils open source hébergée par l'Open Source Security Foundation (OpenSSF), maintenue par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Perf Sentinel l'utilise à trois endroits : signature des binaires de release officiels (attestation SLSA Build L3), signature du chart Helm (signature Cosign vérifiable via `cosign verify`), signature des rapports de divulgation périodiques (`integrity.signature` avec preuve d'inclusion Rekor). Trois propriétés motivent ce choix :
 
 1. **Signature sans clé permanente**, aucune clé privée longue durée à gérer ou risquer de divulguer côté signataire.
 2. **Un journal public où toute altération est détectable** (Rekor), si bien qu'un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
@@ -234,18 +234,18 @@ Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préal
 
 **Limite connue : migration de fournisseur OIDC.** L'URL de l'issuer est inscrite dans le certificat, donc enregistrée dans Rekor. Si l'organisation productrice change plus tard de fournisseur d'identité, les signatures passées restent valides mais les nouvelles signatures porteront une valeur `signer_issuer` différente. Les politiques de vérification qui épinglent un issuer spécifique devront être mises à jour, sinon elles rejetteront les nouvelles signatures comme non fiables. Anticiper la politique d'épinglage en prévision des migrations de fournisseur.
 
-**Termes connexes que vous rencontrerez dans les commandes supply-chain de perf-sentinel.** Une ligne par terme seulement, les définitions complètes sont dans les specs liées.
+**Termes connexes que vous rencontrerez dans les commandes supply-chain de Perf Sentinel.** Une ligne par terme seulement, les définitions complètes sont dans les specs liées.
 
 - **OIDC (OpenID Connect)** est un protocole d'identité posé sur OAuth 2.0. Dans ce workflow, c'est la manière dont cosign prouve "ce signataire est `user@example.org`" (ou "c'est le workflow release perf-sentinel sur le tag v0.7.1") à Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
 - **in-toto v1 statement** est une spécification OpenSSF ouverte pour les attestations de chaîne d'approvisionnement logicielle. Une enveloppe JSON qui apparie le hash d'un artefact avec une *claim* typée sur celui-ci. La provenance SLSA et l'attestation de divulgation périodique sont toutes deux des statements in-toto en interne. Cosign signe le statement, pas l'artefact brut, ce qui permet aux vérifieurs de chaîner la confiance depuis le hash de l'artefact vers le statement in-toto, puis vers la signature cosign, puis vers le certificat Fulcio. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
 - **Bundle (`bundle.sig`)** est le fichier JSON que cosign écrit au moment de la signature. Il rassemble la signature, le certificat Fulcio et la preuve d'inclusion Rekor dans un seul artefact, ce qui permet une vérification totalement hors ligne plus tard (un consommateur valide contre la clé publique Rekor sans avoir à réinterroger Rekor en direct).
-- **SLSA (Supply-chain Levels for Software Artifacts)** est un framework OpenSSF séparé qui décrit *comment* un artefact a été construit (commit source, builder, workflow). Les binaires et charts Helm perf-sentinel portent des attestations SLSA Build L3 produites par `actions/attest-build-provenance`. Le niveau L3 demande une signature Sigstore OIDC plus une isolation du builder, deux propriétés qu'un runner GitHub-hosted fournit. [Spec](https://slsa.dev/spec/v1.0/).
-- **SBOM (Software Bill of Materials)** est un inventaire structuré des dépendances d'un artefact. perf-sentinel publie un SBOM au format SPDX attesté sous le prédicat in-toto SPDX, donc les consommateurs le vérifient de la même manière qu'ils vérifient la signature Cosign. [Spec SPDX](https://spdx.dev/specifications/), [prédicat in-toto SPDX](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
+- **SLSA (Supply-chain Levels for Software Artifacts)** est un framework OpenSSF séparé qui décrit *comment* un artefact a été construit (commit source, builder, workflow). Les binaires et charts Helm Perf Sentinel portent des attestations SLSA Build L3 produites par `actions/attest-build-provenance`. Le niveau L3 demande une signature Sigstore OIDC plus une isolation du builder, deux propriétés qu'un runner GitHub-hosted fournit. [Spec](https://slsa.dev/spec/v1.0/).
+- **SBOM (Software Bill of Materials)** est un inventaire structuré des dépendances d'un artefact. Perf Sentinel publie un SBOM au format SPDX attesté sous le prédicat in-toto SPDX, donc les consommateurs le vérifient de la même manière qu'ils vérifient la signature Cosign. [Spec SPDX](https://spdx.dev/specifications/), [prédicat in-toto SPDX](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
 - **CT log (Certificate Transparency)** est le modèle plus large que Rekor implémente. L'instance Rekor publique Sigstore est sur `rekor.sigstore.dev`. Les opérateurs aux exigences plus strictes peuvent faire tourner une instance privée.
 
 ### Workflow
 
-Depuis v0.7.1, chaque binaire de release officiel perf-sentinel porte
+Depuis v0.7.1, chaque binaire de release officiel Perf Sentinel porte
 une attestation de provenance SLSA Build L3. L'attestation est
 générée par GitHub Actions via `actions/attest-build-provenance`
 (maintenu sous l'org GitHub `actions/`) et stockée dans l'API

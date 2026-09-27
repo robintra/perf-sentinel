@@ -3,18 +3,18 @@
 The cryptographic primitives below are layered on top of the
 `perf-sentinel-report/v1.0` schema starting with v0.7.0. The goal
 is to let a consumer verify a published periodic disclosure end to
-end without trusting perf-sentinel or the publishing organisation
+end without trusting Perf Sentinel or the publishing organisation
 beyond what is anchored in Sigstore public infrastructure.
 
 ## Why two layers
 
-perf-sentinel reports rely on two complementary signatures:
+Perf Sentinel reports rely on two complementary signatures:
 
 - **Sigstore signature** on the report itself, anchored in the Rekor
   transparency log. Proves the report was signed by an identity
   authorised by the publishing organisation and has not been modified
   since.
-- **SLSA build provenance** on the perf-sentinel binary, produced by
+- **SLSA build provenance** on the Perf Sentinel binary, produced by
   the project's GitHub Actions release workflow. Proves the binary
   that computed the report was built from the official source tree by
   a recognised builder, not by a custom or tampered build.

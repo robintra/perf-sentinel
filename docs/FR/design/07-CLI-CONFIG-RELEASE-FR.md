@@ -402,11 +402,11 @@ Supprime les symboles de debug du binaire release. Réduit la taille de ~15 Mo �
 
 ### `panic = "abort"`
 
-Élimine la machinerie d'unwinding (~200 Ko d'économie binaire). Puisque perf-sentinel est un outil autonome (pas une bibliothèque consommée par du code Rust qui attrape les panics avec `catch_unwind`), abort-on-panic est sûr et réduit à la fois la taille du binaire et le surcoût à l'exécution.
+Élimine la machinerie d'unwinding (~200 Ko d'économie binaire). Puisque Perf Sentinel est un outil autonome (pas une bibliothèque consommée par du code Rust qui attrape les panics avec `catch_unwind`), abort-on-panic est sûr et réduit à la fois la taille du binaire et le surcoût à l'exécution.
 
 ### `opt-level = 3`
 
-Optimisation maximale : inlining agressif, vectorisation de boucles et élimination de code mort. Le chemin chaud de perf-sentinel est le traitement de données (correspondance de chaînes, opérations HashMap, chaînes d'itérateurs) qui bénéficie de l'inlining. La [documentation Cargo](https://doc.rust-lang.org/cargo/reference/profiles.html) note que la différence entre `opt-level = 2` et `3` est principalement un inlining plus agressif, ce dont un outil pipeline a besoin.
+Optimisation maximale : inlining agressif, vectorisation de boucles et élimination de code mort. Le chemin chaud de Perf Sentinel est le traitement de données (correspondance de chaînes, opérations HashMap, chaînes d'itérateurs) qui bénéficie de l'inlining. La [documentation Cargo](https://doc.rust-lang.org/cargo/reference/profiles.html) note que la différence entre `opt-level = 2` et `3` est principalement un inlining plus agressif, ce dont un outil pipeline a besoin.
 
 L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée mais rejetée : la différence de taille binaire est marginale (~200 Ko), tandis que la différence de débit peut atteindre 10-30% sur les charges de traitement de données.
 
@@ -441,7 +441,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 Conséquences :
 
-- **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Les benchs de décision v0.4.7 le montraient combler l'écart musl et dépasser le baseline glibc d'environ 30 % (et l'allocateur Darwin de macOS d'un facteur ~2 sur le microbench), porté par sa disposition en segments/pages sur les allocations petites-à-moyennes qui dominent le chemin chaud de perf-sentinel. Re-mesuré sur 0.6.1 et 0.8.0 avec la même conclusion. Les tables par campagne vivent dans l'historique git.
+- **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Les benchs de décision v0.4.7 le montraient combler l'écart musl et dépasser le baseline glibc d'environ 30 % (et l'allocateur Darwin de macOS d'un facteur ~2 sur le microbench), porté par sa disposition en segments/pages sur les allocations petites-à-moyennes qui dominent le chemin chaud de Perf Sentinel. Re-mesuré sur 0.6.1 et 0.8.0 avec la même conclusion. Les tables par campagne vivent dans l'historique git.
 - **Sur macOS, Windows et n'importe quelle future cible `*-linux-gnu`** : la garde `cfg(target_env = "musl")` vaut faux, `mimalloc` n'est même pas compilé, l'allocateur système reste en place. Aucun changement de surface pour ces plateformes.
 - **Coût RSS** : environ +21 % sur la charge du bench. Compromis attendu pour un allocateur plus rapide qui pré-alloue ses arenas. La RSS résultante reste un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits K8s recommandées dans les values Helm.
 
@@ -452,7 +452,7 @@ La forme sans feature flag, target-gated, a été retenue plutôt qu'une feature
 - *Microbench in-memory* : `perf-sentinel bench` chronomètre `pipeline::analyze` (fonction pure, sans I/O ni dispatch async). Le bon chiffre pour le suivi de régression allocateur et pipeline, pas pour le dimensionnement de capacité.
 - *End-to-end via le daemon* : `perf-sentinel watch` alimenté par le chemin NDJSON `[daemon] json_socket`, débit mesuré côté émission, exactitude validée en sondant `/api/status` jusqu'au drain de `active_traces` à 0. Ce chemin JSON-socket est lui-même une borne haute du vrai chemin d'ingestion OTLP (le décodage protobuf coûte plus que le parse JSON serde).
 
-Pour citer le débit de perf-sentinel à l'extérieur, préférer le chiffre end-to-end (ou les deux, avec leurs conditions). Les tables des campagnes historiques (décision allocateur v0.4.7, re-mesure 0.6.1, contrôle de toolchain 0.8.0) ont été retirées de cette page et vivent dans l'historique git. Leur conclusion commune tient : la décision d'allocateur est stable d'une release à l'autre et le chemin chaud de `pipeline::analyze` n'a porté aucune régression entre 0.4.7 et 0.8.0.
+Pour citer le débit de Perf Sentinel à l'extérieur, préférer le chiffre end-to-end (ou les deux, avec leurs conditions). Les tables des campagnes historiques (décision allocateur v0.4.7, re-mesure 0.6.1, contrôle de toolchain 0.8.0) ont été retirées de cette page et vivent dans l'historique git. Leur conclusion commune tient : la décision d'allocateur est stable d'une release à l'autre et le chemin chaud de `pipeline::analyze` n'a porté aucune régression entre 0.4.7 et 0.8.0.
 
 #### Campagne de mesure v0.8.7
 
@@ -476,7 +476,7 @@ Optimisations livrées, chacune avec sa preuve criterion avant/après :
 
 ## Stratégie de distribution
 
-1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Aucun binaire n'est publié pour les Mac Intel : installez perf-sentinel avec `cargo install`, ou lancez l'image Docker
+1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Aucun binaire n'est publié pour les Mac Intel : installez Perf Sentinel avec `cargo install`, ou lancez l'image Docker
 2. **`cargo install perf-sentinel --locked`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`) : image minimale pour les déploiements Kubernetes
 

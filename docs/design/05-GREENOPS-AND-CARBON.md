@@ -38,7 +38,7 @@ for (trace_idx, trace) in traces.iter().enumerate() {
 
 **`EndpointStats<'a>` with borrowed `service`:** the `service` field borrows `&'a str` from the span events instead of cloning the String. The clone only happens later when building `TopOffender` structs for the output. This avoids one String clone per unique endpoint in the inner loop.
 
-**Backing structure (`HashMap + sort` vs `BTreeMap`):** the per-endpoint map is a `HashMap` finalized with a single `sort_by` for the public view, not a `BTreeMap`. Under perf-sentinel's access pattern (many spans per unique endpoint, small K relative to N), measurements on 1M spans showed `HashMap + sort` consistently faster:
+**Backing structure (`HashMap + sort` vs `BTreeMap`):** the per-endpoint map is a `HashMap` finalized with a single `sort_by` for the public view, not a `BTreeMap`. Under Perf Sentinel's access pattern (many spans per unique endpoint, small K relative to N), measurements on 1M spans showed `HashMap + sort` consistently faster:
 
 | Endpoint cardinality | Spans | `HashMap + sort` | `BTreeMap` | Ratio |
 |---------------------:|------:|-----------------:|-----------:|------:|
@@ -145,7 +145,7 @@ The scoring pipeline resolves two dimensions independently for every span: **ene
 
 ### SCI v1.0 alignment
 
-perf-sentinel aligns its carbon model with the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (adopted as [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)), matching the "SCI-aligned, directional" wording used everywhere else in the project: the I/O proxy covers a partial software boundary and the report publishes the numerator on its own schema rather than the per-R SCI reporting format. The formula is:
+Perf Sentinel aligns its carbon model with the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (adopted as [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)), matching the "SCI-aligned, directional" wording used everywhere else in the project: the I/O proxy covers a partial software boundary and the report publishes the numerator on its own schema rather than the per-R SCI reporting format. The formula is:
 
 ```
 SCI = ((E × I) + M) per R
@@ -157,13 +157,13 @@ Where:
 - **`M`** = embodied emissions from hardware manufacturing, amortized
 - **`R`** = functional unit (the "per X" denominator)
 
-**Which SCI revision, and why it does not change the model.** Two revisions exist. **v1.0** is the text adopted as ISO/IEC 21031:2024, and it is the one this document aligns with. **v1.1** is a later GSF editorial revision. Per its release notes, it renames "location-based marginal carbon intensity" to "region-specific carbon intensity" and adds a definition of "carbon" as a broad term for all warming-relevant emissions. Per the same notes, it also restates operational emissions as "multiply the electricity consumption of the hardware the software is running on by the region-specific carbon intensity". The `((E x I) + M) per R` formula is untouched, so nothing in perf-sentinel's scoring depends on the choice.
+**Which SCI revision, and why it does not change the model.** Two revisions exist. **v1.0** is the text adopted as ISO/IEC 21031:2024, and it is the one this document aligns with. **v1.1** is a later GSF editorial revision. Per its release notes, it renames "location-based marginal carbon intensity" to "region-specific carbon intensity" and adds a definition of "carbon" as a broad term for all warming-relevant emissions. Per the same notes, it also restates operational emissions as "multiply the electricity consumption of the hardware the software is running on by the region-specific carbon intensity". The `((E x I) + M) per R` formula is untouched, so nothing in Perf Sentinel's scoring depends on the choice.
 
-A v1.1 clarification expands region-specific carbon intensity to distinguish grid from off-grid, and stresses that location-based information is what matters for eliminating emissions, to the exclusion of market-based measures. perf-sentinel already takes that position and scores location-based only, which is also why `docs/SCHEMA.md` warns that the disclosed figure is not the market-based Scope 2 value ESRS separately requires.
+A v1.1 clarification expands region-specific carbon intensity to distinguish grid from off-grid, and stresses that location-based information is what matters for eliminating emissions, to the exclusion of market-based measures. Perf Sentinel already takes that position and scores location-based only, which is also why `docs/SCHEMA.md` warns that the disclosed figure is not the market-based Scope 2 value ESRS separately requires.
 
 Elsewhere this document quotes the GSF text at **v1.1.0** on what modelled data the specification permits. The quotation uses that version because it is checked against the freely readable GSF text, whereas the ISO publication is paywalled and was not consulted. Statements sourced that way are attributed to the GSF text, never to ISO/IEC 21031:2024.
 
-In perf-sentinel:
+In Perf Sentinel:
 - **`R = 1 trace`**: one user-facing request. Each correlated trace is one functional unit.
 - **`E = io_ops × ENERGY_PER_IO_OP_KWH`**: proxy from I/O op count.
 - **`I = lookup_region(region).intensity`**: from the embedded carbon table.
@@ -193,7 +193,7 @@ The default of `0.001 gCO₂/request` is derived from typical server lifecycle a
 
 The `0.001 g/req` default is a **conservative upper bound for lightly-loaded microservice servers**. AWS Customer Carbon Footprint methodology (2025) reports ~320 kgCO2eq/year for a Dell R640, which at typical utilization rates yields 10-50 ugCO2/req, 10-20x below our default. Users with measured infrastructure data should lower this value via `[green] embodied_carbon_per_request_gco2`.
 
-**Embodied is region-independent.** Hardware manufacturing emissions don't vary by deployment location. perf-sentinel emits embodied carbon unconditionally when green scoring is enabled, even when no region resolves, so users see at least a floor estimate.
+**Embodied is region-independent.** Hardware manufacturing emissions don't vary by deployment location. Perf Sentinel emits embodied carbon unconditionally when green scoring is enabled, even when no region resolves, so users see at least a floor estimate.
 
 ### Conversion formula
 
@@ -240,7 +240,7 @@ Where:
 
 ### SCI v1.0 semantics: numerator vs intensity
 
-The SCI v1.0 specification defines `SCI = ((E × I) + M) / R`, an **intensity** expressed per functional unit R. perf-sentinel emits both views: the **numerator** of this formula summed over all analyzed traces (`co2.total`), and the **intensity** proper (`co2.sci_per_trace`).
+The SCI v1.0 specification defines `SCI = ((E × I) + M) / R`, an **intensity** expressed per functional unit R. Perf Sentinel emits both views: the **numerator** of this formula summed over all analyzed traces (`co2.total`), and the **intensity** proper (`co2.sci_per_trace`).
 
 ```
 co2.total.mid = Σ operational_gco2 + embodied_gco2
@@ -264,7 +264,7 @@ The distinct values on `total` and `avoidable` signal to downstream consumers th
 
 Computing avoidable CO₂ accurately per-region would require threading region resolution through the finding dedup phase (which currently aggregates avoidable I/O ops globally by `(trace_id, template, source_endpoint)`). This is complex and error-prone.
 
-Instead, perf-sentinel computes:
+Instead, Perf Sentinel computes:
 
 ```
 avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
@@ -363,7 +363,7 @@ When the configured region is not found in the table, CO2 fields are omitted fro
 
 ## Hourly carbon intensity profiles
 
-The flat annual value per region discards the diurnal variance that can be large in grids with a high share of variable renewables or strong demand peaks. To capture that variance, perf-sentinel embeds hourly UTC grid profiles for 22 regions. Four flagship regions with well-documented diurnal shapes carry a full monthly x hourly profile. The other 18 each carry their own single representative 24-hour profile (see below):
+The flat annual value per region discards the diurnal variance that can be large in grids with a high share of variable renewables or strong demand peaks. To capture that variance, Perf Sentinel embeds hourly UTC grid profiles for 22 regions. Four flagship regions with well-documented diurnal shapes carry a full monthly x hourly profile. The other 18 each carry their own single representative 24-hour profile (see below):
 
 - **France (`eu-west-3`)**: nuclear baseload, flat-with-evening-peak shape.
 - **Germany (`eu-central-1`)**: coal + gas + variable renewables, strong morning/evening peaks.
@@ -399,9 +399,9 @@ When the dispatch selects the hourly path for a region, the region's `RegionBrea
 
 ## Scaphandre per-process energy integration
 
-The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 µWh per op). This is a two-order-of-magnitude approximation and it treats all services and all workload shapes identically. perf-sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
+The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 µWh per op). This is a two-order-of-magnitude approximation and it treats all services and all workload shapes identically. Perf Sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
 
-**How it fits the architecture.** Scaphandre is an external, user-installed process. perf-sentinel does NOT bundle or fork Scaphandre. It scrapes the Prometheus `/metrics` endpoint Scaphandre already exposes. The `score/scaphandre/` module owns:
+**How it fits the architecture.** Scaphandre is an external, user-installed process. Perf Sentinel does NOT bundle or fork Scaphandre. It scrapes the Prometheus `/metrics` endpoint Scaphandre already exposes. The `score/scaphandre/` module owns:
 
 - `ScaphandreConfig`: parsed from `[green.scaphandre]` in `.perf-sentinel.toml`.
 - `ScaphandreState`: backed by `ArcSwap<HashMap<String, ServiceEnergy>>` for lock-free reads from the scoring path. The scraper builds a fresh `Arc<HashMap>` on each successful scrape and atomically swaps it in. Readers do a single `load_full()` to get their own `Arc` reference without contending on a lock.
@@ -444,7 +444,7 @@ The scoring stage tracks per-region flags (`any_alumet`, `any_scaphandre`, `any_
 
 ## Cloud-native energy estimation (CPU% + SPECpower)
 
-For cloud VMs (AWS, GCP, Azure) that do not expose Intel RAPL to guests, perf-sentinel offers an alternative energy estimation path based on CPU utilization metrics and the SPECpower model. The module lives in `score/cloud_energy/` and mirrors the Scaphandre module structure.
+For cloud VMs (AWS, GCP, Azure) that do not expose Intel RAPL to guests, Perf Sentinel offers an alternative energy estimation path based on CPU utilization metrics and the SPECpower model. The module lives in `score/cloud_energy/` and mirrors the Scaphandre module structure.
 
 **Architecture.** The `cloud_energy/` directory contains:
 
@@ -517,7 +517,7 @@ Past the division this is Scaphandre's formula verbatim, and it inherits the sam
 
 ## Broker energy attribution
 
-A broker poses the database's problem twice over: it burns the energy of an N+1 publish loop, it emits no span of its own, and it is very often managed, so there is no host to run an agent on. perf-sentinel reuses the `database_waste` shape with the messaging-only ratio, `broker energy × (avoidable publish ops / total publish ops)`, reported as `green_summary.messaging_waste`.
+A broker poses the database's problem twice over: it burns the energy of an N+1 publish loop, it emits no span of its own, and it is very often managed, so there is no host to run an agent on. Perf Sentinel reuses the `database_waste` shape with the messaging-only ratio, `broker energy × (avoidable publish ops / total publish ops)`, reported as `green_summary.messaging_waste`.
 
 **Why not a per-publish coefficient.** Covered below under "Why no per-publish coefficient can be a measurement". Broker power stops tracking throughput past roughly 20 % of capacity, so marginal energy is not a constant, and the three determinants (utilisation point, replication factor, topology) are invisible from a producer span. The figure is a workload-level measurement split by a count-based ratio, never a coefficient.
 
@@ -542,7 +542,7 @@ The Kepler and Redfish integrations follow the same shared-state pattern as Scap
 
 **Kepler counter-delta semantics.** Kepler exports a monotonic cumulative joule counter per container/process, unlike Scaphandre's instantaneous microwatt gauge. The scraper task holds a `HashMap<service, last_raw_joules>` and on every tick computes `delta = current - previous`, where `current` is the SUM of every counter sharing the mapped label value. A container name repeated across pods yields several series, and a last-write-wins read would flip between counters with exposition order. The entry is emitted only when `delta > 0.0 && delta.is_finite()`. The filter covers Kepler exporter restarts: the counter resets to zero, `current < previous` produces a negative delta, and the guard drops it. Non-finite readings (`NaN`, `±Inf`) are also dropped. The next scrape produces the next meaningful delta from the fresh baseline. The first observation per service (no `previous`) emits no delta. The raw counter is recorded for the next scrape.
 
-**Kepler scrape mode (direct vs Prometheus-mediated).** Kepler typically runs as a Kubernetes `DaemonSet` (one pod per node). The current `[green.kepler]` integration performs a direct GET and therefore needs an endpoint that exposes Kepler series themselves, either one node-local exporter per perf-sentinel or a federation/proxy endpoint exposing aggregated series. A Prometheus server's own `/metrics` endpoint is not such an endpoint. A future `source = "prometheus"` mode will issue PromQL queries against an upstream Prometheus. The `metric_kind` enum already distinguishes the Kepler series to read.
+**Kepler scrape mode (direct vs Prometheus-mediated).** Kepler typically runs as a Kubernetes `DaemonSet` (one pod per node). The current `[green.kepler]` integration performs a direct GET and therefore needs an endpoint that exposes Kepler series themselves, either one node-local exporter per Perf Sentinel or a federation/proxy endpoint exposing aggregated series. A Prometheus server's own `/metrics` endpoint is not such an endpoint. A future `source = "prometheus"` mode will issue PromQL queries against an upstream Prometheus. The `metric_kind` enum already distinguishes the Kepler series to read.
 
 **Redfish node-level attribution formula.** Redfish exposes one wall-plug wattage reading per chassis, not per service. The scraper turns that into a per-service energy-per-op coefficient via:
 
@@ -554,7 +554,7 @@ energy_per_op  = (chassis_joules / 3_600_000) / total_ops    (in kWh per op)
 
 Every service mapped to the chassis receives the **same** `energy_per_op` for that scrape window. This is the correct interpretation of node-level power until finer signal is available, and it is documented as a known coarseness in `docs/LIMITATIONS.md` "Redfish BMC precision bounds". Idle chassis (no ops mapped this window) leave every service's previous entry untouched, with no division by zero and no flapping. Non-finite, null, zero, or negative wattage readings are rejected as BMC transitional states, and the previous coefficient is preserved.
 
-**Redfish TLS limitation.** Most BMCs ship with self-signed certificates by default. perf-sentinel's shared `http_client::build_client` uses `hyper-rustls` with the public webpki root store, which rejects self-signed certs. The `RedfishConfig::ca_bundle_path` field anticipates operator-supplied custom CA bundles, but the actual PEM loading is **deferred to a later release**. Setting `ca_bundle_path` today causes the scraper to log an `ERROR` and refuse to start. This fail-loud behavior lets operators with self-signed BMCs see the gap immediately rather than discover it during a TLS handshake far from the config they set. Workarounds in the current release: front the BMC with a reverse proxy that presents a publicly-signed cert, or use HTTP on a trusted network segment.
+**Redfish TLS limitation.** Most BMCs ship with self-signed certificates by default. Perf Sentinel's shared `http_client::build_client` uses `hyper-rustls` with the public webpki root store, which rejects self-signed certs. The `RedfishConfig::ca_bundle_path` field anticipates operator-supplied custom CA bundles, but the actual PEM loading is **deferred to a later release**. Setting `ca_bundle_path` today causes the scraper to log an `ERROR` and refuse to start. This fail-loud behavior lets operators with self-signed BMCs see the gap immediately rather than discover it during a TLS handshake far from the config they set. Workarounds in the current release: front the BMC with a reverse proxy that presents a publicly-signed cert, or use HTTP on a trusted network segment.
 
 **Redfish vendor JSON variance.** Different BMC vendors return slightly different shapes under `/redfish/v1/Chassis/{id}/Power`. The default JSON pointer `/PowerControl/0/PowerConsumedWatts` resolves correctly on Dell iDRAC, HPE iLO, Lenovo XCC, Supermicro X11+, and the OpenBMC reference, but vendor-specific shapes (e.g. HPE's `Oem.Hpe.PowerSummary.Watts`) are overridable via the `power_path` config field. The parser rejects `null`, `0`, negative, and `NaN` as invalid so transitional BMC states (boot, fan ramp) do not poison the coefficient.
 
@@ -581,7 +581,7 @@ The `[green.electricity_maps]` block enables real-time grid carbon intensity pol
 }
 ```
 
-`isEstimated` is `true` when the API filled a gap (Tier B/C zone, or temporal hole bridged by an algorithm such as `TIME_SLICER_AVERAGE`), and `false` for fully measured values. perf-sentinel parses both fields with `#[serde(default)]` to stay forward-compatible if a future API version stops emitting them.
+`isEstimated` is `true` when the API filled a gap (Tier B/C zone, or temporal hole bridged by an algorithm such as `TIME_SLICER_AVERAGE`), and `false` for fully measured values. Perf Sentinel parses both fields with `#[serde(default)]` to stay forward-compatible if a future API version stops emitting them.
 
 The flags propagate through `IntensityReading` (state) into the per-tick `CarbonContext.real_time_intensity` and finally into the per-region accumulator. The `green_summary.regions[]` row exposes them as two optional fields:
 
@@ -619,7 +619,7 @@ The suffix is empty when `intensity_estimated` is `None`, so existing log scrape
 
 ### API version (0.5.11)
 
-perf-sentinel targets the `Electricity Maps` API v4 endpoint by default since 0.5.11. Earlier releases defaulted to v3, which Electricity Maps still serves but considers legacy. The migration was triggered by the v4 promotion to "latest" in the developer hub reference (<https://app.electricitymaps.com/developer-hub/api/reference>) and is forward-defense against an eventual v3 retirement.
+Perf Sentinel targets the `Electricity Maps` API v4 endpoint by default since 0.5.11. Earlier releases defaulted to v3, which Electricity Maps still serves but considers legacy. The migration was triggered by the v4 promotion to "latest" in the developer hub reference (<https://app.electricitymaps.com/developer-hub/api/reference>) and is forward-defense against an eventual v3 retirement.
 
 The response schema on the `carbon-intensity/latest` endpoint is byte-identical between v3 and v4, so the migration is transparent for downstream consumers. `green_summary.regions[]` rows are unchanged regardless of the configured API version, and the parsing path is the same struct.
 
@@ -694,7 +694,7 @@ When measured energy is available (Scaphandre or cloud SPECpower), the coefficie
 
 ## Network transport energy
 
-For cross-region HTTP calls, the energy cost of moving bytes over the internet backbone can be significant. perf-sentinel offers an optional network transport energy term.
+For cross-region HTTP calls, the energy cost of moving bytes over the internet backbone can be significant. Perf Sentinel offers an optional network transport energy term.
 
 **The formula.**
 
@@ -710,7 +710,7 @@ The carbon intensity and PUE of the **source** region (where the data originates
 **Cross-region detection.** Transport energy is only computed when caller and callee are in different regions. The mechanism:
 
 1. **Caller region**: resolved via the standard chain (`span.cloud_region` > `service_regions[service]` > `default_region`).
-2. **Callee region**: the hostname is extracted from the HTTP target URL (e.g., `order-api` from `http://order-api:8080/api/orders`), then looked up in `ctx.service_regions`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term).
+2. **Callee region**: the hostname is extracted from the HTTP target URL (e.g., `order-api` from `http://order-api:8080/api/orders`), then looked up in `ctx.service_regions`. If the hostname is not mapped, Perf Sentinel conservatively assumes same-region (no transport term).
 3. If both regions resolve and differ (case-insensitive comparison), the transport energy is computed and accumulated.
 
 **What triggers it.** Two conditions must both be true for a span to contribute transport energy:
@@ -760,7 +760,7 @@ The field surfaces in:
 - **SARIF v2.1.0**: per-result `properties.confidence` bag entry AND a standard SARIF `rank` value (0-100).
 - **CLI terminal output**: NOT displayed (the terminal stays clean for interactive use).
 
-The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from perf-sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` "Finding confidence field" for the integration example.
+The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from Perf Sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` "Finding confidence field" for the integration example.
 
 ## Calibrating the proxy against a real wattmeter
 

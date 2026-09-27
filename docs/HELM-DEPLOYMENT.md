@@ -1,6 +1,6 @@
 # Helm deployment guide
 
-This guide walks through deploying perf-sentinel on Kubernetes via the
+This guide walks through deploying Perf Sentinel on Kubernetes via the
 packaged Helm chart under [`charts/perf-sentinel/`](../charts/perf-sentinel/).
 The chart ships the daemon (`perf-sentinel watch`) behind a `ClusterIP`
 Service exposing OTLP gRPC (4317) and OTLP HTTP plus `/metrics` plus
@@ -41,13 +41,13 @@ check them before installing.
 
 After the pod is ready, point your OpenTelemetry Collector at
 `perf-sentinel.observability.svc.cluster.local:4317` (gRPC) or `:4318`
-(HTTP). A full end-to-end example composing perf-sentinel with the
+(HTTP). A full end-to-end example composing Perf Sentinel with the
 upstream OTel Collector chart lives under
 [`examples/helm/`](../examples/helm/).
 
 ## Topology
 
-The chart is sentinel-only. Users compose perf-sentinel with
+The chart is sentinel-only. Users compose Perf Sentinel with
 the upstream
 [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts)
 chart instead of bundling a collector that would get out of sync with
@@ -79,7 +79,7 @@ flowchart LR
 ### Collector sampling and what reaches the daemon
 
 Most production collectors sample. If the processor doing it sits
-between the applications and perf-sentinel, the daemon analyzes a
+between the applications and Perf Sentinel, the daemon analyzes a
 fraction of the traffic and **has no way to know it**. A sampled trace
 that was kept looks exactly like a complete one, and the report gives
 no hint that its numbers cover a tenth of the requests.
@@ -94,8 +94,8 @@ What survives sampling and what does not:
 | Ratios (I/O waste ratio, and the GreenOps figures derived from it)                                              | Unbiased under a uniform sampler, which hits numerator and denominator alike. A tail sampler's `errors` and `slow` policies bias retention toward heavy traces, and the ratio drifts with them. |
 | Cross-trace correlation                                                                                         | Effectively off. `[daemon.correlation] min_co_occurrences` needs a pair to recur inside the window, which rarely survives a 10% sample.                                                         |
 
-**Give perf-sentinel its own unsampled pipeline.** Sampling exists to
-bound storage cost, and perf-sentinel stores nothing: it holds a
+**Give Perf Sentinel its own unsampled pipeline.** Sampling exists to
+bound storage cost, and Perf Sentinel stores nothing: it holds a
 per-trace window in memory for `trace_ttl_ms` and drops it. So fan out
 from the same receiver and apply `tail_sampling` only on the branch
 feeding the trace store:
@@ -125,7 +125,7 @@ If the extra volume is the problem, narrow the analysis branch by
 **scope rather than by chance**. Route only the namespaces or services
 you are actively working on, which keeps their figures whole, instead
 of a probabilistic sample that makes every service's figures partial.
-`filter/drop_noise` already removes the spans perf-sentinel would
+`filter/drop_noise` already removes the spans Perf Sentinel would
 discard anyway (no `db.statement`, no `http.url`), so the branch
 carries less than the storage one to begin with.
 
@@ -371,7 +371,7 @@ The chart supports three `workload.kind` values. Pick one per install.
 ### `Deployment` (default)
 
 Single daemon behind a `ClusterIP` Service. This is the recommended
-topology. perf-sentinel is stateful per trace (the `TraceWindow` lives in
+topology. Perf Sentinel is stateful per trace (the `TraceWindow` lives in
 memory), so running one daemon and scaling vertically is the right first
 move. The
 [sharded topology](../examples/docker-compose-sharded.yml) is available
@@ -649,7 +649,7 @@ NetworkPolicy are the boundary. Choose one of two ways to restrict who may
 ack:
 
 *Per-group (the faithful answer: only your architects / SRE, with a real
-audit `by`).* perf-sentinel has no embedded IAM, so per-identity control
+audit `by`).* Perf Sentinel has no embedded IAM, so per-identity control
 lives in a fronting SSO proxy. Deploy the oauth2-proxy + nginx setup in
 [`docs/QUERY-API.md`](./QUERY-API.md#oauth2-proxy--nginx), which authorizes
 ack writes by SSO group, and add a `networkPolicy` peer selector so only the
@@ -763,7 +763,7 @@ endpoint reference and the `[daemon.ack]` field catalog.
 The chart can render a `NetworkPolicy` that restricts who may reach the
 daemon's ingest and metrics ports. It is off by default and fail-closed:
 enabling it with no selectors blocks every ingress, so you must allow-list
-the namespaces or pods that legitimately talk to perf-sentinel, typically
+the namespaces or pods that legitimately talk to Perf Sentinel, typically
 the OTel Collector (OTLP 4317 and 4318) and Prometheus (`/metrics` on 4318).
 
 ```yaml
@@ -785,7 +785,7 @@ either list is allowed. Leave a list empty to skip that match dimension.
 
 The chart can render an `Ingress` in front of the Service. It is off by
 default, and that default is a security decision rather than a packaging
-one: perf-sentinel has no embedded IAM, so publishing it puts an
+one: Perf Sentinel has no embedded IAM, so publishing it puts an
 unauthenticated API on the network. Anyone who reaches the host can POST
 OTLP traces, read `/api/findings` (your SQL templates and endpoint names)
 and call the ack write endpoints. The chart's threat model is a
@@ -964,7 +964,7 @@ offer names the findings panels cannot honour, so a filtered view reads
 as a clean service. It grades the daemon by the presence of two metrics
 the panels depend on, `perf_sentinel_incidents_total` and
 `perf_sentinel_analysis_service_overflow_total`, rather than by a version
-number, because no perf-sentinel metric carries one. It reads `Unknown`
+number, because no Perf Sentinel metric carries one. It reads `Unknown`
 when nothing answers for the selected `Job` and `Namespace`, which is a
 daemon that is down or a job label that does not match, never a verdict
 on the version. Empty panels on a current daemon are configuration
@@ -1318,7 +1318,7 @@ podDisruptionBudget:
 
 ### Exemplars
 
-perf-sentinel emits Prometheus exemplars on
+Perf Sentinel emits Prometheus exemplars on
 `perf_sentinel_findings_total`, `perf_sentinel_io_waste_ratio` and
 `perf_sentinel_slow_duration_seconds`. Enable exemplar storage on your
 Prometheus:
@@ -1411,5 +1411,5 @@ kubectl --namespace observability delete pvc \
 
 [`examples/helm/`](../examples/helm/) ships two values files composing
 the perf-sentinel chart with the upstream OTel Collector chart for a
-Zipkin + OTLP fanout topology to Tempo and perf-sentinel. Walk through
+Zipkin + OTLP fanout topology to Tempo and Perf Sentinel. Walk through
 the README there for the full install + verification recipe.

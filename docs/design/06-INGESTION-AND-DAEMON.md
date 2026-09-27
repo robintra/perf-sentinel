@@ -127,7 +127,7 @@ The payload size is checked **before** deserialization. This prevents `serde_jso
 - Starts with `{` and contains `"resourceSpans"` (or `"resource_spans"`) in the first 1 KB: **OTLP/JSON** (single `ExportTraceServiceRequest` or the Collector `file` exporter's NDJSON, decoded via a serde stream deserializer and converted by the same `convert_otlp_request` the daemon listeners use)
 - Starts with `{` and contains `"data"` + `"spans"` in the first 4 KB: **Jaeger**
 - Starts with `[` and contains `"traceId"` + `"localEndpoint"` in the first 1 KB: **Zipkin**
-- Otherwise: **Native** perf-sentinel format
+- Otherwise: **Native** Perf Sentinel format
 
 This avoids parsing the full payload into a `serde_json::Value` for detection, eliminating a 2x parse cost. The heuristic operates on raw bytes (`std::str::from_utf8` on a bounded prefix), making it O(1) regardless of payload size.
 
@@ -357,7 +357,7 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 
 **Auto-format detection:** follows the same byte-level heuristic pattern as `json.rs`. If the first non-whitespace byte is `[` or `{`, parse as JSON, otherwise as CSV. No external csv crate, the CSV parser handles RFC 4180 quoting manually (double-quoted fields, escaped `""`).
 
-**SQL normalization reuse:** each query goes through `normalize::sql::normalize_sql()` to produce a template comparable with trace-based findings. PostgreSQL normalizes queries at the server level (e.g., `$1` placeholders), but perf-sentinel re-normalizes for consistency with its own template format.
+**SQL normalization reuse:** each query goes through `normalize::sql::normalize_sql()` to produce a template comparable with trace-based findings. PostgreSQL normalizes queries at the server level (e.g., `$1` placeholders), but Perf Sentinel re-normalizes for consistency with its own template format.
 
 ### Four-ranking output
 

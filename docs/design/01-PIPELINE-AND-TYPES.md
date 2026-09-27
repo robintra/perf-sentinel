@@ -2,7 +2,7 @@
 
 ## Why a linear pipeline
 
-perf-sentinel processes I/O traces through a sequence of transformations: `event -> normalize -> correlate -> detect -> score -> report`. This is a **linear pipeline**, not a hexagonal (ports-and-adapters) architecture.
+Perf Sentinel processes I/O traces through a sequence of transformations: `event -> normalize -> correlate -> detect -> score -> report`. This is a **linear pipeline**, not a hexagonal (ports-and-adapters) architecture.
 
 The data flows in one direction. Events enter, get transformed at each stage and produce a report. There are no bidirectional dependencies, no domain events, no complex interaction patterns. A hexagonal architecture would introduce trait indirection between every stage, adding cognitive overhead, compile-time cost and dynamic dispatch for zero benefit.
 

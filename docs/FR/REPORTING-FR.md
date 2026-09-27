@@ -24,7 +24,7 @@ Deux vérifications supplémentaires resserrent la cohérence. Le validateur rej
 
 ## Granularité
 
-perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés par `--confidentiality`. Le validateur refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1, et inversement.
+Perf Sentinel publie les rapports à deux niveaux de granularité, contrôlés par `--confidentiality`. Le validateur refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1, et inversement.
 
 - **G1** (Granularity level 1, "détail interne"). Activé par `--confidentiality internal`. Chaque entrée `applications[*]` porte un tableau `anti_patterns: [...]` complet ventilant chaque type d'anti-pattern détecté sur ce service avec occurrences, énergie gaspillée estimée et carbone gaspillé. À utiliser pour les décisions d'optimisation internes, pas pour la publication publique : le détail par pattern expose des signaux de performance internes qu'un opérateur peut ne pas vouloir diffuser.
 - **G2** (Granularity level 2, "agrégat public"). Activé par `--confidentiality public`. Chaque entrée `applications[*]` porte les mêmes totaux par service (énergie, carbone, score d'efficacité) mais remplace le tableau par un seul entier `anti_patterns_detected_count`. Adapté à la publication sur l'URL de transparence d'une organisation.
@@ -37,11 +37,11 @@ perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés p
 - `--confidentiality <internal|public>` (requis). Détermine la granularité G1 ou G2, voir ci-dessus.
 - `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (requis). Indique la sémantique de la période aux consommateurs en aval. `custom` utilise `--from` et `--to` tels quels, choix correct pour des fenêtres non-alignées (par exemple un pilote de 6 semaines).
 - `--from <YYYY-MM-DD>` et `--to <YYYY-MM-DD>` (requis, inclusifs). Dates calendaires UTC.
-- `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont réunis (triés par nom), ou un glob développé par le shell. perf-sentinel ne développe pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion par le shell. Dans les runners CI qui exécutent le binaire directement, préférer un répertoire ou un fichier unique.
+- `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont réunis (triés par nom), ou un glob développé par le shell. Perf Sentinel ne développe pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion par le shell. Dans les runners CI qui exécutent le binaire directement, préférer un répertoire ou un fichier unique.
 - `--output <PATH>` (requis). Où écrire `perf-sentinel-report.json`.
 - `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit plus bas dans la section TOML org-config.
 - `--emit-attestation <PATH>` (optionnel). Quand fixé, écrit aussi le sidecar statement in-toto v1 à ce chemin. Nécessaire pour le workflow de signature.
-- `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce service synthétique contribue aux totaux agrégés mais est exclu de la ventilation par service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, en listant les horodatages en cause dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut affirmer que 100% des opérations mesurées ont été correctement attribuées.
+- `--strict-attribution` (optionnel). Par défaut, Perf Sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce service synthétique contribue aux totaux agrégés mais est exclu de la ventilation par service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, en listant les horodatages en cause dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut affirmer que 100% des opérations mesurées ont été correctement attribuées.
 - `--tui` (optionnel, nécessite la feature de build `tui`). Ouvre une prévisualisation en lecture seule au lieu d'écrire un rapport, voir ci-dessous. Elle rend `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to` et `--output` optionnels, puisqu'on les règle dans l'interface. Incompatible avec `--emit-attestation`.
 
 ## Prévisualisation interactive (`--tui`)
@@ -85,7 +85,7 @@ Publier les deux permet à un lecteur de les comparer et de voir combien de gasp
 
 Chaque rapport porte `methodology.standard_crosswalk`, une correspondance interprétative de ses chiffres vers la norme européenne de reporting climat ESRS E1 (règlement délégué (UE) 2023/5303) :
 
-- `aggregate.total_energy_kwh` alimente **E1-5** (consommation et mix énergétiques), à convertir en MWh. perf-sentinel ne ventile pas ce chiffre par source fossile, nucléaire ou renouvelable.
+- `aggregate.total_energy_kwh` alimente **E1-5** (consommation et mix énergétiques), à convertir en MWh. Perf Sentinel ne ventile pas ce chiffre par source fossile, nucléaire ou renouvelable.
 - le terme carbone opérationnel alimente **E1-6 Scope 2** en base location-based. ESRS exige aussi un Scope 2 market-based, que SCI exclut, c'est donc une entrée partielle.
 - le carbone embarqué (le terme SCI `M`, agrégat seulement) alimente **E1-6 Scope 3** (catégories 1 et 2). ESRS admet les estimations et données proxy pour le Scope 3.
 
@@ -112,13 +112,13 @@ max_size_mb = 100
 max_files = 12
 ```
 
-Quand le fichier actif dépasse `max_size_mb`, perf-sentinel le renomme en `reports-<utc-timestamp>.ndjson` et ouvre un nouveau fichier. Les anciens fichiers tournés au-delà de `max_files` sont élagués par date de modification.
+Quand le fichier actif dépasse `max_size_mb`, Perf Sentinel le renomme en `reports-<utc-timestamp>.ndjson` et ouvre un nouveau fichier. Les anciens fichiers tournés au-delà de `max_files` sont élagués par date de modification.
 
 Les opérateurs qui collectent déjà stdout du daemon via un sidecar peuvent passer le fichier (ou le dossier) résultant à `--input` directement, à condition que chaque ligne soit une enveloppe `{ts, report}`.
 
 ## TOML org-config
 
-Les champs statiques organisation/méthodologie/scope vivent dans un fichier TOML que vous versionnez dans votre dépôt d'infrastructure à côté du reste de la config perf-sentinel. Un exemple complet est dans `docs/examples/perf-sentinel-org.toml`. Le même fichier est référencé par `[reporting] org_config_path` quand le daemon doit valider les rapports publiables au démarrage.
+Les champs statiques organisation/méthodologie/scope vivent dans un fichier TOML que vous versionnez dans votre dépôt d'infrastructure à côté du reste de la config Perf Sentinel. Un exemple complet est dans `docs/examples/perf-sentinel-org.toml`. Le même fichier est référencé par `[reporting] org_config_path` quand le daemon doit valider les rapports publiables au démarrage.
 
 ## Exemple : brouillon interne (G1)
 
@@ -252,7 +252,7 @@ signataire ne correspond pas au workflow qu'un vérifieur attend, voir
 
 Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour comprendre les commandes qui suivent.
 
-**Pourquoi Sigstore.** Sigstore est une boîte à outils open source hébergée par l'Open Source Security Foundation (OpenSSF), maintenue par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Le choix retenu pour les divulgations perf-sentinel tient à trois propriétés :
+**Pourquoi Sigstore.** Sigstore est une boîte à outils open source hébergée par l'Open Source Security Foundation (OpenSSF), maintenue par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Le choix retenu pour les divulgations Perf Sentinel tient à trois propriétés :
 
 1. **Signature sans clé permanente**, aucune clé privée longue durée à gérer ou risquer de divulguer côté signataire.
 2. **Un journal public où toute altération est détectable** (Rekor), si bien qu'un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
@@ -665,7 +665,7 @@ aurait dû signer le rapport. Trois modes :
 
 ### Provenance build du binaire
 
-`integrity.binary_hash` est le SHA-256 du binaire perf-sentinel
+`integrity.binary_hash` est le SHA-256 du binaire Perf Sentinel
 qui a produit le rapport. Pour une divulgation officielle, la
 valeur devrait correspondre à un binaire de release officiel publié
 sur les GitHub releases du projet. Les opérateurs qui compilent
@@ -681,7 +681,7 @@ binaire de release qui correspond au tag déclaré dans
 
 ## Calculer un content hash canonique avec `hash-bake` (0.7.2+)
 
-Pour les fixtures de test et les workflows de débogage où vous avez besoin d'un rapport dont le `content_hash` correspond déjà à ce que perf-sentinel produirait, utilisez `hash-bake` :
+Pour les fixtures de test et les workflows de débogage où vous avez besoin d'un rapport dont le `content_hash` correspond déjà à ce que Perf Sentinel produirait, utilisez `hash-bake` :
 
 ```bash
 perf-sentinel hash-bake --report input.json --output output.json

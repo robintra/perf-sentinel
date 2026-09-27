@@ -113,7 +113,7 @@ Les horodatages min/max sont trouvés via comparaison de chaînes : `if ts < min
 
 ## Classification sanitizer-aware
 
-Les agents OpenTelemetry et les drivers de base de données remplacent les littéraux SQL par des tokens de placeholder avant que l'instruction n'atteigne perf-sentinel. Le style de placeholder dépend de la stack : les agents JDBC produisent `?`, les drivers PostgreSQL natifs (pgx, asyncpg, sqlx, node-pg) émettent `$1`/`$2` (que `normalize_sql` réécrit en `$?` avec des params vides depuis v0.7.7), les drivers Python DB-API émettent `%s`, les drivers .NET émettent `@p0`/`@Name`, et Oracle/SQLAlchemy émettent `:name`. Dans tous les cas, l'instruction sanitizée arrive dans perf-sentinel avec le placeholder déjà en place et un vecteur `params` vide. La vérification standard `distinct_params >= threshold` voit un seul slice de params vides et ne se déclenche jamais. Le détecteur de redondance regroupe alors tous les spans et les classe à tort en `redundant_sql`.
+Les agents OpenTelemetry et les drivers de base de données remplacent les littéraux SQL par des tokens de placeholder avant que l'instruction n'atteigne Perf Sentinel. Le style de placeholder dépend de la stack : les agents JDBC produisent `?`, les drivers PostgreSQL natifs (pgx, asyncpg, sqlx, node-pg) émettent `$1`/`$2` (que `normalize_sql` réécrit en `$?` avec des params vides depuis v0.7.7), les drivers Python DB-API émettent `%s`, les drivers .NET émettent `@p0`/`@Name`, et Oracle/SQLAlchemy émettent `:name`. Dans tous les cas, l'instruction sanitizée arrive dans Perf Sentinel avec le placeholder déjà en place et un vecteur `params` vide. La vérification standard `distinct_params >= threshold` voit un seul slice de params vides et ne se déclenche jamais. Le détecteur de redondance regroupe alors tous les spans et les classe à tort en `redundant_sql`.
 
 L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétablit la classification correcte via cinq signaux, évalués dans l'ordre :
 
@@ -167,11 +167,11 @@ Le seuil de 2 (minimum pour signaler) attrape tout doublon exact. Contrairement 
 
 ### Paramètres bindés des ORM
 
-Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL où les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car perf-sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
+Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL où les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car Perf Sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
 
 ### Classification consciente du sanitizer (0.5.7+)
 
-La même forme apparaît dès que l'agent OpenTelemetry exécute son sanitizer d'instructions SQL (actif par défaut), puisque les littéraux sont remplacés par `?` avant que le span n'atteigne perf-sentinel. La règle standard de paramètres distincts ne voit qu'un seul groupe de paramètres vides et rejette le groupe, donc le détecteur de redondance classe à tort le N+1 en `redundant_sql` et l'opérateur reçoit la mauvaise recommandation.
+La même forme apparaît dès que l'agent OpenTelemetry exécute son sanitizer d'instructions SQL (actif par défaut), puisque les littéraux sont remplacés par `?` avant que le span n'atteigne Perf Sentinel. La règle standard de paramètres distincts ne voit qu'un seul groupe de paramètres vides et rejette le groupe, donc le détecteur de redondance classe à tort le N+1 en `redundant_sql` et l'opérateur reçoit la mauvaise recommandation.
 
 L'heuristique consciente du sanitizer introduite en 0.5.7 restaure la classification correcte en effectuant une seconde passe sur les mêmes groupes `(event_type, template)` que la première passe a rejetés. Elle ne s'active que lorsque chaque span du groupe a un vecteur `params` vide et un placeholder reconnu dans son template (la signature sur le fil d'un N+1 sanitisé). Depuis v0.7.7 la vérification `template_has_placeholder` reconnaît cinq styles : `?` (JDBC), `$?` (PostgreSQL natif, normalisé depuis `$1`/`$2`), `%s` (Python DB-API), `@alpha` (.NET, excluant `@@` variables système), `:alpha` (Oracle/SQLAlchemy, excluant `::` casts). Les requêtes sans aucun littéral, comme `SELECT NOW()`, n'ont aucun placeholder et n'activent pas l'heuristique. Elle évalue ensuite deux signaux indépendants :
 
@@ -424,7 +424,7 @@ Les sept détecteurs s'exécutent séquentiellement sur chaque trace. `append(&m
 
 ## Corrélation temporelle cross-trace (mode daemon)
 
-En mode daemon (`perf-sentinel watch`), perf-sentinel voit les findings de toutes les traces au fil du temps. Le `CrossTraceCorrelator` détecte les co-occurrences temporelles récurrentes entre findings de services différents : "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
+En mode daemon (`perf-sentinel watch`), Perf Sentinel voit les findings de toutes les traces au fil du temps. Le `CrossTraceCorrelator` détecte les co-occurrences temporelles récurrentes entre findings de services différents : "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
 
 ### Deux horloges
 

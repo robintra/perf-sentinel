@@ -11,7 +11,7 @@ Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into 
 
 The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that builds an AST. We chose a homemade tokenizer instead:
 
-- **Binary size:** sqlparser adds ~300KB to the release binary. perf-sentinel targets < 15 MB total.
+- **Binary size:** sqlparser adds ~300KB to the release binary. Perf Sentinel targets < 15 MB total.
 - **Dependency weight:** sqlparser pulls in additional crates and increases compile time.
 - **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals and never needs to understand query structure.
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
@@ -19,7 +19,7 @@ The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that buil
 
 The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings and `CALL` statements.
 
-This "never understands query structure" property is sufficient for every stage of the pipeline. Every detector (`n_plus_one`, `redundant`, `fanout`, …) and the `sanitizer_aware` classifier reason over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
+This "never understands query structure" property is sufficient for every stage of the pipeline. Every detector (`n_plus_one`, `redundant`, `fanout`, …) and the `sanitizer_aware` classifier reason over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if Perf Sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
 
 The tokenizer is also *total*. It always emits a best-effort template, even on truncated or unknown-dialect SQL (see the unterminated-literal handling), whereas a real parser rejects input it cannot parse. Since trace SQL is whatever a driver happened to log, a strict parser would need this tokenizer as a fallback anyway.
 

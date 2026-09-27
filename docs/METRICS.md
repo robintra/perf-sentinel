@@ -1,6 +1,6 @@
-# perf-sentinel exposed metrics
+# Perf Sentinel exposed metrics
 
-This document lists all metrics exposed by the perf-sentinel daemon on
+This document lists all metrics exposed by the Perf Sentinel daemon on
 `/metrics` (Prometheus text format). The endpoint serves both
 `text/plain; version=0.0.4` (legacy Prometheus) and
 `application/openmetrics-text; version=1.0.0` (OpenMetrics) via content
@@ -18,14 +18,14 @@ want the Grafana click-through path.
 
 ## Background: Prometheus and OpenMetrics primer
 
-If you have not used Prometheus before, this short primer is a prerequisite for the rest of this document. It assumes you know what HTTP is and what a metric is. It does not assume familiarity with the Prometheus query language or operator. Other perf-sentinel docs cross-reference this primer for Prometheus concepts, see [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability) and [docs/QUERY-API.md](QUERY-API.md).
+If you have not used Prometheus before, this short primer is a prerequisite for the rest of this document. It assumes you know what HTTP is and what a metric is. It does not assume familiarity with the Prometheus query language or operator. Other Perf Sentinel docs cross-reference this primer for Prometheus concepts, see [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability) and [docs/QUERY-API.md](QUERY-API.md).
 
-**What is Prometheus.** Prometheus is a Cloud Native Computing Foundation (CNCF) project, the most widely deployed open-source metrics system in the cloud-native ecosystem. It works by *scraping*: every 15-60 seconds the Prometheus server makes an HTTP GET to each target's `/metrics` endpoint, parses the response, and stores the values as time series. perf-sentinel exposes such a `/metrics` endpoint when running as a daemon. Operators who already run Prometheus add perf-sentinel to their `scrape_configs`, and the daemon's metrics show up alongside the rest of their infrastructure.
+**What is Prometheus.** Prometheus is a Cloud Native Computing Foundation (CNCF) project, the most widely deployed open-source metrics system in the cloud-native ecosystem. It works by *scraping*: every 15-60 seconds the Prometheus server makes an HTTP GET to each target's `/metrics` endpoint, parses the response, and stores the values as time series. Perf Sentinel exposes such a `/metrics` endpoint when running as a daemon. Operators who already run Prometheus add Perf Sentinel to their `scrape_configs`, and the daemon's metrics show up alongside the rest of their infrastructure.
 
-**Two text formats served by perf-sentinel.** Content negotiation selects which one the scraper gets.
+**Two text formats served by Perf Sentinel.** Content negotiation selects which one the scraper gets.
 
 - `text/plain; version=0.0.4` is the original Prometheus exposition format. Stable since 2014.
-- `application/openmetrics-text; version=1.0.0` is **OpenMetrics**, the standardised evolution of the Prometheus format published by the CNCF in 2020. It is mostly a superset, with two practical additions perf-sentinel uses: `# UNIT` headers on each metric, and **exemplars** (per-point trace references that let a Grafana panel jump from a metric spike to the exact trace that produced it).
+- `application/openmetrics-text; version=1.0.0` is **OpenMetrics**, the standardised evolution of the Prometheus format published by the CNCF in 2020. It is mostly a superset, with two practical additions Perf Sentinel uses: `# UNIT` headers on each metric, and **exemplars** (per-point trace references that let a Grafana panel jump from a metric spike to the exact trace that produced it).
 
 **Metric types.** Every metric below carries one of three types.
 
@@ -85,7 +85,7 @@ sibling Pod cannot read the daemon's process state freely.
 `reason` label values:
 
 - `unsupported_media_type` (HTTP only): `Content-Type` is not
-  `application/x-protobuf`. perf-sentinel does not implement the
+  `application/x-protobuf`. Perf Sentinel does not implement the
   JSON-encoded OTLP variant.
 - `parse_error` (HTTP only): protobuf decode failed.
 - `channel_full` (HTTP and gRPC): the event channel is saturated or

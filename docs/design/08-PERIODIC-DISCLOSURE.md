@@ -161,7 +161,7 @@ Two new config sections in `.perf-sentinel.toml`:
 - `[reporting]` carries `intent`, `confidentiality_level`, `org_config_path`, `disclose_output_path`, `disclose_period`. Validated at config load.
 - `[daemon.archive]` carries `path`, `max_size_mb` (default 100), `max_files` (default 12). Validated at config load and at archive open.
 
-Both sections are optional. Their absence leaves perf-sentinel in its prior behaviour: NDJSON to stdout, no archive, no reporting gate.
+Both sections are optional. Their absence leaves Perf Sentinel in its prior behaviour: NDJSON to stdout, no archive, no reporting gate.
 
 ## v1.0 limitations carried as disclaimers
 
@@ -204,7 +204,7 @@ Daemon archiving is **traffic-gated**, not timer-based. `process_traces` returns
 
 ### What it does and does not address
 
-This is the in-binary signal closest to the self-disclosure escape hatch "just stop running perf-sentinel for part of the period". Partial shutdown now shows up as a low `temporal_coverage` and a large `largest_gap_days`. It does **not** address total non-participation (never running the tool leaves no report) nor a dishonest denominator (`total_requests_in_period` set low), both of which are irreducible without external infrastructure, see Future revisions. Two cheap consistency checks ship alongside: `days_covered` must equal `(to_date - from_date) + 1` (hard reject, only a hand-edited file can fail it) and `requests_measured` must not exceed an operator-declared `total_requests_in_period` (hard reject).
+This is the in-binary signal closest to the self-disclosure escape hatch "just stop running Perf Sentinel for part of the period". Partial shutdown now shows up as a low `temporal_coverage` and a large `largest_gap_days`. It does **not** address total non-participation (never running the tool leaves no report) nor a dishonest denominator (`total_requests_in_period` set low), both of which are irreducible without external infrastructure, see Future revisions. Two cheap consistency checks ship alongside: `days_covered` must equal `(to_date - from_date) + 1` (hard reject, only a hand-edited file can fail it) and `requests_measured` must not exceed an operator-declared `total_requests_in_period` (hard reject).
 
 ## Standard crosswalk and RGESN criteria (v1.3)
 

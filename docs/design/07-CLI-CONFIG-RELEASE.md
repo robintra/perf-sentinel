@@ -401,11 +401,11 @@ Removes debug symbols from the release binary. Reduces size from ~15MB to ~8MB. 
 
 ### `panic = "abort"`
 
-Eliminates the unwinding machinery (~200KB binary savings). Since perf-sentinel is a standalone tool (not a library consumed by Rust code that catches panics with `catch_unwind`), abort-on-panic is safe and reduces both binary size and runtime overhead.
+Eliminates the unwinding machinery (~200KB binary savings). Since Perf Sentinel is a standalone tool (not a library consumed by Rust code that catches panics with `catch_unwind`), abort-on-panic is safe and reduces both binary size and runtime overhead.
 
 ### `opt-level = 3`
 
-Maximum optimization: aggressive inlining, loop vectorization and dead code elimination. perf-sentinel's hot path is data-processing (string matching, HashMap operations, iterator chains) that benefits from inlining. The [Cargo documentation](https://doc.rust-lang.org/cargo/reference/profiles.html) notes that the difference between `opt-level = 2` and `3` is primarily more aggressive inlining, which is what a pipeline tool needs.
+Maximum optimization: aggressive inlining, loop vectorization and dead code elimination. Perf Sentinel's hot path is data-processing (string matching, HashMap operations, iterator chains) that benefits from inlining. The [Cargo documentation](https://doc.rust-lang.org/cargo/reference/profiles.html) notes that the difference between `opt-level = 2` and `3` is primarily more aggressive inlining, which is what a pipeline tool needs.
 
 The alternative `opt-level = "s"` (optimize for size) was considered but rejected: the binary size difference is marginal (~200KB), while the throughput difference can reach 10-30% on data-processing workloads.
 
@@ -440,7 +440,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 Consequences:
 
-- **On musl targets** (Linux release artifacts): mimalloc replaces the system allocator automatically at link time. The v0.4.7 decision benches showed it closing the musl gap and beating the glibc baseline by roughly 30% (and the macOS Darwin allocator by ~2x on the microbench), driven by mimalloc's segment-and-page layout on the small-to-medium allocations that dominate perf-sentinel's hot path. Re-measured on 0.6.1 and 0.8.0 with the same conclusion. The per-campaign tables live in git history.
+- **On musl targets** (Linux release artifacts): mimalloc replaces the system allocator automatically at link time. The v0.4.7 decision benches showed it closing the musl gap and beating the glibc baseline by roughly 30% (and the macOS Darwin allocator by ~2x on the microbench), driven by mimalloc's segment-and-page layout on the small-to-medium allocations that dominate Perf Sentinel's hot path. Re-measured on 0.6.1 and 0.8.0 with the same conclusion. The per-campaign tables live in git history.
 - **On macOS, Windows, and any future `*-linux-gnu` target**: the `cfg(target_env = "musl")` guard evaluates to false, `mimalloc` is not even compiled, the system allocator stays in place. No surface-area change for those platforms.
 - **RSS cost**: about +21% on the bench workload. Expected tradeoff for a faster allocator that preallocates arenas. The resulting RSS stays an order of magnitude below the documented 200 MB daemon ceiling and well within the K8s requests/limits range recommended in the Helm values.
 
@@ -451,7 +451,7 @@ The feature-flag-less, target-gated form was chosen over an opt-in cargo feature
 - *In-memory microbench*: `perf-sentinel bench` times `pipeline::analyze` (pure function, no I/O, no async dispatch). The right number for allocator and pipeline regression tracking, not for capacity planning.
 - *End-to-end through daemon*: `perf-sentinel watch` fed via the `[daemon] json_socket` NDJSON path, throughput measured send-side, correctness validated by polling `/api/status` until `active_traces` drains to 0. This JSON-socket path is itself an upper bound for the real OTLP ingest (protobuf decode is heavier than the serde JSON parse).
 
-When citing perf-sentinel throughput externally, prefer the end-to-end number (or both, with the conditions). Historical campaign tables (v0.4.7 allocator decision, v0.6.1 re-measurement, v0.8.0 toolchain check) were removed from this page and live in git history. Their shared conclusion stands: the allocator decision is stable across releases and the `pipeline::analyze` hot path carried no regression between 0.4.7 and 0.8.0.
+When citing Perf Sentinel throughput externally, prefer the end-to-end number (or both, with the conditions). Historical campaign tables (v0.4.7 allocator decision, v0.6.1 re-measurement, v0.8.0 toolchain check) were removed from this page and live in git history. Their shared conclusion stands: the allocator decision is stable across releases and the `pipeline::analyze` hot path carried no regression between 0.4.7 and 0.8.0.
 
 #### v0.8.7 measurement campaign
 

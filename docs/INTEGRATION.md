@@ -1,6 +1,6 @@
 # Integration guide
 
-perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318). This guide walks you from zero to your first finding for each deployment topology.
+Perf Sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318). This guide walks you from zero to your first finding for each deployment topology.
 
 > **See also.** New to OpenTelemetry? The [OpenTelemetry primer](INSTRUMENTATION.md#background-opentelemetry-primer) defines OTLP, the Collector, spans and traces in a few paragraphs. Read it first if any of those terms feels unfamiliar.
 
@@ -36,7 +36,7 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318)
 
 ## Quick start: CI batch analysis
 
-Run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker, just a binary that reads a trace file and exits with code 1 when the quality gate fails.
+Run Perf Sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker, just a binary that reads a trace file and exits with code 1 when the quality gate fails.
 
 ### Install
 
@@ -72,7 +72,7 @@ CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI
 
 ### Collect traces
 
-Export traces from your integration tests. perf-sentinel auto-detects native JSON, OTLP JSON, Jaeger, and Zipkin v2 formats.
+Export traces from your integration tests. Perf Sentinel auto-detects native JSON, OTLP JSON, Jaeger, and Zipkin v2 formats.
 
 ### Analyze
 
@@ -121,7 +121,7 @@ The HTML dashboard is documented in [`HTML-REPORT.md`](./HTML-REPORT.md), includ
 
 Production deployment where services send traces to an OpenTelemetry Collector. Zero code changes, YAML configuration only.
 
-### Start perf-sentinel + collector
+### Start Perf Sentinel + collector
 
 ```bash
 # Fetch the example compose file (no checkout needed), then start it
@@ -131,7 +131,7 @@ docker compose up -d
 
 The raw URL tracks `main`. Replace `main` with a release tag (e.g. `v0.8.13`) to pin a specific version.
 
-Starts an OTel Collector on 4317 (gRPC) + 4318 (HTTP) and perf-sentinel in watch mode behind it.
+Starts an OTel Collector on 4317 (gRPC) + 4318 (HTTP) and Perf Sentinel in watch mode behind it.
 
 ### Point services at the collector
 
@@ -140,7 +140,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
-If services already export to an existing collector, add perf-sentinel as a second exporter:
+If services already export to an existing collector, add Perf Sentinel as a second exporter:
 
 ```yaml
 exporters:
@@ -181,16 +181,16 @@ Key metrics: `perf_sentinel_findings_total{type, severity, service, grouping}`, 
 
 ## Coming from Datadog (dd-trace, no OpenTelemetry)
 
-perf-sentinel ingests OTLP, not Datadog's native APM format, and it ships no Datadog adapter. If your services are instrumented with **dd-trace** (Datadog's proprietary tracer) and you have no OpenTelemetry instrumentation, bridge them with an OpenTelemetry Collector running the [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). The receiver implements the Datadog Agent trace intake API on port 8126, converts dd-trace spans to OTLP, and an `otlp` exporter forwards a copy to perf-sentinel. No application code changes are required: you repoint dd-trace at the Collector, and you can keep sending to Datadog in parallel.
+Perf Sentinel ingests OTLP, not Datadog's native APM format, and it ships no Datadog adapter. If your services are instrumented with **dd-trace** (Datadog's proprietary tracer) and you have no OpenTelemetry instrumentation, bridge them with an OpenTelemetry Collector running the [`datadogreceiver`](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/datadogreceiver/README.md). The receiver implements the Datadog Agent trace intake API on port 8126, converts dd-trace spans to OTLP, and an `otlp` exporter forwards a copy to Perf Sentinel. No application code changes are required: you repoint dd-trace at the Collector, and you can keep sending to Datadog in parallel.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge_dark.svg">
   <img alt="dd-trace bridge topology: the Collector datadogreceiver forwards OTLP to the watch daemon, to a Tempo/Jaeger backend pulled in batch by tempo/jaeger-query, or to a file exporter whose OTLP JSON dump feeds analyze --input." src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/dd-trace-bridge.svg">
 </picture>
 
-perf-sentinel reads the Datadog resource (`dd.span.Resource`, where dd-trace leaves the obfuscated SQL) natively, so SQL detection works as long as each span keeps a database signal: the stable `db.system.name` (what current receiver versions emit), the older `db.system`, or the dd-trace `db.type` tag. No attribute remapping in the Collector is required. If a Collector version strips all of them, add a `transform` processor that restores one so the gate can fire.
+Perf Sentinel reads the Datadog resource (`dd.span.Resource`, where dd-trace leaves the obfuscated SQL) natively, so SQL detection works as long as each span keeps a database signal: the stable `db.system.name` (what current receiver versions emit), the older `db.system`, or the dd-trace `db.type` tag. No attribute remapping in the Collector is required. If a Collector version strips all of them, add a `transform` processor that restores one so the gate can fire.
 
-**Caveat on N+1 vs redundant queries.** dd-trace pre-obfuscates SQL (literals are already `?`), so the per-query parameters that distinguish an N+1 from a legitimately repeated query are gone before perf-sentinel sees them. Under the default `auto` detection mode a real N+1 with uniform query timing may surface as `redundant_sql` rather than `n_plus_one_sql`. Set `[detection] sanitizer_aware_classification = "strict"` to recover high-occurrence cases (3 times the configured `n_plus_one_threshold`, so 15 or more identical queries at the default of 5). Waste and carbon scoring are the same for both finding types.
+**Caveat on N+1 vs redundant queries.** dd-trace pre-obfuscates SQL (literals are already `?`), so the per-query parameters that distinguish an N+1 from a legitimately repeated query are gone before Perf Sentinel sees them. Under the default `auto` detection mode a real N+1 with uniform query timing may surface as `redundant_sql` rather than `n_plus_one_sql`. Set `[detection] sanitizer_aware_classification = "strict"` to recover high-occurrence cases (3 times the configured `n_plus_one_threshold`, so 15 or more identical queries at the default of 5). Waste and carbon scoring are the same for both finding types.
 
 **PHP (Laravel, Symfony) via dd-trace-php.** The same obfuscation caveat applies: a real Laravel or Symfony N+1 can surface as `redundant_sql` under `auto`, so use `sanitizer_aware_classification = "strict"`. The bridge also drops framework signal: the `datadogreceiver` sets a fixed `Datadog` instrumentation scope and maps no `code.*` attributes, so dd-trace-php findings get no framework-aware `suggested_fix` (they fall to `php_generic` or stay unenriched). Laravel/Eloquent and Symfony/Doctrine specific fixes require the native OpenTelemetry PHP instrumentation (`io.opentelemetry.contrib.php.*` scopes), see [INSTRUMENTATION.md](INSTRUMENTATION.md).
 
@@ -198,7 +198,7 @@ Datadog's "OpenTelemetry compliant" wording is often misread. It usually refers 
 
 > **Stability.** The `datadogreceiver` traces support is **alpha** in opentelemetry-collector-contrib (as of 2026). It is suitable for evaluation and proof-of-concept runs. Monitor it if you keep it in front of production permanently.
 
-Collector config (dd-trace in, OTLP out to perf-sentinel):
+Collector config (dd-trace in, OTLP out to Perf Sentinel):
 
 ```yaml
 receivers:
@@ -225,7 +225,7 @@ Point dd-trace at the Collector instead of the Datadog Agent:
 DD_TRACE_AGENT_URL=http://otel-collector:8126
 ```
 
-perf-sentinel then receives a copy of every trace and findings stream as NDJSON, exactly as in the central collector topology above.
+Perf Sentinel then receives a copy of every trace and findings stream as NDJSON, exactly as in the central collector topology above.
 
 **Batch instead of the daemon.** The Collector path above streams into the `watch` daemon. For a one-shot `analyze` run instead, the simplest route since 0.9.5 is the Collector [`file` exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/exporter/fileexporter/README.md): its OTLP JSON output (single object or NDJSON, one request per line) is auto-detected by `analyze --input` like any other trace file. Alternatively, route the bridge to a Jaeger or Tempo backend and pull a batch from it:
 
@@ -240,7 +240,7 @@ A trace exported as Jaeger JSON from the Jaeger UI ("Download JSON") works with 
 
 ## Quick start: sidecar
 
-Debug a single service in dev/staging. perf-sentinel runs alongside the service, sharing its network namespace.
+Debug a single service in dev/staging. Perf Sentinel runs alongside the service, sharing its network namespace.
 
 ```bash
 # Fetch the example compose file (no checkout needed), then start it
@@ -294,18 +294,18 @@ Findings stream to stdout as NDJSON, metrics at `http://localhost:4318/metrics`.
 
 ## Ingestion formats
 
-perf-sentinel auto-detects the input format when using `perf-sentinel analyze --input`:
+Perf Sentinel auto-detects the input format when using `perf-sentinel analyze --input`:
 
 | Format                          | Detection                                             | Example                            |
 |---------------------------------|-------------------------------------------------------|------------------------------------|
-| **Native** (perf-sentinel JSON) | Array of objects with `"type"` field                  | Default format                     |
+| **Native** (Perf Sentinel JSON) | Array of objects with `"type"` field                  | Default format                     |
 | **OTLP JSON**                   | Object with `"resourceSpans"` key                     | Collector `file` exporter dump     |
 | **Jaeger JSON**                 | Object with `"data"` key containing `"spans"`         | Exported from Jaeger UI            |
 | **Zipkin JSON v2**              | Array of objects with `"traceId"` + `"localEndpoint"` | Exported from Zipkin UI            |
 
 No `--format` flag is needed for input: the format is detected automatically from the first few bytes of the file.
 
-**OTLP JSON in batch (0.9.5+).** `analyze --input` accepts the OTLP/JSON wire shape (`ExportTraceServiceRequest`, camelCase keys, hex trace/span ids), both as a single object and as the Collector `file` exporter's NDJSON (one request per line). OTLP also reaches perf-sentinel live through the daemon listeners (`watch`) and indirectly through the `tempo` and `jaeger-query` subcommands. If you are on dd-trace, see [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry).
+**OTLP JSON in batch (0.9.5+).** `analyze --input` accepts the OTLP/JSON wire shape (`ExportTraceServiceRequest`, camelCase keys, hex trace/span ids), both as a single object and as the Collector `file` exporter's NDJSON (one request per line). OTLP also reaches Perf Sentinel live through the daemon listeners (`watch`) and indirectly through the `tempo` and `jaeger-query` subcommands. If you are on dd-trace, see [Coming from Datadog](#coming-from-datadog-dd-trace-no-opentelemetry).
 
 **Database statistics inputs.** The `pg-stat` and `mysql-stat` subcommands read CSV or JSON exports of `pg_stat_statements` and `performance_schema.events_statements_summary_by_digest` respectively, with the same first-byte auto-detection (`[` or `{` means JSON, anything else CSV). Column names are matched case-insensitively. MySQL timer columns (picoseconds) convert to milliseconds at parse time. Export the MySQL view with `mysqlsh --result-format=csv` or any client CSV/JSON export. `SELECT ... INTO OUTFILE` produces backslash-escaped TSV, which is not supported.
 
@@ -329,7 +329,7 @@ This produces a tree view of the trace with findings annotated inline. Use `--fo
 
 ## SARIF export
 
-**What is SARIF.** The Static Analysis Results Interchange Format is an OASIS-standard JSON schema (v2.1.0 since 2020) that static-analysis tools use to publish their findings in a tool-agnostic shape. Both GitHub Advanced Security and GitLab Ultimate accept SARIF uploads and surface each finding inline on pull requests, the same way ESLint or Semgrep results appear today. perf-sentinel emits SARIF so anti-pattern findings show up alongside the security findings in the same code-scanning dashboard. [Spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html).
+**What is SARIF.** The Static Analysis Results Interchange Format is an OASIS-standard JSON schema (v2.1.0 since 2020) that static-analysis tools use to publish their findings in a tool-agnostic shape. Both GitHub Advanced Security and GitLab Ultimate accept SARIF uploads and surface each finding inline on pull requests, the same way ESLint or Semgrep results appear today. Perf Sentinel emits SARIF so anti-pattern findings show up alongside the security findings in the same code-scanning dashboard. [Spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html).
 
 For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
 
@@ -341,7 +341,7 @@ Upload the SARIF file to your code scanning dashboard. Each finding maps to a SA
 
 ## Finding confidence field
 
-Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. The field is designed for downstream consumers such as perf-lint, a planned companion IDE integration that will boost or reduce the severity shown in the IDE depending on how much trust to place in the finding. Any custom tooling that consumes perf-sentinel's JSON or SARIF output can use the same field the same way.
+Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. The field is designed for downstream consumers such as perf-lint, a planned companion IDE integration that will boost or reduce the severity shown in the IDE depending on how much trust to place in the finding. Any custom tooling that consumes Perf Sentinel's JSON or SARIF output can use the same field the same way.
 
 Values:
 
@@ -415,7 +415,7 @@ See [`docs/QUERY-API.md`](./QUERY-API.md) for the full per-endpoint reference, r
 
 ### Multi-region scoring
 
-If your services span multiple cloud regions, perf-sentinel can apply per-region carbon intensity coefficients. The primary mechanism is the OTel `cloud.region` resource attribute, which most cloud-hosted OTel SDKs emit automatically. When this attribute is absent (e.g., Jaeger/Zipkin ingestion), use the `[green.service_regions]` table to map services to regions:
+If your services span multiple cloud regions, Perf Sentinel can apply per-region carbon intensity coefficients. The primary mechanism is the OTel `cloud.region` resource attribute, which most cloud-hosted OTel SDKs emit automatically. When this attribute is absent (e.g., Jaeger/Zipkin ingestion), use the `[green.service_regions]` table to map services to regions:
 
 ```toml
 [green]
@@ -431,7 +431,7 @@ The region resolution chain is: span `cloud.region` attribute > `service_regions
 
 ### Scaphandre integration (on-premise / bare metal)
 
-For on-premise or bare-metal servers with Intel RAPL support, perf-sentinel can scrape [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power metrics to replace the I/O proxy model with measured energy data.
+For on-premise or bare-metal servers with Intel RAPL support, Perf Sentinel can scrape [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power metrics to replace the I/O proxy model with measured energy data.
 
 **Prerequisites:**
 - Scaphandre installed and running on each host, exposing a Prometheus `/metrics` endpoint.
@@ -446,7 +446,7 @@ scrape_interval_secs = 5
 process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
 ```
 
-The `process_map` maps perf-sentinel service names to the `exe` label in Scaphandre's `scaph_process_power_consumption_microwatts` metric. The daemon scrapes this endpoint every `scrape_interval_secs` and computes a per-service energy-per-op coefficient using the formula: `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
+The `process_map` maps Perf Sentinel service names to the `exe` label in Scaphandre's `scaph_process_power_consumption_microwatts` metric. The daemon scrapes this endpoint every `scrape_interval_secs` and computes a per-service energy-per-op coefficient using the formula: `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
 
 Services absent from `process_map`, and every service when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre. The `analyze` batch command always uses the proxy model.
 
@@ -469,11 +469,11 @@ Sending an auth header over plain `http://` emits a `tracing::warn!` once at scr
 
 ### Cloud-native energy estimation (AWS / GCP / Azure)
 
-For cloud VMs that do not expose RAPL (most non-bare-metal instances), perf-sentinel can estimate per-service energy using CPU utilization metrics from a Prometheus endpoint and the SPECpower model.
+For cloud VMs that do not expose RAPL (most non-bare-metal instances), Perf Sentinel can estimate per-service energy using CPU utilization metrics from a Prometheus endpoint and the SPECpower model.
 
 **Prerequisites:**
 - A Prometheus-compatible endpoint with CPU utilization metrics (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter or node_exporter).
-- perf-sentinel does NOT query cloud provider APIs directly.
+- Perf Sentinel does NOT query cloud provider APIs directly.
 
 **Configuration:**
 
@@ -525,7 +525,7 @@ When neither Scaphandre nor cloud energy are available but you have reference en
   <img alt="Calibration workflow" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/calibration-workflow.svg">
 </picture>
 
-**1. Measure.** Run a reference workload and collect both traces (standard perf-sentinel JSON format) and energy measurements (CSV with `timestamp,service,power_watts` or `timestamp,service,energy_kwh` columns, auto-detected from the header).
+**1. Measure.** Run a reference workload and collect both traces (standard Perf Sentinel JSON format) and energy measurements (CSV with `timestamp,service,power_watts` or `timestamp,service,energy_kwh` columns, auto-detected from the header).
 
 **2. Calibrate.** Run `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. The subcommand correlates I/O ops with energy readings per service and time window, computes `factor = measured_per_op / default_proxy` and writes a TOML file. Factors > 10x or < 0.1x emit warnings (likely measurement error).
 
@@ -574,7 +574,7 @@ A 404 from a wrong endpoint surfaces as `Tempo returned HTTP 404 for https://...
 
 ### Alternative: Tempo generic forwarding
 
-Instead of querying Tempo, you can configure Tempo to forward a copy of traces to perf-sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). It works in real-time with `perf-sentinel watch`.
+Instead of querying Tempo, you can configure Tempo to forward a copy of traces to Perf Sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). It works in real-time with `perf-sentinel watch`.
 
 ## Jaeger query API integration (Jaeger and Victoria Traces)
 
@@ -602,7 +602,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Requirements
 
-- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds perf-sentinel sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it would run unbounded from the Unix epoch.
+- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds Perf Sentinel sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it would run unbounded from the Unix epoch.
 - The `--endpoint` flag points to the query API base URL, the part the CLI appends `/api/traces` to. Jaeger upstream serves it at the root on port 16686. Victoria Traces serves it under `/select/jaeger` on port 10428, so the flag needs that prefix.
 - Traces are fetched as JSON, parsed through the same `{"data": [...]}` path as the file-mode Jaeger ingestion, then run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
 - `--lookback` accepts the same `1h / 30m / 7d / 2h30m` format as the `tempo` subcommand.
@@ -611,8 +611,8 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Caveats
 
-- Backend search is bounded by the backend's retention (Jaeger defaults to 48h, Victoria Traces is configurable). A `--lookback` or a `--from`/`--to` window larger than retention silently trims to the retained window. perf-sentinel does not know a backend's retention, so it cannot warn you before the request.
-- A `limit=N` search returns up to N full traces in a single response body. perf-sentinel caps the response at 256 MiB, which covers typical production workloads but might need adjusting if you routinely search hundreds of large traces at once. Lower `--max-traces` if you hit the body limit. `--max-traces` is itself bounded to 10 000 by the CLI.
+- Backend search is bounded by the backend's retention (Jaeger defaults to 48h, Victoria Traces is configurable). A `--lookback` or a `--from`/`--to` window larger than retention silently trims to the retained window. Perf Sentinel does not know a backend's retention, so it cannot warn you before the request.
+- A `limit=N` search returns up to N full traces in a single response body. Perf Sentinel caps the response at 256 MiB, which covers typical production workloads but might need adjusting if you routinely search hundreds of large traces at once. Lower `--max-traces` if you hit the body limit. `--max-traces` is itself bounded to 10 000 by the CLI.
 - **Auth header via `--auth-header`.** Pass a single curl-style header line (`"Name: Value"`) to attach it to every backend request. Handles Bearer tokens, Basic Auth, or custom API-key headers. The parsed value is marked `sensitive` so it never shows in logs. See `docs/LIMITATIONS.md` for the full usage notes (one header max per invocation, value visible in `ps`). Since 0.5.27, picking the flag form emits a `WARN`-level event at startup nudging operators toward `--auth-header-env <NAME>` (same pattern as `pg-stat`). The env-var form keeps the value out of the process argument list and the shell history.
 - **`--endpoint` is trusted input.** The validator rejects non-http schemes and credential-embedded URLs, but it accepts loopback, RFC 1918, and link-local targets. In CI contexts where the endpoint value could come from an external PR, sanitize it upstream before invoking the subcommand.
 
@@ -622,16 +622,16 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### No events received (`events_processed_total = 0`)
 
-1. **Check connectivity.** From inside the container: `curl http://host.docker.internal:4318/metrics`. If it fails, perf-sentinel is not reachable.
-2. **Check bind address.** perf-sentinel defaults to `127.0.0.1`. For Docker access, configure `listen_address = "0.0.0.0"` in `.perf-sentinel.toml` or run natively on the host.
+1. **Check connectivity.** From inside the container: `curl http://host.docker.internal:4318/metrics`. If it fails, Perf Sentinel is not reachable.
+2. **Check bind address.** Perf Sentinel defaults to `127.0.0.1`. For Docker access, configure `listen_address = "0.0.0.0"` in `.perf-sentinel.toml` or run natively on the host.
 3. **Check protocol.** The Java Agent defaults to gRPC (port 4317). Ensure `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` matches the port you are targeting.
 
 ### Events received but no findings
 
-1. **Check span attributes.** perf-sentinel only processes spans with `db.statement`/`db.query.text` (SQL) or `http.url`/`url.full` (HTTP). Other spans are skipped.
+1. **Check span attributes.** Perf Sentinel only processes spans with `db.statement`/`db.query.text` (SQL) or `http.url`/`url.full` (HTTP). Other spans are skipped.
 2. **Check the span kind.** Since 0.11.2 a `SERVER` span carrying an HTTP URL is inbound work, not an outbound call, so it produces no HTTP finding even though the attribute is present. Fleets on legacy semantic conventions, which set `http.url` on the handler span too, lose the calls they used to see this way. An outbound call shows up as a `CLIENT` span on the caller's side.
 3. **Check detection thresholds.** The default N+1 threshold is 5 occurrences of the same normalized template within the same trace. If your trace has fewer than 5 repeated calls, no finding is generated.
-4. **Check URL normalization.** perf-sentinel replaces numeric path segments with `{id}` and UUIDs with `{uuid}`. If your repeated URLs differ only by a string identifier (e.g., `/account/alice`, `/account/bob`), they will not be grouped into the same template.
+4. **Check URL normalization.** Perf Sentinel replaces numeric path segments with `{id}` and UUIDs with `{uuid}`. If your repeated URLs differ only by a string identifier (e.g., `/account/alice`, `/account/bob`), they will not be grouped into the same template.
 
 ### AOT cache error with Java Agent
 

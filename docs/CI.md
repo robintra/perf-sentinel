@@ -1,4 +1,4 @@
-# perf-sentinel CI guide
+# Perf Sentinel CI guide
 
 CI-side integration: run perf-sentinel in batch mode against a trace fixture produced by your integration test stage, and surface the findings on every pull request. For topology overviews see [`INTEGRATION.md`](./INTEGRATION.md), for application-side instrumentation see [`INSTRUMENTATION.md`](./INSTRUMENTATION.md).
 
@@ -63,8 +63,8 @@ The batch subcommands (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, `pg
   so a real regression on a broken pipe or a full disk still exits `1`,
   never the tolerable `75`. Every other batch command has no `--ci` flag
   and no quality gate, so none of them ever emits `1`.
-- `2`: a CLI usage error. Emitted both by `clap` for parse-level mistakes (a missing required flag, e.g. `mysql-stat` with no `--input`) and by perf-sentinel's own post-parse validation for unsupported flag combinations `clap` cannot express (e.g. `report --pg-stat-top` without `--pg-stat`, or `bench --iterations 0`). A usage error is a permanent invocation mistake, so it always blocks and stays out of the tolerable `75` bucket.
-- `75`: tooling/internal error (aligned with `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), the sentinel value the GitLab CI template already uses at the shell level). Covers every runtime failure that reaches perf-sentinel's own code and is neither a usage error nor a quality-gate breach: a missing or unreadable `--input`/`--config`/acknowledgments/baseline file, malformed trace/config/acknowledgments data, a `tempo`/`jaeger-query` fetch failure, an `explain` trace-not-found, or a failure writing the SARIF/JSON/HTML output. Never emitted for a threshold breach, and never means the analysis ran and disagreed with your config.
+- `2`: a CLI usage error. Emitted both by `clap` for parse-level mistakes (a missing required flag, e.g. `mysql-stat` with no `--input`) and by Perf Sentinel's own post-parse validation for unsupported flag combinations `clap` cannot express (e.g. `report --pg-stat-top` without `--pg-stat`, or `bench --iterations 0`). A usage error is a permanent invocation mistake, so it always blocks and stays out of the tolerable `75` bucket.
+- `75`: tooling/internal error (aligned with `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), the sentinel value the GitLab CI template already uses at the shell level). Covers every runtime failure that reaches Perf Sentinel's own code and is neither a usage error nor a quality-gate breach: a missing or unreadable `--input`/`--config`/acknowledgments/baseline file, malformed trace/config/acknowledgments data, a `tempo`/`jaeger-query` fetch failure, an `explain` trace-not-found, or a failure writing the SARIF/JSON/HTML output. Never emitted for a threshold breach, and never means the analysis ran and disagreed with your config.
 
 The two failure codes above the `clap` floor are distinct so a CI pipeline can branch on the exact code instead of inferring the cause from file existence or step outcome. See [Tooling failures vs quality-gate breaches](#tooling-failures-vs-quality-gate-breaches) below for how each of the three official templates uses this. Before 0.9.17, tooling failures exited `1` too. Pipelines that only check for a non-zero exit code are unaffected.
 
@@ -93,7 +93,7 @@ All three templates run `perf-sentinel analyze --ci` as the gating step. The `--
 | Trigger       | Behavior                                         | Rationale                                                                        |
 |---------------|--------------------------------------------------|----------------------------------------------------------------------------------|
 | Pull request  | Gate blocks (red build)                          | Author is still in context, cost of correction is lowest                         |
-| Push to trunk | Gate is informational only, SARIF still uploaded | A merged commit should not be held up by perf-sentinel between merge and release |
+| Push to trunk | Gate is informational only, SARIF still uploaded | A merged commit should not be held up by Perf Sentinel between merge and release |
 
 This split avoids the common failure mode where PR-gates that also enforce on trunk leave main red, the team works around it, and the tool gets disabled.
 
@@ -107,7 +107,7 @@ Per-provider PR-vs-trunk wiring:
 
 ### Tooling failures vs quality-gate breaches
 
-A `--ci` exit code of `1` is ambiguous on its own: it can mean a threshold breach, or it can mean perf-sentinel never ran (a blocked download, a corrupted release, a crash on malformed traces). Treating both the same way lets a flaky network blip on a Friday afternoon block every PR in the repo until someone notices and re-runs CI. All three templates isolate the two failure modes so only a threshold breach can turn a PR red:
+A `--ci` exit code of `1` is ambiguous on its own: it can mean a threshold breach, or it can mean Perf Sentinel never ran (a blocked download, a corrupted release, a crash on malformed traces). Treating both the same way lets a flaky network blip on a Friday afternoon block every PR in the repo until someone notices and re-runs CI. All three templates isolate the two failure modes so only a threshold breach can turn a PR red:
 
 - **GitHub Actions**: the download step tolerates failure (`continue-on-error: true`), but the checksum-verification step right after it does not. A tampered or corrupted release must always fail the job, never get folded into the tooling-tolerant bucket. The report-only analyze step also carries `continue-on-error: true`. Every downstream step (SARIF upload, PR comment, the two gate steps) checks `steps.analyze.outcome == 'success'` rather than file existence. Shell `>` redirection creates its target file before the command runs, so a crashed analyze would still leave an empty `findings.sarif` behind and defeat a `hashFiles()` check. The analyze step also writes through a `.tmp` path and renames on success, a second, independent guard against that same trap. A final `Report tooling failure` step emits a `::warning::` when analyze did not succeed, so a tooling problem stays visible.
 - **GitLab CI**: every download command explicitly exits `75` (`EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits)) instead of propagating whatever exit code the underlying tool produced. `allow_failure: exit_codes: [75]` on the job excludes only that specific code from blocking a merge request. It sits on the job rather than inside the merge-request rule because `rules:allow_failure` accepts a boolean and nothing else: GitLab's CI lint rejects the whole file when a rule carries the mapping form. Checksum verification and the Code Quality `jq` conversion are excluded from that exit-75 convention: a checksum mismatch means a tampered release, and a `jq` failure means a bug in the conversion filter. Neither is a tooling blip that should be tolerated. The final `--ci` re-run keeps its own exit code (normally `1` on a real breach), which still blocks.
@@ -417,7 +417,7 @@ If the report renders unstyled with broken tab navigation, see
 **Configuring Jenkins to render the interactive report** below.
 Jenkins applies a strict default Content Security Policy that
 blocks inline CSS and JavaScript, which is the most common cause
-of an unstyled perf-sentinel sidebar page.
+of an unstyled Perf Sentinel sidebar page.
 
 **Configuring Jenkins to render the interactive report**.
 
@@ -455,7 +455,7 @@ System.setProperty(
 Tradeoffs:
 
 - Affects all HTML content served by all jobs on the instance, not
-  just perf-sentinel reports.
+  just Perf Sentinel reports.
 - Adds `'unsafe-inline'` for both styles and scripts. Acceptable on
   a Jenkins instance where you trust the jobs being run, risky on a
   multi-tenant instance with untrusted contributors.
@@ -538,12 +538,12 @@ configuration (e.g. keep last N builds) to cap the footprint.
   `code_location` field is present. Requires `permissions.security-events:
   write` on the workflow.
 - **GitLab Code Quality** widget shows up on the merge request page, with
-  severity colors derived from the perf-sentinel `severity` field
+  severity colors derived from the Perf Sentinel `severity` field
   (`critical -> critical`, `warning -> major`, `info -> info`).
 - **Jenkins Warnings Next Generation** publishes a structured issue tree
   with a trend chart per build. The plugin natively understands SARIF
   v2.1.0 and supports its own `qualityGates` declaration as a defense in
-  depth on top of the perf-sentinel `--ci` exit code.
+  depth on top of the Perf Sentinel `--ci` exit code.
 
 ---
 

@@ -1,10 +1,10 @@
 # Security policy
 
-Thank you for taking the time to improve perf-sentinel's security. This document explains how to report a vulnerability and what to expect in return.
+Thank you for taking the time to improve Perf Sentinel's security. This document explains how to report a vulnerability and what to expect in return.
 
 ## Supported versions
 
-perf-sentinel follows semantic versioning. Security fixes are backported as follows:
+Perf Sentinel follows semantic versioning. Security fixes are backported as follows:
 
 | Version               | Supported |
 |-----------------------|-----------|
@@ -32,7 +32,7 @@ To help us triage quickly, please include:
 
 - A clear description of the vulnerability and its potential impact.
 - Steps to reproduce, ideally with a minimal proof-of-concept.
-- The affected version(s) of perf-sentinel.
+- The affected version(s) of Perf Sentinel.
 - Any relevant configuration (e.g., daemon listen address, enabled scrapers, TLS config).
 - Your assessment of severity, if you have one.
 
@@ -57,10 +57,10 @@ The following components are in scope for security reports:
 
 ### Out of scope
 
-- Vulnerabilities in third-party dependencies that do not affect perf-sentinel's behavior. Those should be reported upstream. We track advisory status via `cargo audit` (see `.github/workflows/security-audit.yml` and `audit.toml` for documented non-applicable advisories).
-- Denial-of-service reports that require the attacker to already have privileged access to the daemon's configuration or to the trusted OTLP input channel (perf-sentinel's threat model assumes trusted trace producers).
+- Vulnerabilities in third-party dependencies that do not affect Perf Sentinel's behavior. Those should be reported upstream. We track advisory status via `cargo audit` (see `.github/workflows/security-audit.yml` and `audit.toml` for documented non-applicable advisories).
+- Denial-of-service reports that require the attacker to already have privileged access to the daemon's configuration or to the trusted OTLP input channel (Perf Sentinel's threat model assumes trusted trace producers).
 - Security of the user's own OTel pipeline, Prometheus, Grafana, or any downstream system.
-- Issues specific to running perf-sentinel with `listen_address = "0.0.0.0"` without a reverse proxy, firewall, or network policy. The default is `127.0.0.1`. Exposing the daemon directly to untrusted networks is discouraged in `docs/LIMITATIONS.md`.
+- Issues specific to running Perf Sentinel with `listen_address = "0.0.0.0"` without a reverse proxy, firewall, or network policy. The default is `127.0.0.1`. Exposing the daemon directly to untrusted networks is discouraged in `docs/LIMITATIONS.md`.
 
 ## Automated security checks
 

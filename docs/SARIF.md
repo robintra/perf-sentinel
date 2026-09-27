@@ -1,6 +1,6 @@
 # SARIF output reference
 
-perf-sentinel emits SARIF v2.1.0 via `--format sarif` on `analyze` and `diff`.
+Perf Sentinel emits SARIF v2.1.0 via `--format sarif` on `analyze` and `diff`.
 This reference lists the fields populated per `result`. For the cross-format
 acknowledgments workflow, see [ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
 

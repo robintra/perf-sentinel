@@ -1,6 +1,6 @@
 # Acknowledgments
 
-A way to tell perf-sentinel "yes, this finding is real, and we have decided not to fix it (yet)". Acknowledged findings are filtered from the CLI output and excluded from the quality gate. The decisions live in `.perf-sentinel-acknowledgments.toml` at the root of the repo, so every change goes through normal PR review and `git log` is the audit trail.
+A way to tell Perf Sentinel "yes, this finding is real, and we have decided not to fix it (yet)". Acknowledged findings are filtered from the CLI output and excluded from the quality gate. The decisions live in `.perf-sentinel-acknowledgments.toml` at the root of the repo, so every change goes through normal PR review and `git log` is the audit trail.
 
 The runtime path (against a live daemon) layers on top: the `perf-sentinel ack` CLI subcommand, the live HTML dashboard (`perf-sentinel report --daemon-url ...`) and the TUI (`perf-sentinel query inspect`, press `a` to acknowledge a finding, `u` to revoke).
 
@@ -110,7 +110,7 @@ Three findings produce three different signatures. Two findings produced by the 
 
 ## Workflow
 
-1. Run perf-sentinel and identify the finding you want to ack.
+1. Run Perf Sentinel and identify the finding you want to ack.
 2. Capture its signature:
    ```bash
    perf-sentinel analyze --input traces.json --format json \

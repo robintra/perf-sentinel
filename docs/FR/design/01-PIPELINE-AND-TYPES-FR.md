@@ -2,7 +2,7 @@
 
 ## Pourquoi un pipeline linéaire
 
-perf-sentinel traite les traces I/O à travers une séquence de transformations : `event -> normalize -> correlate -> detect -> score -> report`. C'est un **pipeline linéaire**, pas une architecture hexagonale (ports et adaptateurs).
+Perf Sentinel traite les traces I/O à travers une séquence de transformations : `event -> normalize -> correlate -> detect -> score -> report`. C'est un **pipeline linéaire**, pas une architecture hexagonale (ports et adaptateurs).
 
 Les données circulent dans une seule direction. Les événements entrent, sont transformés à chaque étape et produisent un rapport. Il n'y a pas de dépendances bidirectionnelles, pas d'événements de domaine, pas de patterns d'interaction complexes. Une architecture hexagonale introduirait de l'indirection par traits entre chaque étape, ajoutant de la charge cognitive, du coût à la compilation et du dispatch dynamique pour zéro bénéfice.
 

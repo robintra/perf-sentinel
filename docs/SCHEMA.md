@@ -39,7 +39,7 @@ The publication domain (e.g. `transparency.example.fr`) is treated as an implici
 
 ## Scope manifest
 
-`total_applications_declared` is the size of the organisation's application portfolio. `applications_measured` is the count of services for which the disclosure carries data. Each entry in `applications_excluded` carries `service_name` and a non-empty `reason`. `environments_measured` lists the operator-defined environments observed (e.g. `["prod"]`). `total_requests_in_period` is an optional operator estimate, `requests_measured` is what perf-sentinel observed. `coverage_percentage` is `requests_measured / total_requests_in_period * 100` when the former is set.
+`total_applications_declared` is the size of the organisation's application portfolio. `applications_measured` is the count of services for which the disclosure carries data. Each entry in `applications_excluded` carries `service_name` and a non-empty `reason`. `environments_measured` lists the operator-defined environments observed (e.g. `["prod"]`). `total_requests_in_period` is an optional operator estimate, `requests_measured` is what Perf Sentinel observed. `coverage_percentage` is `requests_measured / total_requests_in_period * 100` when the former is set.
 
 `coverage_basis` (v1.2) makes the trust boundary explicit in-band. It lists which scope fields are `operator_declared` (unaudited assertions the binary cannot verify, the denominators `total_applications_declared` and `total_requests_in_period`, plus the exclusion lists) versus `machine_derived` (computed by the aggregator from the archives, `applications_measured`, `requests_measured`, `coverage_percentage`). A reader of `coverage_percentage` should treat its denominator as operator-asserted: an operator who sets `total_requests_in_period` low can present near-100% coverage of a self-defined universe. This is inherent to a self-disclosure model. The cryptographic integrity guarantees bind the published report, not the honesty of the declared portfolio size. See [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md).
 
@@ -74,7 +74,7 @@ The aggregate carries four optional fields that describe the quality of the sour
 
 - `period_coverage` is in `[0, 1]` and equals `runtime_windows / (runtime_windows + fallback_windows)`. A value of `1.0` means every scoring window in the period carried runtime-calibrated energy (Scaphandre or cloud SPECpower). A value of `0.0` means every window fell back to the I/O proxy. The validator refuses an `intent = "official"` disclosure with `period_coverage < 0.75`, see `docs/design/08-PERIODIC-DISCLOSURE.md` for the threshold rationale.
 - `runtime_windows_count` and `fallback_windows_count` carry the absolute counts behind that ratio, so a reader can distinguish "9 out of 10 windows runtime-calibrated" from "900 out of 1000".
-- `binary_versions` is the set of distinct perf-sentinel binary versions that produced the archives folded into this period. A period spanning several versions (daemon upgrade mid-quarter, async releases across teams) flags this set with more than one entry, which the report disclaimer surfaces.
+- `binary_versions` is the set of distinct Perf Sentinel binary versions that produced the archives folded into this period. A period spanning several versions (daemon upgrade mid-quarter, async releases across teams) flags this set with more than one entry, which the report disclaimer surfaces.
 
 ### Per-service quality fields (0.7.0+)
 
@@ -105,7 +105,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 > **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC and SLSA used throughout this section.
 
-`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the perf-sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` carries the source-chain verdict since v1.6 and is `null` on reports written before it, never omitted, since dropping the key would change the canonical bytes of every already-published report.
+`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the Perf Sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` carries the source-chain verdict since v1.6 and is `null` on reports written before it, never omitted, since dropping the key would change the canonical bytes of every already-published report.
 
 `signature` (0.7.0+) is either `null` (hash-only report) or a typed object with `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, and `signed_at`. The fields collectively let a verifier locate the cosign bundle and the Rekor inclusion proof.
 
@@ -121,7 +121,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 ## Boavizta and other omitted fields
 
-`boavizta_version` was considered for `calibration_inputs` but is not part of the schema today because perf-sentinel does not currently consume Boavizta data. The field will be re-introduced when the integration ships. Schema consumers MUST tolerate unknown fields gracefully because perf-sentinel will add them in minor revisions.
+`boavizta_version` was considered for `calibration_inputs` but is not part of the schema today because Perf Sentinel does not currently consume Boavizta data. The field will be re-introduced when the integration ships. Schema consumers MUST tolerate unknown fields gracefully because Perf Sentinel will add them in minor revisions.
 
 ## Versioning
 

@@ -1,6 +1,6 @@
 # Référence du format SARIF
 
-perf-sentinel émet du SARIF v2.1.0 via `--format sarif` sur `analyze` et `diff`. Cette référence liste les champs renseignés par `result`. Pour le workflow d'acquittement commun aux formats, voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
+Perf Sentinel émet du SARIF v2.1.0 via `--format sarif` sur `analyze` et `diff`. Cette référence liste les champs renseignés par `result`. Pour le workflow d'acquittement commun aux formats, voir [ACKNOWLEDGMENTS-FR.md](./ACKNOWLEDGMENTS-FR.md).
 
 ## Champs par result
 

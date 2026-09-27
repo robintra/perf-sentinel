@@ -1,4 +1,4 @@
-# perf-sentinel dashboard browser tests
+# Perf Sentinel dashboard browser tests
 
 Playwright smoke suite for the single-file HTML dashboard emitted by
 `perf-sentinel report`. Covers interactions that Rust-level tests

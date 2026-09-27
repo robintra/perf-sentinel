@@ -22,7 +22,7 @@
 > **Read this first**
 > - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans), **or dd-trace bridged through a Collector**, and those spans must carry the query text (`db.statement` / `db.query.text`) and the target URL (`http.url` / `url.full`). Language-specific setup (Java / C# / Rust / Go / Node.js / Python / Ruby / PHP): [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md). **Without an OpenTelemetry SDK**, teams on Datadog can bridge dd-trace through the OTel Collector `datadogreceiver` instead, see [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 > - **Audit your own tracing first:** spans that lack those attributes are dropped. On OTLP input the report counts them (spans received, spans filtered, and the daemon exports the count on `/metrics`), but a thin or empty report can still mean *no problems found* or *no usable instrumentation*. `perf-sentinel inspect` shows what was extracted from your traces. An empty span tree means those attributes are missing upstream. For what instrumentation quality caps: [Instrumentation quality bounds findings](docs/LIMITATIONS.md#instrumentation-quality-bounds-findings).
-> - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform (yet). See [What perf-sentinel is not](#what-perf-sentinel-is-not).
+> - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform (yet). See [What Perf Sentinel is not](#what-perf-sentinel-is-not).
 > - **Maturity:** beta, pre-1.0. The CLI surface, config keys and on-disk formats may still change between releases before 1.0, with breaking changes called out in the [release notes](https://github.com/robintra/perf-sentinel/releases). The JSON output enums are the one part under an explicit stability contract (see [Input and output formats](#input-and-output-formats)).
 
 ---
@@ -91,15 +91,15 @@ Periodic disclosure preview (`perf-sentinel disclose --tui`):
 
 </details>
 
-## Why perf-sentinel?
+## Why Perf Sentinel?
 
 Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path.
 
-Existing tools each solve part of the problem. Hypersistence Utils covers JPA only. Datadog and New Relic are heavy proprietary agents you may not want in every pipeline. Sentry's detectors are solid but tied to its SDK and backend. None of them gives you a **protocol-level anti-pattern detector you can self-host**. perf-sentinel runs either as a CI quality gate on captured traces (exit 1 on threshold breach, SARIF for code scanning) **or** as a long-running OTLP daemon (gRPC + HTTP ingestion, Prometheus `/metrics`, live HTML dashboard, query API, runtime ack workflow) that you place alongside or in front of your existing tracing backend.
+Existing tools each solve part of the problem. Hypersistence Utils covers JPA only. Datadog and New Relic are heavy proprietary agents you may not want in every pipeline. Sentry's detectors are solid but tied to its SDK and backend. None of them gives you a **protocol-level anti-pattern detector you can self-host**. Perf Sentinel runs either as a CI quality gate on captured traces (exit 1 on threshold breach, SARIF for code scanning) **or** as a long-running OTLP daemon (gRPC + HTTP ingestion, Prometheus `/metrics`, live HTML dashboard, query API, runtime ack workflow) that you place alongside or in front of your existing tracing backend.
 
-perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM: it sees the queries they generate.
+Perf Sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM: it sees the queries they generate.
 
-Beyond detection, each avoidable I/O is translated into energy then CO₂ on a recognized method (SCI-aligned), which puts a number on the waste and makes it **attributable to the code**. Where current carbon tools estimate a global footprint top-down, from the cloud bill or sector ratios, perf-sentinel **measures bottom-up**, query by query, a directly actionable hotspot.
+Beyond detection, each avoidable I/O is translated into energy then CO₂ on a recognized method (SCI-aligned), which puts a number on the waste and makes it **attributable to the code**. Where current carbon tools estimate a global footprint top-down, from the cloud bill or sector ratios, Perf Sentinel **measures bottom-up**, query by query, a directly actionable hotspot.
 
 ## What it detects
 
@@ -185,7 +185,7 @@ GreenOps fragments live in [`examples/`](examples/). See the
 Full subcommand reference: `perf-sentinel <cmd> --help`, or [docs/CLI.md](docs/CLI.md).
 
 <details>
-<summary>Map of the perf-sentinel subcommands and the artifacts they consume or produce</summary>
+<summary>Map of the Perf Sentinel subcommands and the artifacts they consume or produce</summary>
 
 <img alt="CLI commands overview" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
 
@@ -227,7 +227,7 @@ What it adds on top of a daemon:
 - **A browser that runs an analysis.** Against a daemon, a Tempo backend or a Jaeger query backend, serving the same HTML dashboard `report` renders.
 - **One read API for tooling.** `/api/findings` for IDE plugins and CI jobs, with a `status` derived at read time that tells "the endpoint runs without this finding" apart from "nobody is looking".
 
-It never replaces this engine. Every analysis spawns this binary as a subprocess, and every daemon is read over its own query API. Nothing of the Hub lives in perf-sentinel, and a daemon does not know a Hub exists.
+It never replaces this engine. Every analysis spawns this binary as a subprocess, and every daemon is read over its own query API. Nothing of the Hub lives in Perf Sentinel, and a daemon does not know a Hub exists.
 
 <details>
 <summary>The five screens</summary>
@@ -274,9 +274,9 @@ The rendered dashboard, served from the Hub's own origin:
 <details>
 <summary><b>Input formats</b></summary>
 
-- **Trace files** (auto-detected): native perf-sentinel JSON, OTLP JSON (single object or Collector `file` exporter NDJSON), Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
+- **Trace files** (auto-detected): native Perf Sentinel JSON, OTLP JSON (single object or Collector `file` exporter NDJSON), Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
 - **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
-- **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, to a `file` exporter dump readable by `analyze --input`, or to a Tempo or Jaeger backend for the `tempo`/`jaeger-query` pull paths below. perf-sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+- **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, to a `file` exporter dump readable by `analyze --input`, or to a Tempo or Jaeger backend for the `tempo`/`jaeger-query` pull paths below. Perf Sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 - **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
 - **Jaeger Query API**: pull from Jaeger upstream or Victoria Traces with `perf-sentinel jaeger-query`. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
 - **`pg_stat_statements`**: rank PostgreSQL hotspots from the catalog view with `perf-sentinel pg-stat`. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
@@ -340,14 +340,14 @@ Two behaviours to know before sizing. Upstream trace sampling (head-based vs tai
 <details>
 <summary><b>GreenOps (cross-cutting)</b></summary>
 
-![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler eBPF kWh on ARM and x86, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding perf-sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler eBPF kWh on ARM and x86, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding Perf Sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
 
 </details>
 
 <details>
 <summary>End-to-end view: how the four environments fit together</summary>
 
-![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+![Global Perf Sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
 
 </details>
 
@@ -357,7 +357,7 @@ Live operator monitor over a running daemon, for DevOps / SRE, six Tab-cycled ta
 
 ### Data handling
 
-perf-sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only. SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
+Perf Sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only. SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
 
 The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
 
@@ -428,7 +428,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 | Physical servers with a BMC                                  | Redfish (wall-plug power per chassis)       | node-level, periphery included |
 | Anywhere, on top of any row above                            | Electricity Maps (real-time grid intensity) | refines the I axis, not E      |
 
-> **The carbon side of perf-sentinel prices the detected I/O with the rigor of a specialized software / compute emissions calculator**: activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
+> **The carbon side of Perf Sentinel prices the detected I/O with the rigor of a specialized software / compute emissions calculator**: activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
 >
@@ -436,15 +436,15 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 >
 > **For a plain-language walk-through of how counts become kWh and gCO₂ per configured option, see [docs/ENERGY.md](docs/ENERGY.md).**
 
-Concrete pairings: pass the I/O counts and per-region energy estimates to **Watershed**, **Sweep**, **Greenly** or **Persefoni** as activity data, or use perf-sentinel directly to demonstrate **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) software-optimization conformance. N+1 detection, redundant calls, caching and fanout reduction map onto the corresponding criteria.
+Concrete pairings: pass the I/O counts and per-region energy estimates to **Watershed**, **Sweep**, **Greenly** or **Persefoni** as activity data, or use Perf Sentinel directly to demonstrate **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) software-optimization conformance. N+1 detection, redundant calls, caching and fanout reduction map onto the corresponding criteria.
 
 For organisations who still want to publish a *non-regulatory* periodic efficiency disclosure (quarterly/yearly JSON, optional Sigstore signature), the optional `perf-sentinel disclose` workflow is documented in [docs/REPORTING.md](docs/REPORTING.md). It stays off the main quickstart path.
 
 ## How does it compare?
 
-perf-sentinel's niche is being **lightweight, protocol-agnostic, CI/CD-native and carbon-aware**, not replacing a full observability suite.
+Perf Sentinel's niche is being **lightweight, protocol-agnostic, CI/CD-native and carbon-aware**, not replacing a full observability suite.
 
-| Capability                          | [Hypersistence Optimizer](https://vladmihalcea.com/hypersistence-optimizer/) | [Datadog APM + DBM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Sentry](https://sentry.io/for/performance/) | [Digma](https://digma.ai/)   | [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) | [OTJAE](https://github.com/RETIT/opentelemetry-javaagent-extension) | **perf-sentinel**                                                                   |
+| Capability                          | [Hypersistence Optimizer](https://vladmihalcea.com/hypersistence-optimizer/) | [Datadog APM + DBM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Sentry](https://sentry.io/for/performance/) | [Digma](https://digma.ai/)   | [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) | [OTJAE](https://github.com/RETIT/opentelemetry-javaagent-extension) | **Perf Sentinel**                                                                   |
 |-------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------|-----------------------------------------------------------------------|----------------------------------------------|------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------|
 | N+1 SQL detection                   | JPA only, test-time                                                          | Yes, automatic (DBM)                                        | Yes, automatic                                                        | Yes, automatic OOTB                          | Yes, IDE-centric (JVM/.NET)  | No (CPU/memory profiler, not a query analyzer)          | No                                                                  | Yes, protocol-level, any OTel runtime                                               |
 | N+1 HTTP detection                  | No                                                                           | Yes, service maps                                           | Yes, trace correlation                                                | Yes, N+1 API Call detector                   | Partial                      | No                                                      | No                                                                  | Yes                                                                                 |
@@ -457,19 +457,19 @@ perf-sentinel's niche is being **lightweight, protocol-agnostic, CI/CD-native an
 | License                             | Commercial (Optimizer)                                                       | Proprietary SaaS                                            | Proprietary SaaS                                                      | FSL (converts to Apache-2 after 2y)          | Freemium, proprietary        | AGPL-3.0                                                | Apache-2.0                                                          | AGPL-3.0                                                                            |
 | Pricing / self-hostable             | One-time license fee                                                         | Usage-based SaaS (no self-host)                             | Usage-based SaaS (no self-host)                                       | Free tier + SaaS plans (no self-host)        | Freemium SaaS (no self-host) | Free, fully self-hostable                               | Free, fully self-hostable                                           | Free, fully self-hostable                                                           |
 
-The Datadog figure is the one Datadog publishes for its Agent 7.34 on a c5.xlarge instance ([Agent overhead](https://docs.datadoghq.com/agent/)), excluding the tracer loaded in each service. New Relic publishes no RSS figure for its APM agents, and Grafana sizes Alloy by profile volume ([resource usage](https://grafana.com/docs/alloy/latest/set-up/estimate-resource-usage/)). The perf-sentinel figure likewise excludes the OpenTelemetry instrumentation it reads. Actual overhead depends on instrumentation scope.
+The Datadog figure is the one Datadog publishes for its Agent 7.34 on a c5.xlarge instance ([Agent overhead](https://docs.datadoghq.com/agent/)), excluding the tracer loaded in each service. New Relic publishes no RSS figure for its APM agents, and Grafana sizes Alloy by profile volume ([resource usage](https://grafana.com/docs/alloy/latest/set-up/estimate-resource-usage/)). The Perf Sentinel figure likewise excludes the OpenTelemetry instrumentation it reads. Actual overhead depends on instrumentation scope.
 
-### What perf-sentinel is not
+### What Perf Sentinel is not
 
-A fair comparison requires naming what perf-sentinel does **not** do:
+A fair comparison requires naming what Perf Sentinel does **not** do:
 
 - **Not a full APM replacement.** No RUM, no log aggregation, no distributed profiling. It does render dashboards of its own (a self-contained HTML report, a trace-browsing TUI and a live operator TUI, plus a Grafana dashboard over `/metrics`), but it has no alerting UI. Alerting is delegated to Prometheus and Alertmanager, with operational rules shipped in the Helm chart. If you need the rest, Datadog, New Relic and Sentry remain the right tools.
-- **Not a continuous profiler.** It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.
+- **Not a continuous profiler.** It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, Perf Sentinel tells you which I/O patterns drive that time.
 - **Not a monitoring platform.** Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but it retains a bounded ring of recent findings (10,000 by default) rather than a queryable history. It neither builds custom dashboards nor routes alerts. The center of gravity stays CI quality gates and post-hoc trace analysis.
 - **Not a standalone regulatory carbon accounting platform.** Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case: see [GreenOps](#greenops-io-intensity-score-directional).
 - **Not a replacement for measured energy.** The I/O-to-energy model is a measurement, but an approximate one. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
-- **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.
-- **Not an IDE plugin.** perf-sentinel itself runs in CI and as a daemon, not inside the editor. A first-party JetBrains plugin is in development: it reads findings from a running daemon and navigates to the code they point at, and it will be announced here once published.
+- **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, Perf Sentinel has nothing to analyze.
+- **Not an IDE plugin.** Perf Sentinel itself runs in CI and as a daemon, not inside the editor. A first-party JetBrains plugin is in development: it reads findings from a running daemon and navigates to the code they point at, and it will be announced here once published.
 
 ## Acknowledging known findings
 
@@ -630,7 +630,7 @@ Releases follow a documented procedure. The companion repo [perf-sentinel-simula
 
 [GNU Affero General Public License v3.0](LICENSE).
 
-Running perf-sentinel does not place your own services under the AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), which is arm's-length communication, not linking, so it creates no derivative work and imposes no license obligation on your code. The AGPL covers perf-sentinel's own source. If you modify it and offer the modified version to others over a network, section 13 requires you to make that modified source available to those users. Using the official, unmodified binaries or image carries no such obligation. This is a practical summary, not legal advice. Check with your own counsel if in doubt.
+Running Perf Sentinel does not place your own services under the AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), which is arm's-length communication, not linking, so it creates no derivative work and imposes no license obligation on your code. The AGPL covers Perf Sentinel's own source. If you modify it and offer the modified version to others over a network, section 13 requires you to make that modified source available to those users. Using the official, unmodified binaries or image carries no such obligation. This is a practical summary, not legal advice. Check with your own counsel if in doubt.
 
 ## Credits
 

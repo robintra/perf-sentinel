@@ -5,7 +5,7 @@ Every `instance_type` accepted by `[green.cloud.services]` and by
 model interpolates between. 421 entries, table vintage
 `2026-04-24 (CCF aligned)`.
 
-**An unlisted type is not an error.** perf-sentinel warns once at startup,
+**An unlisted type is not an error.** Perf Sentinel warns once at startup,
 naming the type, and falls back to a provider-level average, so the
 figure gets coarser. That warning is also how you check your own
 type without reading this page. When your hardware is absent and you know

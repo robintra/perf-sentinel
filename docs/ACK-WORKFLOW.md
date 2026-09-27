@@ -1,6 +1,6 @@
 # Acknowledgment workflow
 
-perf-sentinel supports two complementary acknowledgment mechanisms:
+Perf Sentinel supports two complementary acknowledgment mechanisms:
 TOML in-repo (CI ack, since 0.5.17) and JSONL (JSON Lines, an
 append-only log format where each line is a standalone JSON object)
 via the daemon HTTP API (daemon ack, since 0.5.20). They cover
@@ -271,13 +271,13 @@ identifiers. The contract is locked by unit tests in
 
 The `endpoint` component is derived from the OpenTelemetry `http.route`
 attribute on the entry HTTP span or its same-service ancestors. For an
-explicitly named service, perf-sentinel selects the outermost route in the
+explicitly named service, Perf Sentinel selects the outermost route in the
 contiguous chain. It never adopts the caller service's route. A route template
 without a leading slash is canonicalized with one (`api/orders/{id}` becomes
 `/api/orders/{id}`), so equivalent instrumentation shapes produce one
 signature. Some frameworks instead put a symbolic route name in `http.route`
 and the request path in `url.path`. When the route contains no `/` and
-`url.path` is usable, perf-sentinel uses `url.path`. A route containing `/`
+`url.path` is usable, Perf Sentinel uses `url.path`. A route containing `/`
 remains authoritative, including slashless Django routes and templates. A
 symbolic route without `url.path` keeps the conservative existing behavior and
 is canonicalized with a leading slash.
@@ -288,7 +288,7 @@ When traced services emit `http.route`:
 - Acknowledgments survive service restarts.
 - Acknowledgments survive normal traffic with rotating request IDs.
 
-When `http.route` is missing on an explicitly SERVER span, perf-sentinel falls
+When `http.route` is missing on an explicitly SERVER span, Perf Sentinel falls
 back to `http.url`, `url.full`, `url.path`, then `http.target` (depending on
 the ingest format). URL-only CLIENT spans remain outbound operations and are
 not mistaken for entry points. Each unique URL

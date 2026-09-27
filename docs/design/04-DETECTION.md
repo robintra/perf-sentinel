@@ -113,7 +113,7 @@ Min/max timestamps are found via string comparison: `if ts < min_ts { min_ts = t
 
 ## Sanitizer-aware classification
 
-OpenTelemetry agents and database drivers collapse SQL literals to placeholder tokens before the statement reaches perf-sentinel. The placeholder style depends on the stack: JDBC agents produce bare `?`, PostgreSQL native drivers (pgx, asyncpg, sqlx, node-pg) emit `$1`/`$2` (which `normalize_sql` rewrites to `$?` with empty params since v0.7.7), Python DB-API drivers emit `%s`, .NET drivers emit `@p0`/`@Name`, and Oracle/SQLAlchemy emit `:name`. In all cases the sanitized statement reaches perf-sentinel with the placeholder already in place and an empty `params` vector. The standard `distinct_params >= threshold` check sees one distinct empty params slice and never fires. The redundant detector then groups all the spans together and misclassifies them as `redundant_sql`.
+OpenTelemetry agents and database drivers collapse SQL literals to placeholder tokens before the statement reaches Perf Sentinel. The placeholder style depends on the stack: JDBC agents produce bare `?`, PostgreSQL native drivers (pgx, asyncpg, sqlx, node-pg) emit `$1`/`$2` (which `normalize_sql` rewrites to `$?` with empty params since v0.7.7), Python DB-API drivers emit `%s`, .NET drivers emit `@p0`/`@Name`, and Oracle/SQLAlchemy emit `:name`. In all cases the sanitized statement reaches Perf Sentinel with the placeholder already in place and an empty `params` vector. The standard `distinct_params >= threshold` check sees one distinct empty params slice and never fires. The redundant detector then groups all the spans together and misclassifies them as `redundant_sql`.
 
 The heuristic in `crates/sentinel-core/src/detect/sanitizer_aware.rs` recovers the correct classification via five signals, evaluated in order:
 
@@ -167,11 +167,11 @@ The threshold of 2 (minimum to flag) catches any exact duplicate. Unlike N+1 whi
 
 ### ORM bind parameters
 
-ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where actual parameter values are not visible in `db.statement`/`db.query.text`. In this case, N+1 patterns (same query with different values) appear as redundant queries (same template, same visible params), because perf-sentinel cannot distinguish the bound values. Both findings correctly identify the repeated query pattern. ORMs that inline literal values (SeaORM raw statements, JDBC without prepared statements) allow accurate N+1 vs redundant classification.
+ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where actual parameter values are not visible in `db.statement`/`db.query.text`. In this case, N+1 patterns (same query with different values) appear as redundant queries (same template, same visible params), because Perf Sentinel cannot distinguish the bound values. Both findings correctly identify the repeated query pattern. ORMs that inline literal values (SeaORM raw statements, JDBC without prepared statements) allow accurate N+1 vs redundant classification.
 
 ### Sanitizer-aware classification (0.5.7+)
 
-The same shape appears whenever the OpenTelemetry agent runs its SQL statement sanitizer (default ON), since literals are collapsed to `?` before the span reaches perf-sentinel. The standard distinct-params rule sees one bucket of empty params and rejects the group, so the redundant detector misclassifies the N+1 as `redundant_sql` and the operator gets the wrong remediation.
+The same shape appears whenever the OpenTelemetry agent runs its SQL statement sanitizer (default ON), since literals are collapsed to `?` before the span reaches Perf Sentinel. The standard distinct-params rule sees one bucket of empty params and rejects the group, so the redundant detector misclassifies the N+1 as `redundant_sql` and the operator gets the wrong remediation.
 
 The 0.5.7 sanitizer-aware heuristic recovers the correct classification by running a second pass over the same `(event_type, template)` groups that the first pass rejected. It activates only when every span in the group has an empty `params` vector and a recognized placeholder in its template (the on-wire signature of a sanitized N+1). Since v0.7.7 the `template_has_placeholder` check recognizes five styles: bare `?` (JDBC), `$?` (PostgreSQL native, normalized from `$1`/`$2`), `%s` (Python DB-API), `@alpha` (.NET, excluding `@@` system variables), `:alpha` (Oracle/SQLAlchemy, excluding `::` casts). Queries with no literal at all, like `SELECT NOW()`, have no placeholder in the template and do not activate the heuristic. It then evaluates two independent signals:
 
@@ -424,7 +424,7 @@ The seven detectors run sequentially on each trace. `append(&mut ...)` is used i
 
 ## Cross-trace temporal correlation (daemon mode)
 
-In daemon mode (`perf-sentinel watch`), perf-sentinel sees findings from all traces over time. The `CrossTraceCorrelator` detects recurring temporal co-occurrences between findings from different services: "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds."
+In daemon mode (`perf-sentinel watch`), Perf Sentinel sees findings from all traces over time. The `CrossTraceCorrelator` detects recurring temporal co-occurrences between findings from different services: "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds."
 
 ### Two clocks
 

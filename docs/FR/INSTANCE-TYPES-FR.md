@@ -5,7 +5,7 @@ Tous les `instance_type` acceptés par `[green.cloud.services]` et par
 lesquelles le modèle SPECpower interpole. 421 entrées, millésime
 de la table `2026-04-24 (CCF aligned)`.
 
-**Un type absent n'est pas une erreur.** perf-sentinel avertit une seule
+**Un type absent n'est pas une erreur.** Perf Sentinel avertit une seule
 fois au démarrage en nommant le type, puis se rabat sur une moyenne du
 fournisseur, ce qui rend la valeur plus grossière. Cet
 avertissement est aussi la façon de vérifier votre propre type sans lire

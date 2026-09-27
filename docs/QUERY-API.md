@@ -1,6 +1,6 @@
 # Daemon query API
 
-The perf-sentinel daemon exposes an HTTP query API that lets external
+The Perf Sentinel daemon exposes an HTTP query API that lets external
 systems pull findings, trace explanations, cross-trace correlations, and
 daemon liveness. Use it to feed Prometheus alerts, Grafana dashboards,
 on-call runbooks or custom CI gate scripts without parsing NDJSON logs.
@@ -989,10 +989,10 @@ Hand the daemon the moment an observed service crashed or saturated, so
 it freezes the findings of the window that preceded it (since 0.20.0).
 Opt-in through `[daemon.incidents]`, `503` when the section is absent.
 
-**Why this exists.** perf-sentinel does not detect a crash and cannot
+**Why this exists.** Perf Sentinel does not detect a crash and cannot
 see an observed service's memory: it has no OTLP metrics path, and a
 service that saturates usually keeps emitting spans, more slowly. Your
-alerting owns the moment. perf-sentinel owns the findings of a period
+alerting owns the moment. Perf Sentinel owns the findings of a period
 and is the only thing that can capture them before the ring evicts
 them, which on a busy fleet takes minutes.
 
@@ -1040,7 +1040,7 @@ Three labels are read, all configurable:
 
 | Label                                | Default              | Meaning                                                                                                                                                                                                                                |
 |--------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `[daemon.incidents] service_label`   | `service`            | The perf-sentinel service name. This is the join key to the findings, so an alert without it is refused                                                                                                                                |
+| `[daemon.incidents] service_label`   | `service`            | The Perf Sentinel service name. This is the join key to the findings, so an alert without it is refused                                                                                                                                |
 | `[daemon.incidents] kind_label`      | `perf_sentinel_kind` | One of `oom_kill`, `memory_saturation`, `restart`, `deploy`, `other`. Anything else is `other`                                                                                                                                         |
 | `[daemon.incidents] namespace_label` | `namespace`          | Optional. Its value is carried on the incident as `namespace`, narrows the freeze to that namespace's findings (see below) and is what the `namespace` parameter of `GET /api/incidents` filters on. Never a reason to refuse an alert |
 

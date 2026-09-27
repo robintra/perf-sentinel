@@ -1,6 +1,6 @@
 # Documentation index
 
-This directory contains the user-facing documentation for perf-sentinel. For deep design rationale aimed at contributors, see the [`design/`](design/00-INDEX.md) sub-directory.
+This directory contains the user-facing documentation for Perf Sentinel. For deep design rationale aimed at contributors, see the [`design/`](design/00-INDEX.md) sub-directory.
 
 A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 

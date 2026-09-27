@@ -1,6 +1,6 @@
-# Guide CI perf-sentinel
+# Guide CI Perf Sentinel
 
-Côté CI : comment exécuter perf-sentinel en mode batch contre un fixture de traces produit par votre stage de tests d'intégration, et faire remonter les findings sur chaque pull request. Pour les topologies, voir [`INTEGRATION-FR.md`](./INTEGRATION-FR.md). Pour l'instrumentation côté application, voir [`INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md).
+Côté CI : comment exécuter Perf Sentinel en mode batch contre un fixture de traces produit par votre stage de tests d'intégration, et faire remonter les findings sur chaque pull request. Pour les topologies, voir [`INTEGRATION-FR.md`](./INTEGRATION-FR.md). Pour l'instrumentation côté application, voir [`INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md).
 
 ## Sommaire
 
@@ -65,8 +65,8 @@ Les sous-commandes batch (`analyze`, `report`, `diff`, `tempo`, `jaeger-query`, 
   plein sort quand même en `1`, jamais le `75` tolérable. Toute autre
   commande batch n'a ni flag `--ci` ni quality gate, donc aucune n'émet
   jamais `1`.
-- `2` : une erreur d'usage CLI. Émise à la fois par `clap` pour les erreurs au niveau du parsing (un flag requis manquant, ex. `mysql-stat` sans `--input`) et par la validation post-parse de perf-sentinel pour les combinaisons de flags que `clap` ne peut pas exprimer (ex. `report --pg-stat-top` sans `--pg-stat`, ou `bench --iterations 0`). Une erreur d'usage est une faute d'invocation permanente, donc elle bloque toujours et reste hors du panier tolérable `75`.
-- `75` : erreur d'outillage/interne (alignée sur `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), la valeur sentinelle que le template GitLab CI utilise déjà au niveau shell). Couvre tout échec runtime qui atteint le code propre de perf-sentinel et n'est ni une erreur d'usage ni un dépassement du quality gate : un fichier `--input`/`--config`/acquittements/baseline manquant ou illisible, des données de traces/config/acquittements malformées, un échec de récupération pour `tempo`/`jaeger-query`, un trace-not-found d'`explain`, ou un échec d'écriture du rapport SARIF/JSON/HTML. Jamais émis pour un dépassement de seuil, et ne signifie jamais que l'analyse a tourné et a été en désaccord avec votre config.
+- `2` : une erreur d'usage CLI. Émise à la fois par `clap` pour les erreurs au niveau du parsing (un flag requis manquant, ex. `mysql-stat` sans `--input`) et par la validation post-parse de Perf Sentinel pour les combinaisons de flags que `clap` ne peut pas exprimer (ex. `report --pg-stat-top` sans `--pg-stat`, ou `bench --iterations 0`). Une erreur d'usage est une faute d'invocation permanente, donc elle bloque toujours et reste hors du panier tolérable `75`.
+- `75` : erreur d'outillage/interne (alignée sur `EX_TEMPFAIL`, [sysexits.h](https://man.openbsd.org/sysexits), la valeur sentinelle que le template GitLab CI utilise déjà au niveau shell). Couvre tout échec runtime qui atteint le code propre de Perf Sentinel et n'est ni une erreur d'usage ni un dépassement du quality gate : un fichier `--input`/`--config`/acquittements/baseline manquant ou illisible, des données de traces/config/acquittements malformées, un échec de récupération pour `tempo`/`jaeger-query`, un trace-not-found d'`explain`, ou un échec d'écriture du rapport SARIF/JSON/HTML. Jamais émis pour un dépassement de seuil, et ne signifie jamais que l'analyse a tourné et a été en désaccord avec votre config.
 
 Les deux codes d'échec au-dessus du plancher `clap` sont distincts pour qu'un pipeline CI puisse brancher sur le code exact plutôt que d'inférer la cause depuis l'existence d'un fichier ou le résultat d'un step. Voir [Échecs d'outillage vs dépassements du quality gate](#échecs-doutillage-vs-dépassements-du-quality-gate) plus bas pour la façon dont chacun des trois templates officiels utilise ça. Avant la 0.9.17, les échecs d'outillage sortaient aussi en `1`. Les pipelines qui vérifient seulement un code de sortie non-zéro ne sont pas affectés.
 
@@ -99,7 +99,7 @@ code de sortie différemment selon le déclencheur :
 | Déclencheur     | Comportement                                                        | Justification                                                                             |
 |-----------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
 | Pull request    | Le gate bloque (build rouge)                                        | L'auteur est encore dans le contexte, le coût de correction est le plus faible            |
-| Push vers trunk | Le gate est informatif seulement, le SARIF est tout de même remonté | Un commit fusionné ne doit pas être retenu par perf-sentinel entre le merge et la release |
+| Push vers trunk | Le gate est informatif seulement, le SARIF est tout de même remonté | Un commit fusionné ne doit pas être retenu par Perf Sentinel entre le merge et la release |
 
 Cette séparation évite le mode d'échec classique des gates PR qui
 bloquent aussi sur trunk : main reste rouge, l'équipe contourne, et
@@ -456,7 +456,7 @@ Premium, seules les MRs ouvertes plus le baseline courant consomment
 de l'espace. Le chemin Free stocke un seul déploiement.
 
 **Dépendances**. Aucun composant GitLab CI tiers. Le job utilise
-`curl` pour installer le binaire perf-sentinel épinglé et le mot-clé
+`curl` pour installer le binaire Perf Sentinel épinglé et le mot-clé
 natif `pages:` pour le déploiement. Aucun deploy token ou runner
 token au-delà du `CI_JOB_TOKEN` par défaut n'est requis.
 
@@ -518,7 +518,7 @@ Si le rapport apparaît sans style avec une navigation par onglets
 cassée, voir **Configurer Jenkins pour rendre le rapport
 interactif** ci-dessous. Jenkins applique par défaut une Content
 Security Policy stricte qui bloque le CSS et le JavaScript inline,
-ce qui est la cause la plus fréquente d'une page perf-sentinel sans
+ce qui est la cause la plus fréquente d'une page Perf Sentinel sans
 style ouverte depuis la barre latérale.
 
 **Configurer Jenkins pour rendre le rapport interactif**.
@@ -526,7 +526,7 @@ style ouverte depuis la barre latérale.
 Jenkins applique par défaut une
 [Content Security Policy](https://www.jenkins.io/doc/book/security/configuring-content-security-policy/)
 stricte au contenu servi depuis les workspaces de build. Le rapport
-HTML perf-sentinel embarque CSS et JavaScript inline dans un seul
+HTML Perf Sentinel embarque CSS et JavaScript inline dans un seul
 fichier autonome, ce que le CSP par défaut bloque. Sans relâcher la
 politique ou utiliser une Resource Root URL, cliquer sur le lien
 `${BUILD_URL}perf-sentinel/` de la barre latérale affiche une page
@@ -558,7 +558,7 @@ System.setProperty(
 Compromis :
 
 - Affecte tout le contenu HTML servi par tous les jobs de
-  l'instance, pas seulement les rapports perf-sentinel.
+  l'instance, pas seulement les rapports Perf Sentinel.
 - Ajoute `'unsafe-inline'` pour les styles et les scripts.
   Acceptable sur une instance Jenkins où vous faites confiance aux
   jobs exécutés, risqué sur une instance multi-tenant avec des
@@ -651,13 +651,13 @@ derniers builds) pour plafonner l'empreinte.
   write` sur le workflow.
 - **Le widget Code Quality de GitLab** apparaît sur la page de merge
   request, avec des couleurs de sévérité dérivées du champ `severity` de
-  perf-sentinel (`critical -> critical`, `warning -> major`, `info ->
+  Perf Sentinel (`critical -> critical`, `warning -> major`, `info ->
   info`).
 - **Jenkins Warnings Next Generation** publie un arbre de findings
   structuré avec une courbe de tendance par build. Le plugin comprend
   nativement SARIF v2.1.0 et prend en charge sa propre déclaration
   `qualityGates` comme défense en profondeur en plus du code de sortie
-  `--ci` de perf-sentinel.
+  `--ci` de Perf Sentinel.
 
 ---
 

@@ -1,6 +1,6 @@
-# Contributing to perf-sentinel
+# Contributing to Perf Sentinel
 
-Thank you for your interest in contributing to perf-sentinel! This document covers the development setup, coding conventions and how to submit changes.
+Thank you for your interest in contributing to Perf Sentinel! This document covers the development setup, coding conventions and how to submit changes.
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ cargo llvm-cov --workspace --html --open
 
 ## Project structure
 
-perf-sentinel is a Cargo workspace with two crates:
+Perf Sentinel is a Cargo workspace with two crates:
 
 - **sentinel-core** (`crates/sentinel-core/`): library containing all pipeline logic
 - **sentinel-cli** (`crates/sentinel-cli/`): binary providing the CLI

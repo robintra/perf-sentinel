@@ -9,14 +9,14 @@ ancré dans l'infrastructure publique Sigstore.
 
 ## Pourquoi deux couches
 
-Les rapports perf-sentinel reposent sur deux signatures
+Les rapports Perf Sentinel reposent sur deux signatures
 complémentaires :
 
 - **Signature Sigstore** sur le rapport, ancrée dans le journal de
   transparence Rekor. Prouve que le rapport a été signé par une
   identité autorisée par l'organisation publiante et n'a pas été
   modifié depuis.
-- **Provenance SLSA** sur le binaire perf-sentinel, produite par le
+- **Provenance SLSA** sur le binaire Perf Sentinel, produite par le
   workflow GitHub Actions de release du projet. Prouve que le
   binaire ayant calculé le rapport a été construit depuis le code
   source officiel par un builder reconnu, pas par un build
@@ -154,7 +154,7 @@ par `:`) complète les compteurs pour détecter la substitution : un
 attaquant qui remplace `n_plus_one_sql` par `slow_sql` garde
 `core_patterns_count = 4` mais change le hash. Le consommateur
 recalcule le hash sur la liste canonique
-`core_patterns_required()` de la version perf-sentinel déclarée
+`core_patterns_required()` de la version Perf Sentinel déclarée
 dans `perf_sentinel_version` (actuellement quatre :
 `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`,
 `redundant_http`) et le compare au hash signé.
@@ -165,7 +165,7 @@ hache le `methodology.core_patterns_required` du rapport, et affiche
 une ligne `[FAIL] Core patterns` si les deux divergent. La
 vérification tourne à chaque invocation `verify-hash`, aucun flag
 supplémentaire requis. Un consommateur qui fait tourner la même
-version perf-sentinel que le signataire détecte donc une tentative
+version Perf Sentinel que le signataire détecte donc une tentative
 de substitution sans table de référence externe. Une divergence
 contre un binaire vérifieur d'une autre version est signalée avec
 une indication ("verifying binary is a different perf-sentinel

@@ -2,7 +2,7 @@
 
 ## Contents
 
-- [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
+- [OTLP capture reliability](#otlp-capture-reliability): why Perf Sentinel may miss spans as a passive listener.
 - [Instrumentation quality bounds findings](#instrumentation-quality-bounds-findings): why a thin report can mean missing instrumentation, not a clean service.
 - [Non-SQL datastores are not analyzed](#non-sql-datastores-are-not-analyzed): why Redis, MongoDB and similar spans are dropped at ingestion.
 - [Messaging: producer side only, no consumer analysis](#messaging-producer-side-only-no-consumer-analysis): why consumer spans are dropped and publish loops are flagged eagerly.
@@ -43,19 +43,19 @@
 
 ## OTLP capture reliability
 
-perf-sentinel is a passive listener: it receives traces forwarded by OpenTelemetry SDKs or collectors and cannot guarantee that every span is captured. Spans may be lost to network issues, SDK or collector sampling, or application crashes before flush.
+Perf Sentinel is a passive listener: it receives traces forwarded by OpenTelemetry SDKs or collectors and cannot guarantee that every span is captured. Spans may be lost to network issues, SDK or collector sampling, or application crashes before flush.
 
 For critical CI pipelines, use batch mode (`perf-sentinel analyze`) on pre-collected trace files rather than live capture.
 
 ## Instrumentation quality bounds findings
 
-Every finding is derived from a normalized span. perf-sentinel reads a closed list of carrying attributes (the query text `db.statement` / `db.query.text`, the target URL `http.url` / `url.full`, plus the enrichment attributes listed in [Required span attributes](./INSTRUMENTATION.md#required-span-attributes)). A span that carries none of them is not an I/O operation and is skipped. A SQL span that *is* an I/O operation but ships without query text, or an HTTP span without a URL, is also skipped: there is nothing to normalize, so no finding can be produced. Since 0.11.2 the span kind skips one more case even when the attribute is present. A `SERVER` span's URL describes the request the service answered rather than a call it made, so it yields no outbound HTTP event. It still supplies the inbound endpoint that other findings are attributed to. Detection is bounded by the quality of the upstream instrumentation, the same way any software-only tool is bounded by its measurement source.
+Every finding is derived from a normalized span. Perf Sentinel reads a closed list of carrying attributes (the query text `db.statement` / `db.query.text`, the target URL `http.url` / `url.full`, plus the enrichment attributes listed in [Required span attributes](./INSTRUMENTATION.md#required-span-attributes)). A span that carries none of them is not an I/O operation and is skipped. A SQL span that *is* an I/O operation but ships without query text, or an HTTP span without a URL, is also skipped: there is nothing to normalize, so no finding can be produced. Since 0.11.2 the span kind skips one more case even when the attribute is present. A `SERVER` span's URL describes the request the service answered rather than a call it made, so it yields no outbound HTTP event. It still supplies the inbound endpoint that other findings are attributed to. Detection is bounded by the quality of the upstream instrumentation, the same way any software-only tool is bounded by its measurement source.
 
 The skip emits no per-span warning or error, so a missing attribute does not surface as a problem, it surfaces as the *absence* of a finding. Since 0.8.7 the daemon counts the filtering in aggregate: `perf_sentinel_otlp_spans_received_total` and `perf_sentinel_otlp_spans_filtered_total{reason}` expose the retention ratio on `/metrics` (see [METRICS.md](./METRICS.md#otlp-ingestion-metrics)), so a fleet whose spans all filter out is visible without per-span noise. Since 0.10.0 the batch path counts too: `analyze` and `report` on OTLP input carry the same per-reason tally in `analysis.ingest` of the JSON report (spans received, filtered per reason, and the usable-span ratio), and the text report prints the tally whenever spans were filtered. `diff` is not covered: a `DiffReport` carries only the delta between two runs and has no `analysis` block. An optional `[thresholds] min_usable_span_ratio` turns the ratio into a fifth quality-gate rule, so a CI pipeline can fail on unusable instrumentation instead of passing a false green (see [CONFIGURATION.md](./CONFIGURATION.md#thresholds)). The rule applies to batch runs only. The daemon's equivalent signal is the `/metrics` retention pair described above. Native, Jaeger and Zipkin inputs carry no tally.
 
 The ratio is computed per I/O kind and reports the worst of them, not a pooled share: a service emitting 900 usable HTTP spans and 100 SQL spans that all lack `db.statement` would pool to 0.90 and slip past a 0.9 threshold while every SQL detector is blind. A kind carrying fewer than 20 I/O spans is left unjudged rather than judged badly, since a ratio over a handful of spans is noise and this one blocks builds. Blind spots remain by construction. A statement-less span that carries no `db.system` at all is indistinguishable from an internal span, so it counts as `not_io` and leaves the ratio entirely. And `db.system` without a statement is also what connection, transaction and prepare spans look like, so instrumentations that emit them inflate the denominator. Leave headroom below 1.0 when setting the threshold. Outbound RPC calls (gRPC, Dubbo) are modeled as HTTP but read no URL, so they cannot be missing one. They are kept out of the HTTP ratio entirely rather than inflating its numerator. The tally also has no service dimension: one healthy service raises the ratio of a fleet whose other service is entirely blind, so on a multi-service capture the figure is a fleet average, not a per-service verdict. `tempo` fetches carry no tally at all, so the rule never fires there. The common real-world cause is an instrumentation that omits the statement by default: .NET needs `SetDbStatementForText = true`, and several libraries redact statements for security unless statement capture is explicitly enabled. See [Required span attributes](./INSTRUMENTATION.md#required-span-attributes) for the per-language settings.
 
-A thin or empty report is therefore not evidence that a service is clean. It can equally mean the spans never carried what perf-sentinel needs. On OTLP input, check `analysis.ingest` first (a high `filtered_missing_db_statement` or `filtered_missing_http_url` names the gap directly), or set `min_usable_span_ratio` and let the gate check it for you. Audit your own tracing before trusting a low score. Run `perf-sentinel inspect --input <events.json>` (or `query --daemon <URL> inspect` against a live daemon) and confirm that SQL and HTTP spans appear with their query text and URLs. A sparse or empty span tree is the signal that the entry cost is instrumentation work, not a green light.
+A thin or empty report is therefore not evidence that a service is clean. It can equally mean the spans never carried what Perf Sentinel needs. On OTLP input, check `analysis.ingest` first (a high `filtered_missing_db_statement` or `filtered_missing_http_url` names the gap directly), or set `min_usable_span_ratio` and let the gate check it for you. Audit your own tracing before trusting a low score. Run `perf-sentinel inspect --input <events.json>` (or `query --daemon <URL> inspect` against a live daemon) and confirm that SQL and HTTP spans appear with their query text and URLs. A sparse or empty span tree is the signal that the entry cost is instrumentation work, not a green light.
 
 One statement-quality gap is repaired automatically, within bounds: layered instrumentations that split a query across a statement-bearing ~0 ms span and a statement-less duration span (PHP Doctrine + PDO) are re-joined into one event at OTLP conversion. The stitch applies only on the OTLP path (Jaeger and Zipkin JSON imports keep the split blind spot), never to non-SQL datastores, only to statement-less spans whose name suggests query execution (`execute`, `query`), and only within one `ResourceSpans` block. A pair split across collector batches falls back to the plain `missing_db_statement` filtering described above. A statement-less span carrying no `db.system` (the Doctrine layer emits the engine only on its pdo child) is stitched only when it has a statement-bearing sibling, so a wrapper span over its own SQL child does not adopt a descendant's statement. Merged spans are counted under the `merged_db_span` reason.
 
@@ -63,7 +63,7 @@ Because the stitch is scoped to one export request, slow queries are its worst c
 
 ## Non-SQL datastores are not analyzed
 
-perf-sentinel models three I/O kinds, relational SQL, outbound calls (HTTP and RPC such as gRPC) and message publishes. A span whose `db.system` names a non-SQL datastore (`redis`, `memcached`, `mongodb`, `cassandra`, `dynamodb`, `couchbase`, `couchdb`, `elasticsearch`, `opensearch`, `neo4j`, `hbase`, `geode`, `influxdb`) is dropped at ingestion. Its `db.statement` is not relational SQL and the SQL tokenizer would mangle it (a Redis `GET user:123` is not a query template). The drop is gated on `db.system` alone, so a non-SQL span is dropped whether or not it carries a statement or a URL, consistently across the OTLP, Jaeger and Zipkin paths. Dropping is the harm-reduction choice: it avoids false N+1 and redundant findings on cache or document traffic. A `db.system` that is absent or names a SQL engine (`postgresql`, `mysql`, `mssql`, `oracle`, `clickhouse`, `cockroachdb`, ...) is always treated as SQL, so no relational traffic is dropped by mistake.
+Perf Sentinel models three I/O kinds, relational SQL, outbound calls (HTTP and RPC such as gRPC) and message publishes. A span whose `db.system` names a non-SQL datastore (`redis`, `memcached`, `mongodb`, `cassandra`, `dynamodb`, `couchbase`, `couchdb`, `elasticsearch`, `opensearch`, `neo4j`, `hbase`, `geode`, `influxdb`) is dropped at ingestion. Its `db.statement` is not relational SQL and the SQL tokenizer would mangle it (a Redis `GET user:123` is not a query template). The drop is gated on `db.system` alone, so a non-SQL span is dropped whether or not it carries a statement or a URL, consistently across the OTLP, Jaeger and Zipkin paths. Dropping is the harm-reduction choice: it avoids false N+1 and redundant findings on cache or document traffic. A `db.system` that is absent or names a SQL engine (`postgresql`, `mysql`, `mssql`, `oracle`, `clickhouse`, `cockroachdb`, ...) is always treated as SQL, so no relational traffic is dropped by mistake.
 
 Because the span never enters the pipeline, a dropped non-SQL call is also invisible to the structural detectors (excessive fanout, serialized calls): a request that fans out to many cache or document-store calls will not raise those findings. On the OTLP path the drop is counted under the dedicated `non_sql_datastore` reason in `perf_sentinel_otlp_spans_filtered_total`, kept separate from `not_io` so a cache-only fleet does not trip the daemon zero-retention warning, which counts only instrumentation-gap reasons.
 
@@ -93,7 +93,7 @@ Because publish spans now enter the pipeline, they also count in `total_io_ops`,
 
 ## Messaging: producer and consumer traces are linked, not merged
 
-A broker joins a producer to its consumer with an OpenTelemetry span link rather than a parent-child edge, and the consumer usually starts its own trace. perf-sentinel reads that link, from the nearest `CONSUMER` ancestor of an I/O span, and carries it as `link_trace_id` on the events of the consuming handler. The `explain` tree renders it as a `triggered by trace <id>` line, in the CLI, in `/api/explain/{trace_id}` and in the TUI. The HTML dashboard does not carry it, because its embedded spans have no such field.
+A broker joins a producer to its consumer with an OpenTelemetry span link rather than a parent-child edge, and the consumer usually starts its own trace. Perf Sentinel reads that link, from the nearest `CONSUMER` ancestor of an I/O span, and carries it as `link_trace_id` on the events of the consuming handler. The `explain` tree renders it as a `triggered by trace <id>` line, in the CLI, in `/api/explain/{trace_id}` and in the TUI. The HTML dashboard does not carry it, because its embedded spans have no such field.
 
 The two traces are **not** merged into one. Merging would put a trace id on the consumer-side findings that does not contain those spans when pasted into Jaeger or Tempo. It would also make `serialized_calls` fire on consumer spans whose ordering belongs to the broker rather than to the caller, and inflate `chatty_service` on every asynchronous chain. In daemon mode the producer's window is also evicted after `trace_ttl_ms` (30 s by default), well under a normal broker lag, so a merge would only ever catch the fastest chains.
 
@@ -123,11 +123,11 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 
 If a query normalizes incorrectly, open an issue with the raw SQL anonymized.
 
-**Complementarity with pg_stat_statements.** perf-sentinel sees per-trace patterns (N+1, redundant) that pg_stat_statements cannot. pg_stat_statements provides aggregate server-side stats (total calls, mean time) that perf-sentinel does not track. Use both for full coverage.
+**Complementarity with pg_stat_statements.** Perf Sentinel sees per-trace patterns (N+1, redundant) that pg_stat_statements cannot. pg_stat_statements provides aggregate server-side stats (total calls, mean time) that Perf Sentinel does not track. Use both for full coverage.
 
 ## ORM bind parameters and N+1 vs redundant classification
 
-ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where the parameter values are not visible in the `db.statement`/`db.query.text` attribute. perf-sentinel sees the template with the bind placeholders but not the actual values.
+ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where the parameter values are not visible in the `db.statement`/`db.query.text` attribute. Perf Sentinel sees the template with the bind placeholders but not the actual values.
 
 This means that N+1 patterns (same query, different values) may be classified as `redundant_sql` (same query, same visible params) instead of `n_plus_one_sql` (same query, different params). Both findings correctly identify the repeated query pattern and the suggestion to batch or cache remains valid.
 
@@ -139,7 +139,7 @@ The same limitation applies to RPC (gRPC, Dubbo). A gRPC request payload lives i
 
 N+1 HTTP detection depends on the varying request parameter being visible in the span. An N+1 loop that varies a path segment (`GET /api/orders/1`, `/api/orders/2`, ...) normalizes to `GET /api/orders/{id}` with distinct extracted params, and is detected. An N+1 loop that varies a query parameter (`GET /api/mock?seq=1`, `?seq=2`, ...) is only detected if the query string reaches the span intact.
 
-Some instrumentations redact the query string before export. OpenTelemetry .NET `System.Net.Http` redacts to `?*` by default (disable with `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true`). When the query is redacted, every call in the loop carries a byte-identical `url.full`, so perf-sentinel sees the pattern as `redundant_http` (same URL repeated), not `n_plus_one_http` (same URL, different parameter). The varying parameter was destroyed upstream, so no trace consumer (Jaeger, Tempo, or any OTLP backend) can recover it, not just perf-sentinel.
+Some instrumentations redact the query string before export. OpenTelemetry .NET `System.Net.Http` redacts to `?*` by default (disable with `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true`). When the query is redacted, every call in the loop carries a byte-identical `url.full`, so Perf Sentinel sees the pattern as `redundant_http` (same URL repeated), not `n_plus_one_http` (same URL, different parameter). The varying parameter was destroyed upstream, so no trace consumer (Jaeger, Tempo, or any OTLP backend) can recover it, not just Perf Sentinel.
 
 Both verdicts identify the repeated-call pattern and the suggestion to batch remains valid. To get `n_plus_one_http` on .NET specifically, either disable query redaction via the env var above, or model the varying identifier as a path segment rather than a query parameter.
 
@@ -243,26 +243,26 @@ The `perf-sentinel bench` command reports peak RSS (Resident Set Size) using pla
 
 ## Upstream sampling and detection accuracy
 
-Upstream sampling is applied **before** perf-sentinel, in the SDK or the collector. It is separate from the daemon's own `sampling_rate` knob, covered below.
+Upstream sampling is applied **before** Perf Sentinel, in the SDK or the collector. It is separate from the daemon's own `sampling_rate` knob, covered below.
 
-Head-based sampling keeps or drops a whole trace at its root. Traces that are kept arrive complete, so the per-trace detectors (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) stay correct on the traces perf-sentinel does see: an N+1 inside a kept trace is still fully visible. What aggressive head-based sampling (the common 1% to 10% used in production, for cost) degrades is coverage, not per-trace structure:
+Head-based sampling keeps or drops a whole trace at its root. Traces that are kept arrive complete, so the per-trace detectors (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) stay correct on the traces Perf Sentinel does see: an N+1 inside a kept trace is still fully visible. What aggressive head-based sampling (the common 1% to 10% used in production, for cost) degrades is coverage, not per-trace structure:
 
 - **Rare patterns may never appear.** A pattern that only occurs in a small fraction of traffic can be sampled out entirely and never reach detection.
 - **Aggregates are computed over a non-representative subset.** The I/O waste ratio and the Prometheus counters reflect only the sampled traces, so they cannot be read as whole-traffic figures.
 - **Cross-trace correlation effectively stops firing.** The [cross-trace correlator](#cross-trace-correlation) needs a finding pair to recur (`min_co_occurrences`, default 5) inside its window. At low sampling rates the repeated co-occurrences rarely survive, so the correlator stays quiet even when the underlying coupling is real.
 
-perf-sentinel does not inspect the W3C `sampled` flag and cannot tell a complete trace from a head-sampled survivor. It treats whatever arrives as the full trace.
+Perf Sentinel does not inspect the W3C `sampled` flag and cannot tell a complete trace from a head-sampled survivor. It treats whatever arrives as the full trace.
 
 Recommendations:
 
 - For CI quality gates, run batch mode (`perf-sentinel analyze`) on fully captured traces. A gate should not decide on 1% of traffic.
 - In the daemon, if you must sample for cost, prefer **tail-based** sampling at the collector. Tail-based keeps whole traces too, but lets you bias retention toward slow or error traces, which is where structural waste concentrates.
-- Better still, do not sample the branch that feeds perf-sentinel at all. Sampling bounds what a trace store retains, and perf-sentinel retains nothing beyond a per-trace in-memory window, so a second collector pipeline exporting to the daemon without the sampler costs storage nothing. See [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon) for the layout.
+- Better still, do not sample the branch that feeds Perf Sentinel at all. Sampling bounds what a trace store retains, and Perf Sentinel retains nothing beyond a per-trace in-memory window, so a second collector pipeline exporting to the daemon without the sampler costs storage nothing. See [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#collector-sampling-and-what-reaches-the-daemon) for the layout.
 - Tail-based sampling does not fix the aggregates, only the per-trace structure. Worse for interpretation, the `errors` and `slow` policies bias retention toward heavy traces, so the surviving sample is not representative and no single factor corrects it. Do not publish a waste ratio or a carbon figure computed behind a sampler as a whole-traffic number, and treat `disclose` output from a sampled window as an understatement.
 
 ## Sampling in daemon mode
 
-This is perf-sentinel's own sampling knob, applied after ingestion, distinct from the upstream sampling described above. When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, perf-sentinel randomly drops traces to reduce resource usage. This means:
+This is Perf Sentinel's own sampling knob, applied after ingestion, distinct from the upstream sampling described above. When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, Perf Sentinel randomly drops traces to reduce resource usage. This means:
 
 - Some N+1 or redundant patterns may go undetected
 - The waste ratio is computed only over sampled traces and may not represent the full traffic
@@ -302,7 +302,7 @@ detect+score run on a single dedicated analysis worker, decoupled from the inges
 - `perf_sentinel_analysis_queue_depth` exposes the current backlog. A sustained nonzero value means the worker is falling behind.
 - `perf_sentinel_analysis_shed_batches_total` and `perf_sentinel_analysis_shed_traces_total` count what was dropped. Alert on `rate(perf_sentinel_analysis_shed_batches_total[5m]) > 0`.
 
-A shed batch is dropped from detection entirely: its findings are never emitted and the cross-trace correlator never sees it. Because perf-sentinel surfaces *recurring* patterns, a shed N+1 or chatty path is normally re-detected on the next request once the worker catches up. If you see sustained shedding, the daemon is undersized for the trace volume: scale out (shard by `trace_id`), raise `sampling_rate` headroom, or reduce per-trace cost upstream.
+A shed batch is dropped from detection entirely: its findings are never emitted and the cross-trace correlator never sees it. Because Perf Sentinel surfaces *recurring* patterns, a shed N+1 or chatty path is normally re-detected on the next request once the worker catches up. If you see sustained shedding, the daemon is undersized for the trace volume: scale out (shard by `trace_id`), raise `sampling_rate` headroom, or reduce per-trace cost upstream.
 
 Shedding is the response to *overload*, not to *failure*. If the analysis worker itself stops (e.g. a detector panics on a pathological trace), the daemon does not stay up analyzing nothing: it exits with an error so a supervisor (Kubernetes, systemd) restarts the process. This is the same fail-loud behavior the older inline-detection design had when a panic crashed the whole daemon. Any batch enqueued in the brief window before exit is counted as shed rather than lost silently.
 
@@ -316,7 +316,7 @@ The daemon's correlation state is entirely in memory: a 30s rolling window (`tra
 
 **A graceful shutdown drains, an ungraceful kill does not.** On a clean shutdown the daemon drains its window through detection before exiting. Both SIGINT (Ctrl+C) and, on Unix, SIGTERM trigger this drain, so a normal Kubernetes pod termination (rolling update, scale-down) flushes the in-flight window instead of dropping it. An *ungraceful* death still loses it: SIGKILL (the kubelet's forced kill after the termination grace period), an OOM kill, or a process crash skips the drain and drops the in-flight traces, up to one full window, with no recovery.
 
-The practical impact is small. What is in flight at that moment is incomplete traces (they have not hit their TTL, so they may still be receiving spans). perf-sentinel also surfaces *recurring* patterns: an N+1 or a chatty path that the dropped window would have flagged reappears on the next request and is caught by the new process within seconds. The trace data is not lost either: it lives upstream in your collector or trace store. Runtime acknowledgments are file-backed and survive (see [StatefulSet mode](./HELM-DEPLOYMENT.md#statefulset)). The one place a gap is visible is the opt-in per-window NDJSON archive, which misses the window that was in flight at the kill. If that matters, keep `trace_ttl_ms` short, or run gates in batch mode where there is no window to lose.
+The practical impact is small. What is in flight at that moment is incomplete traces (they have not hit their TTL, so they may still be receiving spans). Perf Sentinel also surfaces *recurring* patterns: an N+1 or a chatty path that the dropped window would have flagged reappears on the next request and is caught by the new process within seconds. The trace data is not lost either: it lives upstream in your collector or trace store. Runtime acknowledgments are file-backed and survive (see [StatefulSet mode](./HELM-DEPLOYMENT.md#statefulset)). The one place a gap is visible is the opt-in per-window NDJSON archive, which misses the window that was in flight at the kill. If that matters, keep `trace_ttl_ms` short, or run gates in batch mode where there is no window to lose.
 
 **Replicas do not share state.** Each daemon instance is independent: its own window, its own metrics, its own correlator. The Helm chart exposes `workload.replicas`, but there is no leader election and no shared store. Two replicas analyzing the same service compute two partial pictures, never a merged one. Prometheus counters are per-replica and must be aggregated at the PromQL layer.
 
@@ -339,18 +339,18 @@ Every cell in the CSVs exported by the HTML dashboard's per-tab **Export CSV** b
 
 ## No authentication (TLS available, auth not built-in)
 
-perf-sentinel does **not** implement authentication on its ingestion endpoints. By default, the daemon binds to `127.0.0.1` (loopback only), which is safe for single-machine deployments.
+Perf Sentinel does **not** implement authentication on its ingestion endpoints. By default, the daemon binds to `127.0.0.1` (loopback only), which is safe for single-machine deployments.
 
 **TLS is supported** on the OTLP gRPC and HTTP listeners via the `[daemon] tls_cert_path` and `tls_key_path` configuration fields. When both are set, the daemon serves OTLP and `/metrics` over TLS. The JSON unix socket and Prometheus `/metrics` scraping are not separately configurable: `/metrics` shares the HTTP port and inherits its TLS setting. See [`docs/CONFIGURATION.md`](CONFIGURATION.md) for the full reference.
 
-If you expose perf-sentinel to a network:
+If you expose Perf Sentinel to a network:
 
 - **Enable TLS** via `tls_cert_path` and `tls_key_path` to encrypt traffic in transit
 - Use network policies (Kubernetes `NetworkPolicy`, Docker network isolation, firewall rules) to restrict access
-- For **authentication**, place perf-sentinel behind a reverse proxy (nginx, envoy) that handles bearer tokens or mTLS client certificates
-- Route traces through an OpenTelemetry Collector with its own auth extensions and forward to perf-sentinel on a trusted internal network
+- For **authentication**, place Perf Sentinel behind a reverse proxy (nginx, envoy) that handles bearer tokens or mTLS client certificates
+- Route traces through an OpenTelemetry Collector with its own auth extensions and forward to Perf Sentinel on a trusted internal network
 
-Never expose perf-sentinel directly to untrusted networks without at minimum TLS enabled and network-level access controls in place.
+Never expose Perf Sentinel directly to untrusted networks without at minimum TLS enabled and network-level access controls in place.
 
 ### JSON socket hardening
 
@@ -416,7 +416,7 @@ Caveats shared by both flags:
 
 ## Carbon estimates accuracy
 
-perf-sentinel uses an **I/O → energy → CO₂ proxy model** to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:
+Perf Sentinel uses an **I/O → energy → CO₂ proxy model** to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:
 
 1. **I/O operations → energy**: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed `ENERGY_PER_IO_OP_KWH` constant of `0.0000001 kWh` (~0.1 µWh). This is **not measured**: it is an order-of-magnitude approximation.
 2. **Energy → CO₂**: energy is multiplied by a per-region grid carbon intensity (gCO₂eq/kWh) sourced from Electricity Maps and Cloud Carbon Footprint annual averages (2023-2024), with a per-provider PUE applied (AWS 1.15, GCP 1.09, Azure 1.17, Generic 1.2). The three provider PUEs are not strictly comparable in scope. AWS publishes a global fleet average for calendar year 2024, GCP a global fleet trailing-twelve-month average for 2024, and Azure an FY25 (July 2024 to June 2025) figure for its owned-and-controlled facilities only (leased and colocation are excluded). The cross-window gap is around 12 months and the scope difference is around a few percent of the fleet.
@@ -453,7 +453,7 @@ The functional unit R is declared on `co2.functional_unit` (`"trace"`). Both vie
 
 ### Positioning: directional waste counter
 
-perf-sentinel is a **directional waste counter** designed to:
+Perf Sentinel is a **directional waste counter** designed to:
 
 - **Detect performance anti-patterns** (N+1, redundant queries, fanout) and quantify their relative carbon impact.
 - **Compare runs** before/after optimization to validate that a fix reduces I/O.
@@ -481,7 +481,7 @@ It is **NOT a regulatory carbon accounting tool**. Do **NOT** use it for:
 
 ### Multi-region scoring
 
-When OTel spans carry the `cloud.region` resource attribute, perf-sentinel automatically buckets I/O ops per region and applies the correct grid intensity coefficient. The fallback chain is:
+When OTel spans carry the `cloud.region` resource attribute, Perf Sentinel automatically buckets I/O ops per region and applies the correct grid intensity coefficient. The fallback chain is:
 
 1. `event.cloud_region` from the OTel attribute.
 2. `[green.service_regions]` per-service config mapping.
@@ -519,7 +519,7 @@ When `[green] use_hourly_profiles = true` (the default), the scoring stage uses 
 
 **Estimated profiles.** The Asia-Pacific and Brazil profiles are estimated from fuel mix composition rather than hourly generation data. They are annotated as such in the source code. The diurnal shapes are approximations based on the known fuel mix (e.g. gas-dominated grids are nearly flat, coal-heavy grids have mild evening peaks).
 
-**Timestamp requirements.** perf-sentinel parses timestamps as UTC and requires the canonical ISO 8601 form `YYYY-MM-DDTHH:MM:SS[.fff]Z` (trailing `Z`) or the space-separated variant. Strings with non-UTC offsets (`+02:00`, `-05:00`) are rejected rather than silently shifted. The carbon table is UTC-anchored, so naive offset handling would systematically skew the estimate. Spans with unparseable timestamps fall back to the flat annual intensity.
+**Timestamp requirements.** Perf Sentinel parses timestamps as UTC and requires the canonical ISO 8601 form `YYYY-MM-DDTHH:MM:SS[.fff]Z` (trailing `Z`) or the space-separated variant. Strings with non-UTC offsets (`+02:00`, `-05:00`) are rejected rather than silently shifted. The carbon table is UTC-anchored, so naive offset handling would systematically skew the estimate. Spans with unparseable timestamps fall back to the flat annual intensity.
 
 **Accuracy improvement (approximate).** Compared to the flat-annual model, the hourly profiles reduce the time-of-day component of the uncertainty budget from ~±50% to ~±20% **for the 4 listed regions only**. The overall 2× multiplicative uncertainty bracket on the CO₂ estimate is unchanged, because the energy-per-op proxy constant remains the dominant source of error.
 
@@ -540,21 +540,21 @@ A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual v
 
 ### What software-only attribution covers
 
-perf-sentinel is a software-only attribution tool. The class includes RAPL readers (`intel-rapl` via Powercap) and model-based estimators that derive energy from CPU utilization (Cloud SPECpower, SPECpower coefficients pinned per SKU). On a typical server, neither kind sees the full wall-plug draw. RAPL reports CPU and DRAM packages and misses the storage controller, SSDs, NICs, fans, BMC, and the PSU conversion losses. Model-based estimators inherit the same scope by construction, since their coefficients are calibrated against CPU and DRAM power.
+Perf Sentinel is a software-only attribution tool. The class includes RAPL readers (`intel-rapl` via Powercap) and model-based estimators that derive energy from CPU utilization (Cloud SPECpower, SPECpower coefficients pinned per SKU). On a typical server, neither kind sees the full wall-plug draw. RAPL reports CPU and DRAM packages and misses the storage controller, SSDs, NICs, fans, BMC, and the PSU conversion losses. Model-based estimators inherit the same scope by construction, since their coefficients are calibrated against CPU and DRAM power.
 
-Independent published measurements vary by hardware and load, but the order of magnitude is consistent: on common Intel server parts, RAPL captures roughly half to two thirds of the wall-plug power, with the periphery making up the rest. perf-sentinel is in the same class and the same range. For total server energy on a known SKU, pair it with an external power meter (PDU SNMP, smart plug) or a hardware-level reading. For trace-attributable compute and DRAM energy, the precision discussion is in [Scaphandre precision bounds](#scaphandre-precision-bounds) and [Cloud SPECpower precision bounds](#cloud-specpower-precision-bounds) below.
+Independent published measurements vary by hardware and load, but the order of magnitude is consistent: on common Intel server parts, RAPL captures roughly half to two thirds of the wall-plug power, with the periphery making up the rest. Perf Sentinel is in the same class and the same range. For total server energy on a known SKU, pair it with an external power meter (PDU SNMP, smart plug) or a hardware-level reading. For trace-attributable compute and DRAM energy, the precision discussion is in [Scaphandre precision bounds](#scaphandre-precision-bounds) and [Cloud SPECpower precision bounds](#cloud-specpower-precision-bounds) below.
 
 When reading benchmarks that compare these tools to an external meter, keep two quantities separate. First, the periphery that no software-only signal can cover. Second, how well a given tool attributes the fraction it does see to a container, a process, or a span. Only the second is a property of the tool. The first is a property of the signal.
 
 ### Alumet precision bounds
 
-perf-sentinel ships an opt-in integration with [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2), scraped through its `prometheus-exporter` output plugin. `alumet_rapl` leads the measured-energy precedence chain.
+Perf Sentinel ships an opt-in integration with [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2), scraped through its `prometheus-exporter` output plugin. `alumet_rapl` leads the measured-energy precedence chain.
 
 **Why it outranks Scaphandre.** Both read RAPL. Alumet's sampling is measurably less error-prone, as characterized by its own authors in [Dissecting the software-based measurement of CPU energy consumption](https://hal.science/hal-04420527v2/document) (Raffin et al.), and it attributes per cgroup rather than per process, which matches container workloads more closely. Being ranked first is a statement about attribution fidelity, not about coverage: like Scaphandre, RAPL only sees CPU and DRAM, roughly half to two thirds of wall-plug power. For total server energy, see [Redfish BMC precision bounds](#redfish-bmc-precision-bounds).
 
 **The interval-mismatch failure mode.** Alumet's `prometheus-exporter` publishes every measurement as a Prometheus **gauge holding the last flushed value**, and `rapl_consumed_energy` is a `CounterDiff`: the joules consumed during one source `poll_interval`. It is neither a cumulative counter (like Kepler) nor a power reading (like Scaphandre). Two consequences:
 
-- Summing raw readings across scrapes is wrong in both directions. Scraping faster than Alumet flushes double-counts the same value, scraping slower drops whole intervals. perf-sentinel therefore never sums. It divides by `energy_interval_secs` to recover watts and integrates over its own scrape window, exactly as it does for Scaphandre's power gauge.
+- Summing raw readings across scrapes is wrong in both directions. Scraping faster than Alumet flushes double-counts the same value, scraping slower drops whole intervals. Perf Sentinel therefore never sums. It divides by `energy_interval_secs` to recover watts and integrates over its own scrape window, exactly as it does for Scaphandre's power gauge.
 - **`energy_interval_secs` cannot be verified against the wire.** The interval is nowhere in the exposition. If the declared value drifts from the Alumet-side `poll_interval`, every energy and carbon figure for the mapped services is rescaled linearly and **silently**. Declaring `1.0` while Alumet polls at `5s` overstates energy 5x, with no warning, no failed scrape, and a `measured` provenance tag that looks authoritative. This is the single largest correctness risk in the integration. Re-check both files together whenever either changes. The daemon echoes the value it is using in the `Alumet scraper started` log line so the mistake is at least visible at startup.
 
 The stationarity assumption is the same one Scaphandre carries: the sampled interval is taken as representative of the whole scrape window. Alumet's reading is a mean over its `poll_interval` rather than an instantaneous sample, which if anything is the better-behaved of the two.
@@ -563,13 +563,13 @@ The stationarity assumption is the same one Scaphandre carries: the sampled inte
 
 **Upstream version.** Alumet is **pre-1.0** (v0.9.5 at time of writing) and ships no wire-conformance CI job yet: GitHub runners expose no powercap tree, so RAPL cannot run there. Metric names and plugin config may change between releases. The runtime net is the zero-sample warn-once, which fires after three consecutive HTTP-200 ticks with no matching samples and names the likely causes. Treat an Alumet upgrade as a reason to re-run `curl <endpoint> | grep -i energy` and compare against `metric_name`.
 
-**Platform requirements.** Linux, and whatever the chosen source plugin requires. The `rapl` source needs Intel or AMD x86_64 with RAPL access (perf-events or a readable `/sys/devices/virtual/powercap/intel-rapl`), so the same bare-metal and RAPL-passthrough constraints as Scaphandre apply. Alumet also ships ARM-relevant sources (`nvidia-jetson`, `grace-hopper`) that perf-sentinel can scrape through the same generic `metric_name` / `label_key` surface. **The `alumet_rapl` model tag is applied to every Alumet reading regardless of which source plugin produced it**: perf-sentinel has no way to tell a RAPL series from a Jetson one, since the metric name is operator-chosen. Scraping a non-RAPL Alumet source therefore labels those figures `alumet_rapl` in the report, in `energy_source_models`, and in any published disclosure. Only point `[green.alumet]` at a RAPL-backed series unless you accept that provenance tag.
+**Platform requirements.** Linux, and whatever the chosen source plugin requires. The `rapl` source needs Intel or AMD x86_64 with RAPL access (perf-events or a readable `/sys/devices/virtual/powercap/intel-rapl`), so the same bare-metal and RAPL-passthrough constraints as Scaphandre apply. Alumet also ships ARM-relevant sources (`nvidia-jetson`, `grace-hopper`) that Perf Sentinel can scrape through the same generic `metric_name` / `label_key` surface. **The `alumet_rapl` model tag is applied to every Alumet reading regardless of which source plugin produced it**: Perf Sentinel has no way to tell a RAPL series from a Jetson one, since the metric name is operator-chosen. Scraping a non-RAPL Alumet source therefore labels those figures `alumet_rapl` in the report, in `energy_source_models`, and in any published disclosure. Only point `[green.alumet]` at a RAPL-backed series unless you accept that provenance tag.
 
 **Database waste is a lower bound with a count-based ratio.** `green_summary.database_waste` multiplies the database energy by `avoidable_sql_io_ops / total_sql_io_ops`. With `[green.alumet.database]` declared and a live reading, that energy is measured on the database cgroup (`model = "alumet_rapl"`). When no database is declared at all, the figure is estimated from the energy of the window's SQL spans exactly as scoring resolved it: measured per-service sources when available, the I/O proxy with its 2x bracket otherwise (`model = "estimated"`). Its precision follows the report's energy model rather than the measured bounds below. A declared database with no delivered reading emits nothing. Its energy carries over to the next delivered window. Four bounds to keep in mind. First, the energy term is the CPU package share only. Alumet's default attribution formula covers neither DRAM nor disk I/O, and a database is heavy on both, so the figure understates the real consumption (idle power is left unattributed by Alumet, which is the desired behavior for a waste ratio). Second, the ratio counts operations without weighting their cost: DBMS energy benchmarks measure up to 60% CPU power difference between operators at equal utilization (Tsirogiannis et al., SIGMOD 2010), so a mix of cheap avoidable point-SELECTs against heavy legitimate writes skews the split. Third, the interval-mismatch risk above applies to this figure too. Fourth, when analysis batches are shed under load, the shed windows' energy carries over and is delivered to the next scored window, multiplied by that window's ratio. Per-window waste is therefore approximate under shedding. The energy total across archived windows is exact except for windows the archive writer itself dropped (channel full, writer dead, or a failed serialization or write, all logged and counted on `perf_sentinel_archive_windows_dropped_total`). For all these reasons the figure is informational: excluded from `energy_kwh` and from `co2` (the estimated variant is a re-presented share of those totals, not additional energy), and published in the disclosure only as the separate labeled `aggregate.database_waste` block (schema v1.4) outside every total. It also assumes the declared cgroup serves all the SQL traffic the daemon sees. Declare one database and keep multi-database deployments out of this figure unless the databases are homogeneous.
 
 ### Scaphandre precision bounds
 
-perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
+Perf Sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
 
 **Prefer Alumet for new deployments.** [Alumet precision bounds](#alumet-precision-bounds) above explains why `alumet_rapl` outranks `scaphandre_rapl`: same RAPL source, less error-prone sampling as characterized in the Raffin et al. paper, and per-cgroup attribution. Upstream pace points the same way: at the time of writing the latest Scaphandre release is v1.0.2 (February 2025) and the ARM tracking issue below has been open since 2020, while Alumet is under active development. The Scaphandre integration stays supported for existing deployments.
 
@@ -581,7 +581,7 @@ perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/h
 - **Intel or AMD x86_64 CPUs with RAPL support**: most recent server and desktop chips, but notably **NOT ARM64**. Apple Silicon, Ampere, Graviton and similar cloud ARM instances cannot use this integration.
 - **Bare metal or VMs with RAPL passthrough.** Most cloud VMs (AWS EC2, GCP GCE, Azure VMs) do **not** expose RAPL counters to guest OSes. Kubernetes pods running on bare-metal nodes can access RAPL if the host exposes `/sys/class/powercap/intel-rapl/` into the container (requires privileged access or explicit mount).
 
-**Why the Scaphandre branch does not cover ARM64.** Scaphandre upstream has tracked ARM support in [issue #35](https://github.com/hubblo-org/scaphandre/issues/35) since 2020 with no implementation. RAPL is an Intel interface adopted by AMD from kernel 5.11. ARM CPUs have no equivalent that exposes per-package energy counters via `/sys/class/powercap/`. The Scaphandre roadmap mentions an "estimation-based sensor" that would work on any architecture, but it remains unimplemented (last upstream activity on the topic: November 2023). On Graviton, Ampere, Apple Silicon and Raspberry Pi, the Scaphandre binary compiles for `aarch64` but the RAPL sensor fails at startup. perf-sentinel now ships two measured-energy sources that work on ARM: [Kepler precision bounds](#kepler-precision-bounds) (per-pod measured energy via eBPF) and [Redfish BMC precision bounds](#redfish-bmc-precision-bounds) (bare-metal wall-plug power). Both sit ahead of `cloud_specpower` in the precedence chain so ARM workloads get a real signal before the stack falls back to the CCF Graviton/Cobalt coefficients (±40%) and then to the I/O proxy.
+**Why the Scaphandre branch does not cover ARM64.** Scaphandre upstream has tracked ARM support in [issue #35](https://github.com/hubblo-org/scaphandre/issues/35) since 2020 with no implementation. RAPL is an Intel interface adopted by AMD from kernel 5.11. ARM CPUs have no equivalent that exposes per-package energy counters via `/sys/class/powercap/`. The Scaphandre roadmap mentions an "estimation-based sensor" that would work on any architecture, but it remains unimplemented (last upstream activity on the topic: November 2023). On Graviton, Ampere, Apple Silicon and Raspberry Pi, the Scaphandre binary compiles for `aarch64` but the RAPL sensor fails at startup. Perf Sentinel now ships two measured-energy sources that work on ARM: [Kepler precision bounds](#kepler-precision-bounds) (per-pod measured energy via eBPF) and [Redfish BMC precision bounds](#redfish-bmc-precision-bounds) (bare-metal wall-plug power). Both sit ahead of `cloud_specpower` in the precedence chain so ARM workloads get a real signal before the stack falls back to the CCF Graviton/Cobalt coefficients (±40%) and then to the I/O proxy.
 
 On unsupported platforms, the `[green.scaphandre]` section is parsed and the scraper spawns, but it will fail to find the endpoint and silently fall back to the proxy model. A single warn-level log line is emitted at first failure so operators notice the misconfiguration.
 
@@ -603,10 +603,10 @@ Reports where at least one service used a measured coefficient are tagged with `
 
 1. **RAPL is process-level, not span-level.** The metric `scaph_process_power_consumption_microwatts{exe="java"}` reports the total power draw of the `java` process. It cannot distinguish between two concurrent N+1 findings running in the same process at the same time. They share the coefficient by construction.
 2. **Scrape interval is not the precision bottleneck.** A 5-second scrape window averages power over 5 seconds. Going to 1 second would not give you per-finding precision because RAPL itself averages at the 2s-Scaphandre-step granularity. The actual precision floor is "one coefficient per (service, scrape_window)".
-3. **Concurrent services on the same process share nothing.** If your architecture runs multiple logical services in the same JVM, Scaphandre's `exe="java"` reading covers all of them together. perf-sentinel attributes the measured energy to whichever service name you mapped, which is a simplification.
+3. **Concurrent services on the same process share nothing.** If your architecture runs multiple logical services in the same JVM, Scaphandre's `exe="java"` reading covers all of them together. Perf Sentinel attributes the measured energy to whichever service name you mapped, which is a simplification.
 4. **OS scheduler noise.** Per-process power attribution via `process_cpu_time / total_cpu_time` is inherently noisy under mixed loads.
 
-**Correct mental model.** Scaphandre gives you a **dynamic, measured, service-level per-op coefficient** instead of a **fixed, proxied, global constant**. It is a meaningful improvement in the energy attribution layer of the carbon estimate stack, but it does not transform perf-sentinel into a regulatory-grade carbon accounting tool. The 2× multiplicative uncertainty bracket still applies.
+**Correct mental model.** Scaphandre gives you a **dynamic, measured, service-level per-op coefficient** instead of a **fixed, proxied, global constant**. It is a meaningful improvement in the energy attribution layer of the carbon estimate stack, but it does not transform Perf Sentinel into a regulatory-grade carbon accounting tool. The 2× multiplicative uncertainty bracket still applies.
 
 **Staleness handling.** The daemon drops entries older than 3× the scrape interval when building the per-tick snapshot. A hung scraper or a service that stops emitting events will silently fall back to the proxy model after ~3 scrape intervals. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators set up Grafana alerts on scraper health.
 
@@ -614,7 +614,7 @@ Reports where at least one service used a measured coefficient are tagged with `
 
 ### Kepler precision bounds
 
-perf-sentinel ships an opt-in integration with [Kepler](https://github.com/sustainable-computing-io/kepler) (CNCF sandbox) for per-container or per-process energy measurement via eBPF + CPU perf counters. When `[green.kepler]` is configured, the `watch` daemon scrapes Kepler's Prometheus `/metrics` endpoint, computes a joules delta per service vs the previous scrape, and publishes a measured per-op coefficient with `model = "kepler_ebpf"`.
+Perf Sentinel ships an opt-in integration with [Kepler](https://github.com/sustainable-computing-io/kepler) (CNCF sandbox) for per-container or per-process energy measurement via eBPF + CPU perf counters. When `[green.kepler]` is configured, the `watch` daemon scrapes Kepler's Prometheus `/metrics` endpoint, computes a joules delta per service vs the previous scrape, and publishes a measured per-op coefficient with `model = "kepler_ebpf"`.
 
 **Platform requirements.**
 
@@ -639,7 +639,7 @@ perf-sentinel ships an opt-in integration with [Kepler](https://github.com/susta
 
 ### Redfish BMC precision bounds
 
-perf-sentinel ships an opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. When `[green.redfish]` is configured with one or more chassis endpoints, the `watch` daemon polls each chassis's `/Power` resource for `PowerConsumedWatts`. It then distributes the chassis-level joules across mapped services proportional to their ops, and publishes per-service coefficients with `model = "redfish_bmc"`.
+Perf Sentinel ships an opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. When `[green.redfish]` is configured with one or more chassis endpoints, the `watch` daemon polls each chassis's `/Power` resource for `PowerConsumedWatts`. It then distributes the chassis-level joules across mapped services proportional to their ops, and publishes per-service coefficients with `model = "redfish_bmc"`.
 
 **Platform requirements.**
 
@@ -654,7 +654,7 @@ perf-sentinel ships an opt-in integration with the [Redfish](https://www.dmtf.or
 1. **Chassis granularity, not per-service or per-finding.** Every service mapped to the same chassis receives the **same** coefficient (`chassis_joules / sum_of_ops_deltas`) for a given scrape window. Two services on the same node will never get distinct measured coefficients via Redfish.
 2. **No process-level attribution.** Idle processes still consume baseline power that gets allocated to the active services. Treat the per-service coefficient as an upper bound on what those services drew.
 3. **No per-finding attribution.** Same as every other measured tag in the chain.
-4. **Vendor variance in the JSON response.** Some BMCs return `null` or `0` for `PowerConsumedWatts` (or `PowerWatts.Reading` on the modern schema) during transition states (boot, fan ramp). perf-sentinel rejects null/zero/negative/NaN values as invalid and keeps the previous coefficient until a healthy reading lands. Vendor OEM paths (e.g. HPE's `Oem.Hpe.PowerSummary.Watts`) are no longer configurable: v0.7.6 typed the schema as an enum (`legacy_power` or `environment_metrics`) and dropped the operator-typed JSON pointer. OEMs that publish wattage at a non-standard path must front the BMC with a reverse proxy that re-shapes the payload to the standard schema.
+4. **Vendor variance in the JSON response.** Some BMCs return `null` or `0` for `PowerConsumedWatts` (or `PowerWatts.Reading` on the modern schema) during transition states (boot, fan ramp). Perf Sentinel rejects null/zero/negative/NaN values as invalid and keeps the previous coefficient until a healthy reading lands. Vendor OEM paths (e.g. HPE's `Oem.Hpe.PowerSummary.Watts`) are no longer configurable: v0.7.6 typed the schema as an enum (`legacy_power` or `environment_metrics`) and dropped the operator-typed JSON pointer. OEMs that publish wattage at a non-standard path must front the BMC with a reverse proxy that re-shapes the payload to the standard schema.
 
 **Schema choice and sensor smoothing.** Both supported schemas resolve to the same downstream `redfish_bmc` model tag, so the choice is wire-shape only. The two paths typically expose different smoothing characteristics: `legacy_power` returns vendor-smoothed wattage (Dell iDRAC ~5s rolling average, HPE iLO 1-5s), whereas `EnvironmentMetrics.PowerWatts.Reading` is a `SensorPowerExcerpt` typed as a current-tick gauge. Switching schemas on a chassis preserves the long-window mean coefficient but tightens the variance histogram. Expect more jitter on the `redfish_bmc` carbon-per-op series after migration. Pick `legacy_power` for fleet-wide compatibility today, `environment_metrics` for BMCs whose firmware documents it.
 
@@ -673,7 +673,7 @@ perf-sentinel ships an opt-in integration with the [Redfish](https://www.dmtf.or
 #### Platform requirements.
 
 - A Prometheus-compatible endpoint (Prometheus, VictoriaMetrics, Thanos) that already has CPU utilization metrics from cloud provider exporters (cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter) or node_exporter.
-- perf-sentinel does NOT query cloud provider APIs directly. It reads from Prometheus.
+- Perf Sentinel does NOT query cloud provider APIs directly. It reads from Prometheus.
 
 #### What cloud SPECpower improves.
 
@@ -690,7 +690,7 @@ This captures workload-proportional power scaling, which the fixed proxy constan
 
 1. **Per-finding attribution:** like Scaphandre, this is a per-service coefficient.
 2. **Memory or I/O power:** the SPECpower data captures CPU and baseboard, not storage or network.
-3. **Shared tenancy correction:** the model assumes the instance's full power is attributed to perf-sentinel's traced workload.
+3. **Shared tenancy correction:** the model assumes the instance's full power is attributed to Perf Sentinel's traced workload.
 
 #### Single methodology after the 2026-04-24 refresh.
 
@@ -736,11 +736,11 @@ Key limitations:
 
 - **Wide estimate range.** The sources cited above range from 0.001 to 0.059 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance and infrastructure.
 - **No CDN or compression effects.** Content delivery networks, HTTP compression and connection reuse all reduce the effective transport energy but are not modeled.
-- **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
+- **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, Perf Sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
 - **No last-mile modeling.** The estimate covers backbone transport. The energy cost of the last mile (edge network, client device) is excluded.
 - **Linear proportionality assumption.** The kWh/GB model assumes energy scales linearly with data volume. Mytton et al. (2024) show this is a simplification: network equipment has a significant fixed baseload power regardless of traffic. The estimate is directional, not precise.
 - **Response body only.** Only the response body size (`http.response.body.size`) is counted. The request body (e.g., large POST payloads) is not available in standard OTel HTTP semantic conventions and is excluded. For write-heavy APIs this underestimates transport energy.
-- **Caller's grid intensity used for network.** Network infrastructure is distributed across many grids, but perf-sentinel uses the caller region's carbon intensity as a proxy. This is a known simplification consistent with the directional estimation approach.
+- **Caller's grid intensity used for network.** Network infrastructure is distributed across many grids, but Perf Sentinel uses the caller region's carbon intensity as a proxy. This is a known simplification consistent with the directional estimation approach.
 
 The term is computed, displayed and disclosed on every run. `include_network_transport` is deprecated and ignored since 0.9.25: two periods that disagreed on the setting were not comparable, the setting left no trace in the published figures, and a display toggle on a published figure had no remaining justification either.
 
@@ -806,7 +806,7 @@ Limitations:
 - **`code.function` is the most commonly available attribute.** If only `code.function` is present, the CLI displays it but SARIF cannot produce a `physicalLocation` (which requires at least a file path).
 - **Line numbers may be approximate.** Some agents report the method entry point, not the exact line of the I/O call.
 - **Structural findings point at a representative call.** `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation` span several calls, so their `code_location` is that of one call (the first of the sequence, the first child, the first HTTP call, the first SQL span), not of the whole pattern.
-- **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, perf-sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
+- **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, Perf Sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
 
 ## Daemon query API
 
@@ -825,7 +825,7 @@ The `perf-sentinel query` subcommand and the `/api/*` HTTP endpoints expose the 
 The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_exporter`. This requires:
 
 - A running `postgres_exporter` instance configured to collect `pg_stat_statements` metrics.
-- The Prometheus endpoint must be reachable from the machine running perf-sentinel.
+- The Prometheus endpoint must be reachable from the machine running Perf Sentinel.
 - Only the metrics available in the Prometheus exporter are used. Some fields present in the raw `pg_stat_statements` view (e.g. `blk_read_time`, `blk_write_time`) may not be exposed by all exporter versions.
 
 The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
@@ -845,7 +845,7 @@ A `performance_schema` file export (`--input`) needs no collector enabled on the
 
 ## Secrets and credentials
 
-perf-sentinel never stores secrets in config output. For scrapers that need credentials, the env-var-preferred pattern applies across the board:
+Perf Sentinel never stores secrets in config output. For scrapers that need credentials, the env-var-preferred pattern applies across the board:
 
 - **Electricity Maps API key**: `PERF_SENTINEL_EMAPS_TOKEN` env var. A `[green.electricity_maps] api_key` in the config file works but emits a warning at load time, because checked-in config files are a common source of accidental credential leaks.
 - **PostgreSQL connection string** for `pg-stat --connection-string`: `PERF_SENTINEL_PG_CONNECTION` env var. Passing a connection string with a plaintext password on the CLI also works but emits a warning (recommend `.pgpass` for production).
@@ -859,7 +859,7 @@ When the daemon runs with `api_enabled = true`, the query API exposes findings (
 ## Electricity Maps API
 
 - **API key required.** The Electricity Maps integration requires an API key (free or paid tier). The key should be provided via the `PERF_SENTINEL_EMAPS_TOKEN` environment variable rather than in the config file.
-- **HTTPS strongly recommended.** When the configured endpoint is `http://` (cleartext) and an auth token is set, perf-sentinel emits a warning at config load. The Electricity Maps production API is served over HTTPS only, so an `http://` endpoint is almost always a misconfiguration or a local test setup.
+- **HTTPS strongly recommended.** When the configured endpoint is `http://` (cleartext) and an auth token is set, Perf Sentinel emits a warning at config load. The Electricity Maps production API is served over HTTPS only, so an `http://` endpoint is almost always a misconfiguration or a local test setup.
 - **Rate limits.** The free tier allows approximately 30 requests per month per zone. With the default `poll_interval_secs = 300` (5 minutes), this budget would be exhausted in under 3 hours. Free tier users should set `poll_interval_secs = 3600` or higher or use the embedded hourly profiles instead.
 - **Daemon only.** The Electricity Maps scraper runs only in `perf-sentinel watch` mode. Batch mode (`analyze`, `tempo`, `calibrate`) uses the embedded profiles.
 - **Staleness fallback.** If the API is unreachable for longer than 3x the poll interval, the scraper falls back to embedded hourly or annual profiles.
@@ -879,6 +879,6 @@ The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`)
 
 - **No trace correlation.** `pg_stat_statements` data has no `trace_id` or `span_id`. It cannot be used for per-trace anti-pattern detection (N+1, redundant). It provides complementary hotspot analysis and cross-referencing with trace-based findings.
 - **CSV parsing.** The CSV parser handles RFC 4180 quoting (double-quoted fields, escaped `""`), but assumes UTF-8 input. Non-UTF-8 files will fail to parse.
-- **Pre-normalized queries.** PostgreSQL normalizes `pg_stat_statements` queries at the server level. perf-sentinel applies its own normalization on top for cross-referencing, which may produce slightly different templates.
-- **No direct PostgreSQL connection.** In file mode (`--input`), perf-sentinel reads exported CSV or JSON files. The `--prometheus` flag scrapes `postgres_exporter` metrics instead of connecting to PostgreSQL directly. See "Automated pg_stat ingestion from Prometheus" above for Prometheus-specific limitations.
+- **Pre-normalized queries.** PostgreSQL normalizes `pg_stat_statements` queries at the server level. Perf Sentinel applies its own normalization on top for cross-referencing, which may produce slightly different templates.
+- **No direct PostgreSQL connection.** In file mode (`--input`), Perf Sentinel reads exported CSV or JSON files. The `--prometheus` flag scrapes `postgres_exporter` metrics instead of connecting to PostgreSQL directly. See "Automated pg_stat ingestion from Prometheus" above for Prometheus-specific limitations.
 - **Entry count.** The parser pre-allocates memory based on input size, capped at 100,000 entries. Files exceeding 1,000,000 entries (CSV rows or JSON array elements) are rejected with an error to prevent memory exhaustion.

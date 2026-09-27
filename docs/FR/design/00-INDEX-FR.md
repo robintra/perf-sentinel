@@ -1,6 +1,6 @@
 # Index de la documentation de conception
 
-Ce répertoire contient la documentation de conception approfondie de perf-sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
+Ce répertoire contient la documentation de conception approfondie de Perf Sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
 
 Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/FR/`](../00-INDEX-FR.md).
 

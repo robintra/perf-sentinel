@@ -1,15 +1,15 @@
-# perf-sentinel instrumentation guide
+# Perf Sentinel instrumentation guide
 
-This guide covers the parts of the data pipeline that turn an application's runtime activity into the OTLP / JSON input perf-sentinel consumes. For an end-to-end overview, the four supported topologies and the four quick starts, see [INTEGRATION.md](./INTEGRATION.md). For the CI-side of the integration (CI mode, GitHub Actions / GitLab CI / Jenkins recipes, interactive HTML report deployment, PR regression detection), see [CI.md](./CI.md).
+This guide covers the parts of the data pipeline that turn an application's runtime activity into the OTLP / JSON input Perf Sentinel consumes. For an end-to-end overview, the four supported topologies and the four quick starts, see [INTEGRATION.md](./INTEGRATION.md). For the CI-side of the integration (CI mode, GitHub Actions / GitLab CI / Jenkins recipes, interactive HTML report deployment, PR regression detection), see [CI.md](./CI.md).
 
-> **Not using an OpenTelemetry SDK?** Teams on Datadog can feed perf-sentinel by bridging dd-trace through the OTel Collector `datadogreceiver`, with no application change. This per-language guide does not apply to that path, see [Coming from Datadog](./INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
+> **Not using an OpenTelemetry SDK?** Teams on Datadog can feed Perf Sentinel by bridging dd-trace through the OTel Collector `datadogreceiver`, with no application change. This per-language guide does not apply to that path, see [Coming from Datadog](./INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 
 ## Contents
 
 - [Kubernetes deployment](#kubernetes-deployment): manifests for the daemon and the OTel Collector sidecar.
 - [Cloud provider integrations](#cloud-provider-integrations): AWS X-Ray, GCP Cloud Trace, Azure Application Insights, self-hosted Jaeger / Tempo / Zipkin.
 - [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector): central collector setup, sampling and detection accuracy.
-- [Required span attributes](#required-span-attributes): the legacy and stable OTel semantic conventions perf-sentinel reads.
+- [Required span attributes](#required-span-attributes): the legacy and stable OTel semantic conventions Perf Sentinel reads.
 - [Dev/staging: per-language instrumentation](#devstaging-per-language-instrumentation):
   - Java
     - [Spring Boot, Helidon 4.x](#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)
@@ -23,24 +23,24 @@ This guide covers the parts of the data pipeline that turn an application's runt
   - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-031-diesel-seaorm)
   - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
   - [PHP (Laravel / Eloquent, Symfony / Doctrine)](#php-laravel--eloquent-symfony--doctrine-opentelemetry-php)
-- [SQL placeholder styles and detection](#sql-placeholder-styles-and-detection): how perf-sentinel maps each instrumentation's SQL placeholder to the sanitizer-aware N+1 detection path.
+- [SQL placeholder styles and detection](#sql-placeholder-styles-and-detection): how Perf Sentinel maps each instrumentation's SQL placeholder to the sanitizer-aware N+1 detection path.
 
 ## Background: OpenTelemetry primer
 
-If you have not used OpenTelemetry before, this short primer is a prerequisite for the rest of this guide. It assumes you know what an HTTP request and a database query are. It does not assume you have ever instrumented an application or run a tracing backend. Other perf-sentinel docs cross-reference this primer for OTel concepts, see [docs/INTEGRATION.md](INTEGRATION.md) and [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability).
+If you have not used OpenTelemetry before, this short primer is a prerequisite for the rest of this guide. It assumes you know what an HTTP request and a database query are. It does not assume you have ever instrumented an application or run a tracing backend. Other Perf Sentinel docs cross-reference this primer for OTel concepts, see [docs/INTEGRATION.md](INTEGRATION.md) and [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability).
 
 **What is OpenTelemetry.** OpenTelemetry (often shortened to "OTel") is a Cloud Native Computing Foundation (CNCF) project that defines an open standard for collecting telemetry data (traces, metrics, logs) from any kind of software. It is the merger of two earlier projects (OpenTracing and OpenCensus) consolidated in 2019, governed under CNCF since. The two practical things OTel gives you:
 
-- **A protocol** (OTLP, OpenTelemetry Protocol) that any application can use to ship traces and metrics to any backend that speaks it. OTLP is wire-format-stable, ships in both gRPC and HTTP+protobuf variants, and is what perf-sentinel ingests on ports 4317 (gRPC) and 4318 (HTTP).
+- **A protocol** (OTLP, OpenTelemetry Protocol) that any application can use to ship traces and metrics to any backend that speaks it. OTLP is wire-format-stable, ships in both gRPC and HTTP+protobuf variants, and is what Perf Sentinel ingests on ports 4317 (gRPC) and 4318 (HTTP).
 - **SDKs** (Java, Python, Go, .NET, Rust, JavaScript, ...) that handle the boring parts: capturing each HTTP/SQL call as a *span*, propagating the trace ID across services, batching, retrying, and sending OTLP. Most language SDKs include auto-instrumentation for popular frameworks (Spring, Quarkus, ASP.NET Core, Django, Express) so the application code itself rarely changes.
 
 **Key concepts.**
 
 - A **span** is a unit of work, typically one HTTP request or one SQL query. It carries a duration, a status, a name (`GET /api/orders`), and a structured attribute bag.
 - A **trace** is the tree of spans that share a `trace_id`. A single user request typically crosses several services, each producing several spans, all linked by the same `trace_id`.
-- **Semantic conventions** are the OTel-defined attribute names so different SDKs all emit the same field for the same concept. `http.request.method` is always the HTTP verb, `db.system` is always the database engine name, and so on. perf-sentinel reads a small subset of these attributes to detect anti-patterns. The closed list of attributes perf-sentinel reads is in [Required span attributes](#required-span-attributes) below.
+- **Semantic conventions** are the OTel-defined attribute names so different SDKs all emit the same field for the same concept. `http.request.method` is always the HTTP verb, `db.system` is always the database engine name, and so on. Perf Sentinel reads a small subset of these attributes to detect anti-patterns. The closed list of attributes Perf Sentinel reads is in [Required span attributes](#required-span-attributes) below.
 
-**The Collector.** A separate process, the **OpenTelemetry Collector**, is the recommended deployment shape between applications and backends. It receives OTLP from a fleet of applications, applies optional sampling and attribute processing, and forwards to one or more backends in parallel (perf-sentinel, plus Tempo or Jaeger for storage, plus Prometheus exemplars). Running a central Collector decouples the applications from each backend's quirks and lets operators change sampling policy without touching application code. The relevant deployment shapes are covered in [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector) below.
+**The Collector.** A separate process, the **OpenTelemetry Collector**, is the recommended deployment shape between applications and backends. It receives OTLP from a fleet of applications, applies optional sampling and attribute processing, and forwards to one or more backends in parallel (Perf Sentinel, plus Tempo or Jaeger for storage, plus Prometheus exemplars). Running a central Collector decouples the applications from each backend's quirks and lets operators change sampling policy without touching application code. The relevant deployment shapes are covered in [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector) below.
 
 **Where to learn more.** [opentelemetry.io](https://opentelemetry.io/), [OTLP spec](https://github.com/open-telemetry/opentelemetry-proto), [semantic conventions](https://opentelemetry.io/docs/specs/semconv/).
 
@@ -48,7 +48,7 @@ If you have not used OpenTelemetry before, this short primer is a prerequisite f
 
 A packaged Helm chart is available under [`charts/perf-sentinel/`](../charts/perf-sentinel/). See [HELM-DEPLOYMENT.md](./HELM-DEPLOYMENT.md) for the full install guide and [`examples/helm/`](../examples/helm/) for a worked example composing the chart with the upstream OpenTelemetry Collector chart. The raw manifests below remain for users who prefer to deploy without Helm.
 
-perf-sentinel runs as a standard Kubernetes Deployment behind a Service. The OTel Collector runs as a DaemonSet (per-node) or Deployment (centralized), forwarding traces to perf-sentinel.
+Perf Sentinel runs as a standard Kubernetes Deployment behind a Service. The OTel Collector runs as a DaemonSet (per-node) or Deployment (centralized), forwarding traces to Perf Sentinel.
 
 ### Minimal manifests
 
@@ -109,7 +109,7 @@ spec:
 
 ### OTel Collector exporter config
 
-In your existing Collector config (DaemonSet or Deployment), add perf-sentinel as an exporter:
+In your existing Collector config (DaemonSet or Deployment), add Perf Sentinel as an exporter:
 
 ```yaml
 exporters:
@@ -142,7 +142,7 @@ env:
 
 ### Prometheus ServiceMonitor
 
-If you use the Prometheus Operator, scrape perf-sentinel metrics with a ServiceMonitor:
+If you use the Prometheus Operator, scrape Perf Sentinel metrics with a ServiceMonitor:
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -164,11 +164,11 @@ spec:
 
 ## Cloud provider integrations
 
-perf-sentinel is cloud-agnostic: it receives standard OTLP traces. The key is to route a copy of your traces to perf-sentinel alongside your cloud-native trace backend.
+Perf Sentinel is cloud-agnostic: it receives standard OTLP traces. The key is to route a copy of your traces to Perf Sentinel alongside your cloud-native trace backend.
 
 ### AWS (X-Ray + OTel Collector)
 
-AWS X-Ray uses a proprietary format, but the [AWS Distro for OpenTelemetry (ADOT)](https://aws-otel.github.io/) Collector can export both to X-Ray and to perf-sentinel:
+AWS X-Ray uses a proprietary format, but the [AWS Distro for OpenTelemetry (ADOT)](https://aws-otel.github.io/) Collector can export both to X-Ray and to Perf Sentinel:
 
 ```yaml
 # ADOT Collector config
@@ -187,11 +187,11 @@ service:
       exporters: [awsxray, otlp/perf-sentinel]
 ```
 
-Deploy perf-sentinel as an ECS task or EKS Deployment. For ECS, use the `scratch`-based Docker image (`ghcr.io/robintra/perf-sentinel:latest`).
+Deploy Perf Sentinel as an ECS task or EKS Deployment. For ECS, use the `scratch`-based Docker image (`ghcr.io/robintra/perf-sentinel:latest`).
 
 ### GCP (Cloud Trace + OTel Collector)
 
-GCP Cloud Trace supports OTLP ingestion natively. Use the standard OTel Collector with both the `googlecloud` exporter and the perf-sentinel exporter:
+GCP Cloud Trace supports OTLP ingestion natively. Use the standard OTel Collector with both the `googlecloud` exporter and the Perf Sentinel exporter:
 
 ```yaml
 exporters:
@@ -209,11 +209,11 @@ service:
       exporters: [googlecloud, otlp/perf-sentinel]
 ```
 
-Deploy perf-sentinel as a Cloud Run service or GKE Deployment. For Cloud Run, expose port 4317 (gRPC) and 4318 (HTTP).
+Deploy Perf Sentinel as a Cloud Run service or GKE Deployment. For Cloud Run, expose port 4317 (gRPC) and 4318 (HTTP).
 
 ### Azure (Application Insights + OTel Collector)
 
-Azure Monitor supports OTLP via the [Azure Monitor OpenTelemetry Exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-configuration). Route traces to both Azure and perf-sentinel:
+Azure Monitor supports OTLP via the [Azure Monitor OpenTelemetry Exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-configuration). Route traces to both Azure and Perf Sentinel:
 
 ```yaml
 exporters:
@@ -231,17 +231,17 @@ service:
       exporters: [azuremonitor, otlp/perf-sentinel]
 ```
 
-Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.
+Deploy Perf Sentinel as an AKS Deployment or Azure Container Instance.
 
 ### Self-hosted (Jaeger, Tempo, Zipkin)
 
-If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with an OTLP JSON dump from the Collector `file` exporter, or with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`). Formats are auto-detected.
+If you use a self-hosted trace backend, the OTel Collector approach works identically. Add Perf Sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use Perf Sentinel's batch mode with an OTLP JSON dump from the Collector `file` exporter, or with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`). Formats are auto-detected.
 
 ---
 
 ## Production: via OpenTelemetry Collector
 
-If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you can add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, perf-sentinel analyzes a copy of the same spans.
+If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you can add Perf Sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, Perf Sentinel analyzes a copy of the same spans.
 
 ```yaml
 # otel-collector-config.yaml
@@ -267,7 +267,7 @@ This approach is recommended for production deployments because:
 - No rebuild, no redeployment
 - Works regardless of language (Java, C#, Rust, Go, Python, Node.js)
 - Sampling and filtering happen at the collector level
-- perf-sentinel can be added or removed without touching application code
+- Perf Sentinel can be added or removed without touching application code
 
 A full reference configuration is provided in [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) with a matching Docker Compose file in [`examples/docker-compose-collector.yml`](../examples/docker-compose-collector.yml).
 
@@ -283,13 +283,13 @@ docker compose -f examples/docker-compose-collector.yml up -d
    - gRPC: `localhost:4317`
    - HTTP: `localhost:4318`
 
-3. Verify perf-sentinel is receiving spans:
+3. Verify Perf Sentinel is receiving spans:
 
 ```bash
 curl -s http://localhost:14318/metrics | grep perf_sentinel_events_processed_total
 ```
 
-4. View findings emitted by perf-sentinel on stdout:
+4. View findings emitted by Perf Sentinel on stdout:
 
 ```bash
 docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
@@ -297,7 +297,7 @@ docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
 
 ### Sampling and filtering
 
-For high-traffic environments, the OTel Collector supports tail-based sampling and filtering to reduce the volume of traces forwarded to perf-sentinel.
+For high-traffic environments, the OTel Collector supports tail-based sampling and filtering to reduce the volume of traces forwarded to Perf Sentinel.
 
 **Tail-based sampling** keeps complete traces based on criteria evaluated after all spans arrive:
 
@@ -333,7 +333,7 @@ processors:
 ```
 
 **Where to put the sampler.** Sampling exists to bound what a trace
-store retains, and perf-sentinel retains nothing: it holds a per-trace
+store retains, and Perf Sentinel retains nothing: it holds a per-trace
 window in memory for `trace_ttl_ms` and drops it. So the cheapest
 correct layout is to fan out from the same receiver and sample only the
 branch that feeds storage:
@@ -353,7 +353,7 @@ service:
       exporters: [otlp/perf-sentinel]
 ```
 
-Sampling in front of perf-sentinel is supported, but it is lossy in
+Sampling in front of Perf Sentinel is supported, but it is lossy in
 ways the daemon cannot report: a kept trace is indistinguishable from a
 complete one, so nothing in the output says the numbers cover a tenth
 of the traffic. If volume forces you to narrow the analysis branch,
@@ -364,12 +364,12 @@ partial.
 
 **Sampling and detection accuracy**.
 
-Anti-pattern detection relies on counting events. Sampling that drops events directly affects which patterns perf-sentinel can flag.
+Anti-pattern detection relies on counting events. Sampling that drops events directly affects which patterns Perf Sentinel can flag.
 
 - **Within a kept trace, all spans are preserved**. OTel and Jaeger sample per-trace, not per-span, so an N+1 loop, a chatty service hop or a fanout pattern that lives inside one request still detects cleanly as long as the parent trace is kept.
 - **Head-based sampling breaks count-based detections**. A 1% head-based policy drops 99% of traces before they reach the collector, so a 50-call N+1 loop is observed as 3 calls, well below any reasonable threshold. Same for chatty services, fanout, serialized parallelizable calls, pool saturation. Anything threshold-driven gets silently underreported.
 - **Tail-based sampling stays compatible with detection** because the policies you would write for incident review (keep errors, keep slow traces, keep specific services) are exactly the ones that surface anti-patterns. The [`tail_sampling` processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) example above keeps everything under those policies plus a 10% probabilistic sample of the rest.
-- **Counts are understated by any sampling, silently.** Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio stays unbiased, but the `errors` and `slow` policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. perf-sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
+- **Counts are understated by any sampling, silently.** Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio stays unbiased, but the `errors` and `slow` policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. Perf Sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
 - **Cross-trace correlation goes quiet.** `[daemon.correlation] min_co_occurrences` needs a finding pair to recur inside the window. At a 10% sample the repeated co-occurrences rarely survive, so the correlator reports nothing even when the coupling is real. That silence is not evidence of a healthy topology.
 - **CI runs should keep 100% of traces**. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The quick starts in [INTEGRATION.md](./INTEGRATION.md) assume 100% sampling.
 - **`pg-stat` mode is sampling-immune**. `pg_stat_statements` aggregates query counters server-side in PostgreSQL, regardless of what the application tracer captured. A query that runs 10 000 times shows up as 10 000 calls even if 99% of the parent traces were dropped at the head. Run `perf-sentinel pg-stat ...` (or pass `--pg-stat` to `analyze` and `report`) as a fallback when you cannot trust the trace volume, or as a primary signal for code paths the tracer does not even cover.
@@ -380,7 +380,7 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 
 ## Required span attributes
 
-perf-sentinel detects I/O anti-patterns by looking at specific span attributes. Both the legacy and stable [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported.
+Perf Sentinel detects I/O anti-patterns by looking at specific span attributes. Both the legacy and stable [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported.
 
 | Purpose              | Legacy attribute (pre-1.21)               | Stable attribute (1.21+)     | Example                                   |
 |----------------------|-------------------------------------------|------------------------------|-------------------------------------------|
@@ -398,9 +398,9 @@ perf-sentinel detects I/O anti-patterns by looking at specific span attributes. 
 | Service namespace    | `service.namespace` (resource)            | (same)                       | `commerce`                                |
 | Kubernetes namespace | `k8s.namespace.name` (resource)           | (same)                       | `prod-eu`                                 |
 
-Spring Boot services traced through Micrometer Observation (the `spring-boot-starter-opentelemetry` starter, or the Micrometer Zipkin bridge) tag their outbound HTTP spans with `method` and `status` instead of the OTel names. perf-sentinel reads these two tags as a last resort, and only on a span it already classified as an outbound call through its URL. A non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.
+Spring Boot services traced through Micrometer Observation (the `spring-boot-starter-opentelemetry` starter, or the Micrometer Zipkin bridge) tag their outbound HTTP spans with `method` and `status` instead of the OTel names. Perf Sentinel reads these two tags as a last resort, and only on a span it already classified as an outbound call through its URL. A non-numeric `status` such as `CLIENT_ERROR` leaves the status empty.
 
-Spans that carry no SQL, HTTP, RPC, or messaging attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
+Spans that carry no SQL, HTTP, RPC, or messaging attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. Perf Sentinel handles both transparently.
 
 **Outbound HTTP is client-side only.** A span whose kind is SERVER never becomes an outbound HTTP call, even when it carries `http.url` or `url.full`. The stable convention puts `url.full` on CLIENT spans only, but legacy instrumentations set `http.url` on the inbound handler span too, and admitting those would count every instrumented hop twice and credit a service with calls it never made. This matches the CLIENT-only rule for RPC below. Three consequences. A SERVER span carrying `db.statement` is still analyzed, because SQL is classified before HTTP. A span that never sets its kind stays eligible for HTTP, so an instrumentation that omits the kind is unaffected. And a rejected SERVER span still supplies its `http.route` as the inbound endpoint that findings are attributed to. Jaeger reads the `span.kind` tag (`server`), Zipkin the `kind` field (`SERVER`).
 
@@ -410,7 +410,7 @@ RPC spans (gRPC, Dubbo, and similar frameworks) carry neither a statement nor a 
 
 Three consequences to be aware of on RPC findings:
 
-- **Only CLIENT spans are modeled.** The `rpc.*` attributes are set on the inbound SERVER handler span as well as the outbound CLIENT span, so perf-sentinel admits only `SpanKind::Client`. An RPC span with an unset or non-CLIENT kind is treated as inbound work (not an outbound call), so an instrumentation that never sets the span kind produces no RPC findings.
+- **Only CLIENT spans are modeled.** The `rpc.*` attributes are set on the inbound SERVER handler span as well as the outbound CLIENT span, so Perf Sentinel admits only `SpanKind::Client`. An RPC span with an unset or non-CLIENT kind is treated as inbound work (not an outbound call), so an instrumentation that never sets the span kind produces no RPC findings.
 - **Findings surface under the `_http` types.** An RPC N+1 is reported as `n_plus_one_http` and its remediation text mentions an HTTP batch endpoint. The finding is correct about the anti-pattern (the repeated dependency call), only the protocol label and the batch-endpoint wording are HTTP-flavored.
 - **Per-call arguments are invisible.** A gRPC request payload lives in the protobuf message body, not in a span attribute, so N distinct calls to the same method share one empty-parameter template. Like a query-redacted HTTP URL (see [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility)), those calls read as `redundant_http` rather than `n_plus_one_http`. The repeated-call signal is real either way, only the "cache vs batch" remediation differs.
 
@@ -478,7 +478,7 @@ The agent automatically captures:
 
 This has been validated on Spring Boot 4 with WebFlux/R2DBC, Virtual Threads/JPA and standard MVC/JDBC.
 
-**R2DBC and SQL placeholder handling.** R2DBC drivers use database-native bind markers (`$1`, `$2` for PostgreSQL, `?` for MySQL/MariaDB). The Java Agent's built-in statement sanitizer replaces all literals with bare `?` before setting `db.statement`, regardless of the underlying driver. This means perf-sentinel receives `?`-style sanitized templates with empty params for both JDBC and R2DBC stacks. Without the agent (R2DBC SDK only, no auto-instrumentation), `db.statement` would contain the native `$1`/`$2` markers, which perf-sentinel also handles (the SQL normalizer recognizes `$N` as a placeholder since v0.7.7). Either way, the sanitizer-aware N+1 detection path fires correctly.
+**R2DBC and SQL placeholder handling.** R2DBC drivers use database-native bind markers (`$1`, `$2` for PostgreSQL, `?` for MySQL/MariaDB). The Java Agent's built-in statement sanitizer replaces all literals with bare `?` before setting `db.statement`, regardless of the underlying driver. This means Perf Sentinel receives `?`-style sanitized templates with empty params for both JDBC and R2DBC stacks. Without the agent (R2DBC SDK only, no auto-instrumentation), `db.statement` would contain the native `$1`/`$2` markers, which Perf Sentinel also handles (the SQL normalizer recognizes `$N` as a placeholder since v0.7.7). Either way, the sanitizer-aware N+1 detection path fires correctly.
 
 #### 3. Docker Compose example
 
@@ -581,7 +581,7 @@ Keep any existing `<argLine>` content (heap flags, a JaCoCo `@{argLine}` placeho
 
 **Set the protocol, do not rely on the default.** Agent 2.0 changed it from `grpc` to `http/protobuf`, so the same endpoint means different ports depending on the agent version. An endpoint pointed at the wrong one exports nothing and only warns in the agent's own log, which leaves a capture empty for a reason nothing else names. `:4317` with `grpc`, as above, and `:4318` with `http/protobuf` both work.
 
-Nothing above is specific to perf-sentinel: it is the standard OTLP setup. Only the listener changes.
+Nothing above is specific to Perf Sentinel: it is the standard OTLP setup. Only the listener changes.
 
 ##### Option 1, `perf-sentinel capture` (recommended)
 
@@ -661,7 +661,7 @@ A failing test still leaves a complete, analyzable file.
 
 `<forkCount>0</forkCount>` removes the fork, therefore the command channel, so `experimental-otlp/stdout` reaches the console and a grep over the build log yields the trace file. It needs no listener, but it has a cost. Test isolation is gone, the capture then carries Maven's own spans alongside the application's, and anything that relied on `<argLine>`, a JaCoCo `@{argLine}` placeholder in particular, must move to `MAVEN_OPTS` or it silently stops applying. Reach for it only when nothing may listen on a port and the agent predates 2.32.0.
 
-**Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so perf-sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should. The real mechanism is `otlp_file/development` with `output_stream` (Option 3).
+**Three neighbouring exporter names do not help here.** `logging` prints a human-readable span summary rather than OTLP JSON, so Perf Sentinel cannot parse it at all. `logging-otlp` does emit OTLP JSON, but through a logger, so each line carries whatever prefix the application's logging setup adds. `otlp_file` and `OTEL_EXPORTER_OTLP_FILE_PATH` do not exist at all, despite reading like they should. The real mechanism is `otlp_file/development` with `output_stream` (Option 3).
 
 ---
 
@@ -726,11 +726,11 @@ For SQL query detection, add the instrumentation that matches your database acce
 - **Entity Framework Core** (MySQL, PostgreSQL, SQLite): `.AddEntityFrameworkCoreInstrumentation(o => o.SetDbStatementForText = true)` with `OpenTelemetry.Instrumentation.EntityFrameworkCore`
 - **SqlClient** (SQL Server): `.AddSqlClientInstrumentation(o => o.SetDbStatementForText = true)` with `OpenTelemetry.Instrumentation.SqlClient`
 
-The `SetDbStatementForText = true` option is required for perf-sentinel to see the query text. Without it, SQL spans are emitted but `db.statement` is empty.
+The `SetDbStatementForText = true` option is required for Perf Sentinel to see the query text. Without it, SQL spans are emitted but `db.statement` is empty.
 
-Entity Framework Core uses named bind parameters (`@__param_0`). Since the actual parameter values are not visible in the query template, perf-sentinel may detect repeated queries as `redundant_sql` (same template, same visible params) rather than `n_plus_one_sql` (same template, different params).
+Entity Framework Core uses named bind parameters (`@__param_0`). Since the actual parameter values are not visible in the query template, Perf Sentinel may detect repeated queries as `redundant_sql` (same template, same visible params) rather than `n_plus_one_sql` (same template, different params).
 
-`System.Net.Http` redacts the query string to `?*` by default, so outbound HTTP N+1 loops that vary a query parameter (`?seq=1`, `?seq=2`, ...) reach perf-sentinel as identical URLs and are detected as `redundant_http` rather than `n_plus_one_http`. To get `n_plus_one_http` on these loops, set `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true` to keep the query string, or model the varying identifier as a path segment (`/api/resource/{id}`). See [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility) for the full rationale.
+`System.Net.Http` redacts the query string to `?*` by default, so outbound HTTP N+1 loops that vary a query parameter (`?seq=1`, `?seq=2`, ...) reach Perf Sentinel as identical URLs and are detected as `redundant_http` rather than `n_plus_one_http`. To get `n_plus_one_http` on these loops, set `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true` to keep the query string, or model the varying identifier as a path segment (`/api/resource/{id}`). See [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility) for the full rationale.
 
 ---
 
@@ -770,7 +770,7 @@ cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 pool, _ := pgxpool.NewWithConfig(ctx, cfg)
 ```
 
-`otelpgx` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). perf-sentinel normalizes these to `$?` with empty `params`, which enables the sanitizer-aware N+1 detection path. No additional configuration is needed.
+`otelpgx` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). Perf Sentinel normalizes these to `$?` with empty `params`, which enables the sanitizer-aware N+1 detection path. No additional configuration is needed.
 
 **Environment variables (Docker Compose example):**
 
@@ -812,7 +812,7 @@ DjangoInstrumentor().instrument()
 PsycopgInstrumentor().instrument()
 ```
 
-`psycopg` emits `db.statement` with Python DB-API `%s` placeholders. perf-sentinel recognizes `%s` as a driver placeholder, so the sanitizer-aware N+1 detection path fires without additional configuration.
+`psycopg` emits `db.statement` with Python DB-API `%s` placeholders. Perf Sentinel recognizes `%s` as a driver placeholder, so the sanitizer-aware N+1 detection path fires without additional configuration.
 
 **Environment variables:**
 
@@ -854,7 +854,7 @@ FastAPIInstrumentor.instrument_app(app)
 SQLAlchemyInstrumentor().instrument(engine=engine)
 ```
 
-`asyncpg` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). perf-sentinel normalizes these to `$?` with empty `params`. The `sqlalchemy` instrumentation scope is in the ORM scope allow-list, so the sanitizer-aware N+1 detection fires via the ORM path for this stack.
+`asyncpg` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). Perf Sentinel normalizes these to `$?` with empty `params`. The `sqlalchemy` instrumentation scope is in the ORM scope allow-list, so the sanitizer-aware N+1 detection fires via the ORM path for this stack.
 
 **Environment variables:**
 
@@ -991,7 +991,7 @@ OpenTelemetry::SDK.configure do |c|
 end
 ```
 
-The `pg` instrumentation needs `db_statement: :include` (or the default `:obfuscate`, which emits the sanitized template) so the SQL reaches perf-sentinel. The `OpenTelemetry::Instrumentation::ActiveRecord` scope appears on the span chain and is recognized as an ORM, so the sanitizer-aware N+1 path fires and findings carry ActiveRecord-specific suggested fixes (`includes` / `preload` / `eager_load`).
+The `pg` instrumentation needs `db_statement: :include` (or the default `:obfuscate`, which emits the sanitized template) so the SQL reaches Perf Sentinel. The `OpenTelemetry::Instrumentation::ActiveRecord` scope appears on the span chain and is recognized as an ORM, so the sanitizer-aware N+1 path fires and findings carry ActiveRecord-specific suggested fixes (`includes` / `preload` / `eager_load`).
 
 The `active_record` instrumentation emits this scope only for record-loading queries (`find_by_sql`, `where(...).to_a`). Aggregate queries (`count`, `sum`) carry only the `pg` / `mysql2` driver span, so their findings fall back to the `ruby_generic` fix.
 
@@ -1007,7 +1007,7 @@ environment:
 
 ### PHP (Laravel / Eloquent, Symfony / Doctrine, opentelemetry-php)
 
-PHP applications use the OpenTelemetry PHP auto-instrumentation extension plus the framework instrumentation packages from `open-telemetry/opentelemetry-php-contrib`. The instrumentations register native scopes (`io.opentelemetry.contrib.php.pdo`, `io.opentelemetry.contrib.php.doctrine`, `io.opentelemetry.contrib.php.laravel`) and set `code.function.name` in `Namespace\Class::method` form, which is what perf-sentinel keys framework-aware fixes on.
+PHP applications use the OpenTelemetry PHP auto-instrumentation extension plus the framework instrumentation packages from `open-telemetry/opentelemetry-php-contrib`. The instrumentations register native scopes (`io.opentelemetry.contrib.php.pdo`, `io.opentelemetry.contrib.php.doctrine`, `io.opentelemetry.contrib.php.laravel`) and set `code.function.name` in `Namespace\Class::method` form, which is what Perf Sentinel keys framework-aware fixes on.
 
 **Dependencies (composer):**
 
@@ -1041,7 +1041,7 @@ environment:
 
 ## SQL placeholder styles and detection
 
-Different database drivers emit different placeholder syntax in the `db.statement` span attribute. perf-sentinel's SQL normalizer recognizes all common styles and maps them to `$?` or `?` in the normalized template, with `params` kept empty for parameterized queries. This enables the sanitizer-aware N+1 detection path (which requires `params == []` and a recognized placeholder in the template).
+Different database drivers emit different placeholder syntax in the `db.statement` span attribute. Perf Sentinel's SQL normalizer recognizes all common styles and maps them to `$?` or `?` in the normalized template, with `params` kept empty for parameterized queries. This enables the sanitizer-aware N+1 detection path (which requires `params == []` and a recognized placeholder in the template).
 
 | Placeholder    | Produced by                                                                                                             | Normalized to  | Example           |
 |----------------|-------------------------------------------------------------------------------------------------------------------------|----------------|-------------------|
@@ -1051,7 +1051,7 @@ Different database drivers emit different placeholder syntax in the `db.statemen
 | `@p0`, `@Name` | .NET (Npgsql, SqlClient, MySqlConnector/Pomelo)                                                                         | `@p0` (kept)   | `WHERE id = @p0`  |
 | `:name`        | Oracle, SQLAlchemy named                                                                                                | `:name` (kept) | `WHERE id = :oid` |
 
-**What this means for operators.** No configuration is needed to enable detection for any of these stacks. The normalizer and the `template_has_placeholder` check in the detection pipeline handle the mapping automatically. The key requirement is that the OTel instrumentation emits `db.statement` on SQL spans. If `db.statement` is missing (some instrumentations omit it by default for security reasons), perf-sentinel cannot detect SQL anti-patterns. Check your instrumentation library's documentation for how to enable statement capture.
+**What this means for operators.** No configuration is needed to enable detection for any of these stacks. The normalizer and the `template_has_placeholder` check in the detection pipeline handle the mapping automatically. The key requirement is that the OTel instrumentation emits `db.statement` on SQL spans. If `db.statement` is missing (some instrumentations omit it by default for security reasons), Perf Sentinel cannot detect SQL anti-patterns. Check your instrumentation library's documentation for how to enable statement capture.
 
 **ORM scope markers.** The sanitizer-aware detection path also consults the OTel instrumentation scope (the library name) to decide whether a group of sanitized queries is likely N+1 or just redundant. The following scopes are recognized as ORM-level instrumentations, which raises the confidence that a repeated parameterized query is a loop iteration rather than a cache-warm pattern:
 

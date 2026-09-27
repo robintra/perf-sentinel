@@ -1,6 +1,6 @@
 # Workflow d'acquittement
 
-perf-sentinel prend en charge deux mécanismes d'acquittement
+Perf Sentinel prend en charge deux mécanismes d'acquittement
 complémentaires : TOML dans le repo (CI ack, depuis 0.5.17) et JSONL
 (JSON Lines, un format de journal en ajout seul où chaque ligne est un
 objet JSON autonome) via l'API HTTP du daemon (daemon ack, depuis
@@ -281,14 +281,14 @@ tests unitaires dans
 
 Le composant `endpoint` est dérivé de l'attribut OpenTelemetry `http.route`
 sur le span HTTP d'entrée ou ses ancêtres du même service. Pour un service
-explicitement nommé, perf-sentinel sélectionne la route la plus externe de la
+explicitement nommé, Perf Sentinel sélectionne la route la plus externe de la
 chaîne contiguë. Il n'adopte jamais la route du service appelant. Un template
 de route sans slash initial est canonisé en l'ajoutant (`api/orders/{id}`
 devient `/api/orders/{id}`), de sorte que des formes d'instrumentation
 équivalentes produisent une seule signature. Certains frameworks placent plutôt
 un nom de route symbolique dans `http.route` et le chemin de requête dans
 `url.path`. Quand la route ne contient aucun `/` et que `url.path` est
-exploitable, perf-sentinel utilise `url.path`. Une route contenant `/` reste
+exploitable, Perf Sentinel utilise `url.path`. Une route contenant `/` reste
 prioritaire, y compris les routes Django sans slash initial et les templates.
 Un nom de route sans `url.path` conserve le comportement prudent existant et
 reçoit un slash initial.
@@ -301,7 +301,7 @@ Quand les services tracés émettent `http.route` :
 - Les acks survivent au trafic normal avec des identifiants de
   requête tournants.
 
-Quand `http.route` est absent sur un span explicitement SERVER, perf-sentinel
+Quand `http.route` est absent sur un span explicitement SERVER, Perf Sentinel
 se rabat sur `http.url`, `url.full`, `url.path`, puis `http.target` selon le
 format d'ingestion. Les spans CLIENT portant uniquement une URL restent des
 opérations sortantes et ne sont pas pris pour des points d'entrée. Chaque URL

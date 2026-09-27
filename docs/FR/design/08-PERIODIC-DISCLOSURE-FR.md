@@ -161,7 +161,7 @@ Deux nouvelles sections dans `.perf-sentinel.toml` :
 - `[reporting]` porte `intent`, `confidentiality_level`, `org_config_path`, `disclose_output_path`, `disclose_period`. Validée au chargement de la config.
 - `[daemon.archive]` porte `path`, `max_size_mb` (défaut 100), `max_files` (défaut 12). Validée au chargement de la config et à l'ouverture d'archive.
 
-Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son comportement antérieur : NDJSON sur stdout, pas d'archive, pas de garde-fou de reporting.
+Les deux sections sont optionnelles. Leur absence laisse Perf Sentinel dans son comportement antérieur : NDJSON sur stdout, pas d'archive, pas de garde-fou de reporting.
 
 ## Limitations v1.0 portées en disclaimers
 
@@ -204,7 +204,7 @@ L'archivage du daemon est **déclenché par le trafic**, pas par une minuterie. 
 
 ### Ce qu'il traite et ce qu'il ne traite pas
 
-C'est le signal interne au binaire le plus proche de l'échappatoire d'auto-déclaration "il suffit d'arrêter perf-sentinel une partie de la période". L'extinction partielle se voit maintenant comme un `temporal_coverage` bas et un `largest_gap_days` grand. Il ne traite **pas** la non-participation totale (ne jamais lancer l'outil ne laisse aucun rapport) ni un dénominateur malhonnête (`total_requests_in_period` fixé bas), tous deux irréductibles sans infrastructure externe, voir Révisions futures. Deux vérifications de cohérence bon marché l'accompagnent : `days_covered` doit valoir `(to_date - from_date) + 1` (rejet dur, seul un fichier édité à la main peut échouer) et `requests_measured` ne doit pas dépasser un `total_requests_in_period` déclaré par l'opérateur (rejet dur).
+C'est le signal interne au binaire le plus proche de l'échappatoire d'auto-déclaration "il suffit d'arrêter Perf Sentinel une partie de la période". L'extinction partielle se voit maintenant comme un `temporal_coverage` bas et un `largest_gap_days` grand. Il ne traite **pas** la non-participation totale (ne jamais lancer l'outil ne laisse aucun rapport) ni un dénominateur malhonnête (`total_requests_in_period` fixé bas), tous deux irréductibles sans infrastructure externe, voir Révisions futures. Deux vérifications de cohérence bon marché l'accompagnent : `days_covered` doit valoir `(to_date - from_date) + 1` (rejet dur, seul un fichier édité à la main peut échouer) et `requests_measured` ne doit pas dépasser un `total_requests_in_period` déclaré par l'opérateur (rejet dur).
 
 ## Crosswalk standard et critères RGESN (v1.3)
 

@@ -1,6 +1,6 @@
 # Index de la documentation
 
-Ce répertoire contient le miroir français de la documentation utilisateur de perf-sentinel. Pour la documentation de conception approfondie destinée aux contributeurs, voir le sous-répertoire [`design/`](design/00-INDEX-FR.md).
+Ce répertoire contient le miroir français de la documentation utilisateur de Perf Sentinel. Pour la documentation de conception approfondie destinée aux contributeurs, voir le sous-répertoire [`design/`](design/00-INDEX-FR.md).
 
 La version anglaise de chaque document se trouve dans le répertoire parent [`docs/`](../00-INDEX.md).
 
