@@ -1274,8 +1274,8 @@ retourne ce que la pile TCP émet (connection reset).
 
 Faites tourner un Prometheus Blackbox exporter qui scrape
 `/api/findings?severity=critical&limit=1` et alerte quand le tableau de
-réponse est non-vide. Exemple de règle AlertManager utilisant un
-`vector_count` calculé par une recording rule :
+réponse est non-vide. Exemple de règle AlertManager sur le compteur
+`perf_sentinel_findings_total` :
 
 ```yaml
 groups:
@@ -1371,7 +1371,7 @@ L'API de requêtage porte une promesse de stabilité à partir de v0.4.1.
   existantes restent. De nouvelles variantes peuvent être ajoutées dans
   les releases mineures. Les clients doivent tolérer les valeurs d'enum
   inconnues sans planter.
-- Le comportement des cinq réponses d'erreur dans
+- Le comportement des réponses d'erreur dans
   [Réponses d'erreur](#réponses-derreur).
 
 **Ce qui peut changer dans une release mineure :**

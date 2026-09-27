@@ -1228,8 +1228,8 @@ whatever the TCP stack emits (connection reset).
 
 Run a Prometheus Blackbox exporter that scrapes
 `/api/findings?severity=critical&limit=1` and alerts when the response
-array is non-empty. Example AlertManager rule using a `vector_count`
-computed by a recording rule:
+array is non-empty. Example AlertManager rule on the
+`perf_sentinel_findings_total` counter:
 
 ```yaml
 groups:
@@ -1318,7 +1318,7 @@ The query API carries a stability promise starting at v0.4.1.
   `io_intensity_band` and so on): existing variants remain. New
   variants may be added in minor releases. Clients must tolerate
   unknown enum values and not crash on them.
-- The behavior of the five error responses in
+- The behavior of the error responses in
   [Error responses](#error-responses).
 
 **What may change in a minor release:**
