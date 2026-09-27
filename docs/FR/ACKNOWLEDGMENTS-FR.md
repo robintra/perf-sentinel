@@ -181,7 +181,7 @@ Oui, depuis 0.5.20. `POST /api/findings/{sig}/ack` crée, `DELETE /api/findings/
 Oui, les flags CI TOML s'appliquent. Depuis 0.5.24, `perf-sentinel query inspect` (mode daemon live) expose aussi `a` pour acquitter le finding sélectionné via l'API daemon et `u` pour révoquer, avec une modale qui demande reason / expires / by.
 
 **Q : Le dashboard HTML affiche-t-il les métadonnées d'ack ?**
-Oui. Le rapport statique expose `acknowledged_findings` dans le payload JSON embarqué (`--show-acknowledged` pour les garder dans la liste visible). Depuis 0.5.23, `perf-sentinel report --daemon-url <url>` bascule le dashboard en mode live : boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, et interrupteur `Show acknowledged` dans le panneau Findings. Voir la [Référence visuelle](#référence-visuelle) ci-dessus.
+Oui. Le rapport statique expose `acknowledged_findings` dans le payload JSON embarqué (`--show-acknowledged` pour les garder dans la liste visible). Depuis 0.5.23, `perf-sentinel report --daemon-url <url>` bascule le dashboard en mode live : boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, et interrupteur `Show acknowledged` dans le panneau Findings. Voir la référence visuelle en haut de cette page.
 
 ## Intégration SARIF
 

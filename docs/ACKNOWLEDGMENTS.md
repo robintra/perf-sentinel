@@ -181,7 +181,7 @@ Yes, since 0.5.20. `POST /api/findings/{sig}/ack` creates, `DELETE /api/findings
 Yes, the TOML CI flags apply. Since 0.5.24, `perf-sentinel query inspect` (live daemon mode) also exposes `a` to acknowledge the highlighted finding via the daemon API and `u` to revoke, with a modal form for reason / expires / by.
 
 **Q: Does the HTML dashboard surface ack metadata?**
-Yes. The static report shows `acknowledged_findings` in the embedded JSON payload (`--show-acknowledged` to keep them in the visible list). Since 0.5.23, `perf-sentinel report --daemon-url <url>` flips the dashboard into live mode: per-finding `Ack` buttons, an `Acks` tab listing active acks with per-row `Revoke`, and a `Show acknowledged` toggle in the Findings panel. See the [Visual reference](#visual-reference) above.
+Yes. The static report shows `acknowledged_findings` in the embedded JSON payload (`--show-acknowledged` to keep them in the visible list). Since 0.5.23, `perf-sentinel report --daemon-url <url>` flips the dashboard into live mode: per-finding `Ack` buttons, an `Acks` tab listing active acks with per-row `Revoke`, and a `Show acknowledged` toggle in the Findings panel. See the visual reference at the top of this page.
 
 ## SARIF integration
 
