@@ -328,7 +328,7 @@
       <div data-dc-tpl="243" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--rust); letter-spacing: 0.04em;"><span class="sc-interp">// built in rust</span></div>
       <div data-dc-tpl="244" style="display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-top: 12px;">
         <h2 data-dc-tpl="245" style="margin: 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A single </span><span data-dc-tpl="246" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp"> binary, measured</span></h2><div data-dc-tpl="247" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
-          <img data-dc-tpl="248" src="assets/rust.svg" alt="Rust" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 1.98.1</span>
+          <span data-dc-tpl="248" data-ico="rust" role="img" aria-label="Rust" style="width: 15px; height: 15px;"></span><span class="sc-interp">Version 1.98.1</span>
         </div>
       </div>
       <p data-dc-tpl="249" style="margin: 18px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.</span></p>
@@ -666,7 +666,7 @@
     --text:#3A4A43; --text-2:#5C6F66;
     --accent:#0BA671; --accent-strong:#0b7d54; --accent-soft:#E0F4ED; --on-accent:#FFFFFF;
     --term-bg:#082A1E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#6FA791;
-    --grid:#34D399; --rust:#CE422B; --coral:#D6453F; --dotnet:#512BD4;
+    --grid:#34D399; --rust:#AD5210; --coral:#D6453F; --dotnet:#512BD4;
     font-family:'DM Sans',system-ui,sans-serif;
     background-color:#F1F6F3; color:#3A4A43;
     -webkit-font-smoothing:antialiased; line-height:1.55;
@@ -723,7 +723,7 @@
   @media(max-width:720px){[data-matrix] [data-mh]{padding:10px 12px;font-size:10.5px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:2px;padding-right:2px}}
   @media(max-width:560px){[data-matrix] [data-mr]{padding:14px 12px}}
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
-  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
+  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="rust"]{--ico:url(/assets/rust.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
   [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}
   [data-embed-lead]{font-size:13px;font-weight:600;color:var(--text);margin-right:2px}
   [data-embed-tab],#ps-embed-open{font-family:inherit;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);padding:6px 13px;border-radius:999px;cursor:pointer;transition:border-color .15s ease}
@@ -1032,7 +1032,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;margin-top:12px">
         <h2 style="margin:0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ perfT1 }}<span style="color:var(--rust)">{{ perfWRust }}</span>{{ perfT2 }}</h2>
 <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--rust);background:color-mix(in srgb,var(--rust) 12%,transparent);border:1px solid color-mix(in srgb,var(--rust) 38%,transparent);border-radius:999px;padding:8px 14px">
-          <img src="assets/rust.svg" alt="Rust" width="15" height="15" style="display:block;flex:none">{{ perfBadge }}
+          <span data-ico="rust" role="img" aria-label="Rust" style="width:15px;height:15px"></span>{{ perfBadge }}
         </div>
       </div>
       <p style="margin:18px 0 0;font-size:15px;color:var(--text-2);max-width:700px;line-height:1.6">{{ perfIntro }}</p>
