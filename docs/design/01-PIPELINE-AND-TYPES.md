@@ -38,7 +38,7 @@ Detection uses `HashMap` internally for grouping. Rust's `HashMap` uses a [rando
 The shared `detect::sort_findings()` function sorts findings after scoring with a multi-level key:
 
 ```rust
-pub fn sort_findings(findings: &mut [Finding]) {
+pub(crate) fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         a.finding_type.cmp(&b.finding_type)
             .then_with(|| a.severity.cmp(&b.severity))
@@ -49,7 +49,7 @@ pub fn sort_findings(findings: &mut [Finding]) {
 }
 ```
 
-This function is defined in `detect/mod.rs` and gives every sink the same deterministic baseline order. Presentation layers sort on top of it rather than replacing it: `--sort` on `analyze`, `report`, `tempo` and `jaeger-query`, the dashboard's `initial_sort`, and the TUI's impact-first opening all reorder a list whose ties this canonical order already settled. It requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
+This function is defined in `detect/mod.rs` and gives every sink the same deterministic baseline order. Presentation layers sort on top of it rather than replacing it: `--sort` on `analyze`, `report`, `tempo` and `jaeger-query`, the dashboard's `initial_sort`, and the TUI's impact-first opening all reorder a list whose ties this canonical order already settled. It requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < NPlusOneMessaging < RedundantSql < ... < ExcessiveFanout < ... < SerializedCalls`.
 
 Top offenders are similarly sorted (IIS descending, alphabetical tiebreaker) to ensure the same report for the same input.
 
