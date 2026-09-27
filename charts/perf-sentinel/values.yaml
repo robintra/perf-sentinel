@@ -144,12 +144,12 @@ topologySpreadConstraints: []
 # lock-free, and independent of [daemon] api_enabled. The port is named so
 # changing service.ports.otlpHttp.port does not break the probes.
 #
-# The liveness budget is deliberately looser than the readiness one
-# (docs/RUNBOOK.md "Sizing reference"): under sustained saturation the whole
-# cgroup is throttled in quanta, and a tight liveness budget restarts a
-# functional daemon that is merely backpressuring. Readiness stays tight on
-# purpose, dropping the pod from the Service endpoints is the wanted response
-# to saturation, a restart is not.
+# The liveness budget is looser than the readiness one (docs/RUNBOOK.md
+# "Sizing reference"): under sustained saturation the whole cgroup is throttled
+# in quanta, and a tight liveness budget restarts a functional daemon that is
+# merely backpressuring. Readiness stays tight, because dropping the pod from
+# the Service endpoints is the wanted response to saturation and a restart is
+# not.
 livenessProbe:
   httpGet:
     path: /health
@@ -184,12 +184,12 @@ service:
 # Optional Ingress in front of the Service. Disabled by default, and that
 # default is a security decision rather than a packaging one: the daemon has
 # no embedded IAM, so publishing it puts an unauthenticated API on the
-# network, one that accepts OTLP ingest and serves `/api/findings` (your SQL
+# network. That API accepts OTLP ingest and serves `/api/findings` (your SQL
 # templates and endpoint names) plus the ack write endpoints to anyone who
 # reaches the host. The chart's threat model is a non-exposed cluster
 # network bounded by the Service and the optional NetworkPolicy.
 #
-# Two postures are supported, pick one deliberately.
+# Two postures are supported. Pick one.
 #
 # Internal-only: the Ingress rides a controller that is itself unreachable
 # from outside your network (no public load balancer in front of it), and the
@@ -258,10 +258,9 @@ serviceMonitor:
 
 # Prometheus Operator PrometheusRule. Ships the alerts for data the daemon lost
 # and cannot recover, so "alerts the moment a problem appears" works out of the
-# box instead of being a build-it-yourself wiring exercise. Gated like
-# serviceMonitor. Saturation, service cardinality and correlator eviction are
-# deliberately not alerts: they are dashboard panels, because each one fires on
-# a state the daemon reaches while working normally.
+# box. Gated like serviceMonitor. Saturation, service cardinality and
+# correlator eviction are not alerts: they are dashboard panels, because each
+# one fires on a state the daemon reaches while working normally.
 #
 # PerfSentinelDown reads `up{job="<release fullname>"}`, which is the job name
 # Prometheus Operator derives from the Service when serviceMonitor.enabled is
@@ -307,11 +306,11 @@ podDisruptionBudget:
 # policy (verified on k3s/kube-router 1.35). The failure mode is therefore a
 # green pod that receives nothing, not a CrashLoop.
 #
-# Egress is deliberately out of scope. The daemon's outbound destinations
-# (Tempo, Jaeger, Electricity Maps, the energy scrapers) are declared in your
-# config.toml, not in the chart, so a generic egress block would either be too
-# permissive to protect anything or strict enough to break the install.
-# NetworkPolicies are additive, write your own egress policy alongside.
+# Egress is out of scope. The daemon's outbound destinations (Tempo, Jaeger,
+# Electricity Maps, the energy scrapers) are declared in your config.toml, not
+# in the chart, so a generic egress block would either be too permissive to
+# protect anything or strict enough to break the install.
+# NetworkPolicies are additive, so write your own egress policy alongside.
 networkPolicy:
   enabled: false
   ingress:
@@ -367,8 +366,8 @@ config:
     # The daemon runs inside a non-exposed cluster network and has no embedded
     # IAM (see docs/QUERY-API.md): access control is the Service and, when you
     # want it, the NetworkPolicy. The ack store stays on so acks (and the
-    # committed TOML acks the daemon loads with them) work out of the box; a
-    # non-loopback bind just logs an advisory, it does not require a key.
+    # committed TOML acks the daemon loads with them) work out of the box. A
+    # non-loopback bind only logs an advisory and does not require a key.
     #
     # To restrict who may acknowledge findings:
     #   - only-this-group (architects / SRE): front the API with an SSO proxy
@@ -381,9 +380,9 @@ config:
     #     entry, PERF_SENTINEL_READ_API_KEY, sets [daemon] read_api_key, which
     #     opens GET /api/acks and GET /api/incidents alone and is refused when
     #     equal to a write key.
-    # To have your alerting record incidents with the findings of the window
-    # before them frozen on the spot, add a [daemon.incidents] table with
-    # enabled = true at the end of this file and its write key through a
+    # To have your alerting record incidents, each with the findings of the
+    # window before it frozen on the spot, add a [daemon.incidents] table with
+    # enabled = true at the end of this file. Pass its write key through a
     # Secret entry named PERF_SENTINEL_INCIDENTS_API_KEY. An enabled table
     # without its key stops the daemon at startup, so create the Secret first,
     # and put archive_path on the PVC so the record outlives a restart. See
@@ -394,12 +393,11 @@ config:
     # 80-85 when resources.limits.memory is tight.
     # memory_high_water_pct = 0
 
-    # sampling_rate is deliberately left at its 1.0 default. Below 1.0 the
-    # daemon drops whole traces, so the finding counts and the Prometheus
-    # totals describe a sample of the traffic rather than a measure of it, and
-    # a rare pattern can be sampled out entirely. The report says so (a
-    # `tuning` entry in warning_details), but the counts themselves do not
-    # carry the correction.
+    # sampling_rate stays at its 1.0 default. Below 1.0 the daemon drops whole
+    # traces, so the finding counts and the Prometheus totals describe a sample
+    # of the traffic rather than a measure of it, and a rare pattern can be
+    # sampled out entirely. The report says so (a `tuning` entry in
+    # warning_details), but the counts themselves do not carry the correction.
     # The same applies to sampling applied upstream: a collector running
     # tail_sampling in front of this daemon feeds it a fraction of the traffic,
     # and there is no config here that can tell. Send perf-sentinel an
@@ -445,7 +443,7 @@ config:
   # Each key must be named `NN-lowercase-name.toml` and each `NN` must be
   # unique: the daemon refuses to start otherwise, and the chart fails the
   # render rather than let that reach a pod. The ready-to-copy fragments in
-  # `examples/` already carry conforming names, paste them as-is.
+  # `examples/` already carry conforming names, so paste them as-is.
   #
   # Ports and turning `[green]` off stay in `config.toml`, and so do
   # `[daemon.ack]` / `[daemon.archive]` when persistence has the chart writing
