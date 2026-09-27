@@ -635,7 +635,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Erreur AOT cache avec le Java Agent
 
-Le Java Agent (`-javaagent:`) est incompatible avec les caches AOT de la JEP 483. Si vous voyez `Unable to map shared spaces` ou `Mismatched values for property jdk.module.addmods`, contournez le cache AOT quand l'agent est actif (voir la section Java ci-dessus).
+Le Java Agent (`-javaagent:`) est incompatible avec les caches AOT de la JEP 483. Si vous voyez `Unable to map shared spaces` ou `Mismatched values for property jdk.module.addmods`, contournez le cache AOT quand l'agent est actif (voir la section Java de [INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)).
 
 ### Le starter Spring Boot ne capture pas les appels HTTP sortants
 
