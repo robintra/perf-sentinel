@@ -93,13 +93,13 @@ Periodic disclosure preview (`perf-sentinel disclose --tui`):
 
 ## Why Perf Sentinel?
 
-Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path.
+Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, so the waste only shows up when you look at the whole trace.
 
 Existing tools each solve part of the problem. Hypersistence Utils covers JPA only. Datadog and New Relic are heavy proprietary agents you may not want in every pipeline. Sentry's detectors are solid but tied to its SDK and backend. None of them gives you a **protocol-level anti-pattern detector you can self-host**. Perf Sentinel runs either as a CI quality gate on captured traces (exit 1 on threshold breach, SARIF for code scanning) **or** as a long-running OTLP daemon (gRPC + HTTP ingestion, Prometheus `/metrics`, live HTML dashboard, query API, runtime ack workflow) that you place alongside or in front of your existing tracing backend.
 
 Perf Sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM: it sees the queries they generate.
 
-Beyond detection, each avoidable I/O is translated into energy then CO₂ on a recognized method (SCI-aligned), which puts a number on the waste and makes it **attributable to the code**. Where current carbon tools estimate a global footprint top-down, from the cloud bill or sector ratios, Perf Sentinel **measures bottom-up**, query by query, a directly actionable hotspot.
+Beyond detection, each avoidable I/O is translated into energy then CO₂ on a recognized method (SCI-aligned), which puts a number on the waste and makes it **attributable to the code**. Where current carbon tools estimate a global footprint top-down, from the cloud bill or sector ratios, Perf Sentinel **estimates bottom-up**, query by query, so each hotspot points at code you can fix.
 
 ## What it detects
 
@@ -212,7 +212,7 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 
 ## Hub, optional but recommended
 
-A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/api/findings` answers at most 1,000 rows, which is enough for the current state and too little for history. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) is a separate service that collects from every daemon and records when each finding was first seen, which the daemons cannot reconstruct.
+A `watch` daemon holds its findings in memory. The ring buffer forgets, and `/api/findings` answers at most 1,000 rows. That covers the current state but not the history. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) is a separate service that collects from every daemon and records when each finding was first seen, which the daemons cannot reconstruct.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
@@ -223,7 +223,7 @@ What it adds on top of a daemon:
 
 - **A durable timeline.** `first_seen` per acknowledgment signature, retained 180 days by default, so "this regressed last Tuesday" survives a restart.
 - **History in Grafana, per environment.** Since 0.24.0 the findings dashboard has a `History (Hub)` row that follows the time picker as far back as the Hub retains, and an `Ack` link on every finding that opens the Hub's ack page. See [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md).
-- **Push and poll, and one of them owns reachability.** Daemons push into `/api/import/findings`, and the Hub polls them back as a safety net. Only a successful poll clears an unreachable marker, because a daemon reaching the Hub proves nothing about the Hub reaching the daemon.
+- **Push, with poll as a fallback.** Daemons push into `/api/import/findings`, and the Hub polls them back as a safety net. Only a successful poll clears an unreachable marker, because a daemon reaching the Hub proves nothing about the Hub reaching the daemon.
 - **A browser that runs an analysis.** Against a daemon, a Tempo backend or a Jaeger query backend, serving the same HTML dashboard `report` renders.
 - **One read API for tooling.** `/api/findings` for IDE plugins and CI jobs, with a `status` derived at read time that tells "the endpoint runs without this finding" apart from "nobody is looking".
 
@@ -274,7 +274,7 @@ The rendered dashboard, served from the Hub's own origin:
 <details>
 <summary><b>Input formats</b></summary>
 
-- **Trace files** (auto-detected): native Perf Sentinel JSON, OTLP JSON (single object or Collector `file` exporter NDJSON), Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
+- **Trace files** (auto-detected): native Perf Sentinel JSON, OTLP JSON (single object or Collector `file` exporter NDJSON), Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed. The shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
 - **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 - **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, to a `file` exporter dump readable by `analyze --input`, or to a Tempo or Jaeger backend for the `tempo`/`jaeger-query` pull paths below. Perf Sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 - **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
@@ -295,19 +295,19 @@ The rendered dashboard, served from the Hub's own origin:
 - **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
 - **Periodic disclosure (optional)**: hash-verifiable `perf-sentinel-report/v1.0` JSON from `perf-sentinel disclose`, signable via Sigstore. See [docs/REPORTING.md](docs/REPORTING.md).
 
-The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions, numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
+The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions. The numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
 </details>
 
-Output is deterministic: the same input yields byte-identical JSON and SARIF (findings are sorted on a stable key, not `HashMap` iteration order), so a CI quality gate never flickers and two identical runs produce no spurious PR diff.
+Output is deterministic: the same input yields byte-identical JSON and SARIF (findings are sorted on a stable key, not `HashMap` iteration order), so a CI quality gate gives the same verdict on every run and two identical runs produce no spurious PR diff.
 
 ## Deployment
 
-Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md), CI recipes in [docs/CI.md](docs/CI.md), Prometheus metrics in [docs/METRICS.md](docs/METRICS.md), sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md), CI recipes in [docs/CI.md](docs/CI.md), Prometheus metrics in [docs/METRICS.md](docs/METRICS.md), sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
 Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging). The central collector is a single stateful daemon: horizontal replicas need trace-id-aware load balancing and do not share correlation state, see [Daemon state model](docs/LIMITATIONS.md#daemon-state-model-in-memory-single-process-no-shared-state).
 
-Two behaviours to know before sizing. Upstream trace sampling (head-based vs tail-based) and the daemon's own `[daemon] sampling_rate` both undercount the repetition-based detectors. Under sustained overload, the daemon sheds whole analysis batches rather than blocking ingestion, and every shed is counted in the metrics, never a silent drop. Details and bounded-queue sizing: [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy), [Sampling in daemon mode](docs/LIMITATIONS.md#sampling-in-daemon-mode) and [Analysis backpressure and load shedding](docs/LIMITATIONS.md#analysis-backpressure-and-load-shedding).
+Two behaviours to know before sizing. Upstream trace sampling (head-based vs tail-based) and the daemon's own `[daemon] sampling_rate` both undercount the repetition-based detectors. Under sustained overload, the daemon sheds whole analysis batches rather than blocking ingestion. Every shed batch is counted in the metrics. Details and bounded-queue sizing: [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy), [Sampling in daemon mode](docs/LIMITATIONS.md#sampling-in-daemon-mode) and [Analysis backpressure and load shedding](docs/LIMITATIONS.md#analysis-backpressure-and-load-shedding).
 
 <details>
 <summary><b>Local dev</b></summary>
@@ -403,9 +403,9 @@ Same chip, same datasets: the musl + mimalloc build runs about 13% faster than t
 
 `bench` also prints `rss_peak_bytes`, but that value is dominated by the pre-cloned input batches kept in memory (10 iterations x 44,043 events), so it is not the daemon's memory footprint. It is also not comparable across operating systems: `rss_peak_bytes` reads the current RSS from `/proc` on Linux but the peak RSS via `getrusage` on macOS.
 
-Separately, the long-running daemon's memory was profiled on the same M4 Pro using the musl + mimalloc build inside a Docker Desktop `linux/arm64` VM (15.6 GB). It idles at **~17 MB**, apples-to-apples with the idle-agent figures for the other tools. The native build idles at ~10 MB, mimalloc trades a little RSS for allocator speed. Under a sustained ~1.0 M events / sec ingestion load it peaks at **~190 MB** (down from 237 MB on 0.6.1, under the 250 MB ceiling).
+Separately, the long-running daemon's memory was profiled on the same M4 Pro using the musl + mimalloc build inside a Docker Desktop `linux/arm64` VM (15.6 GB). It idles at **~17 MB**, apples-to-apples with the idle-agent figures for the other tools. The native build idles at ~10 MB, because mimalloc trades a little RSS for allocator speed. Under a sustained ~1.0 M events / sec ingestion load it peaks at **~190 MB** (down from 237 MB on 0.6.1, under the 250 MB ceiling).
 
-A production daemon is a different shape, and the idle figure is the wrong one to size a pod from. On a Kubernetes StatefulSet running 0.19.0 with `max_retained_findings = 100000`, `process_resident_memory_bytes` starts near 88 MB, climbs while the ring fills, then holds. Over 7 days it shows a **980 MB median** and a **1.2 GB p90** that is the day-to-day ceiling, with one excursion to 1.8 GB that decayed back over the following day. No restart and no OOM, under a 2 GiB limit with a 1 GiB request. Ingestion throughput was not what drove it (30 evt/s median, 520 evt/s p95, 2.1k evt/s peak): the retained findings were, at roughly 3 to 6 KB of RSS each depending on how much evidence a finding carries.
+A production daemon is a different shape, and the idle figure is the wrong one to size a pod from. On a Kubernetes StatefulSet running 0.19.0 with `max_retained_findings = 100000`, `process_resident_memory_bytes` starts near 88 MB, climbs while the ring fills, then holds. Over 7 days it shows a **980 MB median** and a **1.2 GB p90** that is the day-to-day ceiling, with one excursion to 1.8 GB that decayed back over the following day. No restart and no OOM, under a 2 GiB limit with a 1 GiB request. Ingestion throughput did not drive it (30 evt/s median, 520 evt/s p95, 2.1k evt/s peak). The retained findings did, at roughly 3 to 6 KB of RSS each depending on how much evidence a finding carries.
 
 So size the pod from `max_retained_findings`, not from the idle figure: a few hundred MB at the 10000 default, 1 to 2 GB at 100000, and `0` hands the whole store back when the query API is off.
 
@@ -428,7 +428,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 | Physical servers with a BMC                                  | Redfish (wall-plug power per chassis)       | node-level, periphery included |
 | Anywhere, on top of any row above                            | Electricity Maps (real-time grid intensity) | refines the I axis, not E      |
 
-> **The carbon side of Perf Sentinel prices the detected I/O with the rigor of a specialized software / compute emissions calculator**: activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
+> **The carbon side of Perf Sentinel prices the detected I/O with an activity-based methodology**: region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
 >
@@ -461,13 +461,11 @@ The Datadog figure is the one Datadog publishes for its Agent 7.34 on a c5.xlarg
 
 ### What Perf Sentinel is not
 
-A fair comparison requires naming what Perf Sentinel does **not** do:
-
 - **Not a full APM replacement.** No RUM, no log aggregation, no distributed profiling. It does render dashboards of its own (a self-contained HTML report, a trace-browsing TUI and a live operator TUI, plus a Grafana dashboard over `/metrics`), but it has no alerting UI. Alerting is delegated to Prometheus and Alertmanager, with operational rules shipped in the Helm chart. If you need the rest, Datadog, New Relic and Sentry remain the right tools.
-- **Not a continuous profiler.** It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, Perf Sentinel tells you which I/O patterns drive that time.
+- **Not a continuous profiler.** It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well. Pyroscope shows where compute time goes, and Perf Sentinel shows which I/O patterns drive that time.
 - **Not a monitoring platform.** Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but it retains a bounded ring of recent findings (10,000 by default) rather than a queryable history. It neither builds custom dashboards nor routes alerts. The center of gravity stays CI quality gates and post-hoc trace analysis.
 - **Not a standalone regulatory carbon accounting platform.** Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case: see [GreenOps](#greenops-io-intensity-score-directional).
-- **Not a replacement for measured energy.** The I/O-to-energy model is a measurement, but an approximate one. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
+- **Not a replacement for measured energy.** The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
 - **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, Perf Sentinel has nothing to analyze.
 - **Not an IDE plugin.** Perf Sentinel itself runs in CI and as a daemon, not inside the editor. A first-party JetBrains plugin is in development: it reads findings from a running daemon and navigates to the code they point at, and it will be announced here once published.
 
