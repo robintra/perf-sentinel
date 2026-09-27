@@ -320,7 +320,7 @@
             <div data-dc-tpl="216" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">12</span></div>
             <div data-dc-tpl="217">
               <div data-dc-tpl="218" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Appels sérialisés</span></div>
-              <div data-dc-tpl="219" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">I/O séquentiels qui pourraient être parallélisés.</span></div>
+              <div data-dc-tpl="219" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Au moins 3 appels I/O frères lancés l’un après l’autre, sur des templates différents, qui pourraient partir en parallèle.</span></div>
             </div>
           </div>
         
@@ -1564,7 +1564,7 @@ class Component extends DCLogic {
           { n: '09', name: 'Excessive fanout', trigger: 'A single operation (span) has more than 20 child calls (SQL, HTTP…), parallel or not.' },
           { n: '10', name: 'Chatty service', trigger: 'A single user request makes more than 15 outbound HTTP calls, whatever their target.' },
           { n: '11', name: 'Pool saturation', trigger: 'At least 10 SQL queries from one service in flight at the same time within one trace, a likely sign of connection pool contention.' },
-          { n: '12', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
+          { n: '12', name: 'Serialized calls', trigger: 'At least 3 sibling I/O calls made one after another, on different templates, that could run in parallel.' },
         ],
         detFoot: 'Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.',
         hubEyebrow: '// one for the fleet',
@@ -1721,7 +1721,7 @@ class Component extends DCLogic {
           { n: '09', name: 'Fanout excessif', trigger: 'Une même opération (span) déclenche plus de 20 appels enfants (SQL, HTTP…), en parallèle ou non.' },
           { n: '10', name: 'Service bavard', trigger: 'Une seule requête utilisateur déclenche plus de 15 appels HTTP sortants, toutes destinations confondues.' },
           { n: '11', name: 'Saturation de pool', trigger: 'Au moins 10 requêtes SQL d\u2019un même service en cours au même moment dans une seule trace, signe probable de contention sur le pool de connexions.' },
-          { n: '12', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
+          { n: '12', name: 'Appels sérialisés', trigger: 'Au moins 3 appels I/O frères lancés l’un après l’autre, sur des templates différents, qui pourraient partir en parallèle.' },
         ],
         detFoot: 'Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source et impact GreenOps. En mode daemon, s\u2019y ajoute la corrélation cross-trace.',
         hubEyebrow: '// un seul pour la flotte',
