@@ -81,12 +81,11 @@ unset, so a release that never used fragments keeps a stable hash.
 {{- $cm := include (print $.Template.BasePath "/configmap.yaml") . -}}
 {{- /* Trimmed, not appended raw: the fragments template still emits a trailing
        newline when it renders nothing, and folding that in would change the
-       hash of a release that declares no fragments. This does not save an
-       upgrade from rolling, the hashed ConfigMap carries the helm.sh/chart
-       label so every chart bump moves the checksum anyway. What it buys is a
-       readable diff: at equal chart version, adding this feature leaves the
-       rendered manifest byte-identical, which is how the no-fragments path was
-       shown to be untouched. */}}
+       hash of a release that declares no fragments. Upgrades still roll: the
+       hashed ConfigMap carries the helm.sh/chart label, so every chart bump
+       moves the checksum. The trim keeps the diff readable: at equal chart
+       version, a release without fragments renders byte-identical with or
+       without the fragments template. */}}
 {{- $frag := include (print $.Template.BasePath "/configmap-fragments.yaml") . | trim -}}
 {{- printf "%s%s" $cm $frag | sha256sum -}}
 {{- end -}}
@@ -94,7 +93,7 @@ unset, so a release that never used fragments keeps a stable hash.
 {{/*
 Headless Service name used by the StatefulSet when workload.kind=StatefulSet.
 Defaults to <fullname>-headless, the Service the chart renders itself. It cannot
-default to the fullname, that name belongs to the regular ClusterIP Service.
+default to the fullname, which belongs to the regular ClusterIP Service.
 */}}
 {{- define "perf-sentinel.statefulset.serviceName" -}}
 {{- $default := printf "%s-headless" (include "perf-sentinel.fullname" . | trunc 54 | trimSuffix "-") -}}
@@ -111,7 +110,7 @@ paths the ConfigMap points at it.
 
 {{/*
 "true" when the workload is a StatefulSet with persistence enabled, i.e. the
-data dir is actually mounted. Empty otherwise.
+data dir is mounted. Empty otherwise.
 */}}
 {{- define "perf-sentinel.persistenceEnabled" -}}
 {{- if and (eq .Values.workload.kind "StatefulSet") .Values.workload.statefulset.persistence.enabled -}}
@@ -135,7 +134,7 @@ Name of the fragments ConfigMap, mounted as a directory at
 truncating would drop it on a long release name and hand this ConfigMap the
 same name as the config one. 53 is also exactly Helm's own cap on release
 names, so two distinct releases always differ within the kept prefix and
-cannot share a fragments ConfigMap to overwrite each other through.
+cannot overwrite each other through a shared fragments ConfigMap.
 */}}
 {{- define "perf-sentinel.fragmentsConfigMapName" -}}
 {{- printf "%s-fragments" (include "perf-sentinel.fullname" . | trunc 53 | trimSuffix "-") -}}
@@ -208,7 +207,7 @@ containers:
       {{- /* Mounted as a whole directory, not per-key subPaths. A subPath mount
              is resolved once at start and never refreshed, so adding a
              fragment would leave the file invisible until the pod is deleted
-             by hand; the directory form is at least consistent with what the
+             by hand. The directory form is at least consistent with what the
              ConfigMap holds. The daemon reads its config once at startup
              either way, so the reload still comes from the pod roll that
              checksum/config triggers, not from kubelet refreshing the files.
