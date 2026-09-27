@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mentions légales · Perf Sentinel</title><meta name="description" content="Mentions légales du site Perf Sentinel : éditeur, directeur de la publication et hébergeur."><meta name="robots" content="index,follow"><meta property="og:type" content="website"><meta property="og:title" content="Mentions légales · Perf Sentinel"><meta property="og:description" content="Mentions légales du site Perf Sentinel : éditeur, directeur de la publication et hébergeur."><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="perf-sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css"><style>
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mentions légales · Perf Sentinel</title><meta name="description" content="Mentions légales du site Perf Sentinel : éditeur, directeur de la publication et hébergeur."><meta name="robots" content="index,follow"><meta property="og:type" content="website"><meta property="og:title" content="Mentions légales · Perf Sentinel"><meta property="og:description" content="Mentions légales du site Perf Sentinel : éditeur, directeur de la publication et hébergeur."><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="Perf Sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css"><style>
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{margin:0}
@@ -56,9 +56,17 @@
   [data-ps-root] ::-webkit-scrollbar-thumb:hover{background:var(--text-2)}
   [data-ps-root]{scrollbar-color:var(--border) transparent;scrollbar-width:thin}
 
+  [data-matrix] [data-mh]{padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.04em;color:var(--text-2);background:var(--surface-2);border-bottom:1px solid var(--border)}
+  [data-matrix] [data-mr]{padding:16px 22px;border-bottom:1px solid var(--border)}
+  [data-matrix] [role=rowheader]{hyphens:auto;-webkit-hyphens:auto;overflow-wrap:anywhere}
+  [data-matrix] [data-mc]{display:flex;align-items:center;justify-content:center;padding-left:6px;padding-right:6px;text-align:center}
+  [data-matrix] [data-hit]{font-size:20px;font-weight:700}[data-matrix] [data-hit="yes"]{color:var(--coral)}[data-matrix] [data-hit="no"]{color:var(--text-2);opacity:.6}
+  [data-matrix] [data-mrow]:last-child > [data-mr]{border-bottom:0}
+  @media(max-width:720px){[data-matrix] [data-mh]{padding:10px 12px;font-size:10.5px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:2px;padding-right:2px}}
+  @media(max-width:560px){[data-matrix] [data-mr]{padding:14px 12px}}
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
-  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/timer.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
-  [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}[data-ico="cpu"]{--ico:url(/assets/icons/cpu.svg)}
+  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
+  [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}
   [data-embed-lead]{font-size:13px;font-weight:600;color:var(--text);margin-right:2px}
   [data-embed-tab],#ps-embed-open{font-family:inherit;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);padding:6px 13px;border-radius:999px;cursor:pointer;transition:border-color .15s ease}
   [data-embed-tab]:hover,#ps-embed-open:hover{border-color:var(--accent)}

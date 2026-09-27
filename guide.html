@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perf Sentinel: documentation</title>
-<meta name="description" content="perf-sentinel docs: quickstart, installation, configuration, CLI reference and the GreenOps metrics reference. Self-hosted, OpenTelemetry, AGPL-3.0.">
+<title>Perf Sentinel: guide</title>
+<meta name="description" content="Perf Sentinel docs: quickstart, installation, configuration, CLI reference and the GreenOps metrics reference. Self-hosted, OpenTelemetry, AGPL-3.0.">
 <link rel="canonical" href="https://perf-sentinel.dev/guide"><!--hreflang-start--><link rel="alternate" hreflang="en" href="https://perf-sentinel.dev/guide"><link rel="alternate" hreflang="fr" href="https://perf-sentinel.dev/fr/guide"><link rel="alternate" hreflang="x-default" href="https://perf-sentinel.dev/guide"><!--hreflang-end-->
-<meta property="og:type" content="article"><meta property="og:site_name" content="perf-sentinel">
-<meta property="og:title" content="perf-sentinel: documentation">
-<meta property="og:description" content="Quickstart, install, configuration, CLI reference and GreenOps metrics for perf-sentinel. Self-hosted, OpenTelemetry, AGPL-3.0.">
-<meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="perf-sentinel"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta name="theme-color" content="#0BA671"><meta property="og:url" content="https://perf-sentinel.dev/guide">
+<meta property="og:type" content="article"><meta property="og:site_name" content="Perf Sentinel">
+<meta property="og:title" content="Perf Sentinel: guide">
+<meta property="og:description" content="Quickstart, install, configuration, CLI reference and GreenOps metrics for Perf Sentinel. Self-hosted, OpenTelemetry, AGPL-3.0.">
+<meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Perf Sentinel"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta name="theme-color" content="#0BA671"><meta property="og:url" content="https://perf-sentinel.dev/guide">
 <meta name="twitter:card" content="summary_large_image">
 <script src="./support.js?v=3"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Perf Sentinel guide","description":"Quickstart, installation, configuration, CLI reference, performance, comparison and GreenOps metrics for Perf Sentinel.","url":"https://perf-sentinel.dev/guide","image":"https://perf-sentinel.dev/assets/og-banner.png","inLanguage":"en","author":{"@type":"Person","name":"Robin Trassard"},"isPartOf":{"@type":"WebSite","url":"https://perf-sentinel.dev/","name":"Perf Sentinel","alternateName":"perf-sentinel"},"about":{"@type":"SoftwareApplication","name":"Perf Sentinel","alternateName":"perf-sentinel","applicationCategory":"DeveloperApplication"}}</script><style id="ps-link-extra">main a[href^="/docs/"],main a[href^="/#"]{color:var(--accent-strong)}[data-ps-root]:not([data-theme="dark"]) [style*="color:var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color: var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color:#0ba671"],[data-ps-root]:not([data-theme="dark"]) [style*="color: #0ba671"]{color:var(--accent-strong)!important}</style><style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style></head>
@@ -22,9 +22,9 @@
       <a data-dc-tpl="9" data-plain="" href="/" style="display: flex; align-items: center; flex: 0 0 auto;"><img data-dc-tpl="10" data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height: 38px; width: auto;"><img data-dc-tpl="11" data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height: 38px; width: auto;"></a>
       <span data-dc-tpl="12" class="ps-hdr-badge" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--text-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px;">docs</span>
       <nav data-dc-tpl="13" class="ps-hdr-nav" style="display: flex; gap: 22px; margin-left: 6px; font-size: 15px; font-weight: 500; color: var(--text-2);">
-        <a data-dc-tpl="14" data-plain="" href="/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;"><span data-dc-tpl="15" data-ltext=""><span class="sc-interp">Overview</span></span><span data-dc-tpl="16" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="14" data-plain="" href="/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;"><span data-dc-tpl="15" data-ltext=""><span class="sc-interp">Overview</span></span><span data-dc-tpl="16" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
         <span data-dc-tpl="17" aria-hidden="true" style="width: 1px; height: 15px; background: var(--border); align-self: center; margin: 0px 2px;"></span>
-        <a data-dc-tpl="18" data-plain="" href="docs/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Docs</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="18" data-plain="" href="docs/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Reference</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
       <div data-dc-tpl="21" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="22" class="ps-lang-btn" aria-label="Switch language" title="Switch language"><span data-dc-tpl="23" class="ps-lang-ico"><svg data-dc-tpl="24" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="25" cx="12" cy="12" r="9"></circle><path data-dc-tpl="26" d="M3 12h18"></path><path data-dc-tpl="27" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="28" class="ps-lang-win"><span data-dc-tpl="29" class="ps-lang-track"><span data-dc-tpl="30" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">EN</span></span><span data-dc-tpl="31" class="ps-lang-cell ps-lang-next"><span class="sc-interp">FR</span></span></span></span></button>
@@ -34,8 +34,8 @@
         <label data-dc-tpl="37" for="ps-navtoggle" data-burger="" aria-label="Menu"><i data-dc-tpl="38"></i></label>
       </div>
       <nav data-dc-tpl="39" data-mobnav="" aria-label="Menu">
-        <a data-dc-tpl="40" data-plain="" href="/"><span class="sc-interp">Overview</span> <span data-dc-tpl="41" style="font-size: 11px; opacity: 0.7;">↗</span></a>
-        <a data-dc-tpl="42" data-plain="" href="docs/"><span class="sc-interp">Docs</span> <span data-dc-tpl="43" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="40" data-plain="" href="/"><span class="sc-interp">Overview</span> <span data-dc-tpl="41" style="font-size: 11px; opacity: 0.7;">→</span></a>
+        <a data-dc-tpl="42" data-plain="" href="docs/"><span class="sc-interp">Reference</span> <span data-dc-tpl="43" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
     </div>
   </header>
@@ -298,7 +298,7 @@
         </details>
         <details data-dc-tpl="113" style="margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 18px;">
           <summary data-dc-tpl="114" style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text);"><span class="sc-interp">The whole CLI surface in one map (18 subcommands, one pipeline, 11 outputs)</span></summary>
-          <img data-dc-tpl="115" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
+          <img data-dc-tpl="115" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg" alt="Perf Sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width: 100%; background: rgb(10, 15, 26); border: 1px solid var(--border); border-radius: 10px; display: block; margin-top: 14px; padding: 10px;">
         </details>
       </section>
 
@@ -1068,9 +1068,9 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
       <a data-plain href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
       <span class="ps-hdr-badge" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>
       <nav class="ps-hdr-nav" style="display:flex;gap:22px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
-        <a data-plain data-plain href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)"><span data-ltext>{{ navHome }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain data-plain href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)"><span data-ltext>{{ navHome }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
-        <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" class="ps-lang-btn" aria-label="{{ langAria }}" title="{{ langAria }}"><span class="ps-lang-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">{{ langActive }}</span><span class="ps-lang-cell ps-lang-next">{{ langTarget }}</span></span></span></button>
@@ -1080,8 +1080,8 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         <label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>
       </div>
       <nav data-mobnav="" aria-label="Menu">
-        <a data-plain href="/">{{ navHome }} <span style="font-size:11px;opacity:.7">↗</span></a>
-        <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain href="/">{{ navHome }} <span style="font-size:11px;opacity:.7">→</span></a>
+        <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">→</span></a>
       </nav>
     </div>
   </header>
@@ -1186,7 +1186,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         </details>
         <details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
           <summary style="cursor:pointer;font-weight:600;font-size:14px;color:var(--text)">{{ cliMap }}</summary>
-          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg" alt="perf-sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
+          <img src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg" alt="Perf Sentinel CLI command map: 18 subcommands, one shared pipeline, 11 output sinks" loading="lazy" class="ps-zoom" style="width:100%;background:#0A0F1A;border:1px solid var(--border);border-radius:10px;display:block;margin-top:14px;padding:10px">
         </details>
       </section>
 
@@ -1536,7 +1536,7 @@ class Component extends DCLogic {
   dict() {
     return {
       en: {
-        navHome: 'Overview', navLicense: 'License', navRef: 'Docs', onThisPage: 'On this page',
+        navHome: 'Overview', navLicense: 'License', navRef: 'Reference', onThisPage: 'On this page',
         nav: ['Quickstart', 'Installation', 'Configuration', 'CLI reference', 'Formats', 'Metrics', 'Performance', 'Comparison', 'Acknowledgments', 'Deployment', 'Privacy', 'Supply chain', 'Docs'],
         docKicker: '// documentation',
         docTitle: 'Get Perf Sentinel running',
@@ -1728,7 +1728,7 @@ class Component extends DCLogic {
         ],
       },
       fr: {
-        navHome: 'Vue d\u2019ensemble', navLicense: 'Licence', navRef: 'Docs', onThisPage: 'Sur cette page',
+        navHome: 'Vue d\u2019ensemble', navLicense: 'Licence', navRef: 'Référence', onThisPage: 'Sur cette page',
         nav: ['Démarrage rapide', 'Installation', 'Configuration', 'Référence CLI', 'Formats', 'Métriques', 'Performance', 'Comparatif', 'Acquittements', 'Déploiement', 'Confidentialité', 'Chaîne & release', 'Documentation'],
         docKicker: '// documentation',
         docTitle: 'Mettre Perf Sentinel en route',

@@ -45,7 +45,7 @@ const PAGES = [
     file: 'guide.html', path: '/guide', frFile: 'fr/guide.html',
     enUrl: ORIGIN + '/guide', frUrl: ORIGIN + '/fr/guide',
     fr: {
-      title: "Perf Sentinel : documentation",
+      title: "Perf Sentinel : guide",
       desc: "Docs Perf Sentinel : démarrage rapide, installation, configuration, référence CLI et référence des métriques GreenOps. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
       ogDesc: "Démarrage rapide, installation, configuration, référence CLI et métriques GreenOps pour Perf Sentinel. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
     },

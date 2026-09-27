@@ -6,10 +6,10 @@
 <title>Perf Sentinel : détection d'anti-patterns d'I/O, chiffrée en carbone</title>
 <meta name="description" content="Binaire auto-hébergeable qui détecte les anti-patterns d'I/O (N+1, appels redondants, requêtes lentes, fanout) dans vos traces OpenTelemetry et les chiffre en énergie et en CO₂.">
 <link rel="canonical" href="https://perf-sentinel.dev/fr"><!--hreflang-start--><link rel="alternate" hreflang="en" href="https://perf-sentinel.dev/"><link rel="alternate" hreflang="fr" href="https://perf-sentinel.dev/fr"><link rel="alternate" hreflang="x-default" href="https://perf-sentinel.dev/"><!--hreflang-end-->
-<meta property="og:type" content="website"><meta property="og:site_name" content="perf-sentinel">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Perf Sentinel">
 <meta property="og:title" content="Perf Sentinel : détection d'anti-patterns d'I/O, chiffrée en carbone">
 <meta property="og:description" content="Repérez les I/O gaspillées (N+1, appels redondants, requêtes lentes, fanout) dans vos traces OpenTelemetry, chiffrées en énergie et en carbone.">
-<meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="perf-sentinel"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta name="theme-color" content="#0BA671"><meta property="og:url" content="https://perf-sentinel.dev/fr">
+<meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Perf Sentinel"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta name="theme-color" content="#0BA671"><meta property="og:url" content="https://perf-sentinel.dev/fr">
 <meta name="twitter:card" content="summary_large_image">
 <script src="/support.js?v=3"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://perf-sentinel.dev/#website","url":"https://perf-sentinel.dev/","name":"Perf Sentinel","alternateName":"perf-sentinel","inLanguage":"fr"},{"@type":"SoftwareApplication","name":"Perf Sentinel","alternateName":"perf-sentinel","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://perf-sentinel.dev/","image":"https://perf-sentinel.dev/assets/og-banner.png","description":"Self-hosted single binary that catches N+1s, redundant calls, slow queries and fanout in OpenTelemetry traces, then prices avoidable I/O in energy and carbon.","license":"https://www.gnu.org/licenses/agpl-3.0.html","author":{"@type":"Person","name":"Robin Trassard"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"sameAs":["https://github.com/robintra/perf-sentinel","https://crates.io/crates/perf-sentinel","https://docs.rs/perf-sentinel-core"]}]}</script><style id="ps-link-extra">main a[href^="/docs/"],main a[href^="/#"]{color:var(--accent-strong)}</style><style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style></head>
@@ -28,8 +28,8 @@
         <a data-dc-tpl="15" href="#comparatif" class="scp0"><span class="sc-interp">Comparatif</span></a>
         <a data-dc-tpl="16" href="#license" data-hide-rse="" class="scp0"><span class="sc-interp">Licence</span></a>
         <span data-dc-tpl="17" aria-hidden="true" style="width: 1px; height: 15px; background: var(--border); align-self: center; margin: 0px 2px;"></span>
-        <a data-dc-tpl="18" data-plain="" href="/guide" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Guide</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
-        <a data-dc-tpl="21" data-plain="" href="docs/fr/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="22" data-ltext=""><span class="sc-interp">Docs</span></span><span data-dc-tpl="23" data-arrow="" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="18" data-plain="" href="/guide" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Guide</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
+        <a data-dc-tpl="21" data-plain="" href="docs/fr/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="22" data-ltext=""><span class="sc-interp">Référence</span></span><span data-dc-tpl="23" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
       <div data-dc-tpl="24" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="25" class="ps-lang-btn" aria-label="Changer de langue" title="Changer de langue"><span data-dc-tpl="26" class="ps-lang-ico"><svg data-dc-tpl="27" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="28" cx="12" cy="12" r="9"></circle><path data-dc-tpl="29" d="M3 12h18"></path><path data-dc-tpl="30" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="31" class="ps-lang-win"><span data-dc-tpl="32" class="ps-lang-track"><span data-dc-tpl="33" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">FR</span></span><span data-dc-tpl="34" class="ps-lang-cell ps-lang-next"><span class="sc-interp">EN</span></span></span></span></button>
@@ -42,8 +42,8 @@
         <a data-dc-tpl="43" href="#greenops"><span class="sc-interp">GreenOps</span></a>
         <a data-dc-tpl="44" href="#comparatif"><span class="sc-interp">Comparatif</span></a>
         <a data-dc-tpl="45" href="#license" data-hide-rse=""><span class="sc-interp">Licence</span></a>
-        <a data-dc-tpl="46" data-plain="" href="/guide"><span class="sc-interp">Guide</span> <span data-dc-tpl="47" style="font-size: 11px; opacity: 0.7;">↗</span></a>
-        <a data-dc-tpl="48" data-plain="" href="docs/fr/"><span class="sc-interp">Docs</span> <span data-dc-tpl="49" style="font-size: 11px; opacity: 0.7;">↗</span></a>
+        <a data-dc-tpl="46" data-plain="" href="/guide"><span class="sc-interp">Guide</span> <span data-dc-tpl="47" style="font-size: 11px; opacity: 0.7;">→</span></a>
+        <a data-dc-tpl="48" data-plain="" href="docs/fr/"><span class="sc-interp">Référence</span> <span data-dc-tpl="49" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
     </div>
   </header>
@@ -767,7 +767,7 @@
 [data-burger] i::before,[data-burger] i::after{content:'';position:absolute;left:0;width:17px;height:2px;background:var(--text-2);border-radius:2px}
 [data-burger] i::before{top:-5px}[data-burger] i::after{top:5px}
 [data-mobnav]{display:none}
-@media(max-width:560px){.gh-txt{display:none}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
+@media(max-width:560px){.gh-txt{display:none}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:980px){[data-nav]{gap:10px!important}}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
 @media(max-width:920px){
 [data-burger]{display:inline-flex}
 [data-mobnav]{position:absolute;top:calc(100% - 4px);right:8px;min-width:212px;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 40px -20px rgba(6,31,44,.55);padding:8px;z-index:60}
@@ -795,8 +795,8 @@
         <a href="#comparatif" style-hover="color:var(--text)">{{ navComparison }}</a>
         <a href="#license" data-hide-rse="" style-hover="color:var(--text)">{{ navLicense }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
-        <a data-plain href="/guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navDocs }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
-        <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain href="/guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navDocs }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
+        <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" class="ps-lang-btn" aria-label="{{ langAria }}" title="{{ langAria }}"><span class="ps-lang-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">{{ langActive }}</span><span class="ps-lang-cell ps-lang-next">{{ langTarget }}</span></span></span></button>
@@ -809,8 +809,8 @@
         <a href="#greenops">{{ navGreenops }}</a>
         <a href="#comparatif">{{ navComparison }}</a>
         <a href="#license" data-hide-rse="">{{ navLicense }}</a>
-        <a data-plain href="/guide">{{ navDocs }} <span style="font-size:11px;opacity:.7">↗</span></a>
-        <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain href="/guide">{{ navDocs }} <span style="font-size:11px;opacity:.7">→</span></a>
+        <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">→</span></a>
       </nav>
     </div>
   </header>
@@ -858,7 +858,7 @@
             </div>
             <a data-plain id="ps-embed-open" href="/exemple/dashboard" target="_blank" rel="noopener">{{ embedOpen }}<span data-arrow> ↗</span></a>
           </div>
-          <iframe id="ps-embed-frame" loading="lazy" title="perf-sentinel HTML report" style="display:block;width:100%;height:545px;border:0;background:var(--embed-bg)"></iframe>
+          <iframe id="ps-embed-frame" loading="lazy" title="Perf Sentinel HTML report" style="display:block;width:100%;height:545px;border:0;background:var(--embed-bg)"></iframe>
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center">{{ embedCaption }}</div>
       </div>
@@ -1543,7 +1543,7 @@ class Component extends DCLogic {
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
         heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
         ctaHow: 'How it works', ctaCarbon: 'The carbon side',
-        navLicense: 'License', navDocs: 'Guide', navRef: 'Docs',
+        navLicense: 'License', navDocs: 'Guide', navRef: 'Reference',
         licEyebrow: '// license',
         licTitleA: 'AGPL-3.0', licTitleB: ', and what it means for your code',
         licIntro: 'A practical, legal-team-friendly summary so nobody has to dig through the repository. Perf Sentinel is licensed under the GNU Affero General Public License v3.0.',
@@ -1708,7 +1708,7 @@ class Component extends DCLogic {
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
         heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
         ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
-        navLicense: 'Licence', navDocs: 'Guide', navRef: 'Docs',
+        navLicense: 'Licence', navDocs: 'Guide', navRef: 'Référence',
         licEyebrow: '// licence',
         licTitleA: 'AGPL-3.0', licTitleB: ', ce que ça implique pour votre code',
         licIntro: 'Un résumé pratique et lisible par un service juridique, pour que personne n\u2019ait à fouiller le dépôt. Perf Sentinel est sous licence GNU Affero General Public License v3.0.',
