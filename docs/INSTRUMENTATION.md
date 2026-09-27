@@ -19,8 +19,8 @@ This guide covers the parts of the data pipeline that turn an application's runt
   - Python
     - [Django + psycopg](#python-django-5x--psycopg-otel-sdk-142)
     - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
-  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
-  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-057)
+  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-031-diesel-seaorm)
   - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
   - [PHP (Laravel / Eloquent, Symfony / Doctrine)](#php-laravel--eloquent-symfony--doctrine-opentelemetry-php)
 - [SQL placeholder styles and detection](#sql-placeholder-styles-and-detection): how perf-sentinel maps each instrumentation's SQL placeholder to the sanitizer-aware N+1 detection path.
@@ -371,7 +371,7 @@ Anti-pattern detection relies on counting events. Sampling that drops events dir
 - **Tail-based sampling stays compatible with detection** because the policies you would write for incident review (keep errors, keep slow traces, keep specific services) are exactly the ones that surface anti-patterns. The [`tail_sampling` processor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) example above keeps everything under those policies plus a 10% probabilistic sample of the rest.
 - **Counts are understated by any sampling, silently.** Finding counts, occurrence counts and the Prometheus totals describe the traces that arrived, and nothing scales them back up. Ratios are more subtle: a uniform sampler hits numerator and denominator alike, so the I/O waste ratio stays unbiased, but the `errors` and `slow` policies of a tail sampler bias retention toward heavy traces and the ratio drifts with them. perf-sentinel cannot detect upstream sampling, so it cannot warn about either. Do not publish those numbers as whole-traffic figures, which matters most for `disclose`, whose whole purpose is publishing a measured figure. The daemon's own `[daemon] sampling_rate` is the one case it can see, and it does emit a `tuning` warning for it.
 - **Cross-trace correlation goes quiet.** `[daemon.correlation] min_co_occurrences` needs a finding pair to recur inside the window. At a 10% sample the repeated co-occurrences rarely survive, so the correlator reports nothing even when the coupling is real. That silence is not evidence of a healthy topology.
-- **CI runs should keep 100% of traces**. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The Quick start sections above assume 100% sampling.
+- **CI runs should keep 100% of traces**. Volume is low (one integration-test run), the cost of full instrumentation is negligible, and missing a regression because of sampling defeats the purpose of the CI gate. The quick starts in [INTEGRATION.md](./INTEGRATION.md) assume 100% sampling.
 - **`pg-stat` mode is sampling-immune**. `pg_stat_statements` aggregates query counters server-side in PostgreSQL, regardless of what the application tracer captured. A query that runs 10 000 times shows up as 10 000 calls even if 99% of the parent traces were dropped at the head. Run `perf-sentinel pg-stat ...` (or pass `--pg-stat` to `analyze` and `report`) as a fallback when you cannot trust the trace volume, or as a primary signal for code paths the tracer does not even cover.
 
 > **Note:** tail-based sampling requires the `otel/opentelemetry-collector-contrib` image (not the core image).
@@ -604,7 +604,7 @@ perf-sentinel analyze --ci --input target/traces.json
 
 > **Prefix your existing test step, never add a second one.** `capture -- mvn verify` runs the tests once and does not run them again. Adding a new pipeline stage next to the existing one would run the whole integration suite twice, for nothing.
 
-> **A cleaning goal cannot wrap a capture writing into what it cleans.** `capture --output target/traces.json -- mvn clean verify` fails by construction. `capture` opens the file before spawning the command, `clean` then unlinks `target/` under it, and the run ends with an error naming the deleted file rather than a trace count for an inode no path points at. Either drop `clean` from the wrapped command, as the recipe above does, or write the trace file outside the cleaned directory (`--output /tmp/traces.json`).
+> **A cleaning goal cannot wrap a capture writing into what it cleans.** `capture --output target/traces.json -- mvn clean verify` fails by construction. `capture` opens the file before spawning the command, `clean` then unlinks `target/` under it, and the run ends with an error naming the deleted file rather than a span count for an inode no path points at. Either drop `clean` from the wrapped command, as the recipe above does, or write the trace file outside the cleaned directory (`--output /tmp/traces.json`).
 
 Wrapping is the sturdier of the two: the ports are bound before the command starts, so no export can be lost to a start-up race, and the capture stops when the command exits rather than on a guessed delay. The wrapped command inherits stdout and stderr untouched, and its exit code is propagated, so a failing test run stays a failing job.
 
@@ -866,7 +866,7 @@ environment:
 
 ---
 
-### Node.js (Nest.js + Prisma, OTel SDK 0.218)
+### Node.js (Nest.js + Prisma, OTel SDK 0.57)
 
 Nest.js applications use the `@opentelemetry/sdk-node` package with framework-specific instrumentations. Prisma generates the SQL and the `pg` client sends it.
 
@@ -912,7 +912,7 @@ environment:
 
 ---
 
-### Rust (tracing-opentelemetry 0.33, Diesel, SeaORM)
+### Rust (tracing-opentelemetry 0.31, Diesel, SeaORM)
 
 Requires adding 4 crates and ~20 lines of initialization code. Use `provider.tracer()` (not `global::tracer()`) to avoid the `PreSampledTracer` trait bound issue.
 

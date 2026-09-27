@@ -19,8 +19,8 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
   - Python
     - [Django + psycopg](#python-django-5x--psycopg-otel-sdk-142)
     - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
-  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
-  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-057)
+  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-031-diesel-seaorm)
   - [Ruby (Rails + ActiveRecord)](#ruby-rails--activerecord-opentelemetry-ruby)
   - [PHP (Laravel / Eloquent, Symfony / Doctrine)](#php-laravel--eloquent-symfony--doctrine-opentelemetry-php)
 - [Styles de placeholders SQL et détection](#styles-de-placeholders-sql-et-détection) : comment perf-sentinel associe le placeholder SQL de chaque instrumentation au chemin de détection N+1 sanitizer-aware.
@@ -373,7 +373,7 @@ La détection d'anti-patterns repose sur du comptage d'événements. Le sampling
 - **Le tail-sampling reste compatible avec la détection** parce que les politiques qu'on écrirait pour la revue d'incident (garder les erreurs, garder les traces lentes, garder certains services) sont exactement celles qui font remonter les anti-patterns. L'exemple du [processeur `tail_sampling`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) ci-dessus garde tout sous ces politiques plus un échantillonnage probabiliste de 10% du reste.
 - **Les comptes sont sous-estimés par tout sampling, silencieusement.** Les comptes de findings, les comptes d'occurrences et les totaux Prometheus décrivent les traces arrivées, et rien ne les remet à l'échelle. Les ratios sont plus subtils : un sampler uniforme touche numérateur et dénominateur de la même façon, donc le ratio de gaspillage I/O reste sans biais. En revanche, les politiques `errors` et `slow` d'un tail sampler biaisent la rétention vers les traces lourdes et le ratio dérive avec elles. perf-sentinel ne peut pas détecter un sampling en amont, donc il ne peut alerter sur aucun des deux cas. Ne publiez pas ces nombres comme des chiffres de trafic complet, ce qui compte surtout pour `disclose`, dont l'objet même est de publier un chiffre mesuré. Le réglage `[daemon] sampling_rate` du daemon est le seul cas qu'il voit, et il émet bien un avertissement `tuning` pour celui-là.
 - **La corrélation cross-trace se tait.** `[daemon.correlation] min_co_occurrences` a besoin qu'une paire de findings se répète dans la fenêtre. À 10% d'échantillon, les co-occurrences répétées survivent rarement, donc le corrélateur ne remonte rien même quand le couplage est réel. Ce silence n'est pas la preuve d'une topologie saine.
-- **Les runs CI doivent garder 100% des traces**. Le volume est bas (un run de tests d'intégration), le coût de l'instrumentation complète est négligeable, et manquer une régression à cause du sampling annule l'intérêt du gate CI. Les sections Quick start ci-dessus supposent un sampling à 100%.
+- **Les runs CI doivent garder 100% des traces**. Le volume est bas (un run de tests d'intégration), le coût de l'instrumentation complète est négligeable, et manquer une régression à cause du sampling annule l'intérêt du gate CI. Les démarrages rapides de [INTEGRATION-FR.md](./INTEGRATION-FR.md) supposent un sampling à 100%.
 - **Le mode `pg-stat` est immunisé contre le sampling**. `pg_stat_statements` agrège les compteurs de requêtes côté serveur dans PostgreSQL, indépendamment de ce que le tracer applicatif a capturé. Une requête qui s'exécute 10 000 fois apparaît comme 10 000 appels même si 99% des traces parentes ont été écartées au head. Utiliser `perf-sentinel pg-stat ...` (ou passer `--pg-stat` à `analyze` et `report`) comme repli quand on ne peut pas faire confiance au volume de traces, ou comme signal principal pour les chemins de code que le tracer ne couvre même pas.
 
 > **Note :** le sampling tail-based nécessite l'image `otel/opentelemetry-collector-contrib` (pas l'image core).
@@ -607,7 +607,7 @@ perf-sentinel analyze --ci --input target/traces.json
 
 > **Préfixez votre étape de test existante, n'en ajoutez jamais une seconde.** `capture -- mvn verify` lance les tests une fois et ne les relance pas. Ajouter une nouvelle étape à côté de l'existante ferait tourner toute la suite d'intégration deux fois, pour rien.
 
-> **Un objectif de nettoyage ne peut pas envelopper une capture qui écrit dans ce qu'il nettoie.** `capture --output target/traces.json -- mvn clean verify` échoue par construction. `capture` ouvre le fichier avant de lancer la commande, `clean` supprime ensuite `target/` sous lui, et le run se termine par une erreur nommant le fichier disparu plutôt que par un nombre de traces pour un inode qu'aucun chemin ne désigne. Retirez `clean` de la commande enveloppée, comme le fait la recette ci-dessus, ou écrivez le fichier de traces hors du répertoire nettoyé (`--output /tmp/traces.json`).
+> **Un objectif de nettoyage ne peut pas envelopper une capture qui écrit dans ce qu'il nettoie.** `capture --output target/traces.json -- mvn clean verify` échoue par construction. `capture` ouvre le fichier avant de lancer la commande, `clean` supprime ensuite `target/` sous lui, et le run se termine par une erreur nommant le fichier disparu plutôt que par un nombre de spans pour un inode qu'aucun chemin ne désigne. Retirez `clean` de la commande enveloppée, comme le fait la recette ci-dessus, ou écrivez le fichier de traces hors du répertoire nettoyé (`--output /tmp/traces.json`).
 
 L'enveloppe est la plus solide des deux : les ports sont liés avant que la commande démarre, aucun export ne peut donc se perdre dans une course au démarrage, et la capture s'arrête à la fin de la commande plutôt que sur un délai deviné. La commande enveloppée hérite de stdout et stderr sans altération, et son code de sortie est propagé, un échec de tests reste donc un échec de job.
 
@@ -869,7 +869,7 @@ environment:
 
 ---
 
-### Node.js (Nest.js + Prisma, OTel SDK 0.218)
+### Node.js (Nest.js + Prisma, OTel SDK 0.57)
 
 Les applications Nest.js utilisent le package `@opentelemetry/sdk-node` avec des instrumentations propres au framework. Prisma génère le SQL et le client `pg` l'envoie.
 
@@ -915,7 +915,7 @@ environment:
 
 ---
 
-### Rust (tracing-opentelemetry 0.33, Diesel, SeaORM)
+### Rust (tracing-opentelemetry 0.31, Diesel, SeaORM)
 
 Nécessite l'ajout de 4 crates et ~20 lignes de code d'initialisation. Utilisez `provider.tracer()` (pas `global::tracer()`) pour éviter le problème de trait bound `PreSampledTracer`.
 
