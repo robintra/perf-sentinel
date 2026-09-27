@@ -212,7 +212,7 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 
 ## Hub, optionnel mais recommandé
 
-Un daemon `watch` garde ses findings en mémoire. Le tampon circulaire oublie, et `/api/findings` répond au plus 1 000 lignes, ce qui suffit pour l'état courant et devient trop peu pour un historique. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est un service séparé qui collecte auprès de chaque daemon et enregistre la date de première apparition de chaque finding, une information que les daemons ne peuvent pas reconstruire.
+Un daemon `watch` garde ses findings en mémoire. Le tampon circulaire oublie, et `/api/findings` répond au plus 1 000 lignes, ce qui suffit pour l'état courant et devient trop limité pour un historique. [PerfSentinelHub](https://github.com/robintra/PerfSentinelHub) est un service séparé qui collecte auprès de chaque daemon et enregistre la date de première apparition de chaque finding, une information que les daemons ne peuvent pas reconstruire.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/PerfSentinelHub/main/docs/img/hub/launcher_dark.gif">
