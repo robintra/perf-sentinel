@@ -469,8 +469,8 @@
         
           <div data-dc-tpl="301" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
             <div data-dc-tpl="302" style="padding: 16px 22px; font-size: 15px; font-weight: 500; color: var(--text);"><span class="sc-interp">Empreinte runtime</span></div>
-            <div data-dc-tpl="303" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent ~100–150 Mo RSS</span></div>
-            <div data-dc-tpl="304" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Binaire unique, 17 Mo au repos, RSS fixé par <code class="dc-cmd">max_retained_findings</code></span></div>
+            <div data-dc-tpl="303" style="padding: 16px 18px; font-size: 14px; color: var(--text-2);"><span class="sc-interp">Agent par hôte ou dans chaque service (~130 Mo RSS pour l’Agent Datadog)</span></div>
+            <div data-dc-tpl="304" style="padding: 16px 18px; font-size: 14px; color: var(--text); font-weight: 500;"><span class="sc-interp">Un seul daemon pour toute la flotte, 17 Mo au repos, RSS fixé par <code class="dc-cmd">max_retained_findings</code></span></div>
           </div>
         
           <div data-dc-tpl="301" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
@@ -516,7 +516,7 @@
           </div>
         
       </div>
-      <p data-dc-tpl="305" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">« APM commercial type » généralise les outils SaaS à base d’agent comme Datadog ou New Relic. Le comportement exact varie selon le produit, et les empreintes sont des ordres de grandeur issus de déploiements publics. perf-sentinel n’est pas un APM complet et ne remplace pas une suite d’observabilité, il s’y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.</span></p>
+      <p data-dc-tpl="305" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">« APM commercial type » généralise les outils SaaS à base d’agent comme Datadog ou New Relic. Le comportement exact varie selon le produit. Le chiffre d’agent est celui que Datadog publie pour son Agent 7.34, hors traceur chargé dans chaque service, comme celui de perf-sentinel exclut l’instrumentation OTel qu’il lit. perf-sentinel n’est pas un APM complet et ne remplace pas une suite d’observabilité, il s’y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.</span></p>
       <a data-dc-tpl="306" data-plain="" href="/guide#compare" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="307" data-ltext=""><span class="sc-interp">Comparatif complet dans le guide</span></span><span data-dc-tpl="308" data-arrow=""> →</span></a>
       
         <div data-dc-tpl="313" style="margin-top: 30px; background: color-mix(in srgb,var(--coral) 9%,transparent); border: 1px solid color-mix(in srgb,var(--coral) 38%,transparent); border-radius: 14px; padding: 22px 26px;">
@@ -1601,7 +1601,7 @@ class Component extends DCLogic {
         cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
         compare: [
-          { cap: 'Runtime footprint', apm: 'Agent ~100–150 MB RSS', ps: 'Single binary, 17 MB idle, RSS then set by `max_retained_findings`' },
+          { cap: 'Runtime footprint', apm: 'Agent per host or inside each service (~130 MB RSS for the Datadog Agent)', ps: 'One daemon for the whole fleet, 17 MB idle, RSS then set by `max_retained_findings`' },
           { cap: 'Language coverage', apm: 'Per-language agents or SDK', ps: 'Any OTel-instrumented runtime' },
           { cap: 'N+1 SQL & HTTP detection', apm: 'Yes, agent-bound', ps: 'Yes, protocol-level' },
           { cap: 'Cross-service correlation', apm: 'Yes', ps: 'Yes, via trace ID' },
@@ -1610,7 +1610,7 @@ class Component extends DCLogic {
           { cap: 'GreenOps score (IIS, waste ratio)', apm: 'No', ps: 'Built-in' },
           { cap: 'License & hosting', apm: 'Proprietary SaaS, usage-based', ps: 'AGPL-3.0, fully self-hostable' },
         ],
-        cmpFoot: "'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product, and footprints are order-of-magnitude estimates from public deployments. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.",
+        cmpFoot: "'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product. The agent figure is the one Datadog publishes for its Agent 7.34, excluding the tracer loaded in each service, just as the perf-sentinel figure excludes the OTel instrumentation it reads. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.",
         ctaTitle: 'Put the sentinel in your pipeline',
         ctaText: 'Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.',
         demoCmt1: 'terminal report', demoCmt2: 'interactive TUI', demoCmt3: 'HTML dashboard',
@@ -1758,7 +1758,7 @@ class Component extends DCLogic {
         cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
         compare: [
-          { cap: 'Empreinte runtime', apm: 'Agent ~100–150 Mo RSS', ps: 'Binaire unique, 17 Mo au repos, RSS fixé par `max_retained_findings`' },
+          { cap: 'Empreinte runtime', apm: 'Agent par hôte ou dans chaque service (~130 Mo RSS pour l\u2019Agent Datadog)', ps: 'Un seul daemon pour toute la flotte, 17 Mo au repos, RSS fixé par `max_retained_findings`' },
           { cap: 'Couverture langages', apm: 'Agents par langage ou SDK', ps: 'Tout runtime instrumenté OTel' },
           { cap: 'Détection N+1 SQL & HTTP', apm: 'Oui, liée à l\u2019agent', ps: 'Oui, au niveau protocole' },
           { cap: 'Corrélation cross-service', apm: 'Oui', ps: 'Oui, via trace ID' },
@@ -1767,7 +1767,7 @@ class Component extends DCLogic {
           { cap: 'Score GreenOps (IIS, gaspillage)', apm: 'Non', ps: 'Intégré' },
           { cap: 'Licence & hébergement', apm: 'SaaS propriétaire, à l\u2019usage', ps: 'AGPL-3.0, auto-hébergeable' },
         ],
-        cmpFoot: '« APM commercial type » généralise les outils SaaS à base d\u2019agent comme Datadog ou New Relic. Le comportement exact varie selon le produit, et les empreintes sont des ordres de grandeur issus de déploiements publics. perf-sentinel n\u2019est pas un APM complet et ne remplace pas une suite d\u2019observabilité, il s\u2019y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.',
+        cmpFoot: '« APM commercial type » généralise les outils SaaS à base d\u2019agent comme Datadog ou New Relic. Le comportement exact varie selon le produit. Le chiffre d\u2019agent est celui que Datadog publie pour son Agent 7.34, hors traceur chargé dans chaque service, comme celui de perf-sentinel exclut l\u2019instrumentation OTel qu\u2019il lit. perf-sentinel n\u2019est pas un APM complet et ne remplace pas une suite d\u2019observabilité, il s\u2019y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.',
         ctaTitle: 'Posez la sentinelle dans votre pipeline',
         ctaText: 'Démo intégrée sans rien installer côté apps, puis quality gate sur traces capturées ou daemon OTLP à côté de votre tracing.',
         demoCmt1: 'rapport terminal', demoCmt2: 'TUI interactif', demoCmt3: 'dashboard HTML',
