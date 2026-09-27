@@ -724,7 +724,7 @@ Key limitations:
 
 - **No query complexity analysis.** A full table scan SELECT costs more energy than an indexed point lookup, but both get the same 0.5x coefficient. The coefficients capture the average operation class, not the specific query plan.
 - **HTTP payload size requires OTel attributes.** The `http.response.body.size` (or legacy `http.response_content_length`) attribute must be present on HTTP spans. When absent, the coefficient falls back to 1.0x (the base constant). Most HTTP instrumentation libraries do not emit this attribute by default.
-- **Not used with measured energy.** When Scaphandre or cloud SPECpower provides measured per-service energy, the per-operation coefficients are ignored, because measured data is always more accurate than heuristic multipliers.
+- **Not used with measured energy.** When a measured backend provides per-service energy, the per-operation coefficients are ignored, because measured data is always more accurate than heuristic multipliers.
 
 Set `per_operation_coefficients = false` to disable this feature and use the flat energy constant for all operations.
 
@@ -734,7 +734,7 @@ The optional network transport energy term estimates the energy cost of moving b
 
 Key limitations:
 
-- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance and infrastructure.
+- **Wide estimate range.** The sources cited above range from 0.001 to 0.059 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance and infrastructure.
 - **No CDN or compression effects.** Content delivery networks, HTTP compression and connection reuse all reduce the effective transport energy but are not modeled.
 - **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
 - **No last-mile modeling.** The estimate covers backbone transport. The energy cost of the last mile (edge network, client device) is excluded.
@@ -831,8 +831,6 @@ The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_export
 The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
 
 Both `pg-stat` and `mysql-stat` accept `--metric`, `--query-label` and `--calls-metric` to name the time series, the label carrying the statement text and the call-counter series, because an exporter running a hand-written query or a recording rule names its own. `mysql-stat` adds `--rows-sent-metric` and `--rows-examined-metric` for the two other counter series it joins, plus `--schema-label`, since the schema is part of the identity its queries fold on. An empty value on any counter flag skips that query. Both also take `--unit`: `seconds|milliseconds` on `pg-stat`, and `seconds|milliseconds|picoseconds` on `mysql-stat`, since Performance Schema counts `SUM_TIMER_WAIT` in picoseconds and a recording rule usually forwards that column untouched. Without a label match the ranking falls back to the opaque identifier (`queryid`, `digest`) rather than collapsing every row into one. Both scrapes aggregate a statement across the databases and users the exporter labels it with, so one statement is one ranked row. On MySQL the schema is part of that identity and stays visible. On PostgreSQL `datname` and `user` are folded away since the report does not carry them. `instance` and `job` stay in the identity, so a Prometheus scraping several database servers ranks each server's copy of a statement on its own figures rather than summing them into a row that names no server.
-
-That fold is by statement identity only, so `instance` and `job` go with the rest: a Prometheus scraping several database servers ranks one statement once, with the execution time and the call count summed across every server that ran it. Point the flag at a Prometheus holding one server, or at a per-server endpoint, when you need the servers told apart.
 
 ## Automated mysql-stat ingestion from Prometheus
 

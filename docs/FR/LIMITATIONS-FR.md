@@ -733,7 +733,7 @@ Limitations principales :
 
 - **Pas d'analyse de complexité de requête.** Un SELECT avec full table scan coûte plus d'énergie qu'un point lookup indexé, mais les deux reçoivent le même coefficient 0.5x. Les coefficients capturent la classe d'opération moyenne, pas le plan d'exécution propre à la requête.
 - **La taille du payload HTTP nécessite des attributs OTel.** L'attribut `http.response.body.size` (ou l'ancien `http.response_content_length`) doit être présent sur les spans HTTP. Quand il est absent, le coefficient retombe à 1.0x (la constante de base). La plupart des bibliothèques d'instrumentation HTTP n'émettent pas cet attribut par défaut.
-- **Non utilisé avec l'énergie mesurée.** Quand Scaphandre ou cloud SPECpower fournit de l'énergie mesurée par service, les coefficients par opération sont ignorés, car les données mesurées sont toujours plus précises que des multiplicateurs heuristiques.
+- **Non utilisé avec l'énergie mesurée.** Quand un backend mesuré fournit de l'énergie par service, les coefficients par opération sont ignorés, car les données mesurées sont toujours plus précises que des multiplicateurs heuristiques.
 
 Mettre `per_operation_coefficients = false` pour désactiver cette fonctionnalité et utiliser la constante d'énergie fixe pour toutes les opérations.
 
@@ -743,7 +743,7 @@ Le terme optionnel d'énergie de transport réseau estime le coût énergétique
 
 Limitations principales :
 
-- **Large plage d'estimation.** Les valeurs publiées vont de 0.06 à 0.08 kWh/Go selon l'étude, l'année et le périmètre (backbone seul ou chemin complet). Le coût réel dépend du nombre de sauts, de la distance et de l'infrastructure.
+- **Large plage d'estimation.** Les sources citées plus haut vont de 0.001 à 0.059 kWh/Go selon l'étude, l'année et le périmètre (backbone seul ou chemin complet). Le coût réel dépend du nombre de sauts, de la distance et de l'infrastructure.
 - **Pas d'effets CDN ou compression.** Les réseaux de distribution de contenu, la compression HTTP et la réutilisation de connexions réduisent tous l'énergie de transport effective, mais ne sont pas modélisés.
 - **Détection inter-région basée sur la config.** La région de l'appelé est déterminée en cherchant le hostname cible dans `[green.service_regions]`. Si le hostname n'est pas mappé, perf-sentinel suppose par prudence la même région (pas de terme de transport). L'énergie de transport n'est donc calculée que lorsque l'utilisateur configure explicitement des mappings de services inter-régions.
 - **Pas de modélisation du dernier kilomètre.** L'estimation couvre le transport backbone. Le coût énergétique du dernier kilomètre (réseau de bordure, terminal client) est exclu.
@@ -840,8 +840,6 @@ Le flag `--prometheus` de `pg-stat` scrape les métriques exposées par `postgre
 Le mode `--input` par fichier existant est inchangé et reste l'approche recommandée pour les pipelines CI.
 
 `pg-stat` et `mysql-stat` acceptent tous deux `--metric`, `--query-label` et `--calls-metric` pour nommer la série de temps, le label qui porte le texte de la requête et la série du compteur d'appels, car un exporteur qui exécute une requête écrite à la main ou une recording rule nomme les siens. `mysql-stat` ajoute `--rows-sent-metric` et `--rows-examined-metric` pour les deux autres séries de compteurs qu'il joint, plus `--schema-label`, puisque le schéma fait partie de l'identité sur laquelle ses requêtes agrègent. Une valeur vide sur n'importe quel flag de compteur saute la requête correspondante. Les deux prennent aussi `--unit` : `seconds|milliseconds` pour `pg-stat`, `seconds|milliseconds|picoseconds` pour `mysql-stat`, puisque Performance Schema compte `SUM_TIMER_WAIT` en picosecondes et qu'une recording rule transmet en général cette colonne telle quelle. Sans correspondance de label, le classement retombe sur l'identifiant opaque (`queryid`, `digest`) plutôt que de fondre toutes les lignes en une seule. Les deux collectes agrègent une requête sur les bases et les utilisateurs que l'exporteur lui attache, donc une requête occupe une ligne de classement. Côté MySQL, le schéma fait partie de cette identité et reste visible. Côté PostgreSQL, `datname` et `user` sont fondus puisque le rapport ne les porte pas. `instance` et `job` restent dans l'identité, si bien qu'un Prometheus qui scrape plusieurs serveurs de base de données classe la copie de chaque serveur sur ses propres chiffres, plutôt que de les sommer en une ligne qui ne nomme aucun serveur.
-
-Ce regroupement se fait sur la seule identité de la requête, donc `instance` et `job` partent avec le reste : un Prometheus qui scrape plusieurs serveurs de base de données classe une requête une seule fois, avec le temps d'exécution et le nombre d'appels sommés sur tous les serveurs qui l'ont exécutée. Pointez le flag vers un Prometheus qui ne contient qu'un serveur, ou vers un endpoint par serveur, quand vous avez besoin de distinguer les serveurs.
 
 ## Ingestion automatisée mysql-stat depuis Prometheus
 
