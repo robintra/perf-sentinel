@@ -2436,7 +2436,7 @@ fn validate_tls_rejects_cert_without_key() {
     let mut cfg = Config::default();
     cfg.daemon.tls.cert_path = Some("/tmp/cert.pem".to_string());
     let err = cfg.validate_tls().unwrap_err();
-    assert!(err.contains("tls.key_path is missing"), "{err}");
+    assert!(err.contains("tls.key_path is missing"));
 }
 
 #[test]
@@ -2445,7 +2445,7 @@ fn validate_tls_rejects_key_without_cert() {
     let mut cfg = Config::default();
     cfg.daemon.tls.key_path = Some("/tmp/key.pem".to_string());
     let err = cfg.validate_tls().unwrap_err();
-    assert!(err.contains("tls.cert_path is missing"), "{err}");
+    assert!(err.contains("tls.cert_path is missing"));
 }
 
 #[test]
@@ -2455,7 +2455,7 @@ fn validate_tls_rejects_nonexistent_cert() {
     cfg.daemon.tls.cert_path = Some("/nonexistent/cert.pem".to_string());
     cfg.daemon.tls.key_path = Some("/nonexistent/key.pem".to_string());
     let err = cfg.validate_tls().unwrap_err();
-    assert!(err.contains("does not exist"), "{err}");
+    assert!(err.contains("does not exist"));
 }
 
 #[test]
@@ -2510,7 +2510,7 @@ fn validate_tls_rejects_control_chars_in_cert_path() {
     cfg.daemon.tls.cert_path = Some("/tmp/cert\x00.pem".to_string());
     cfg.daemon.tls.key_path = Some("/tmp/key.pem".to_string());
     let err = cfg.validate_tls().unwrap_err();
-    assert!(err.contains("control characters"), "{err}");
+    assert!(err.contains("control characters"));
 }
 
 #[test]
@@ -2520,7 +2520,7 @@ fn validate_tls_rejects_control_chars_in_key_path() {
     cfg.daemon.tls.cert_path = Some("/tmp/cert.pem".to_string());
     cfg.daemon.tls.key_path = Some("/tmp/key\n.pem".to_string());
     let err = cfg.validate_tls().unwrap_err();
-    assert!(err.contains("control characters"), "{err}");
+    assert!(err.contains("control characters"));
 }
 
 #[test]
