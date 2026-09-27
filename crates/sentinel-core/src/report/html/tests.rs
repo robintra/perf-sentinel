@@ -2026,7 +2026,7 @@ fn template_does_not_leak_session_storage_to_local_storage() {
             "localStorage writes must use an inline perf-sentinel: UI-pref key, found: {}",
             &call[..call.len().min(40)]
         );
-        for secret in [
+        for needle in [
             "apiKey",
             "API_KEY",
             "DAEMON_API_KEY",
@@ -2034,8 +2034,8 @@ fn template_does_not_leak_session_storage_to_local_storage() {
             "perf-sentinel.daemon",
         ] {
             assert!(
-                !call.contains(secret),
-                "localStorage write must not carry the daemon API key ({secret}): {call}"
+                !call.contains(needle),
+                "localStorage write must not carry the daemon API key ({needle}): {call}"
             );
         }
     }
