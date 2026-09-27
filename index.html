@@ -460,7 +460,7 @@
           <div data-dc-tpl="265" style="background: var(--surface); padding: 20px 22px;">
             <div data-dc-tpl="266" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--dotnet);">
               <div data-dc-tpl="267" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; letter-spacing: -0.01em;"><span class="sc-interp">NativeAOT</span></div>
-              <span data-dc-tpl="268" data-ico="cpu" aria-hidden="true"></span>
+              <span data-dc-tpl="268" data-ico="package" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="269" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">one native executable, no .NET runtime, chiseled non-root image</span></div>
           </div>
@@ -747,7 +747,7 @@
 
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
   [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/avg-pace.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
-  [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}[data-ico="cpu"]{--ico:url(/assets/icons/cpu.svg)}
+  [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}
   [data-embed-lead]{font-size:13px;font-weight:600;color:var(--text);margin-right:2px}
   [data-embed-tab],#ps-embed-open{font-family:inherit;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);padding:6px 13px;border-radius:999px;cursor:pointer;transition:border-color .15s ease}
   [data-embed-tab]:hover,#ps-embed-open:hover{border-color:var(--accent)}
@@ -1640,7 +1640,7 @@ class Component extends DCLogic {
           { icon: 'zap', value: '~130\u00a0ms', label: 'cold start to first response (median, arm64 image)' },
           { icon: 'memory', value: '~21\u00a0MB', label: 'RSS at rest, before any import' },
           { icon: 'layers', value: '38–\u206040\u00a0MB', label: 'compressed image (Hub ~11\u00a0MB, Perf Sentinel ~7\u00a0MB, chiseled base ~21\u00a0MB)' },
-          { icon: 'cpu', value: 'NativeAOT', label: 'one native executable, no .NET runtime, chiseled non-root image' },
+          { icon: 'package', value: 'NativeAOT', label: 'one native executable, no .NET runtime, chiseled non-root image' },
         ],
         hubBench: 'Detailed measurements in the Hub docs', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/BENCHMARKS.md',
         hubTitleA: 'A daemon keeps the present.', hubTitleB1: 'The ', hubWCs: 'C#', hubTitleB2: ' Hub keeps the history.',
@@ -1805,7 +1805,7 @@ class Component extends DCLogic {
           { icon: 'zap', value: '~130\u00a0ms', label: 'démarrage à froid jusqu\u2019à la première réponse (médiane, image arm64)' },
           { icon: 'memory', value: '~21\u00a0Mo', label: 'RSS au repos, avant tout import' },
           { icon: 'layers', value: '38–\u206040\u00a0Mo', label: 'image compressée (Hub ~11\u00a0Mo, Perf Sentinel ~7\u00a0Mo, base chiselée ~21\u00a0Mo)' },
-          { icon: 'cpu', value: 'NativeAOT', label: 'un binaire natif unique, sans runtime .NET, image chiselée non root' },
+          { icon: 'package', value: 'NativeAOT', label: 'un binaire natif unique, sans runtime .NET, image chiselée non root' },
         ],
         hubBench: 'Mesures détaillées dans la doc du Hub', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/FR/BENCHMARKS-FR.md',
         hubTitleA: 'Un daemon garde le présent.', hubTitleB1: 'Le Hub ', hubWCs: 'C#', hubTitleB2: ' garde l\u2019historique.',
