@@ -376,18 +376,18 @@ The HTML dashboard's `pg_stat` tab sub-switcher consumes these four rankings by 
 
 ## Automated pg_stat Prometheus scrape
 
-`fetch_from_prometheus(endpoint, top_n)` queries a Prometheus HTTP API for `pg_stat_statements` metrics, removing the need for manual CSV export.
+`fetch_from_prometheus(endpoint, top_n, auth_header, opts)` queries a Prometheus HTTP API for `pg_stat_statements` metrics, removing the need for manual CSV export. `opts` (`PrometheusPgStat`) names the ranked series, the label carrying the SQL text, the call-counter series and the time unit, with defaults matching the `postgres_exporter` built-in query.
 
 ### Query and conversion
 
-The function builds a PromQL `topk(N, pg_stat_statements_seconds_total)` instant query and sends it to the Prometheus `/api/v1/query` endpoint via the shared `http_client::fetch_get` helper. The response is a standard Prometheus JSON envelope:
+The function builds a PromQL `topk(N, sum by (queryid, instance, job, query) (pg_stat_statements_seconds_total))` instant query and sends it to the Prometheus `/api/v1/query` endpoint via `ingest::prometheus_scrape::fetch_instant_query`, which calls the shared `http_client::fetch_get` helper with a 30 s timeout. A second instant query reads the call counter (`pg_stat_statements_calls_total` by default), joined on `queryid` with the ranked statements. The response is a standard Prometheus JSON envelope:
 
 ```json
 {
   "data": {
     "result": [
       {
-        "metric": { "query": "SELECT ...", "datname": "mydb" },
+        "metric": { "query": "SELECT ...", "queryid": "-4215498811249381917", "instance": "db:9187", "job": "postgres" },
         "value": [1234567890, "1.234"]
       }
     ]
@@ -395,17 +395,17 @@ The function builds a PromQL `topk(N, pg_stat_statements_seconds_total)` instant
 }
 ```
 
-`parse_prometheus_response` extracts the `query` (or `queryid`) label as the raw SQL text, the `datname` label as the database name and the value as total execution time in seconds. Each result is converted to a `PgStatEntry` with its SQL normalized through `normalize::sql::normalize_sql()` for consistency with trace-based findings.
+`parse_prometheus_response` extracts the `query` (or `queryid`) label as the raw SQL text and the value as total execution time, converted to milliseconds by `PgStatTimeUnit::to_ms` (the default series counts seconds). Rows are identified by `queryid`, `instance` and `job`. `datname` is left out so that one statement is one ranked row whichever database it ran against. Each result is converted to a `PgStatEntry` with its SQL normalized through `normalize::sql::normalize_sql()` for consistency with trace-based findings.
 
 ### CLI integration
 
 The `--prometheus` flag on `perf-sentinel pg-stat` enables this path:
 
 ```
-perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
+perf-sentinel pg-stat --prometheus http://prometheus:9090 --top-n 20
 ```
 
-This flag is gated behind the `daemon` feature because it requires the `hyper` HTTP client stack. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
+This flag is gated behind the CLI `daemon` feature because it requires the `hyper` HTTP client stack (the core `fetch_from_prometheus` builds under `daemon` or `tempo`). The CLI raises `top_n` to `PROMETHEUS_SCRAPE_FLOOR` (200) for the scrape, because only one of the four rankings is keyed on the `topk` series, then ranks the result down to `--top-n`. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
 
 The `report` subcommand exposes the same capability via `--pg-stat-prometheus URL`, mutually exclusive with its file-based `--pg-stat FILE` flag (enforced at the clap level via `conflicts_with`). When either flag is provided, the resulting `PgStatReport` is embedded into the HTML dashboard's `pg_stat` tab alongside the four rankings described above. The scrape path is shared with `pg-stat --prometheus`, so no data-fetching code is duplicated.
 

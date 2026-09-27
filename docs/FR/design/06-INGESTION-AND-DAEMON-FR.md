@@ -381,18 +381,18 @@ Le sélecteur secondaire de l'onglet `pg_stat` du dashboard HTML consomme ces qu
 
 ## Scrape Prometheus automatisé pour pg_stat
 
-`fetch_from_prometheus(endpoint, top_n)` interroge l'API HTTP d'un Prometheus pour obtenir les métriques `pg_stat_statements`, ce qui supprime le besoin d'un export CSV manuel.
+`fetch_from_prometheus(endpoint, top_n, auth_header, opts)` interroge l'API HTTP d'un Prometheus pour obtenir les métriques `pg_stat_statements`, ce qui supprime le besoin d'un export CSV manuel. `opts` (`PrometheusPgStat`) nomme la série classée, le label qui porte le texte SQL, la série du compteur d'appels et l'unité de temps, avec des valeurs par défaut calquées sur la requête intégrée de `postgres_exporter`.
 
 ### Requête et conversion
 
-La fonction construit une requête instantanée PromQL `topk(N, pg_stat_statements_seconds_total)` et l'envoie à l'endpoint `/api/v1/query` de Prometheus via le helper partagé `http_client::fetch_get`. La réponse est une enveloppe JSON Prometheus standard :
+La fonction construit une requête instantanée PromQL `topk(N, sum by (queryid, instance, job, query) (pg_stat_statements_seconds_total))` et l'envoie à l'endpoint `/api/v1/query` de Prometheus via `ingest::prometheus_scrape::fetch_instant_query`, qui appelle le helper partagé `http_client::fetch_get` avec un délai d'expiration de 30 s. Une seconde requête instantanée lit le compteur d'appels (`pg_stat_statements_calls_total` par défaut), joint sur `queryid` aux requêtes classées. La réponse est une enveloppe JSON Prometheus standard :
 
 ```json
 {
   "data": {
     "result": [
       {
-        "metric": { "query": "SELECT ...", "datname": "mydb" },
+        "metric": { "query": "SELECT ...", "queryid": "-4215498811249381917", "instance": "db:9187", "job": "postgres" },
         "value": [1234567890, "1.234"]
       }
     ]
@@ -400,17 +400,17 @@ La fonction construit une requête instantanée PromQL `topk(N, pg_stat_statemen
 }
 ```
 
-`parse_prometheus_response` extrait le label `query` (ou `queryid`) comme texte SQL brut, le label `datname` comme nom de base et la valeur comme temps d'exécution total en secondes. Chaque résultat est converti en `PgStatEntry`, avec son SQL normalisé via `normalize::sql::normalize_sql()` pour rester cohérent avec les findings basés sur les traces.
+`parse_prometheus_response` extrait le label `query` (ou `queryid`) comme texte SQL brut et la valeur comme temps d'exécution total, convertie en millisecondes par `PgStatTimeUnit::to_ms` (la série par défaut compte en secondes). Les lignes sont identifiées par `queryid`, `instance` et `job`. `datname` est écarté pour qu'une requête donne une seule ligne classée, quelle que soit la base sur laquelle elle a tourné. Chaque résultat est converti en `PgStatEntry`, avec son SQL normalisé via `normalize::sql::normalize_sql()` pour rester cohérent avec les findings basés sur les traces.
 
 ### Intégration CLI
 
 Le flag `--prometheus` de `perf-sentinel pg-stat` active ce chemin :
 
 ```
-perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
+perf-sentinel pg-stat --prometheus http://prometheus:9090 --top-n 20
 ```
 
-Ce flag est gardé derrière la feature `daemon`, car il a besoin de la pile client HTTP `hyper`. Le reste du pipeline pg-stat (classement, référence croisée, affichage) est identique, que les données viennent d'un fichier ou de Prometheus.
+Ce flag est gardé derrière la feature `daemon` de la CLI, car il a besoin de la pile client HTTP `hyper` (la fonction `fetch_from_prometheus` du cœur se compile sous `daemon` ou `tempo`). La CLI relève `top_n` à `PROMETHEUS_SCRAPE_FLOOR` (200) pour le scrape, parce qu'un seul des quatre classements repose sur la série du `topk`, puis ramène le classement à `--top-n`. Le reste du pipeline pg-stat (classement, référence croisée, affichage) est identique, que les données viennent d'un fichier ou de Prometheus.
 
 La sous-commande `report` expose la même capacité via `--pg-stat-prometheus URL`, mutuellement exclusif avec le flag fichier `--pg-stat FILE` (imposé au niveau clap via `conflicts_with`). Quand l'un des deux est passé, le `PgStatReport` résultant est embarqué dans l'onglet `pg_stat` du dashboard HTML avec les quatre classements décrits ci-dessus. Le chemin de scrape est partagé avec `pg-stat --prometheus`, donc aucun code de récupération n'est dupliqué.
 
