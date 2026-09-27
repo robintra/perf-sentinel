@@ -1,6 +1,6 @@
 # Design documentation index
 
-Deep design documentation for perf-sentinel. These documents explain **why** each decision was made, not just what the code does. They are intended for contributors and maintainers who need to understand the rationale behind the implementation.
+Deep design documentation for perf-sentinel. These documents explain **why** each decision was made. They are intended for contributors and maintainers who need to understand the rationale behind the implementation.
 
 For user-facing documentation, see the [Documentation index](../00-INDEX.md).
 
