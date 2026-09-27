@@ -77,7 +77,7 @@ version: A.B.C        # à incrémenter à chaque changement du chart
 appVersion: "X.Y.Z"   # suit la release perf-sentinel
 ```
 
-Trois annotations du même fichier bougent avec `appVersion`, et seule la première saute aux yeux :
+Deux annotations du même fichier et le changelog du chart bougent avec `appVersion`, et seule la première saute aux yeux :
 
 - `artifacthub.io/images` : le tag `ghcr.io/robintra/perf-sentinel:X.Y.Z`. Artifact Hub annonce cette image, donc un tag périmé y pointe les lecteurs vers le daemon précédent. `scripts/check-chart-appversion-annotation.sh` tourne dans la CI des PR et fait échouer le build quand il traîne derrière `appVersion`.
 - `artifacthub.io/changes` : une nouvelle entrée par release, décrivant le changement du point de vue de l'opérateur.

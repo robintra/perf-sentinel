@@ -77,7 +77,7 @@ version: A.B.C        # bump on every chart change
 appVersion: "X.Y.Z"   # tracks the perf-sentinel release
 ```
 
-Three annotations in the same file move with `appVersion`, and only the first one is obvious:
+Two annotations in the same file and the chart changelog move with `appVersion`, and only the first one is obvious:
 
 - `artifacthub.io/images`: the `ghcr.io/robintra/perf-sentinel:X.Y.Z` tag. Artifact Hub advertises this image, so a stale tag there points readers at the previous daemon. `scripts/check-chart-appversion-annotation.sh` runs in PR CI and fails the build when it trails `appVersion`.
 - `artifacthub.io/changes`: a new entry per release, describing the change from the operator's point of view.
