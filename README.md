@@ -21,7 +21,7 @@
 
 > **Read this first**
 > - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans), **or dd-trace bridged through a Collector**, and those spans must carry the query text (`db.statement` / `db.query.text`) and the target URL (`http.url` / `url.full`). Language-specific setup (Java / C# / Rust / Go / Node.js / Python / Ruby / PHP): [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md). **Without an OpenTelemetry SDK**, teams on Datadog can bridge dd-trace through the OTel Collector `datadogreceiver` instead, see [Coming from Datadog](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
-> - **Audit your own tracing first:** spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean *no problems found* or *no usable instrumentation*. `perf-sentinel inspect` shows what was extracted from your traces. An empty span tree means those attributes are missing upstream. For what instrumentation quality caps: [Instrumentation quality bounds findings](docs/LIMITATIONS.md#instrumentation-quality-bounds-findings).
+> - **Audit your own tracing first:** spans that lack those attributes are dropped. On OTLP input the report counts them (spans received, spans filtered, and the daemon exports the count on `/metrics`), but a thin or empty report can still mean *no problems found* or *no usable instrumentation*. `perf-sentinel inspect` shows what was extracted from your traces. An empty span tree means those attributes are missing upstream. For what instrumentation quality caps: [Instrumentation quality bounds findings](docs/LIMITATIONS.md#instrumentation-quality-bounds-findings).
 > - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform (yet). See [What perf-sentinel is not](#what-perf-sentinel-is-not).
 > - **Maturity:** beta, pre-1.0. The CLI surface, config keys and on-disk formats may still change between releases before 1.0, with breaking changes called out in the [release notes](https://github.com/robintra/perf-sentinel/releases). The JSON output enums are the one part under an explicit stability contract (see [Input and output formats](#input-and-output-formats)).
 
@@ -118,7 +118,7 @@ Twelve finding types, plus cross-trace correlations in daemon mode:
 | Excessive fanout | One span has more than 20 child calls, parallel or not    |
 | Chatty service   | More than 15 outbound HTTP calls in one user request      |
 | Pool saturation  | At least 10 concurrent SQL queries from one service in one trace |
-| Serialized calls | Sequential I/O that could be parallelized                 |
+| Serialized calls | 3+ sibling I/O calls in sequence, with different templates, that could run in parallel |
 
 Each finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when OTel spans carry `code.*` attributes), and GreenOps impact (see below). For per-detector severity rules and tunable thresholds, see [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
 

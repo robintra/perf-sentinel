@@ -21,7 +21,7 @@
 
 > **À lire en premier**
 > - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP), **ou dd-trace via un pont Collector**, et ces spans doivent porter le texte de la requête (`db.statement` / `db.query.text`) et l'URL cible (`http.url` / `url.full`). Mise en place par langage (Java / C# / Rust / Go / Node.js / Python / Ruby / PHP) : [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md). **Sans SDK OpenTelemetry**, les équipes sur Datadog peuvent à la place faire le pont du trafic dd-trace via le `datadogreceiver` du Collector OTel, voir [Vous venez de Datadog](docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
-> - **Auditez votre tracing d'abord :** les spans qui ne portent pas ces attributs sont écartés en silence, sans avertissement, donc un rapport maigre ou vide peut signifier *aucun problème détecté* ou *aucune instrumentation exploitable*. `perf-sentinel inspect` montre ce qui a été extrait de vos traces. Un arbre de spans vide signifie que ces attributs manquent en amont. Pour ce que la qualité d'instrumentation plafonne : [La qualité de l'instrumentation borne les findings](docs/FR/LIMITATIONS-FR.md#la-qualité-de-linstrumentation-borne-les-findings).
+> - **Auditez votre tracing d'abord :** les spans qui ne portent pas ces attributs sont écartés. Sur une entrée OTLP, le rapport en donne le compte (spans reçus, spans écartés, et le daemon l'exporte sur `/metrics`), mais un rapport maigre ou vide peut encore signifier *aucun problème détecté* ou *aucune instrumentation exploitable*. `perf-sentinel inspect` montre ce qui a été extrait de vos traces. Un arbre de spans vide signifie que ces attributs manquent en amont. Pour ce que la qualité d'instrumentation plafonne : [La qualité de l'instrumentation borne les findings](docs/FR/LIMITATIONS-FR.md#la-qualité-de-linstrumentation-borne-les-findings).
 > - **Ce que ce n'est *pas* :** un APM complet, un profiler continu, ni (pour le moment) une plateforme autonome de comptabilité carbone réglementaire. Voir [Ce que perf-sentinel n'est pas](#ce-que-perf-sentinel-nest-pas).
 > - **Maturité :** bêta, pré-1.0. La surface CLI, les clés de configuration et les formats sur disque peuvent encore changer d'une release à l'autre avant la 1.0, les ruptures de compatibilité étant signalées dans les [notes de version](https://github.com/robintra/perf-sentinel/releases). Les enums de sortie JSON sont la seule partie couverte par un contrat de stabilité explicite (voir [Formats d'entrée et de sortie](#formats-dentrée-et-de-sortie)).
 
@@ -118,7 +118,7 @@ Douze types de findings, plus la corrélation cross-trace en mode daemon :
 | Fanout excessif    | Un span a plus de 20 appels enfants, en parallèle ou non            |
 | Service bavard     | Plus de 15 appels HTTP sortants dans une seule requête utilisateur |
 | Saturation de pool | Au moins 10 requêtes SQL simultanées d'un même service dans une trace |
-| Appels sérialisés  | I/O séquentiels qui pourraient être parallélisés                    |
+| Appels sérialisés  | 3 appels I/O frères ou plus à la suite, de templates différents, qui pourraient partir en parallèle |
 
 Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans OTel portent les attributs `code.*`) et impact GreenOps (voir plus bas). Pour les règles de sévérité par détecteur et les seuils ajustables, voir [docs/FR/design/04-DETECTION-FR.md](docs/FR/design/04-DETECTION-FR.md).
 
