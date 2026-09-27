@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>perf-sentinel: I/O anti-pattern detection, priced in carbon</title>
+<title>Perf Sentinel: I/O anti-pattern detection, priced in carbon</title>
 <meta name="description" content="Self-hosted binary that detects I/O anti-patterns (N+1, redundant calls, slow queries, fanout) in OpenTelemetry traces and prices them in energy and carbon.">
 <link rel="canonical" href="https://perf-sentinel.dev/"><!--hreflang-start--><link rel="alternate" hreflang="en" href="https://perf-sentinel.dev/"><link rel="alternate" hreflang="fr" href="https://perf-sentinel.dev/fr"><link rel="alternate" hreflang="x-default" href="https://perf-sentinel.dev/"><!--hreflang-end-->
 <meta property="og:type" content="website"><meta property="og:site_name" content="perf-sentinel">
@@ -12,7 +12,7 @@
 <meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="perf-sentinel"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta name="theme-color" content="#0BA671"><meta property="og:url" content="https://perf-sentinel.dev/">
 <meta name="twitter:card" content="summary_large_image">
 <script src="./support.js?v=3"></script>
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://perf-sentinel.dev/#website","url":"https://perf-sentinel.dev/","name":"perf-sentinel","inLanguage":"en"},{"@type":"SoftwareApplication","name":"perf-sentinel","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://perf-sentinel.dev/","image":"https://perf-sentinel.dev/assets/og-banner.png","description":"Self-hosted single binary that catches N+1s, redundant calls, slow queries and fanout in OpenTelemetry traces, then prices avoidable I/O in energy and carbon.","license":"https://www.gnu.org/licenses/agpl-3.0.html","author":{"@type":"Person","name":"Robin Trassard"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"sameAs":["https://github.com/robintra/perf-sentinel","https://crates.io/crates/perf-sentinel","https://docs.rs/perf-sentinel-core"]}]}</script><style id="ps-link-extra">main a[href^="/docs/"],main a[href^="/#"]{color:var(--accent-strong)}</style><style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style></head>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://perf-sentinel.dev/#website","url":"https://perf-sentinel.dev/","name":"Perf Sentinel","alternateName":"perf-sentinel","inLanguage":"en"},{"@type":"SoftwareApplication","name":"Perf Sentinel","alternateName":"perf-sentinel","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://perf-sentinel.dev/","image":"https://perf-sentinel.dev/assets/og-banner.png","description":"Self-hosted single binary that catches N+1s, redundant calls, slow queries and fanout in OpenTelemetry traces, then prices avoidable I/O in energy and carbon.","license":"https://www.gnu.org/licenses/agpl-3.0.html","author":{"@type":"Person","name":"Robin Trassard"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"sameAs":["https://github.com/robintra/perf-sentinel","https://crates.io/crates/perf-sentinel","https://docs.rs/perf-sentinel-core"]}]}</script><style id="ps-link-extra">main a[href^="/docs/"],main a[href^="/#"]{color:var(--accent-strong)}</style><style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style></head>
 <body>
 <!--seo-prerender-start--><div id="seo-prerender"><div class="sc-host" data-sc-name="Root"><div data-dc-tpl="5" data-theme="light" data-persona="tech"><div data-dc-tpl="6" style="min-height: 100vh; background-color: var(--bg); color: var(--text);">
 
@@ -34,7 +34,7 @@
       <div data-dc-tpl="24" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="25" class="ps-lang-btn" aria-label="Switch language" title="Switch language"><span data-dc-tpl="26" class="ps-lang-ico"><svg data-dc-tpl="27" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="28" cx="12" cy="12" r="9"></circle><path data-dc-tpl="29" d="M3 12h18"></path><path data-dc-tpl="30" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="31" class="ps-lang-win"><span data-dc-tpl="32" class="ps-lang-track"><span data-dc-tpl="33" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">EN</span></span><span data-dc-tpl="34" class="ps-lang-cell ps-lang-next"><span class="sc-interp">FR</span></span></span></span></button>
         <button data-dc-tpl="35" class="ps-th-btn" aria-label="Switch theme (current: System)" title="Switch theme (current: System)"><span class="ps-th-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></span><span class="ps-th-lbl">System</span></button>
-        <a data-dc-tpl="36" data-plain="" href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" class="scp1" style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: rgb(255, 255, 255); background: rgb(36, 41, 47); border: 1px solid rgba(240, 246, 252, 0.18); border-radius: 8px; padding: 8px 15px;">
+        <a data-dc-tpl="36" data-plain="" href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" class="scp1" style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: rgb(255, 255, 255); background: rgb(36, 41, 47); border: 1px solid rgba(240, 246, 252, 0.18); border-radius: 8px; padding: 8px 15px;">
           <svg data-dc-tpl="37" viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path data-dc-tpl="38" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span data-dc-tpl="39" class="gh-txt">GitHub</span></a>
         <label data-dc-tpl="40" for="ps-navtoggle" data-burger="" aria-label="Menu"><i data-dc-tpl="41"></i></label>
       </div>
@@ -69,7 +69,7 @@
           <span data-dc-tpl="77" style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: 0 0 auto;"></span><span data-dc-tpl="78"><span class="sc-interp">Self-hosted single binary · OpenTelemetry · </span><span data-dc-tpl="79" style="color: var(--accent); white-space: nowrap;"><span class="sc-interp">Open source AGPL-3.0</span></span></span>
         </div>
         <h1 data-dc-tpl="80" style="margin: 24px 0px 0px; font-size: clamp(38px, 5.4vw, 60px); line-height: 1.05; letter-spacing: -0.02em; font-weight: 700; color: var(--text); text-wrap: balance;"><span class="sc-interp">Spot the wasted I/O in your traces. Price it in energy and carbon.</span></h1>
-        <p data-dc-tpl="81" style="margin: 22px 0px 0px; font-size: 19px; line-height: 1.6; color: var(--text-2); max-width: 620px;"><span class="sc-interp">perf-sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.</span></p>
+        <p data-dc-tpl="81" style="margin: 22px 0px 0px; font-size: 19px; line-height: 1.6; color: var(--text-2); max-width: 620px;"><span class="sc-interp">Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.</span></p>
         <div data-dc-tpl="82" style="display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap;">
           <a data-dc-tpl="83" data-plain="" href="#modes" class="scp2" style="font-size: 15px; font-weight: 600; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">How it works</span></a>
           <a data-dc-tpl="84" data-plain="" href="#greenops" class="scp3" style="font-size: 15px; font-weight: 600; color: var(--on-accent); background: rgb(11, 82, 58); border-radius: 9px; padding: 13px 22px;"><span class="sc-interp">The carbon side</span></a>
@@ -113,11 +113,11 @@
     
     <section data-dc-tpl="116" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="117" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// the problem</span></div>
-      <h2 data-dc-tpl="118" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Why </span><span data-dc-tpl="119" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">perf-sentinel</span></span><span class="sc-interp">?</span></h2>
+      <h2 data-dc-tpl="118" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Why </span><span data-dc-tpl="119" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">Perf Sentinel</span></span><span class="sc-interp">?</span></h2>
       <div data-dc-tpl="120" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
         <p data-dc-tpl="121" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.</span></p>
         <p data-dc-tpl="122" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.</span></p>
-        <p data-dc-tpl="123" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">perf-sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
+        <p data-dc-tpl="123" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Perf Sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.</span></p>
         <p data-dc-tpl="124" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.</span></p>
       </div>
     </section>
@@ -170,7 +170,7 @@
       </div>
       <div data-dc-tpl="174" style="margin-top: 48px;">
         <div data-dc-tpl="175" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// estimate bottom-up, not top-down</span></div>
-        <p data-dc-tpl="176" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">perf-sentinel’s bottom-up approach against the top-down of current tools</span></p>
+        <p data-dc-tpl="176" style="margin: 10px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">Perf Sentinel’s bottom-up approach against the top-down of current tools</span></p>
         <div data-dc-tpl="177" data-grid="cards2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px;">
           <div data-dc-tpl="178" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px;">
             <div data-dc-tpl="179" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: rgb(91, 155, 213);"><span class="sc-interp">Top-down approach</span></div>
@@ -191,7 +191,7 @@
           </div>
           <div data-dc-tpl="190" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid color-mix(in srgb,var(--accent) 32%,var(--border)); border-radius: 14px; padding: 24px 26px;">
             <div data-dc-tpl="191" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; letter-spacing: 0.04em; color: var(--accent);"><span class="sc-interp">Bottom-up approach</span></div>
-            <div data-dc-tpl="192" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">perf-sentinel on heavy web apps</span></div>
+            <div data-dc-tpl="192" style="margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--text);"><span class="sc-interp">Perf Sentinel on heavy web apps</span></div>
             <div data-dc-tpl="193" style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px; margin-bottom: 20px;">
               
                 <div data-dc-tpl="195" style="display: flex; gap: 10px; font-size: 14px; color: var(--text); line-height: 1.5;"><span data-dc-tpl="196" style="color: var(--accent); flex: 0 0 auto;">✓</span><span class="sc-interp">Observes the real application, query by query.</span></div>
@@ -376,7 +376,7 @@
           <div data-dc-tpl="237" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
             <div data-dc-tpl="238" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">LAUNCHER</span></div>
             <div data-dc-tpl="239" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Run an analysis from a browser</span></div>
-            <p data-dc-tpl="240" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Pick a source, shape a run, read fleet health. The Hub launches the perf-sentinel binary itself and serves back the dashboard it renders.</span></p>
+            <p data-dc-tpl="240" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Pick a source, shape a run, read fleet health. The Hub launches the Perf Sentinel binary itself and serves back the dashboard it renders.</span></p>
           </div>
         
       </div> <a data-dc-tpl="241" data-plain="" href="https://github.com/robintra/PerfSentinelHub" target="_blank" rel="noopener" data-clink="1" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 24px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="242" data-ltext=""><span class="sc-interp">PerfSentinelHub on GitHub</span></span><span data-dc-tpl="243" data-arrow=""> ↗</span></a>
@@ -462,7 +462,7 @@
         <div data-dc-tpl="293" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-2);">
           <div data-dc-tpl="294" style="padding: 15px 22px;"><span class="sc-interp">Capability</span></div>
           <div data-dc-tpl="295" style="padding: 15px 18px;"><span class="sc-interp">Typical commercial APM</span></div>
-          <div data-dc-tpl="296" style="padding: 15px 18px; color: var(--accent-strong);">perf-sentinel</div>
+          <div data-dc-tpl="296" style="padding: 15px 18px; color: var(--accent-strong);">Perf Sentinel</div>
         </div>
         
           <div data-dc-tpl="298" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr; border-bottom: 1px solid var(--border); align-items: center;">
@@ -514,16 +514,16 @@
           </div>
         
       </div>
-      <p data-dc-tpl="302" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product. The agent figure is the one Datadog publishes for its Agent 7.34, excluding the tracer loaded in each service, just as the perf-sentinel figure excludes the OTel instrumentation it reads. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.</span></p>
+      <p data-dc-tpl="302" style="margin: 16px 0px 0px; font-size: 13px; color: var(--text-2);"><span class="sc-interp">'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product. The agent figure is the one Datadog publishes for its Agent 7.34, excluding the tracer loaded in each service, just as the Perf Sentinel figure excludes the OTel instrumentation it reads. Perf Sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.</span></p>
       <a data-dc-tpl="303" data-plain="" href="guide#compare" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="304" data-ltext=""><span class="sc-interp">Full comparison in the guide</span></span><span data-dc-tpl="305" data-arrow=""> →</span></a>
       
         <div data-dc-tpl="310" style="margin-top: 30px; background: color-mix(in srgb,var(--coral) 9%,transparent); border: 1px solid color-mix(in srgb,var(--coral) 38%,transparent); border-radius: 14px; padding: 22px 26px;">
-          <h3 data-dc-tpl="311" style="margin: 0px; font-size: 18.5px; font-weight: 600; color: var(--coral);"><span class="sc-interp">What perf-sentinel is not</span></h3>
+          <h3 data-dc-tpl="311" style="margin: 0px; font-size: 18.5px; font-weight: 600; color: var(--coral);"><span class="sc-interp">What Perf Sentinel is not</span></h3>
           <div data-dc-tpl="312" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
             
               <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a full APM replacement.</span></strong> <span class="sc-interp">No RUM, no log aggregation, no distributed profiling. It does render dashboards of its own (a self-contained HTML report, a trace-browsing TUI and a live operator TUI, plus two example Grafana dashboards, one over /metrics and one over the query API), but it has no alerting UI: alerting is delegated to Prometheus and Alertmanager, with operational rules shipped in the Helm chart. If you need the rest, Datadog, New Relic and Sentry remain the right tools.</span></span></div>
             
-              <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a continuous profiler.</span></strong> <span class="sc-interp">It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.</span></span></div>
+              <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a continuous profiler.</span></strong> <span class="sc-interp">It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, Perf Sentinel tells you which I/O patterns drive that time.</span></span></div>
             
               <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a monitoring platform.</span></strong> <span class="sc-interp">Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but a daemon on its own retains a bounded ring of recent findings (10,000 by default) rather than a queryable history. PerfSentinelHub adds that history across a fleet. Neither builds custom dashboards nor routes alerts, and the center of gravity stays CI quality gates and post-hoc trace analysis.</span></span></div>
             
@@ -531,7 +531,7 @@
             
               <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not a replacement for measured energy.</span></strong> <span class="sc-interp">The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,</span> <a data-dc-tpl="319" href="/docs/LIMITATIONS#what-software-only-attribution-covers"><span class="sc-interp">see the limitations docs</span></a>.</span></div>
             
-              <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not zero-config.</span></strong> <span class="sc-interp">Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.</span></span></div>
+              <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not zero-config.</span></strong> <span class="sc-interp">Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, Perf Sentinel has nothing to analyze.</span></span></div>
             
               <div data-dc-tpl="314" style="display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span data-dc-tpl="315" style="flex: 0 0 auto; color: var(--coral); font-weight: 700;">✗</span><span data-dc-tpl="316"><strong data-dc-tpl="317" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Not an IDE plugin.</span></strong> <span class="sc-interp">For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.</span></span></div>
             
@@ -550,24 +550,24 @@
           <span data-dc-tpl="327" style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent);"></span>open source
         </a>
       </div>
-      <p data-dc-tpl="328" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.</span></p>
+      <p data-dc-tpl="328" style="margin: 18px 0px 0px; font-size: 16px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">A practical, legal-team-friendly summary so nobody has to dig through the repository. Perf Sentinel is licensed under the GNU Affero General Public License v3.0.</span></p>
       <div data-dc-tpl="329" data-grid="cards2" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 30px;">
         <div data-dc-tpl="330" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
           <div data-dc-tpl="331" style="display: flex; align-items: center; gap: 11px;">
             <span data-dc-tpl="332" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
             <div data-dc-tpl="333" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Your services stay yours</span></div>
           </div>
-          <p data-dc-tpl="334" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.</span></p>
+          <p data-dc-tpl="334" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Running Perf Sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.</span></p>
         </div>
         <div data-dc-tpl="335" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px;">
           <div data-dc-tpl="336" style="display: flex; align-items: center; gap: 11px;">
             <span data-dc-tpl="337" style="flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-strong); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">✓</span>
             <div data-dc-tpl="338" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Unmodified binaries, no obligation</span></div>
           </div>
-          <p data-dc-tpl="339" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">The AGPL covers perf-sentinel’s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.</span></p>
+          <p data-dc-tpl="339" style="margin: 12px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">The AGPL covers Perf Sentinel’s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.</span></p>
         </div>
       </div>
-      <p data-dc-tpl="340" style="margin: 18px 0px 0px; font-size: 13px; color: var(--text-2); font-style: italic; line-height: 1.6; max-width: 820px;"><span class="sc-interp">The one condition: if you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.</span></p>
+      <p data-dc-tpl="340" style="margin: 18px 0px 0px; font-size: 13px; color: var(--text-2); font-style: italic; line-height: 1.6; max-width: 820px;"><span class="sc-interp">The one condition: if you modify Perf Sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.</span></p>
     </section>
 
     
@@ -630,7 +630,7 @@
       </div>
 
       <div data-dc-tpl="388" style="display: flex; justify-content: space-between; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2);">
-        <div data-dc-tpl="389" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="390"><span class="sc-interp">© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="391" style="display: flex; gap: 14px;"><a data-dc-tpl="392" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="393" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div>
+        <div data-dc-tpl="389" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="390"><span class="sc-interp">© 2026 Perf Sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="391" style="display: flex; gap: 14px;"><a data-dc-tpl="392" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="393" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div>
         <span data-dc-tpl="394"><span class="sc-interp">Logo &amp; banner, </span><a data-dc-tpl="395" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener">Gwendoline Meignen</a></span>
       </div>
     </div>
@@ -699,7 +699,7 @@
   [data-embed-tab][data-active="true"]{color:var(--on-accent);background:#0b523a;border-color:#0b523a}
   #ps-embed-open{margin-left:auto;background:transparent}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
-@media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}.ps-th-lbl{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:8px!important;margin-left:0!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="perf-sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="perf-sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent-strong)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}
+@media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}.ps-th-lbl{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:8px!important;margin-left:0!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="Perf Sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="Perf Sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent-strong)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}
   @keyframes psSpinIn{from{transform:rotate(-120deg) scale(.3);opacity:0}to{transform:none;opacity:1}}
   @keyframes psFade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
   .ps-th-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:104px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500;line-height:1;cursor:pointer;transition:border-color .25s ease,color .25s ease}
@@ -770,7 +770,7 @@
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" class="ps-lang-btn" aria-label="{{ langAria }}" title="{{ langAria }}"><span class="ps-lang-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">{{ langActive }}</span><span class="ps-lang-cell ps-lang-next">{{ langTarget }}</span></span></span></button>
         <button onClick="{{ toggleTheme }}" class="ps-th-btn" aria-label="{{ themeAria }}" title="{{ themeAria }}">{{ themeIcon }}{{ themeLabel }}</button>
-        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
+        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span class="gh-txt">GitHub</span></a>
         <label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>
       </div>
@@ -1047,7 +1047,7 @@
         <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-2)">
           <div style="padding:15px 22px">{{ cmpHCap }}</div>
           <div style="padding:15px 18px">{{ cmpHApm }}</div>
-          <div style="padding:15px 18px;color:var(--accent-strong)">perf-sentinel</div>
+          <div style="padding:15px 18px;color:var(--accent-strong)">Perf Sentinel</div>
         </div>
         <sc-for list="{{ compare }}" as="c" hint-placeholder-count="5">
           <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid var(--border);align-items:center">
@@ -1284,8 +1284,8 @@ class Component extends DCLogic {
           { cap: 'Score d’efficacité et de gaspillage', apm: 'Non', ps: 'Intégré' },
           { cap: 'Licence et hébergement', apm: 'SaaS propriétaire, à l’usage', ps: 'Open source, auto-hébergeable' },
         ],
-        cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.). perf-sentinel ne les remplace pas, il s’y ajoute pour la détection du gaspillage et le volet carbone. Le comparatif détaillé par outil figure dans la documentation.',
-        cpNotTitle: 'Ce que perf-sentinel n’est pas',
+        cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.). Perf Sentinel ne les remplace pas, il s’y ajoute pour la détection du gaspillage et le volet carbone. Le comparatif détaillé par outil figure dans la documentation.',
+        cpNotTitle: 'Ce que Perf Sentinel n’est pas',
         cpNot: [
           { lead: 'Pas un outil de supervision complet.', body: 'Pas de tableaux de bord temps réel ni d’alertes. Il cible le gaspillage, en amont des mises en production ou en analyse après coup.' },
           { lead: 'Pas (encore) une plateforme de reporting carbone réglementaire.', body: 'Un reporting CSRD officiel exige une vérification par un tiers et des périmètres hors informatique qu’il ne couvre pas. Il sert de source de données et d’outil de pilotage interne.', refText: 'voir la section GreenOps', refHref: '/#greenops' },
@@ -1318,8 +1318,8 @@ class Component extends DCLogic {
           { cap: 'Efficiency and waste score', apm: 'No', ps: 'Built-in' },
           { cap: 'License and hosting', apm: 'Proprietary SaaS, usage-based', ps: 'Open source, self-hostable' },
         ],
-        cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like). perf-sentinel does not replace them, it adds waste detection and the carbon angle alongside. The full per-tool comparison is in the documentation.',
-        cpNotTitle: 'What perf-sentinel is not',
+        cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like). Perf Sentinel does not replace them, it adds waste detection and the carbon angle alongside. The full per-tool comparison is in the documentation.',
+        cpNotTitle: 'What Perf Sentinel is not',
         cpNot: [
           { lead: 'Not a full monitoring suite.', body: 'No real-time dashboards or alerts. It targets waste, ahead of releases or in after-the-fact analysis.' },
           { lead: 'Not (yet) a regulatory carbon reporting platform.', body: 'Official CSRD reporting requires third-party verification and non-IT scopes it does not cover. It serves as a data source and an internal steering tool.', refText: 'see the GreenOps section', refHref: '/#greenops' },
@@ -1347,11 +1347,11 @@ class Component extends DCLogic {
         rse: {
           eyebrowHero: 'Estimation bottom-up · SCI / ISO 21031 · ', eyebrowHeroGreen: 'Critères RGESN couverts',
           heroTitle: 'Le carbone du manque d’optimisation de votre logiciel, chiffré au niveau du code, pas extrapolé depuis la facture.',
-          heroSub: 'perf-sentinel chiffre chaque requête évitable en énergie puis en CO₂, une par une et attribuable au code qui l’a produite. De quoi documenter votre démarche d’écoconception, preuve à l’appui.',
+          heroSub: 'Perf Sentinel chiffre chaque requête évitable en énergie puis en CO₂, une par une et attribuable au code qui l’a produite. De quoi documenter votre démarche d’écoconception, preuve à l’appui.',
           ctaHow: 'L’angle mort', ctaHowHref: '#carbone', ctaCarbon: 'Le volet carbone', ctaCarbonHref: '#greenops',
           whyEyebrow: '// pour la RSE', whyT1: 'Un bilan ', whyTName: 'attribuable', whyT2: ', pas déclaratif',
           whyP1: 'Les outils carbone estiment votre empreinte du haut vers le bas, depuis la facture cloud ou des ratios sectoriels. Un chiffre global, utile pour le pilotage et la communication, mais difficile à rattacher à une cause précise dans le code.',
-          whyP2: 'perf-sentinel chiffre par le bas : chaque requête redondante ou appel en trop devient un point chaud estimé en énergie et en CO₂, rattaché au code qui l’a produit.',
+          whyP2: 'Perf Sentinel chiffre par le bas : chaque requête redondante ou appel en trop devient un point chaud estimé en énergie et en CO₂, rattaché au code qui l’a produit.',
           whyP3: 'La détection des requêtes répétées, appels redondants et autres gaspillages se rattache directement aux critères du RGESN (ARCEP / Ademe / DINUM).',
           whyP4: 'Le décompte d’opérations et les estimations par région fournissent des données d’activité à reporter dans Watershed, Sweep, Greenly ou Persefoni, ou à piloter vos KPIs d’efficacité en interne.',
           ctaTitle: 'Mettez un chiffre sur le gaspillage',
@@ -1360,7 +1360,7 @@ class Component extends DCLogic {
         exec: {
           eyebrowHero: 'Un seul outil, sans abonnement SaaS · ', eyebrowHeroGreen: 'Auto-hébergé, open source',
           heroTitle: 'Le même gaspillage gonfle votre facture cloud et votre bilan carbone.',
-          heroSub: 'perf-sentinel traque les requêtes et appels évitables dans vos applications : des réponses plus rapides, une facture allégée et moins de CO₂, d’un même geste. Léger, auto-hébergé, sans dépendance SaaS.',
+          heroSub: 'Perf Sentinel traque les requêtes et appels évitables dans vos applications : des réponses plus rapides, une facture allégée et moins de CO₂, d’un même geste. Léger, auto-hébergé, sans dépendance SaaS.',
           ctaHow: 'Le comparatif', ctaHowHref: '#comparatif', ctaCarbon: 'Le volet carbone', ctaCarbonHref: '#greenops',
           whyEyebrow: '// pour la direction', whyT1: 'Trois budgets, un seul ', whyTName: 'gaspillage', whyT2: '', whyAccent: 'coral',
           whyP1: 'Performance, coût cloud et RSE sont souvent traités en silos, par des équipes différentes. Pourtant ils visent le même gaspillage.',
@@ -1368,14 +1368,14 @@ class Component extends DCLogic {
           whyP3: 'Un outil léger et autonome, là où les solutions commerciales imposent un composant lourd sur chaque serveur, à un coût qui grandit avec votre flotte.',
           whyP4: 'Open source, déployable sur votre propre infrastructure. Aucune donnée qui part chez un tiers, aucun verrou fournisseur.',
           ctaTitle: 'Un correctif, trois budgets servis',
-          ctaText: 'Mesurez vous-même : lancez perf-sentinel sur une de vos applications pour obtenir performance, coût d’infrastructure et empreinte carbone, chiffres à l’appui.',
-          cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.), facturées par hôte, par utilisateur ou par volume de données, et installées sur chaque serveur. perf-sentinel ne les remplace pas, il s’y ajoute sans abonnement ni coût qui grandit avec le trafic. Le comparatif détaillé par outil figure dans la documentation.',
+          ctaText: 'Mesurez vous-même : lancez Perf Sentinel sur une de vos applications pour obtenir performance, coût d’infrastructure et empreinte carbone, chiffres à l’appui.',
+          cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.), facturées par hôte, par utilisateur ou par volume de données, et installées sur chaque serveur. Perf Sentinel ne les remplace pas, il s’y ajoute sans abonnement ni coût qui grandit avec le trafic. Le comparatif détaillé par outil figure dans la documentation.',
           goNote: 'Estimation directionnelle, resserrée en branchant une source d’énergie mesurée. Au-delà du carbone, chaque requête évitable supprimée réduit la charge sur vos serveurs : le même décompte d’opérations éclaire les arbitrages de coût d’infrastructure, sans prétendre chiffrer votre facture.',
         },
         legal: {
           eyebrowHero: 'Résultats reproductibles · Rapports périodiques signés · ', eyebrowHeroGreen: 'Données en mémoire seule',
           heroTitle: 'Des éléments probants d’efficacité, vérifiables et signés, qui ne quittent pas votre infrastructure.',
-          heroSub: 'perf-sentinel produit des rapports reproductibles, signés et vérifiables, sans exfiltrer vos données. L’auditabilité réclame des éléments traçables, pas des estimations opaques.',
+          heroSub: 'Perf Sentinel produit des rapports reproductibles, signés et vérifiables, sans exfiltrer vos données. L’auditabilité réclame des éléments traçables, pas des estimations opaques.',
           ctaHow: 'Le volet licence', ctaHowHref: '#license', ctaCarbon: 'Confidentialité des données', ctaCarbonHref: '#why',
           whyEyebrow: '// pour le juridique', whyT1: 'Une chaîne ', whyTName: 'traçable', whyT2: ', du calcul à la signature',
           whyP1: 'Une estimation que l’on ne peut ni reproduire ni rattacher à une source n’est pas auditable : sans reproductibilité ni traçabilité, rien à contrôler.',
@@ -1392,13 +1392,13 @@ class Component extends DCLogic {
           ctaHow: 'Le comparatif', ctaHowHref: '#comparatif', ctaCarbon: 'Le volet licence', ctaCarbonHref: '#license',
           whyEyebrow: '// pour les achats', whyT1: 'Une brique, ', whyTName: 'pas une suite', whyT2: '',
           whyP1: 'Les outils commerciaux facturent à la consommation (hôtes, volumes, traces) et imposent un composant lourd que vous ne maîtrisez pas. Pour un simple contrôle qualité, c’est disproportionné.',
-          whyP2: 'perf-sentinel est un outil léger et autonome, déployable sur votre infrastructure, qui s’intègre à vos contrôles avant mise en production, sans serveur propriétaire.',
+          whyP2: 'Perf Sentinel est un outil léger et autonome, déployable sur votre infrastructure, qui s’intègre à vos contrôles avant mise en production, sans serveur propriétaire.',
           whyP3: 'AGPL-3.0 : aucune facturation à l’usage, aucune donnée envoyée à un tiers, aucun verrou propriétaire. Le copyleft réseau (article 13) ne se déclenche que si vous modifiez l’outil et l’exposez en service à des tiers. En usage interne, sur le binaire officiel, cette obligation ne s’applique pas.',
           whyP4: 'Chaîne d’approvisionnement vérifiable et signée, image minimale, dépendances auditées chaque jour : de quoi passer une revue de sécurité sans friction.',
           ctaTitle: 'Une dépendance que vous maîtrisez',
           ctaText: 'Une démonstration sans rien installer, et un outil officiel à auto-héberger. Le comparatif complet et la licence sont détaillés sur cette page.',
           cmpT1: 'Léger, ouvert, et ', cmpWCarbon: 'auditable',
-          cmpFoot: '« Outil commercial type » désigne les solutions SaaS propriétaires à base d’agent (Datadog, New Relic, etc.). perf-sentinel est sous licence AGPL-3.0, auto-hébergeable, avec une chaîne d’approvisionnement signée et vérifiable : de quoi passer une revue de sécurité ou fournisseur sans angle mort. Le comparatif détaillé par outil figure dans la documentation.',
+          cmpFoot: '« Outil commercial type » désigne les solutions SaaS propriétaires à base d’agent (Datadog, New Relic, etc.). Perf Sentinel est sous licence AGPL-3.0, auto-hébergeable, avec une chaîne d’approvisionnement signée et vérifiable : de quoi passer une revue de sécurité ou fournisseur sans angle mort. Le comparatif détaillé par outil figure dans la documentation.',
           supplyMore: 'Provenance, SBOM et audits dans le guide',
         },
       },
@@ -1406,11 +1406,11 @@ class Component extends DCLogic {
         rse: {
           eyebrowHero: 'Bottom-up estimate · SCI / ISO 21031 · ', eyebrowHeroGreen: 'Maps to RGESN criteria',
           heroTitle: 'The carbon of your software’s lack of optimization, quantified at the code level, not extrapolated from the bill.',
-          heroSub: 'perf-sentinel prices every avoidable query in energy then CO₂, one by one and attributable to the code that produced it. Enough to document your eco-design work, with evidence.',
+          heroSub: 'Perf Sentinel prices every avoidable query in energy then CO₂, one by one and attributable to the code that produced it. Enough to document your eco-design work, with evidence.',
           ctaHow: 'The blind spot', ctaHowHref: '#carbone', ctaCarbon: 'The carbon side', ctaCarbonHref: '#greenops',
           whyEyebrow: '// for sustainability', whyT1: 'An ', whyTName: 'attributable', whyT2: ' footprint, not a declarative one',
           whyP1: 'Carbon tools estimate your footprint top-down, from the cloud bill or sector ratios. A global figure, useful for steering and communication, but hard to trace back to a specific cause in the code.',
-          whyP2: 'perf-sentinel works bottom-up: every redundant query or extra call becomes a hotspot estimated in energy and CO₂, tied to the code that produced it.',
+          whyP2: 'Perf Sentinel works bottom-up: every redundant query or extra call becomes a hotspot estimated in energy and CO₂, tied to the code that produced it.',
           whyP3: 'Detecting repeated queries, redundant calls and other waste maps directly onto RGESN criteria (ARCEP / Ademe / DINUM).',
           whyP4: 'Operation counts and per-region estimates provide activity data you can feed into Watershed, Sweep, Greenly or Persefoni, or use to steer your efficiency KPIs internally.',
           ctaTitle: 'Put a number on the waste',
@@ -1419,7 +1419,7 @@ class Component extends DCLogic {
         exec: {
           eyebrowHero: 'One tool, no SaaS subscription · ', eyebrowHeroGreen: 'Self-hosted, open source',
           heroTitle: 'The same waste inflates your cloud bill and your carbon report.',
-          heroSub: 'perf-sentinel hunts avoidable queries and calls in your applications: faster responses, a lighter bill and less CO₂, in one move. Lightweight, self-hosted, no SaaS dependency.',
+          heroSub: 'Perf Sentinel hunts avoidable queries and calls in your applications: faster responses, a lighter bill and less CO₂, in one move. Lightweight, self-hosted, no SaaS dependency.',
           ctaHow: 'The comparison', ctaHowHref: '#comparatif', ctaCarbon: 'The carbon side', ctaCarbonHref: '#greenops',
           whyEyebrow: '// for leadership', whyT1: 'Three budgets, one single ', whyTName: 'waste', whyT2: '', whyAccent: 'coral',
           whyP1: 'Performance, cloud cost and sustainability are often handled in silos, by different teams. Yet they target the same waste.',
@@ -1428,13 +1428,13 @@ class Component extends DCLogic {
           whyP4: 'Open source, deployable on your own infrastructure. No data leaving for a third party, no vendor lock-in.',
           ctaTitle: 'One fix, three budgets served',
           ctaText: 'Measure it yourself: run perf-sentinel against one of your applications to get performance, infrastructure cost and carbon footprint, with the figures to back it.',
-          cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like), priced per host, per user or by data volume, and installed on every server. perf-sentinel does not replace them, it sits alongside without a subscription or a cost that grows with traffic. The full per-tool comparison is in the documentation.',
+          cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like), priced per host, per user or by data volume, and installed on every server. Perf Sentinel does not replace them, it sits alongside without a subscription or a cost that grows with traffic. The full per-tool comparison is in the documentation.',
           goNote: 'Directional estimate, tightened by connecting a measured-energy source. Beyond carbon, every avoidable query removed cuts the load on your servers: the same operation count informs infrastructure-cost trade-offs, without claiming to price your bill.',
         },
         legal: {
           eyebrowHero: 'Reproducible results · Signed periodic reports · ', eyebrowHeroGreen: 'In-memory data only',
           heroTitle: 'Efficiency records that are verifiable and signed, and never leave your infrastructure.',
-          heroSub: 'perf-sentinel produces reproducible, signed, verifiable reports, without exfiltrating your data. Auditability needs traceable records, not opaque estimates.',
+          heroSub: 'Perf Sentinel produces reproducible, signed, verifiable reports, without exfiltrating your data. Auditability needs traceable records, not opaque estimates.',
           ctaHow: 'The license', ctaHowHref: '#license', ctaCarbon: 'Data confidentiality', ctaCarbonHref: '#why',
           whyEyebrow: '// for legal', whyT1: 'A ', whyTName: 'traceable', whyT2: ' chain, from computation to signature',
           whyP1: 'An estimate you can neither reproduce nor trace to a source is not auditable: with no reproducibility or traceability, there is nothing to verify.',
@@ -1451,13 +1451,13 @@ class Component extends DCLogic {
           ctaHow: 'The comparison', ctaHowHref: '#comparatif', ctaCarbon: 'The license', ctaCarbonHref: '#license',
           whyEyebrow: '// for procurement', whyT1: 'A component, ', whyTName: 'not a suite', whyT2: '',
           whyP1: 'Commercial tools price by consumption (hosts, volume, traces) and impose a heavy component you don’t control. For a simple quality check, that’s disproportionate.',
-          whyP2: 'perf-sentinel is a light, standalone tool, deployable on your own infrastructure, slotting into your pre-release checks, with no proprietary server.',
+          whyP2: 'Perf Sentinel is a light, standalone tool, deployable on your own infrastructure, slotting into your pre-release checks, with no proprietary server.',
           whyP3: 'AGPL-3.0: no usage-based billing, no data sent to a third party, no proprietary lock-in. The network copyleft (section 13) only triggers if you modify the tool and expose it as a service to third parties. For internal use, on the official build, that obligation does not apply.',
           whyP4: 'A verifiable, signed supply chain, a minimal image and dependencies audited daily: enough to clear a security review without friction.',
           ctaTitle: 'A dependency you control',
           ctaText: 'A demo with nothing to install, and an official build to self-host. The full comparison and license are detailed on this page.',
           cmpT1: 'Light, open, and ', cmpWCarbon: 'auditable',
-          cmpFoot: '“Typical commercial tool” refers to proprietary agent-based SaaS solutions (Datadog, New Relic, and the like). perf-sentinel is AGPL-3.0, self-hostable, with a signed, verifiable supply chain: enough to clear a security or vendor review without a blind spot. The full per-tool comparison is in the documentation.',
+          cmpFoot: '“Typical commercial tool” refers to proprietary agent-based SaaS solutions (Datadog, New Relic, and the like). Perf Sentinel is AGPL-3.0, self-hostable, with a signed, verifiable supply chain: enough to clear a security or vendor review without a blind spot. The full per-tool comparison is in the documentation.',
           supplyMore: 'Provenance, SBOM and audits in the guide',
         },
       },
@@ -1470,19 +1470,19 @@ class Component extends DCLogic {
         nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
         eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
-        heroSub: 'perf-sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
+        heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
         ctaHow: 'How it works', ctaCarbon: 'The carbon side',
         navLicense: 'License', navDocs: 'Guide', navRef: 'Docs',
         licEyebrow: '// license',
         licTitleA: 'AGPL-3.0', licTitleB: ', and what it means for your code',
-        licIntro: 'A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.',
+        licIntro: 'A practical, legal-team-friendly summary so nobody has to dig through the repository. Perf Sentinel is licensed under the GNU Affero General Public License v3.0.',
         licC1Title: 'Your services stay yours',
-        licC1Body: 'Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.',
+        licC1Body: 'Running Perf Sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.',
         licC2Title: 'Unmodified binaries, no obligation',
-        licC2Body: 'The AGPL covers perf-sentinel\u2019s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.',
+        licC2Body: 'The AGPL covers Perf Sentinel\u2019s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.',
         licCondTitle: 'The one condition (article 13)',
-        licCondBody: 'If you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users.',
-        licDisclaimer: 'The one condition: if you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.',
+        licCondBody: 'If you modify Perf Sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users.',
+        licDisclaimer: 'The one condition: if you modify Perf Sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.',
         termOut: '  findings grouped by severity · IIS + CO₂ per endpoint',
         termFail: '  quality gate: N+1 SQL over threshold (exit 1)',
         exampleLabel: 'example',
@@ -1498,10 +1498,10 @@ class Component extends DCLogic {
         ],
         detEyebrow: '// what gets detected',
         whyEyebrow: '// the problem',
-        whyT1: 'Why ', whyTName: 'perf-sentinel', whyT2: '?',
+        whyT1: 'Why ', whyTName: 'Perf Sentinel', whyT2: '?',
         whyP1: 'I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
-        whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
+        whyP3: 'Perf Sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
         whyP4: 'Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.',
         prereqTitle: 'Read this first',
         prereq1Label: 'Prerequisite:', prereq1Text: 'your services emit OpenTelemetry traces (SQL, HTTP and messaging spans), or dd-trace bridged through a Collector, carrying the query text (`db.statement` / `db.query.text`), the target URL (`http.url` / `url.full`) or the broker destination (`messaging.system` / `messaging.destination.name`).', prereq1Setup: 'Setup', prereq1Link: 'by language (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'No OpenTelemetry SDK? Teams on Datadog bridge dd-trace through the Collector `datadogreceiver`, see', prereq1DdLink: 'Coming from Datadog', prereq1DdHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
@@ -1520,24 +1520,24 @@ class Component extends DCLogic {
         carbonNarrText: 'ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.',
         carbonStatNum: '72%', carbonStatText: 'reduction in emissions per visit after Jisc optimized one high-traffic page (1.09 g → 0.30 g CO₂)', carbonStatSrc: 'Source: ',
         carbonCmpTitle: '// estimate bottom-up, not top-down',
-        carbonCmpSub: 'perf-sentinel’s bottom-up approach against the top-down of current tools',
+        carbonCmpSub: 'Perf Sentinel’s bottom-up approach against the top-down of current tools',
         carbonResultLabel: 'Result',
         carbonTdEyebrow: 'Top-down approach', carbonTdTitle: 'Current IT and carbon tools',
         carbonTdPoints: [{ t: 'A share of averages: data-center draw, sector ratios.' }, { t: 'Estimates a global footprint from the cloud bill or headcount.' }, { t: 'Gives a yearly number, but not the detail of what weighs.' }],
         carbonTdResultA: 'A global figure, ', carbonTdResultB: 'not attributable', carbonTdResultC: ' and ', carbonTdResultD: 'not actionable',
-        carbonBuEyebrow: 'Bottom-up approach', carbonBuTitle: 'perf-sentinel on heavy web apps',
+        carbonBuEyebrow: 'Bottom-up approach', carbonBuTitle: 'Perf Sentinel on heavy web apps',
         carbonBuPoints: [{ t: 'Observes the real application, query by query.' }, { t: 'Translates each operation into energy then carbon (recognized method).' }, { t: 'Pinpoints avoidable waste and its cost.' }],
         carbonBuResultA: 'A quantified hotspot, ', carbonBuResultB: 'attributable to the code', carbonBuResultC: ' and ', carbonBuResultD: 'directly actionable',
         goMore: 'GreenOps metrics in the guide', goEnergy: 'Energy & carbon, in plain language',
         cmpMore: 'Full comparison in the guide',
-        cpNotTitle: 'What perf-sentinel is not',
+        cpNotTitle: 'What Perf Sentinel is not',
         cpNot: [
           { lead: 'Not a full APM replacement.', body: 'No RUM, no log aggregation, no distributed profiling. It does render dashboards of its own (a self-contained HTML report, a trace-browsing TUI and a live operator TUI, plus two example Grafana dashboards, one over /metrics and one over the query API), but it has no alerting UI: alerting is delegated to Prometheus and Alertmanager, with operational rules shipped in the Helm chart. If you need the rest, Datadog, New Relic and Sentry remain the right tools.' },
-          { lead: 'Not a continuous profiler.', body: 'It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.' },
+          { lead: 'Not a continuous profiler.', body: 'It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, Grafana Pyroscope is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, Perf Sentinel tells you which I/O patterns drive that time.' },
           { lead: 'Not a monitoring platform.', body: 'Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but a daemon on its own retains a bounded ring of recent findings (10,000 by default) rather than a queryable history. PerfSentinelHub adds that history across a fleet. Neither builds custom dashboards nor routes alerts, and the center of gravity stays CI quality gates and post-hoc trace analysis.' },
           { lead: 'Not (yet) a standalone regulatory carbon accounting platform.', body: 'Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case:', refText: 'see the GreenOps section', refHref: '/#greenops' },
           { lead: 'Not a replacement for measured energy.', body: 'The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server,', refText: 'see the limitations docs', refHref: '/docs/LIMITATIONS#what-software-only-attribution-covers' },
-          { lead: 'Not zero-config.', body: 'Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.' },
+          { lead: 'Not zero-config.', body: 'Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, Perf Sentinel has nothing to analyze.' },
           { lead: 'Not an IDE plugin.', body: 'For in-IDE feedback on JVM/.NET code as you type, Digma offers a well-integrated JetBrains experience.' },
         ],
         detT1: 'Twelve I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
@@ -1564,7 +1564,7 @@ class Component extends DCLogic {
         hubPoints: [
           { tag: 'PUSH', title: 'Push first, poll as a net', desc: 'Each daemon posts its findings and retries a failed batch rather than dropping it. The Hub polls as a net, and only a successful poll marks a source reachable, the direction an operator needs when a source goes quiet.' },
           { tag: 'HISTORY', title: 'A first-seen date nothing else holds', desc: 'A finding whose normalized template changes is linked to the one it replaced, and the chain keeps its oldest date. Nothing downstream rebuilds that timeline once the buffer has forgotten it.' },
-          { tag: 'LAUNCHER', title: 'Run an analysis from a browser', desc: 'Pick a source, shape a run, read fleet health. The Hub launches the perf-sentinel binary itself and serves back the dashboard it renders.' }
+          { tag: 'LAUNCHER', title: 'Run an analysis from a browser', desc: 'Pick a source, shape a run, read fleet health. The Hub launches the Perf Sentinel binary itself and serves back the dashboard it renders.' }
         ],
         hubMore: 'PerfSentinelHub on GitHub',
         modEyebrow: '// four ways to run it',
@@ -1610,7 +1610,7 @@ class Component extends DCLogic {
           { cap: 'GreenOps score (IIS, waste ratio)', apm: 'No', ps: 'Built-in' },
           { cap: 'License & hosting', apm: 'Proprietary SaaS, usage-based', ps: 'AGPL-3.0, fully self-hostable' },
         ],
-        cmpFoot: "'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product. The agent figure is the one Datadog publishes for its Agent 7.34, excluding the tracer loaded in each service, just as the perf-sentinel figure excludes the OTel instrumentation it reads. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.",
+        cmpFoot: "'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic. Exact behavior varies by product. The agent figure is the one Datadog publishes for its Agent 7.34, excluding the tracer loaded in each service, just as the Perf Sentinel figure excludes the OTel instrumentation it reads. Perf Sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.",
         ctaTitle: 'Put the sentinel in your pipeline',
         ctaText: 'Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.',
         demoCmt1: 'terminal report', demoCmt2: 'interactive TUI', demoCmt3: 'HTML dashboard',
@@ -1619,7 +1619,7 @@ class Component extends DCLogic {
         ftDocQuickstart: 'Quickstart', ftDocCli: 'CLI reference', ftDocConfig: 'Configuration', ftDocMethod: 'GreenOps methodology',
         ftProjLicense: 'AGPL-3.0 license', ftLegalNotice: 'Legal notice', ftPrivacy: 'Privacy',
         ftBadgeNote: 'badge slot, to wire up',
-        ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
+        ftBottomLeft: '© 2026 Perf Sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
         ftBottomRight: 'Logo & banner, ',
         badges: ['Ecoindex', 'Green Web Foundation'],
         langSwitch: 'FR',
@@ -1628,19 +1628,19 @@ class Component extends DCLogic {
         nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
         eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
-        heroSub: 'perf-sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
+        heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
         ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
         navLicense: 'Licence', navDocs: 'Guide', navRef: 'Docs',
         licEyebrow: '// licence',
         licTitleA: 'AGPL-3.0', licTitleB: ', ce que ça implique pour votre code',
-        licIntro: 'Un résumé pratique et lisible par un service juridique, pour que personne n\u2019ait à fouiller le dépôt. perf-sentinel est sous licence GNU Affero General Public License v3.0.',
+        licIntro: 'Un résumé pratique et lisible par un service juridique, pour que personne n\u2019ait à fouiller le dépôt. Perf Sentinel est sous licence GNU Affero General Public License v3.0.',
         licC1Title: 'Vos services restent les vôtres',
-        licC1Body: 'Faire tourner perf-sentinel ne place pas vos propres services sous AGPL. C\u2019est un processus autonome : vos applications lui envoient seulement des traces OpenTelemetry par le réseau (OTLP), une communication à distance et non un lien de compilation, qui ne crée donc aucune œuvre dérivée et n\u2019impose aucune obligation de licence sur votre code.',
+        licC1Body: 'Faire tourner Perf Sentinel ne place pas vos propres services sous AGPL. C\u2019est un processus autonome : vos applications lui envoient seulement des traces OpenTelemetry par le réseau (OTLP), une communication à distance et non un lien de compilation, qui ne crée donc aucune œuvre dérivée et n\u2019impose aucune obligation de licence sur votre code.',
         licC2Title: 'Binaires non modifiés, aucune obligation',
-        licC2Body: 'L\u2019AGPL couvre le code source de perf-sentinel lui-même. Utiliser les binaires ou l\u2019image officiels non modifiés n\u2019entraîne aucune obligation de copyleft, d\u2019aucune sorte.',
+        licC2Body: 'L\u2019AGPL couvre le code source de Perf Sentinel lui-même. Utiliser les binaires ou l\u2019image officiels non modifiés n\u2019entraîne aucune obligation de copyleft, d\u2019aucune sorte.',
         licCondTitle: 'La seule condition (article 13)',
-        licCondBody: 'Si vous modifiez perf-sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs.',
-        licDisclaimer: 'La seule condition : si vous modifiez perf-sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs. Ceci est un résumé pratique et non un avis juridique. Consultez votre service juridique en cas de doute.',
+        licCondBody: 'Si vous modifiez Perf Sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs.',
+        licDisclaimer: 'La seule condition : si vous modifiez Perf Sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs. Ceci est un résumé pratique et non un avis juridique. Consultez votre service juridique en cas de doute.',
         termOut: '  findings groupés par sévérité · IIS + CO₂ par endpoint',
         termFail: '  quality gate : N+1 SQL au-dessus du seuil (exit 1)',
         exampleLabel: 'exemple',
@@ -1656,10 +1656,10 @@ class Component extends DCLogic {
         ],
         detEyebrow: '// ce qui est détecté',
         whyEyebrow: '// le problème',
-        whyT1: 'Pourquoi ', whyTName: 'perf-sentinel', whyT2: ' ?',
+        whyT1: 'Pourquoi ', whyTName: 'Perf Sentinel', whyT2: ' ?',
         whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
-        whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
+        whyP3: 'Perf Sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
         whyP4: 'Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
         prereqTitle: 'À lire en premier',
         prereq1Label: 'Prérequis :', prereq1Text: 'vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (`db.statement` / `db.query.text`), l’URL cible (`http.url` / `url.full`) ou la destination broker (`messaging.system` / `messaging.destination.name`).', prereq1Setup: 'Mise en place', prereq1Link: 'par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)', prereq1Dd: 'Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le `datadogreceiver` du Collector OTel, voir', prereq1DdLink: 'Vous venez de Datadog', prereq1DdHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
@@ -1678,24 +1678,24 @@ class Component extends DCLogic {
         carbonNarrText: 'ITU et IEA confirment la hausse rapide du numérique. Mais la part due au code et aux apps web lourdes reste non quantifiée à l’échelle mondiale.',
         carbonStatNum: '72 %', carbonStatText: 'de réduction d’émissions par visite après l’optimisation par Jisc d’une page à fort trafic (1,09 g → 0,30 g CO₂)', carbonStatSrc: 'Source : ',
         carbonCmpTitle: '// estimer par le bas, pas par le haut',
-        carbonCmpSub: 'L’approche bottom-up de perf-sentinel face au top-down des outils actuels',
+        carbonCmpSub: 'L’approche bottom-up de Perf Sentinel face au top-down des outils actuels',
         carbonResultLabel: 'Résultat',
         carbonTdEyebrow: 'Approche top-down', carbonTdTitle: 'SI et outils carbone actuels',
         carbonTdPoints: [{ t: 'Part de moyennes : consommation des data centers, ratios sectoriels.' }, { t: 'Estime une empreinte globale depuis la facture cloud ou les effectifs.' }, { t: 'Donne un chiffre annuel, mais pas le détail de ce qui pèse.' }],
         carbonTdResultA: 'Chiffre global, ', carbonTdResultB: 'non attribuable', carbonTdResultC: ' et ', carbonTdResultD: 'non actionnable',
-        carbonBuEyebrow: 'Approche bottom-up', carbonBuTitle: 'perf-sentinel sur les apps web lourdes',
+        carbonBuEyebrow: 'Approche bottom-up', carbonBuTitle: 'Perf Sentinel sur les apps web lourdes',
         carbonBuPoints: [{ t: 'Observe l’application réelle, requête par requête.' }, { t: 'Traduit chaque traitement en énergie puis en carbone (méthode reconnue).' }, { t: 'Pointe les gaspillages évitables et leur coût.' }],
         carbonBuResultA: 'Gisement chiffré, ', carbonBuResultB: 'attribuable au code', carbonBuResultC: ' et ', carbonBuResultD: 'directement actionnable',
         goMore: 'Métriques GreenOps dans le guide', goEnergy: 'Énergie et carbone, vulgarisés',
         cmpMore: 'Comparatif complet dans le guide',
-        cpNotTitle: 'Ce que perf-sentinel n\u2019est pas',
+        cpNotTitle: 'Ce que Perf Sentinel n\u2019est pas',
         cpNot: [
           { lead: 'Pas un remplacement d’APM complet.', body: 'Pas de RUM, pas d’agrégation de logs, pas de profiling distribué. L’outil produit bien ses propres dashboards (un rapport HTML autoportant, une TUI de navigation dans les traces et une TUI opérateur live, plus deux dashboards Grafana d’exemple, un au-dessus de /metrics et un au-dessus de l’API de query), mais il n’a pas d’UI d’alerting : l’alerting est délégué à Prometheus et Alertmanager, avec des règles opérationnelles livrées dans le chart Helm. Si vous avez besoin du reste, Datadog, New Relic et Sentry restent les bons outils.' },
-          { lead: 'Pas un profiler continu.', body: 'L’outil observe les patterns d’I/O au niveau protocole, il ne fait pas de sampling on-CPU, d’allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, Grafana Pyroscope est l’équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, perf-sentinel dit quels patterns d’I/O le déclenchent.' },
+          { lead: 'Pas un profiler continu.', body: 'L’outil observe les patterns d’I/O au niveau protocole, il ne fait pas de sampling on-CPU, d’allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, Grafana Pyroscope est l’équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, Perf Sentinel dit quels patterns d’I/O le déclenchent.' },
           { lead: 'Pas une plateforme de monitoring.', body: 'Le mode daemon analyse bien en direct et sert findings, métriques et corrélations en HTTP, mais un daemon seul conserve un tampon circulaire borné de findings récents (10 000 par défaut) et non un historique interrogeable. PerfSentinelHub ajoute cet historique à l’échelle d’une flotte. Ni l’un ni l’autre ne construit de dashboards sur mesure ni ne route d’alertes, et le centre de gravité reste les quality gates CI et l’analyse post-hoc.' },
           { lead: 'Pas (encore) une plateforme de comptabilité carbone réglementaire standalone.', body: 'Un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et des scopes non-IT qu’il ne couvre pas. Périmètre exact, couplages (Watershed, Sweep, Greenly, Persefoni) et cas RGESN :', refText: 'voir la section GreenOps', refHref: '/#greenops' },
           { lead: 'Pas un substitut à la mesure énergétique.', body: 'Le modèle I/O-vers-énergie est une estimation directionnelle, pas une mesure. Pour une puissance mesurée plus précise, brancher Alumet (RAPL x86, en tête de la chaîne de précédence), Scaphandre (RAPL x86), Kepler (eBPF, compatible ARM) ou Redfish (puissance murale BMC bare-metal), les quatre sont supportés en entrée, ou utiliser les APIs énergie du fournisseur cloud. Pour ce qu’une attribution purement logicielle peut et ne peut pas couvrir sur un serveur typique,', refText: 'voir la documentation sur les limites', refHref: '/docs/fr/LIMITATIONS#ce-que-couvre-une-attribution-purement-logicielle' },
-          { lead: 'Pas zéro-config.', body: 'La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n’émet pas de traces, perf-sentinel n’a rien à analyser.' },
+          { lead: 'Pas zéro-config.', body: 'La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n’émet pas de traces, Perf Sentinel n’a rien à analyser.' },
           { lead: 'Pas un plugin IDE.', body: 'Pour du feedback in-IDE en JVM/.NET au fil de la frappe, Digma offre une expérience JetBrains bien intégrée.' },
         ],
         detT1: 'Douze ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
@@ -1722,7 +1722,7 @@ class Component extends DCLogic {
         hubPoints: [
           { tag: 'PUSH', title: 'Le push d’abord, le poll en filet', desc: 'Chaque daemon pousse ses findings et réessaie un lot en échec plutôt que de l’abandonner. Le Hub interroge en filet, et seul un poll réussi déclare une source joignable, la direction dont un opérateur a besoin quand une source se tait.' },
           { tag: 'HISTORIQUE', title: 'Une date de première vue que rien d’autre ne garde', desc: 'Un finding dont le template normalisé change est relié à celui qu’il remplace, et la chaîne garde sa date la plus ancienne. Rien en aval ne reconstruit cette chronologie une fois que le tampon l’a oubliée.' },
-          { tag: 'LANCEUR', title: 'Lancer une analyse depuis un navigateur', desc: 'Choisir une source, façonner un run, lire la santé de la flotte. Le Hub lance lui-même le binaire perf-sentinel et sert le tableau de bord qu’il produit.' }
+          { tag: 'LANCEUR', title: 'Lancer une analyse depuis un navigateur', desc: 'Choisir une source, façonner un run, lire la santé de la flotte. Le Hub lance lui-même le binaire Perf Sentinel et sert le tableau de bord qu’il produit.' }
         ],
         hubMore: 'PerfSentinelHub sur GitHub',
         modEyebrow: "// quatre façons de l'exécuter",
@@ -1768,7 +1768,7 @@ class Component extends DCLogic {
           { cap: 'Score GreenOps (IIS, gaspillage)', apm: 'Non', ps: 'Intégré' },
           { cap: 'Licence & hébergement', apm: 'SaaS propriétaire, à l\u2019usage', ps: 'AGPL-3.0, auto-hébergeable' },
         ],
-        cmpFoot: '« APM commercial type » généralise les outils SaaS à base d\u2019agent comme Datadog ou New Relic. Le comportement exact varie selon le produit. Le chiffre d\u2019agent est celui que Datadog publie pour son Agent 7.34, hors traceur chargé dans chaque service, comme celui de perf-sentinel exclut l\u2019instrumentation OTel qu\u2019il lit. perf-sentinel n\u2019est pas un APM complet et ne remplace pas une suite d\u2019observabilité, il s\u2019y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.',
+        cmpFoot: '« APM commercial type » généralise les outils SaaS à base d\u2019agent comme Datadog ou New Relic. Le comportement exact varie selon le produit. Le chiffre d\u2019agent est celui que Datadog publie pour son Agent 7.34, hors traceur chargé dans chaque service, comme celui de Perf Sentinel exclut l\u2019instrumentation OTel qu\u2019il lit. Perf Sentinel n\u2019est pas un APM complet et ne remplace pas une suite d\u2019observabilité, il s\u2019y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.',
         ctaTitle: 'Posez la sentinelle dans votre pipeline',
         ctaText: 'Démo intégrée sans rien installer côté apps, puis quality gate sur traces capturées ou daemon OTLP à côté de votre tracing.',
         demoCmt1: 'rapport terminal', demoCmt2: 'TUI interactif', demoCmt3: 'dashboard HTML',
@@ -1777,7 +1777,7 @@ class Component extends DCLogic {
         ftDocQuickstart: 'Démarrage rapide', ftDocCli: 'Référence CLI', ftDocConfig: 'Configuration', ftDocMethod: 'Méthodologie GreenOps',
         ftProjLicense: 'Licence AGPL-3.0', ftLegalNotice: 'Mentions légales', ftPrivacy: 'Confidentialité',
         ftBadgeNote: 'emplacement badge, à brancher',
-        ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
+        ftBottomLeft: '© 2026 Perf Sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
         ftBottomRight: 'Logo & bannière, ',
         badges: ['Ecoindex', 'Green Web Foundation'],
         langSwitch: 'EN',

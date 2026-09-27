@@ -36,7 +36,7 @@ const PAGES = [
     file: 'index.html', path: '/', frFile: 'fr/index.html',
     enUrl: ORIGIN + '/', frUrl: ORIGIN + '/fr',
     fr: {
-      title: "perf-sentinel : détection d'anti-patterns d'I/O, chiffrée en carbone",
+      title: "Perf Sentinel : détection d'anti-patterns d'I/O, chiffrée en carbone",
       desc: "Binaire auto-hébergeable qui détecte les anti-patterns d'I/O (N+1, appels redondants, requêtes lentes, fanout) dans vos traces OpenTelemetry et les chiffre en énergie et en CO₂.",
       ogDesc: "Repérez les I/O gaspillées (N+1, appels redondants, requêtes lentes, fanout) dans vos traces OpenTelemetry, chiffrées en énergie et en carbone.",
     },
@@ -45,9 +45,9 @@ const PAGES = [
     file: 'guide.html', path: '/guide', frFile: 'fr/guide.html',
     enUrl: ORIGIN + '/guide', frUrl: ORIGIN + '/fr/guide',
     fr: {
-      title: "perf-sentinel : documentation",
-      desc: "Docs perf-sentinel : démarrage rapide, installation, configuration, référence CLI et référence des métriques GreenOps. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
-      ogDesc: "Démarrage rapide, installation, configuration, référence CLI et métriques GreenOps pour perf-sentinel. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
+      title: "Perf Sentinel : documentation",
+      desc: "Docs Perf Sentinel : démarrage rapide, installation, configuration, référence CLI et référence des métriques GreenOps. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
+      ogDesc: "Démarrage rapide, installation, configuration, référence CLI et métriques GreenOps pour Perf Sentinel. Auto-hébergé, OpenTelemetry, AGPL-3.0.",
     },
   },
 ];

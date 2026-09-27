@@ -1,4 +1,4 @@
-/* Minimal Markdown renderer tailored for the perf-sentinel docs.
+/* Minimal Markdown renderer tailored for the Perf Sentinel docs.
    window.PSMD.render(markdown, {id, lang, theme}) -> { html, toc } */
 (function () {
   function esc(s) {

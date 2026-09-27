@@ -1,6 +1,6 @@
 # Index de la documentation de conception
 
-Documentation de conception approfondie de perf-sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
+Documentation de conception approfondie de Perf Sentinel. Ces documents expliquent **pourquoi** chaque décision a été prise. Ils sont destinés aux contributeurs et mainteneurs qui ont besoin de comprendre les raisons derrière l'implémentation.
 
 Pour la documentation orientée utilisateur, voir l'[index de la documentation](../00-INDEX-FR.md).
 

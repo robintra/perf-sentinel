@@ -19,8 +19,8 @@ const GH = '<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" 
 const logo = '<img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto;display:none">';
 
 const FT = {
-  fr: { tagline: 'Détecteur d’anti-patterns d’I/O au niveau protocole, auto-hébergeable et carbon-aware.', product: 'Produit', docs: 'Documentation', project: 'Projet', detection: 'Détection', execution: 'Exécution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparatif', quickstart: 'Démarrage rapide', cli: 'Référence CLI', config: 'Configuration', method: 'Méthodologie GreenOps', license: 'Licence AGPL-3.0', copyright: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking', legal: 'Mentions légales', privacy: 'Confidentialité', credit: 'Logo & bannière, ' },
-  en: { tagline: 'Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.', product: 'Product', docs: 'Documentation', project: 'Project', detection: 'Detection', execution: 'Execution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparison', quickstart: 'Quickstart', cli: 'CLI reference', config: 'Configuration', method: 'GreenOps methodology', license: 'AGPL-3.0 license', copyright: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script', legal: 'Legal notice', privacy: 'Privacy', credit: 'Logo & banner, ' },
+  fr: { tagline: 'Détecteur d’anti-patterns d’I/O au niveau protocole, auto-hébergeable et carbon-aware.', product: 'Produit', docs: 'Documentation', project: 'Projet', detection: 'Détection', execution: 'Exécution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparatif', quickstart: 'Démarrage rapide', cli: 'Référence CLI', config: 'Configuration', method: 'Méthodologie GreenOps', license: 'Licence AGPL-3.0', copyright: '© 2026 Perf Sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking', legal: 'Mentions légales', privacy: 'Confidentialité', credit: 'Logo & bannière, ' },
+  en: { tagline: 'Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.', product: 'Product', docs: 'Documentation', project: 'Project', detection: 'Detection', execution: 'Execution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparison', quickstart: 'Quickstart', cli: 'CLI reference', config: 'Configuration', method: 'GreenOps methodology', license: 'AGPL-3.0 license', copyright: '© 2026 Perf Sentinel · AGPL-3.0 · Eco-designed page, no tracking script', legal: 'Legal notice', privacy: 'Privacy', credit: 'Logo & banner, ' },
 };
 const LEGAL_HREF = { fr: '/mentions-legales', en: '/legal-notice' };
 const PRIV_HREF = { fr: '/confidentialite', en: '/privacy-policy' };
@@ -46,7 +46,7 @@ function header(lang, otherHref) {
     `<div style="margin-left:auto;display:flex;align-items:center;gap:10px">` +
     langCtl(otherHref, lang) +
     `<button id="themeBtn" class="ps-th-btn" aria-label="Theme"><span class="ps-th-ico">${ICON_SYSTEM}</span><span class="ps-th-lbl">${lang === 'fr' ? 'Système' : 'System'}</span></button>` +
-    `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px">${GH}GitHub</a>` +
+    `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px">${GH}GitHub</a>` +
     `</div></div></header>`;
 }
 
@@ -81,8 +81,8 @@ const tailScript = (lang) => {
 
 function page(lang, otherHref, title, desc, main, { robots = 'index,follow', head = '' } = {}) {
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
-    `<title>${title} · perf-sentinel</title><meta name="description" content="${desc}"><meta name="robots" content="${robots}">` +
-    `<meta property="og:type" content="website"><meta property="og:title" content="${title} · perf-sentinel"><meta property="og:description" content="${desc}"><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="perf-sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png">` +
+    `<title>${title} · Perf Sentinel</title><meta name="description" content="${desc}"><meta name="robots" content="${robots}">` +
+    `<meta property="og:type" content="website"><meta property="og:title" content="${title} · Perf Sentinel"><meta property="og:description" content="${desc}"><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="perf-sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png">` +
     `<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css">${STYLE}${legalCss}${head}</head>` +
     `<body><div data-ps-root data-theme="light">${initScript}<div style="min-height:100vh;display:flex;flex-direction:column;background-color:var(--bg);color:var(--text)">` +
     `${header(lang, otherHref)}<main class="legal-main" style="flex:1 0 auto">${main}</main>${footer(lang)}</div></div>${tailScript(lang)}</body></html>`;
@@ -97,8 +97,8 @@ const mentionsFR =
   `<h2>Directeur de la publication</h2><p>Robin Trassard.</p>` +
   `<h2>Hébergeur</h2><p>Le site est hébergé par GitHub Pages, service de GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis (<a href="https://github.com" target="_blank" rel="noopener">github.com</a>).</p>` +
   `<p>Le nom de domaine perf-sentinel.dev est enregistré auprès d'OVH SAS, 2 rue Kellermann, 59100 Roubaix, France (<a href="https://www.ovhcloud.com" target="_blank" rel="noopener">ovhcloud.com</a>).</p>` +
-  `<h2>Propriété intellectuelle</h2><p>Le logiciel perf-sentinel est distribué sous licence libre GNU AGPL-3.0 (<a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">texte de la licence</a>) ; son code source est disponible sur <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener">GitHub</a>. Le logo et la bannière sont l'œuvre de Gwendoline Meignen. Les autres contenus du site (textes, mise en page) sont la propriété de l'éditeur, sauf mention contraire.</p>` +
-  `<h2>Responsabilité</h2><p>Ce site a une vocation informationnelle. L'éditeur s'efforce de fournir des informations exactes mais ne saurait garantir leur exhaustivité ni l'absence d'erreurs. L'utilisation du logiciel perf-sentinel relève de la seule responsabilité de l'utilisateur, dans les conditions de la licence AGPL-3.0.</p>` +
+  `<h2>Propriété intellectuelle</h2><p>Le logiciel Perf Sentinel est distribué sous licence libre GNU AGPL-3.0 (<a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">texte de la licence</a>) ; son code source est disponible sur <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener">GitHub</a>. Le logo et la bannière sont l'œuvre de Gwendoline Meignen. Les autres contenus du site (textes, mise en page) sont la propriété de l'éditeur, sauf mention contraire.</p>` +
+  `<h2>Responsabilité</h2><p>Ce site a une vocation informationnelle. L'éditeur s'efforce de fournir des informations exactes mais ne saurait garantir leur exhaustivité ni l'absence d'erreurs. L'utilisation du logiciel Perf Sentinel relève de la seule responsabilité de l'utilisateur, dans les conditions de la licence AGPL-3.0.</p>` +
   `<h2>Données personnelles</h2><p>Ce site ne collecte aucune donnée personnelle et n'utilise aucun cookie ni traceur. Pour le détail, voir la <a href="/confidentialite">politique de confidentialité</a>.</p>`;
 
 const mentionsEN =
@@ -107,8 +107,8 @@ const mentionsEN =
   `<h2>Publication director</h2><p>Robin Trassard.</p>` +
   `<h2>Host</h2><p>This site is hosted by GitHub Pages, a service of GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA (<a href="https://github.com" target="_blank" rel="noopener">github.com</a>).</p>` +
   `<p>The perf-sentinel.dev domain name is registered with OVH SAS, 2 rue Kellermann, 59100 Roubaix, France (<a href="https://www.ovhcloud.com" target="_blank" rel="noopener">ovhcloud.com</a>).</p>` +
-  `<h2>Intellectual property</h2><p>The perf-sentinel software is distributed under the GNU AGPL-3.0 free license (<a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">license text</a>); its source code is available on <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener">GitHub</a>. The logo and banner are the work of Gwendoline Meignen. Other site content (text, layout) is the property of the publisher unless otherwise stated.</p>` +
-  `<h2>Liability</h2><p>This site is informational. The publisher strives to provide accurate information but cannot guarantee its completeness or the absence of errors. Use of the perf-sentinel software is the sole responsibility of the user, under the terms of the AGPL-3.0 license.</p>` +
+  `<h2>Intellectual property</h2><p>The Perf Sentinel software is distributed under the GNU AGPL-3.0 free license (<a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">license text</a>); its source code is available on <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener">GitHub</a>. The logo and banner are the work of Gwendoline Meignen. Other site content (text, layout) is the property of the publisher unless otherwise stated.</p>` +
+  `<h2>Liability</h2><p>This site is informational. The publisher strives to provide accurate information but cannot guarantee its completeness or the absence of errors. Use of the Perf Sentinel software is the sole responsibility of the user, under the terms of the AGPL-3.0 license.</p>` +
   `<h2>Personal data</h2><p>This site collects no personal data and uses no cookie or tracker. For details, see the <a href="/privacy-policy">privacy policy</a>.</p>`;
 
 const confidFR =
@@ -136,8 +136,8 @@ const confidEN =
 // 404. GitHub Pages only serves the root /404.html, so the English one carries
 // a redirect to the FR twin for readers whose resolved language is French.
 const NF = {
-  fr: { title: 'Page introuvable', desc: 'Cette page du site perf-sentinel n’existe pas ou a été déplacée.', h1: 'Cette page n’existe pas', p: 'Le lien est peut-être cassé, ou la page a été déplacée depuis.', home: 'Accueil', docs: 'Documentation' },
-  en: { title: 'Page not found', desc: 'This perf-sentinel page does not exist or has moved.', h1: 'This page does not exist', p: 'The link may be broken, or the page has moved since.', home: 'Home', docs: 'Documentation' },
+  fr: { title: 'Page introuvable', desc: 'Cette page du site Perf Sentinel n’existe pas ou a été déplacée.', h1: 'Cette page n’existe pas', p: 'Le lien est peut-être cassé, ou la page a été déplacée depuis.', home: 'Accueil', docs: 'Documentation' },
+  en: { title: 'Page not found', desc: 'This Perf Sentinel page does not exist or has moved.', h1: 'This page does not exist', p: 'The link may be broken, or the page has moved since.', home: 'Home', docs: 'Documentation' },
 };
 const notFound = (lang) => {
   const n = NF[lang];
@@ -156,8 +156,8 @@ const frRedirect = `<script>(function(){var l=null;try{l=localStorage.getItem('p
 
 writeFileSync(join(SITE, '404.html'), page('en', '/fr/404', NF.en.title, NF.en.desc, notFound('en'), { robots: 'noindex,follow', head: nfCss + frRedirect }));
 writeFileSync(join(SITE, 'fr', '404.html'), page('fr', '/404', NF.fr.title, NF.fr.desc, notFound('fr'), { robots: 'noindex,follow', head: nfCss }));
-writeFileSync(join(SITE, 'mentions-legales.html'), page('fr', '/legal-notice', 'Mentions légales', 'Mentions légales du site perf-sentinel : éditeur, directeur de la publication et hébergeur.', mentionsFR));
-writeFileSync(join(SITE, 'legal-notice.html'), page('en', '/mentions-legales', 'Legal notice', 'Legal notice for the perf-sentinel site: publisher, publication director and host.', mentionsEN));
-writeFileSync(join(SITE, 'confidentialite.html'), page('fr', '/privacy-policy', 'Politique de confidentialité', 'Politique de confidentialité du site perf-sentinel : aucun cookie, aucun traceur, aucune collecte de données.', confidFR));
-writeFileSync(join(SITE, 'privacy-policy.html'), page('en', '/confidentialite', 'Privacy policy', 'Privacy policy for the perf-sentinel site: no cookies, no trackers, no data collection.', confidEN));
+writeFileSync(join(SITE, 'mentions-legales.html'), page('fr', '/legal-notice', 'Mentions légales', 'Mentions légales du site Perf Sentinel : éditeur, directeur de la publication et hébergeur.', mentionsFR));
+writeFileSync(join(SITE, 'legal-notice.html'), page('en', '/mentions-legales', 'Legal notice', 'Legal notice for the Perf Sentinel site: publisher, publication director and host.', mentionsEN));
+writeFileSync(join(SITE, 'confidentialite.html'), page('fr', '/privacy-policy', 'Politique de confidentialité', 'Politique de confidentialité du site Perf Sentinel : aucun cookie, aucun traceur, aucune collecte de données.', confidFR));
+writeFileSync(join(SITE, 'privacy-policy.html'), page('en', '/confidentialite', 'Privacy policy', 'Privacy policy for the Perf Sentinel site: no cookies, no trackers, no data collection.', confidEN));
 console.log('wrote mentions-legales + legal-notice + confidentialite + privacy-policy + 404 (en, fr)');

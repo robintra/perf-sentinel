@@ -1,6 +1,6 @@
 # Index de la documentation
 
-Documentation utilisateur de perf-sentinel. Pour la documentation de conception approfondie destinée aux contributeurs, voir la [documentation de conception](design/00-INDEX-FR.md).
+Documentation utilisateur de Perf Sentinel. Pour la documentation de conception approfondie destinée aux contributeurs, voir la [documentation de conception](design/00-INDEX-FR.md).
 
 ## Prise en main
 

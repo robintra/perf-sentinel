@@ -1,6 +1,6 @@
 # Documentation index
 
-perf-sentinel's user-facing documentation. For deep design rationale aimed at contributors, see the [Design documentation](design/00-INDEX.md).
+Perf Sentinel's user-facing documentation. For deep design rationale aimed at contributors, see the [Design documentation](design/00-INDEX.md).
 
 ## Getting started
 
