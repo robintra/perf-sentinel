@@ -15,24 +15,25 @@ Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui 
 - **Poids des dépendances :** sqlparser amène des crates supplémentaires et augmente le temps de compilation.
 - **Agnostique du dialecte :** sqlparser nécessite de spécifier un dialecte SQL (PostgreSQL, MySQL, etc.). Notre tokenizer fonctionne avec tous les dialectes car il ne remplace que les littéraux : il n'a jamais besoin de comprendre la structure de la requête.
 - **Performance :** un parseur complet construit un AST que nous jetterions immédiatement. Notre tokenizer en une seule passe traite l'entrée en O(n) sans structure de données intermédiaire.
-- **Simplicité :** 120 lignes de code vs une dépendance de 50 000+ lignes.
+- **Simplicité :** quelques centaines de lignes de code vs une dépendance de 50 000+ lignes.
 
 Le compromis est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : le tokenizer ne gère que le SQL ASCII et ne réalise pas d'analyse sémantique. Il prend en charge les CTEs, les identifiants entre guillemets doubles, les chaînes dollar-quoted PostgreSQL et les instructions `CALL`.
 
-Cette propriété (ne jamais comprendre la structure de la requête) suffit pour toutes les étapes du pipeline. Chaque détecteur (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) raisonne sur la *forme de la trace* (nombre d'occurrences, variance temporelle, ordonnancement des spans, scope d'instrumentation ORM) et sur l'*empreinte* de la requête, jamais sur sa grammaire interne. Une analyse SQL structurelle ne serait rentable que si perf-sentinel pivotait vers de l'analyse statique de requête isolée (une autre catégorie de produit), et même là un plan `EXPLAIN` vaut mieux que re-parser le texte journalisé.
+Cette propriété (ne jamais comprendre la structure de la requête) suffit pour toutes les étapes du pipeline. Chaque détecteur (`n_plus_one`, `redundant`, `fanout`, …) et le classifieur `sanitizer_aware` raisonnent sur la *forme de la trace* (nombre d'occurrences, variance temporelle, ordonnancement des spans, scope d'instrumentation ORM) et sur l'*empreinte* de la requête, jamais sur sa grammaire interne. Une analyse SQL structurelle ne serait rentable que si perf-sentinel pivotait vers de l'analyse statique de requête isolée (une autre catégorie de produit), et même là un plan `EXPLAIN` vaut mieux que re-parser le texte journalisé.
 
 Le tokenizer est aussi *total*. Il produit toujours un template, construit au mieux, même sur du SQL tronqué ou de dialecte inconnu (cf. la gestion des littéraux non terminés), là où un vrai parseur rejette une entrée qu'il ne sait pas analyser. Comme le SQL des traces est ce qu'un driver a bien voulu journaliser, un parseur strict aurait de toute façon besoin de ce tokenizer comme repli.
 
 ## Tokenizer SQL : machine à états en une seule passe
 
-`normalize_sql()` traite la requête octet par octet à travers cinq états :
+`normalize_sql()` traite la requête octet par octet à travers six états :
 
 | État              | Déclencheur (entrée)         | Action                                                | Déclencheur (sortie)                     |
 |-------------------|------------------------------|-------------------------------------------------------|------------------------------------------|
-| **Normal**        | Défaut / fin de littéral     | Accumule dans le template                             | `'`, `"`, `$$`/`$tag$`, ou chiffre isolé |
+| **Normal**        | Défaut / fin de littéral     | Accumule dans le template                             | `'`, `"`, `` ` ``, `$$`/`$tag$`, ou chiffre isolé |
 | **InString**      | Guillemet ouvrant `'`        | Accumule dans `current_value`                         | Guillemet fermant `'` (pas `''`)         |
 | **InNumber**      | Chiffre isolé                | Accumule chiffres/point                               | Non-chiffre ou deuxième point            |
 | **InDoubleQuote** | Guillemet double ouvrant `"` | Laisse passer dans le template (identifiant préservé) | Guillemet double fermant `"`             |
+| **InBacktick** | Accent grave ouvrant `` ` `` (identifiant MySQL) | Laisse passer dans le template (identifiant préservé) | Accent grave fermant `` ` `` |
 | **InDollarQuote** | `$$` ou `$tag$`              | Accumule le corps dans `current_value`, émet un `?`   | `$$` / `$tag$` correspondant             |
 
 ### Optimisation batch `push_str`

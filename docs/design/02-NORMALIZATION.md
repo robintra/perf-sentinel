@@ -15,24 +15,25 @@ The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that buil
 - **Dependency weight:** sqlparser pulls in additional crates and increases compile time.
 - **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals and never needs to understand query structure.
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
-- **Simplicity:** 120 lines of code vs a 50,000+ line dependency.
+- **Simplicity:** a few hundred lines of code vs a 50,000+ line dependency.
 
 The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings and `CALL` statements.
 
-This "never understands query structure" property is sufficient for every stage of the pipeline. Every detector (`n_plus_one`, `redundant`, `fanout`, `sanitizer_aware`, …) reasons over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
+This "never understands query structure" property is sufficient for every stage of the pipeline. Every detector (`n_plus_one`, `redundant`, `fanout`, …) and the `sanitizer_aware` classifier reason over *trace shape* (occurrence counts, timing variance, span ordering, ORM instrumentation scope) and the query *fingerprint*, never the SQL's internal grammar. Structural SQL analysis would only pay off if perf-sentinel pivoted into single-query static analysis (a different product category), and even then an `EXPLAIN` plan beats re-parsing the logged text.
 
 The tokenizer is also *total*. It always emits a best-effort template, even on truncated or unknown-dialect SQL (see the unterminated-literal handling), whereas a real parser rejects input it cannot parse. Since trace SQL is whatever a driver happened to log, a strict parser would need this tokenizer as a fallback anyway.
 
 ## SQL tokenizer: single-pass state machine
 
-`normalize_sql()` processes the query byte-by-byte through five states:
+`normalize_sql()` processes the query byte-by-byte through six states:
 
 | State             | Trigger (enter)          | Action                                             | Trigger (exit)                              |
 |-------------------|--------------------------|----------------------------------------------------|---------------------------------------------|
-| **Normal**        | Default / end of literal | Accumulate into template                           | `'`, `"`, `$$`/`$tag$`, or standalone digit |
+| **Normal**        | Default / end of literal | Accumulate into template                           | `'`, `"`, `` ` ``, `$$`/`$tag$`, or standalone digit |
 | **InString**      | Opening `'`              | Accumulate into `current_value`                    | Closing `'` (not `''`)                      |
 | **InNumber**      | Standalone digit         | Accumulate digits/dot                              | Non-digit or second dot                     |
 | **InDoubleQuote** | Opening `"`              | Pass through into template (identifier preserved)  | Closing `"`                                 |
+| **InBacktick** | Opening `` ` `` (MySQL identifier) | Pass through into template (identifier preserved) | Closing `` ` `` |
 | **InDollarQuote** | `$$` or `$tag$`          | Accumulate body into `current_value`, emit one `?` | Matching `$$` / `$tag$`                     |
 
 ### Batch `push_str` optimization
