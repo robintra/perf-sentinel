@@ -374,7 +374,7 @@
     <section data-dc-tpl="260" data-tech-only="" data-screen-label="Hub" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="261" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--dotnet); letter-spacing: 0.04em;"><span class="sc-interp">// one for the fleet</span></div>
       <div data-dc-tpl="262" style="display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-top: 12px;">
-        <h2 data-dc-tpl="263" style="margin: 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Finding history for the whole fleet,</span><br data-dc-tpl="264"><span class="sc-interp">kept by a </span><span data-dc-tpl="265" style="color: var(--dotnet);"><span class="sc-interp">C#</span></span><span class="sc-interp"> Hub.</span></h2><div data-dc-tpl="266" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--dotnet); background: color-mix(in srgb,var(--dotnet) 12%,transparent); border: 1px solid color-mix(in srgb,var(--dotnet) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
+        <h2 data-dc-tpl="263" style="margin: 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Finding history,</span><br data-dc-tpl="264"><span class="sc-interp">kept by a </span><span data-dc-tpl="265" style="color: var(--dotnet);"><span class="sc-interp">C#</span></span><span class="sc-interp"> Hub.</span></h2><div data-dc-tpl="266" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--dotnet); background: color-mix(in srgb,var(--dotnet) 12%,transparent); border: 1px solid color-mix(in srgb,var(--dotnet) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
           <img data-dc-tpl="267" src="assets/dotnet.svg" alt=".NET" width="15" height="15" style="display: block; flex: 0 0 auto;"><span class="sc-interp">Version 10.0.401</span>
         </div>
       </div>
@@ -1639,7 +1639,7 @@ class Component extends DCLogic {
           { icon: 'package', value: 'NativeAOT', label: 'one native executable, no .NET runtime, chiseled non-root image' },
         ],
         hubBench: 'Detailed measurements in the Hub docs', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/BENCHMARKS.md',
-        hubTitleA: 'Finding history for the whole fleet,', hubTitleB1: 'kept by a ', hubWCs: 'C#', hubTitleB2: ' Hub.',
+        hubTitleA: 'Finding history,', hubTitleB1: 'kept by a ', hubWCs: 'C#', hubTitleB2: ' Hub.',
         hubLeadA: 'A Perf Sentinel in daemon mode holds its findings in memory, oldest evicted first, and ',
         hubLeadB: ' answers at most 1,000 rows. That covers the current state but not the history. The Hub is a separate service that collects from every daemon and keeps what an eviction or a restart would erase, such as the date a finding first appeared.',
         hubPoints: [
@@ -1805,7 +1805,7 @@ class Component extends DCLogic {
           { icon: 'package', value: 'NativeAOT', label: 'un binaire natif unique, sans runtime .NET, image chiselée non root' },
         ],
         hubBench: 'Mesures détaillées dans la doc du Hub', hubBenchHref: 'https://github.com/robintra/PerfSentinelHub/blob/main/docs/FR/BENCHMARKS-FR.md',
-        hubTitleA: 'L’historique des findings de toute la flotte,', hubTitleB1: 'gardé par un Hub ', hubWCs: 'C#', hubTitleB2: '.',
+        hubTitleA: 'L’historique des findings,', hubTitleB1: 'gardé par un Hub ', hubWCs: 'C#', hubTitleB2: '.',
         hubLeadA: 'Un Perf Sentinel en mode daemon garde ses findings en mémoire, les plus anciens évincés d\u2019abord, et ',
         hubLeadB: " répond au plus 1 000 lignes. Cela couvre l'état courant, pas l'historique. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve ce qu'une éviction ou un redémarrage effacerait, comme la date de première apparition d'un finding.",
         hubPoints: [
