@@ -296,7 +296,7 @@
             <div data-dc-tpl="216" style="flex: 0 0 auto; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; font-weight: 600; color: var(--coral); background: color-mix(in srgb,var(--coral) 16%,var(--surface)); border-radius: 7px; padding: 6px 9px; min-width: 34px; text-align: center;"><span class="sc-interp">09</span></div>
             <div data-dc-tpl="217">
               <div data-dc-tpl="218" style="font-size: 16.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Excessive fanout</span></div>
-              <div data-dc-tpl="219" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A span starts ≥ N children in parallel.</span></div>
+              <div data-dc-tpl="219" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">A single operation (span) has more than 20 child calls (SQL, HTTP…), parallel or not (configurable threshold).</span></div>
             </div>
           </div>
         
@@ -1561,7 +1561,7 @@ class Component extends DCLogic {
           { n: '06', name: 'Slow SQL', trigger: 'Query duration above the configured threshold.' },
           { n: '07', name: 'Slow HTTP', trigger: 'Request duration above the configured threshold.' },
           { n: '08', name: 'Slow messaging', trigger: 'Publish duration above the configured threshold.' },
-          { n: '09', name: 'Excessive fanout', trigger: 'A span starts ≥ N children in parallel.' },
+          { n: '09', name: 'Excessive fanout', trigger: 'A single operation (span) has more than 20 child calls (SQL, HTTP…), parallel or not (configurable threshold).' },
           { n: '10', name: 'Chatty service', trigger: 'A single user request makes more than 15 outbound HTTP calls, whatever their target (configurable threshold).' },
           { n: '11', name: 'Pool saturation', trigger: 'Concurrent in-flight requests above the pool size.' },
           { n: '12', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
@@ -1718,7 +1718,7 @@ class Component extends DCLogic {
           { n: '06', name: 'SQL lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
           { n: '07', name: 'HTTP lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
           { n: '08', name: 'Messaging lent', trigger: 'Durée de publication au-dessus du seuil configuré.' },
-          { n: '09', name: 'Fanout excessif', trigger: 'Un span démarre ≥ N enfants en parallèle.' },
+          { n: '09', name: 'Fanout excessif', trigger: 'Une même opération (span) déclenche plus de 20 appels enfants (SQL, HTTP…), en parallèle ou non (seuil réglable).' },
           { n: '10', name: 'Service bavard', trigger: 'Une seule requête utilisateur déclenche plus de 15 appels HTTP sortants, toutes destinations confondues (seuil réglable).' },
           { n: '11', name: 'Saturation de pool', trigger: 'Requêtes concurrentes en vol au-dessus de la taille du pool.' },
           { n: '12', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
