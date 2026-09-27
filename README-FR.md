@@ -107,14 +107,14 @@ Douze types de findings, plus la corrélation cross-trace en mode daemon :
 
 | Pattern            | Déclencheur                                                         |
 |--------------------|---------------------------------------------------------------------|
-| N+1 SQL            | Même template de requête tiré ≥ N fois dans une trace               |
-| N+1 HTTP           | Même template d'URL appelé ≥ N fois dans une trace                  |
-| N+1 messaging      | Même destination publiée ≥ N fois dans une trace                    |
+| N+1 SQL            | Même template de requête, paramètres différents, 5 fois ou plus dans une trace |
+| N+1 HTTP           | Même template d'URL, paramètres différents, 5 fois ou plus dans une trace |
+| N+1 messaging      | Même destination publiée 5 fois ou plus dans une trace              |
 | SQL redondant      | Requête identique avec paramètres identiques, même trace            |
 | HTTP redondant     | Appel identique avec paramètres identiques, même trace              |
-| SQL lent           | Durée de requête au-dessus du seuil configuré                       |
-| HTTP lent          | Durée de requête au-dessus du seuil configuré                       |
-| Messaging lent     | Durée de publication au-dessus du seuil configuré                   |
+| SQL lent           | Même requête au-delà de 500 ms, 3 fois ou plus dans une trace       |
+| HTTP lent          | Même appel au-delà de 500 ms, 3 fois ou plus dans une trace         |
+| Messaging lent     | Même publication au-delà de 500 ms, 3 fois ou plus dans une trace   |
 | Fanout excessif    | Un span a plus de 20 appels enfants, en parallèle ou non            |
 | Service bavard     | Plus de 15 appels HTTP sortants dans une seule requête utilisateur |
 | Saturation de pool | Au moins 10 requêtes SQL simultanées d'un même service dans une trace |

@@ -107,14 +107,14 @@ Twelve finding types, plus cross-trace correlations in daemon mode:
 
 | Pattern          | Trigger                                                   |
 |------------------|-----------------------------------------------------------|
-| N+1 SQL          | Same query template fired ≥ N times in a single trace     |
-| N+1 HTTP         | Same URL template called ≥ N times in a single trace      |
-| N+1 messaging    | Same destination published to ≥ N times in a single trace |
+| N+1 SQL          | Same query template, different params, 5+ times in one trace |
+| N+1 HTTP         | Same URL template, different params, 5+ times in one trace |
+| N+1 messaging    | Same destination published to 5+ times in one trace       |
 | Redundant SQL    | Identical query with identical params, same trace         |
 | Redundant HTTP   | Identical call with identical params, same trace          |
-| Slow SQL         | Query duration above configured threshold                 |
-| Slow HTTP        | Request duration above configured threshold               |
-| Slow messaging   | Publish duration above configured threshold               |
+| Slow SQL         | Same query over 500 ms, 3+ times in one trace             |
+| Slow HTTP        | Same request over 500 ms, 3+ times in one trace           |
+| Slow messaging   | Same publish over 500 ms, 3+ times in one trace           |
 | Excessive fanout | One span has more than 20 child calls, parallel or not    |
 | Chatty service   | More than 15 outbound HTTP calls in one user request      |
 | Pool saturation  | At least 10 concurrent SQL queries from one service in one trace |
