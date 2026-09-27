@@ -4,8 +4,8 @@
 
 Deploy [perf-sentinel](https://github.com/robintra/perf-sentinel) in a
 Kubernetes cluster as a `Deployment`, `DaemonSet` or `StatefulSet`, behind
-a `ClusterIP` Service exposing OTLP gRPC (4317) and OTLP HTTP + `/metrics`
-+ `/api/*` (4318).
+a `ClusterIP` Service exposing OTLP gRPC (4317) and OTLP HTTP +
+`/metrics` + `/api/*` (4318).
 
 perf-sentinel is a lightweight, polyglot performance anti-pattern detector
 for distributed traces. It detects N+1 SQL, N+1 HTTP, redundant queries,
@@ -15,18 +15,18 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 
 ## Chart at a glance
 
-| Key                      | Default                           | Notes                                                                                           |
-|--------------------------|-----------------------------------|-------------------------------------------------------------------------------------------------|
-| `image.repository`       | `ghcr.io/robintra/perf-sentinel`  | Published on GHCR.                                                                              |
-| `image.tag`              | `""` (falls back to `appVersion`) | Pin explicitly in production.                                                                   |
-| `workload.kind`          | `Deployment`                      | `DaemonSet` and `StatefulSet` are opt-in.                                                       |
-| `workload.daemonset.spanRoutingByTraceId` | `false`          | Required to be `true` for `kind: DaemonSet`, else the render fails. Asserts an upstream collector routes by trace ID; a plain Service splits traces and silently degrades detection. |
-| `workload.replicas`      | `1`                               | Per-trace state lives in memory, prefer vertical scaling first.                                 |
-| `service.type`           | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.                                |
-| `ingress.enabled`        | `false`                           | Publishes an API with no embedded IAM. Put an SSO proxy or controller auth in front before enabling. |
-| `serviceMonitor.enabled` | `false`                           | Flip on when the Prometheus Operator is installed.                                              |
-| `networkPolicy.enabled`  | `false`                           | Fail-closed when enabled without selectors.                                                     |
-| `[daemon] environment`   | `"staging"` (via `config.toml`)   | Stamps every finding with a confidence tag consumed by downstream tooling (perf-lint, planned). |
+| Key                                       | Default                           | Notes                                                                                                                                                                                |
+|-------------------------------------------|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `image.repository`                        | `ghcr.io/robintra/perf-sentinel`  | Published on GHCR.                                                                                                                                                                   |
+| `image.tag`                               | `""` (falls back to `appVersion`) | Pin explicitly in production.                                                                                                                                                        |
+| `workload.kind`                           | `Deployment`                      | `DaemonSet` and `StatefulSet` are opt-in.                                                                                                                                            |
+| `workload.daemonset.spanRoutingByTraceId` | `false`                           | Required to be `true` for `kind: DaemonSet`, else the render fails. Asserts an upstream collector routes by trace ID. A plain Service splits traces and silently degrades detection. |
+| `workload.replicas`                       | `1`                               | Per-trace state lives in memory, prefer vertical scaling first.                                                                                                                      |
+| `service.type`                            | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.                                                                                                                     |
+| `ingress.enabled`                         | `false`                           | Publishes an API with no embedded IAM. Put an SSO proxy or controller auth in front before enabling.                                                                                 |
+| `serviceMonitor.enabled`                  | `false`                           | Flip on when the Prometheus Operator is installed.                                                                                                                                   |
+| `networkPolicy.enabled`                   | `false`                           | Fail-closed when enabled without selectors.                                                                                                                                          |
+| `[daemon] environment`                    | `"staging"` (via `config.toml`)   | Stamps every finding with a confidence tag consumed by downstream tooling (perf-lint, planned).                                                                                      |
 
 ## Install from a local checkout
 
