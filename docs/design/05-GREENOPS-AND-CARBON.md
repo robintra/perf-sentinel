@@ -258,7 +258,7 @@ To tag this semantic distinction at the data layer, `CarbonEstimate` carries a `
 - `"sci_v1_intensity"`: used on `co2.sci_per_trace`. The per-R intensity `((E × I) + M) / R`, R = 1 trace.
 - `"sci_v1_operational_ratio"`: used on `co2.avoidable`. The region-blind global ratio `operational × (avoidable/accounted)`, excluding embodied carbon.
 
-The two distinct values signal to downstream consumers that `total` and `avoidable` are computed differently and should not be compared as if they were homogeneous quantities.
+The distinct values on `total` and `avoidable` signal to downstream consumers that the two are computed differently and should not be compared as if they were homogeneous quantities.
 
 ### Avoidable via ratio (design choice)
 
@@ -298,7 +298,7 @@ pub struct CarbonEstimate {
     pub mid: f64,           // best estimate
     pub high: f64,          // mid × 2.0
     pub model: &'static str,       // "io_proxy_v1"
-    pub methodology: &'static str, // "sci_v1_numerator+transport" or "sci_v1_operational_ratio"
+    pub methodology: &'static str, // "sci_v1_numerator+transport", "sci_v1_intensity" or "sci_v1_operational_ratio"
 }
 ```
 
@@ -322,7 +322,7 @@ The bounds reflect aggregate model uncertainty, **not** per-endpoint variance. T
 
 ### Model versioning
 
-The `model: "io_proxy_v1"` field versions the estimation methodology. Future improvements (per-operation weighting, hourly carbon profiles, RAPL integration) will bump this version, allowing downstream consumers to track which methodology produced a given report.
+The `model` field versions the estimation methodology (`io_proxy_v1` for the flat annual proxy, `io_proxy_v2` and `io_proxy_v3` for hourly carbon profiles, a measured tag such as `scaphandre_rapl` for RAPL), allowing downstream consumers to track which methodology produced a given report.
 
 ### Region lookup
 
@@ -434,7 +434,7 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-The scoring stage tracks per-region flags (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
+The scoring stage tracks per-region flags (`any_alumet`, `any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"alumet_rapl"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
 
 **Per-service op counter as single source of truth.** The scraper reads the per-service op counter from `MetricsState::service_io_ops_total` (a Prometheus `CounterVec` labeled with `service` and, since 0.19.0, `grouping`) via `snapshot_service_io_ops()`, which folds the grouping axis back to one total per service. The daemon's event intake path increments this counter on every normalized event. Using the Prometheus counter directly, instead of a parallel counter that would need resetting every scrape window, avoids reset races and gives Grafana users a per-service op rate graph for free.
 
@@ -519,7 +519,7 @@ Past the division this is Scaphandre's formula verbatim, and it inherits the sam
 
 A broker poses the database's problem twice over: it burns the energy of an N+1 publish loop, it emits no span of its own, and it is very often managed, so there is no host to run an agent on. perf-sentinel reuses the `database_waste` shape with the messaging-only ratio, `broker energy × (avoidable publish ops / total publish ops)`, reported as `green_summary.messaging_waste`.
 
-**Why not a per-publish coefficient.** Covered above under "Why no per-publish coefficient can be a measurement". Broker power stops tracking throughput past roughly 20 % of capacity, so marginal energy is not a constant, and the three determinants (utilisation point, replication factor, topology) are invisible from a producer span. The figure is a workload-level measurement split by a count-based ratio, never a coefficient.
+**Why not a per-publish coefficient.** Covered below under "Why no per-publish coefficient can be a measurement". Broker power stops tracking throughput past roughly 20 % of capacity, so marginal energy is not a constant, and the three determinants (utilisation point, replication factor, topology) are invisible from a producer span. The figure is a workload-level measurement split by a count-based ratio, never a coefficient.
 
 **Why `cloud_energy` could not be reused.** The obvious idea is to feed the broker through the existing SPECpower CPU% path. The per-op path blocks it three times over: `ops_snapshot_diff` produces no op delta for a workload that emits no spans, `cloud_energy/table.rs` guards on `ops == 0`, and the region gate in `carbon_compute.rs` is never reached. Only the Alumet-database pattern, which bypasses the span loop entirely, applies. `lookup_instance_power` is reused directly, but the surrounding machinery is not.
 

@@ -258,7 +258,7 @@ Pour étiqueter cette distinction sémantique au niveau des données, `CarbonEst
 - `"sci_v1_intensity"` : utilisé sur `co2.sci_per_trace`. L'intensité par R `((E × I) + M) / R`, R = 1 trace.
 - `"sci_v1_operational_ratio"` : utilisé sur `co2.avoidable`. Le ratio global aveugle à la région `operational × (avoidable/accounted)`, excluant le carbone embarqué.
 
-Les deux valeurs distinctes signalent aux consommateurs en aval que `total` et `avoidable` sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
+Les valeurs distinctes de `total` et `avoidable` signalent aux consommateurs en aval que les deux sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
 
 ### Évitable via ratio (choix de design)
 
@@ -298,7 +298,7 @@ pub struct CarbonEstimate {
     pub mid: f64,           // meilleure estimation
     pub high: f64,          // mid × 2,0
     pub model: &'static str,       // "io_proxy_v1"
-    pub methodology: &'static str, // "sci_v1_numerator+transport" ou "sci_v1_operational_ratio"
+    pub methodology: &'static str, // "sci_v1_numerator+transport", "sci_v1_intensity" ou "sci_v1_operational_ratio"
 }
 ```
 
@@ -322,7 +322,7 @@ Les bornes reflètent l'incertitude agrégée du modèle, **pas** la variance pa
 
 ### Versionnement du modèle
 
-Le champ `model: "io_proxy_v1"` versionne la méthodologie d'estimation. Les améliorations futures (pondération par opération, profils horaires de carbone, intégration RAPL) incrémenteront cette version, permettant aux consommateurs en aval de tracer quelle méthodologie a produit un rapport donné.
+Le champ `model` versionne la méthodologie d'estimation (`io_proxy_v1` pour le proxy annuel constant, `io_proxy_v2` et `io_proxy_v3` pour les profils horaires de carbone, une étiquette mesurée comme `scaphandre_rapl` pour RAPL), permettant aux consommateurs en aval de tracer quelle méthodologie a produit un rapport donné.
 
 ### Recherche par région
 
@@ -434,7 +434,7 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-L'étape de scoring suit des flags par région (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
+L'étape de scoring suit des flags par région (`any_alumet`, `any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"electricity_maps_api"` > `"alumet_rapl"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
 
 **Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus étiqueté par `service` et, depuis 0.19.0, par `grouping`) via `snapshot_service_io_ops()`, qui replie l'axe de regroupement en un seul total par service. Le chemin d'ingestion d'événements du daemon incrémente ce compteur à chaque événement normalisé. Utiliser directement le compteur Prometheus, plutôt qu'un compteur parallèle qu'il faudrait remettre à zéro à chaque fenêtre de scrape, évite les situations de concurrence lors de la remise à zéro et donne gratuitement aux utilisateurs Grafana un graphe de débit d'ops par service.
 
@@ -519,7 +519,7 @@ Passée la division, c'est la formule de Scaphandre mot pour mot, et elle hérit
 
 Un broker pose le problème de la base de données en double : il brûle l'énergie d'une boucle de publication N+1, il n'émet aucun span à lui, et il est très souvent managé, donc il n'existe aucun hôte où faire tourner un agent de mesure. perf-sentinel reprend la forme de `database_waste` avec le ratio messaging seul, `broker energy × (avoidable publish ops / total publish ops)`, rapportée en `green_summary.messaging_waste`.
 
-**Pourquoi pas un coefficient par publication.** Traité plus haut sous "Pourquoi aucun coefficient par publication ne peut être une mesure". La puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, l'énergie marginale n'est donc pas une constante, et les trois éléments qui la détermineraient (taux d'utilisation, facteur de réplication, topologie) sont invisibles depuis un span producteur. Le chiffre est une mesure au niveau du workload répartie par un ratio de comptage, jamais un coefficient.
+**Pourquoi pas un coefficient par publication.** Traité plus bas sous "Pourquoi aucun coefficient par publication ne peut être une mesure". La puissance d'un broker cesse de suivre le débit au-delà d'environ 20 % de sa capacité, l'énergie marginale n'est donc pas une constante, et les trois éléments qui la détermineraient (taux d'utilisation, facteur de réplication, topologie) sont invisibles depuis un span producteur. Le chiffre est une mesure au niveau du workload répartie par un ratio de comptage, jamais un coefficient.
 
 **Pourquoi `cloud_energy` n'était pas réutilisable.** L'idée évidente est de faire passer le broker par le chemin CPU% et SPECpower existant. La voie par opération la bloque trois fois : `ops_snapshot_diff` ne produit aucun delta d'ops pour un workload qui n'émet pas de spans, `cloud_energy/table.rs` garde sur `ops == 0`, et la porte de région dans `carbon_compute.rs` n'est jamais atteinte. Seul le motif Alumet-base de données, qui contourne entièrement la boucle de spans, s'applique. `lookup_instance_power` est réutilisée directement, mais pas la machinerie autour.
 
