@@ -292,13 +292,16 @@ fn apply_scrape_disambiguates_three_jvms_via_cmdline() {
 
     // Each service must receive ITS power reading, not the first one.
     let snap = state.snapshot(100, 60_000);
-    let account = *snap.get("account").unwrap();
-    let chat = *snap.get("chat").unwrap();
-    let game = *snap.get("game").unwrap();
+    let per_op: Vec<f64> = ["account", "chat", "game"]
+        .iter()
+        .map(|service| *snap.get(*service).unwrap())
+        .collect();
     // Power × interval / ops / 3.6e6 gives kWh/op. Ratios preserve the
     // 6/9/12 ordering and the three coefficients are distinct.
-    assert!(account < chat, "account {account} should be < chat {chat}");
-    assert!(chat < game, "chat {chat} should be < game {game}");
+    assert!(
+        per_op.windows(2).all(|pair| pair[0] < pair[1]),
+        "kWh/op must rise from account to chat to game: {per_op:?}"
+    );
 }
 
 #[test]
