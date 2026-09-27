@@ -39,7 +39,7 @@ perf-sentinel publishes reports at two granularity levels, controlled by `--conf
 - `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>` (required, inclusive). UTC calendar dates.
 - `--input <PATH>` (required, repeatable). Each path can be a single `.ndjson` file, a directory whose `*.ndjson` files are unioned (sorted by name), or a shell-expanded glob. perf-sentinel itself does not expand globs, so `--input archive/2026Q1/*.ndjson` works in a shell but fails when called via direct `exec` without shell expansion. In CI runners that exec the binary directly, prefer a directory or a single file.
 - `--output <PATH>` (required). Where to write `perf-sentinel-report.json`.
-- `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the previous section.
+- `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the org-config TOML section below.
 - `--emit-attestation <PATH>` (optional). When set, also writes the in-toto v1 statement sidecar at this path. Needed for the signing workflow.
 - `--strict-attribution` (optional). By default, perf-sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
 - `--tui` (optional, needs the `tui` build feature). Opens a read-only preview instead of writing a report, see below. It relaxes `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to`, and `--output` to optional, since you dial them in the interface. Conflicts with `--emit-attestation`.
@@ -85,7 +85,7 @@ Publishing both lets a reader compare the two and see how much avoidable waste a
 
 Every report carries `methodology.standard_crosswalk`, an interpretive map from its figures to the EU climate-reporting standard ESRS E1 (Delegated Regulation (EU) 2023/5303):
 
-- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
+- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), to be converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
 - the operational carbon term feeds **E1-6 Scope 2** on a location-based basis. ESRS also requires a market-based Scope 2 figure, which SCI excludes, so this is a partial input.
 - embodied carbon (the SCI `M` term, aggregate only) feeds **E1-6 Scope 3** (categories 1 and 2). ESRS admits estimates and proxy data for Scope 3.
 
@@ -332,10 +332,10 @@ The seven fields and where each value comes from:
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `format`          | constant `"sigstore-cosign-intoto-v1"` for this schema                                                                                                                                                           |
 | `bundle_url`      | URL where you will publish `bundle.sig` at step 4                                                                                                                                                                |
-| `signer_identity` | cosign stdout/stderr at step 2, line `Successfully verified SCT...` or `tlog entry... signed by`. Also visible in the cert via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_identity` | the OIDC subject in the signing certificate inside `bundle.sig` (`cosign sign-blob` 3.0+ does not always print it on stdout). Visible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
 | `signer_issuer`   | same source as `signer_identity`, the OIDC issuer URL recorded next to it                                                                                                                                        |
 | `rekor_url`       | the Rekor instance used (`https://rekor.sigstore.dev` for Sigstore public, or the value from `[reporting.sigstore] rekor_url` for a private instance)                                                            |
-| `rekor_log_index` | cosign stdout at step 2, line `tlog entry created with index: X`. Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm                                                                       |
+| `rekor_log_index` | `bundle.sig` at `.verificationMaterial.tlogEntries[0].logIndex` (`cosign sign-blob` 3.0+ no longer prints `tlog entry created with index: X`). Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm |
 | `signed_at`       | timestamp from the Rekor entry, ISO 8601 UTC                                                                                                                                                                     |
 
 Example before / after on a fresh disclosure:
@@ -477,7 +477,7 @@ local state. The helper remains useful for an internal dry-run where
 the four values are inspected for plausibility, not provenance.
 
 The pattern is repetitive and easy to script. Until
-`perf-sentinel sign` lands (planned for 0.7.x), this jq workflow
+`perf-sentinel sign` lands, this jq workflow
 captures the fields from cosign output and patches the report in
 one shot:
 

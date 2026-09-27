@@ -39,7 +39,7 @@ perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés p
 - `--from <YYYY-MM-DD>` et `--to <YYYY-MM-DD>` (requis, inclusifs). Dates calendaires UTC.
 - `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont réunis (triés par nom), ou un glob développé par le shell. perf-sentinel ne développe pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion par le shell. Dans les runners CI qui exécutent le binaire directement, préférer un répertoire ou un fichier unique.
 - `--output <PATH>` (requis). Où écrire `perf-sentinel-report.json`.
-- `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit dans la section précédente.
+- `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit plus bas dans la section TOML org-config.
 - `--emit-attestation <PATH>` (optionnel). Quand fixé, écrit aussi le sidecar statement in-toto v1 à ce chemin. Nécessaire pour le workflow de signature.
 - `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce service synthétique contribue aux totaux agrégés mais est exclu de la ventilation par service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, en listant les horodatages en cause dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut affirmer que 100% des opérations mesurées ont été correctement attribuées.
 - `--tui` (optionnel, nécessite la feature de build `tui`). Ouvre une prévisualisation en lecture seule au lieu d'écrire un rapport, voir ci-dessous. Elle rend `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to` et `--output` optionnels, puisqu'on les règle dans l'interface. Incompatible avec `--emit-attestation`.
@@ -342,10 +342,10 @@ Les sept champs et la source de chaque valeur :
 |-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `format`          | constante `"sigstore-cosign-intoto-v1"` pour ce schéma                                                                                                                                            |
 | `bundle_url`      | URL où vous publierez `bundle.sig` à l'étape 4                                                                                                                                                    |
-| `signer_identity` | sortie cosign (stdout/stderr) à l'étape 2, ligne `Successfully verified SCT...` ou `tlog entry... signed by`. Aussi lisible dans le certificat via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_identity` | le sujet OIDC du certificat de signature contenu dans `bundle.sig` (`cosign sign-blob` 3.0+ ne l'affiche pas toujours sur stdout). Lisible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
 | `signer_issuer`   | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté                                                                                                                           |
 | `rekor_url`       | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée)                                          |
-| `rekor_log_index` | sortie cosign (stdout) à l'étape 2, ligne `tlog entry created with index: X`. Ou la récupérer via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer                                                       |
+| `rekor_log_index` | `bundle.sig` à `.verificationMaterial.tlogEntries[0].logIndex` (`cosign sign-blob` 3.0+ n'affiche plus `tlog entry created with index: X`). Ou la récupérer via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer |
 | `signed_at`       | horodatage de l'entrée Rekor, ISO 8601 UTC                                                                                                                                                        |
 
 Exemple avant / après sur une divulgation fraîche :
@@ -494,7 +494,7 @@ interne où les quatre valeurs sont inspectées pour leur plausibilité,
 pas leur provenance.
 
 La démarche est répétitive et facile à scripter. En attendant que
-`perf-sentinel sign` arrive (prévu 0.7.x), ce workflow jq capture
+`perf-sentinel sign` arrive, ce workflow jq capture
 les champs depuis la sortie cosign et met à jour le rapport en une
 passe :
 
