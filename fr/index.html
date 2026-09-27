@@ -368,7 +368,7 @@
           <div data-dc-tpl="239" style="background: var(--surface); padding: 20px 22px;">
             <div data-dc-tpl="240" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--rust);">
               <div data-dc-tpl="241" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 24px; font-weight: 600; letter-spacing: -0.01em;"><span class="sc-interp">576k–⁠1.2M</span></div>
-              <span data-dc-tpl="242" data-ico="zap" aria-hidden="true"></span>
+              <span data-dc-tpl="242" data-ico="gauge" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="243" style="margin-top: 5px; font-size: 13.5px; color: var(--text-2);"><span class="sc-interp">évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)</span></div>
           </div>
@@ -746,7 +746,7 @@
   [data-ps-root]{scrollbar-color:var(--border) transparent;scrollbar-width:thin}
 
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
-  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/avg-pace.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
+  [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
   [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}
   [data-embed-lead]{font-size:13px;font-weight:600;color:var(--text);margin-right:2px}
   [data-embed-tab],#ps-embed-open{font-family:inherit;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);padding:6px 13px;border-radius:999px;cursor:pointer;transition:border-color .15s ease}
@@ -1667,7 +1667,7 @@ class Component extends DCLogic {
         perfBadgePrefix: 'Version ',
         perfMore: 'Full benchmarks in the docs', modesMore: 'Deployment in depth in the guide',
         perfStats: [
-          { icon: 'zap', value: '576k–\u20601.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
+          { icon: 'gauge', value: '576k–\u20601.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'per event, p50 to p99' },
           { icon: 'memory', value: '17 →\u00a0980\u00a0MB', label: 'daemon RSS: idle, then set by `max_retained_findings` (7-day production median at 100k)' },
           { icon: 'package', value: 'Rust 2024', label: 'with a static musl binary and a FROM scratch image' },
@@ -1832,7 +1832,7 @@ class Component extends DCLogic {
         perfBadgePrefix: 'Version ',
         perfMore: 'Benchmarks détaillés dans la doc', modesMore: 'Déploiement en détail dans le guide',
         perfStats: [
-          { icon: 'zap', value: '576k–\u20601.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
+          { icon: 'gauge', value: '576k–\u20601.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'par évènement, p50 à p99' },
           { icon: 'memory', value: '17 →\u00a0980\u00a0Mo', label: 'RSS daemon : au repos, puis fixé par `max_retained_findings` (médiane 7 j en production à 100k)' },
           { icon: 'package', value: 'Rust 2024', label: 'avec binaire statique musl et image FROM scratch' },
