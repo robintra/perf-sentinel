@@ -1727,7 +1727,7 @@ class Component extends DCLogic {
         hubEyebrow: '// un seul pour la flotte',
         hubTitleA: 'Un daemon garde le présent.', hubTitleB: 'Le Hub garde l\u2019historique.',
         hubLeadA: 'Un Perf Sentinel en mode daemon garde ses findings en mémoire, les plus anciens évincés d\u2019abord, et ',
-        hubLeadB: " répond au plus 1 000 lignes. Assez pour l'état courant, trop peu pour un historique. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve ce qu'une éviction ou un redémarrage efface : la date de première apparition d'un finding.",
+        hubLeadB: " répond au plus 1 000 lignes. Assez pour l'état courant, trop limité pour un historique. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve ce qu'une éviction ou un redémarrage efface : la date de première apparition d'un finding.",
         hubPoints: [
           { tag: 'PUSH', title: 'Le push d’abord, le poll en filet', desc: 'Chaque daemon pousse ses findings et réessaie un lot en échec plutôt que de l’abandonner. Le Hub interroge en filet, et seul un poll réussi déclare une source joignable, la direction dont un opérateur a besoin quand une source se tait.' },
           { tag: 'HISTORIQUE', title: 'Une date de première vue que rien d’autre ne garde', desc: 'Un finding dont le template normalisé change est relié à celui qu’il remplace, et la chaîne garde sa date la plus ancienne. Rien en aval ne reconstruit cette chronologie une fois que le tampon l’a oubliée.' },
