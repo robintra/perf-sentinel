@@ -66,8 +66,8 @@ pub(super) struct ServiceCarbonAccumulator {
     /// window-level model tag (which already carries the `+cal` suffix
     /// when calibration is active).
     pub measured_model: Option<&'static str>,
-    /// Spans whose energy was resolved via Scaphandre or cloud
-    /// `SPECpower` (measured), not the proxy fallback.
+    /// Spans whose energy was resolved by a measured backend, not the
+    /// proxy fallback.
     pub measured_ops: u64,
     /// Total spans processed for this service (measured + proxy).
     pub total_ops: u64,
