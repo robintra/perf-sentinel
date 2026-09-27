@@ -90,7 +90,7 @@
               <button data-dc-tpl="98" type="button" data-embed-tab="tui" data-active="false">TUI</button>
               <button data-dc-tpl="99" type="button" data-embed-tab="hub" data-active="false">HUB</button>
             </div>
-            <a data-dc-tpl="100" data-plain="" href="/exemple/dashboard?theme=light#findings" target="_blank" rel="noopener"><span class="sc-interp">Ouvrir dans un onglet</span><span data-dc-tpl="101" data-arrow=""> ↗</span></a>
+            <a data-dc-tpl="100" data-plain="" href="/exemple/dashboard?theme=light" target="_blank" rel="noopener"><span class="sc-interp">Ouvrir dans un onglet</span><span data-dc-tpl="101" data-arrow=""> ↗</span></a>
           </div>
           
         </div>
@@ -1957,7 +1957,7 @@ class Component extends DCLogic {
   function liveRoot(){return document.querySelector('[data-ps-root]');}
   function th(){var r=liveRoot();return (r&&r.getAttribute('data-theme'))||'dark';}
   // Absolute path so the embed and open link resolve from /fr/ as well as /.
-  function dashUrl(){return '/exemple/dashboard?theme='+th()+'#findings';}
+  function dashUrl(){return '/exemple/dashboard?theme='+th();}
   function hubUrl(){return '/exemple/hub/?theme='+th();}
   // A third target no longer fits a ternary. The Hub launcher takes the theme
   // the same way the dashboard does; the TUI is a terminal cast with its colours
