@@ -115,7 +115,7 @@ Twelve finding types, plus cross-trace correlations in daemon mode:
 | Slow SQL         | Query duration above configured threshold                 |
 | Slow HTTP        | Request duration above configured threshold               |
 | Slow messaging   | Publish duration above configured threshold               |
-| Excessive fanout | One span starts ≥ N children in parallel                  |
+| Excessive fanout | One span has more than 20 child calls, parallel or not    |
 | Chatty service   | More than 15 outbound HTTP calls in one user request      |
 | Pool saturation  | Too many concurrent SQL queries within one trace          |
 | Serialized calls | Sequential I/O that could be parallelized                 |
