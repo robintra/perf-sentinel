@@ -6,6 +6,8 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ### Fixed
 
+- Findings from a Spring Boot service traced through Micrometer Observation now get a suggested fix. The `spring-boot-starter-opentelemetry` starter puts every span under the `org.springframework.boot` scope and sets no `code.namespace`, so framework detection found no signal and the finding carried only its generic suggestion. That scope now marks the service as Java.
+- A SELECT finding whose statement Hibernate generated now gets the JPA fix even when no span names Hibernate. Hibernate 6 and later alias each table as `d1_0`, so a Java finding that would have fallen back to the Java generic fix reads `java_jpa` when its SELECT carries such an alias. A bulk UPDATE or DELETE and a statement traced under the Vert.x SQL client, where Hibernate Reactive generates the same aliases, keep the Java generic fix. This covers the Micrometer case above and the Java agent's JDBC spans that no Hibernate span wraps, which read `java_generic` until now. The finding signature does not include the fix, so acknowledgments keep matching.
 - The daemon no longer warns at every start that it could not tighten the ack store directory to 0700 when that directory is not its own. The Helm chart puts the ack store at the root of its volume, which belongs to root under the pod's `fsGroup`, so the chmod always failed there with a permission error the daemon cannot act on. That case now logs at `debug`. A directory other local users can write into still warns, as does any other chmod failure. The ack file itself keeps its 0600 mode.
 
 ## [0.25.2] - 2026-09-25

@@ -1,8 +1,8 @@
 //! Framework-aware actionable fixes for findings.
 //!
 //! Enriches detected findings with a [`SuggestedFix`] when the
-//! instrumentation scopes, `code_location` or service name reveal the
-//! framework that produced the anti-pattern. Covers Java, C#, Rust,
+//! instrumentation scopes, `code_location`, SQL statement or service name
+//! reveal the framework that produced the anti-pattern. Covers Java, C#, Rust,
 //! Python, Go, Node.js/TypeScript, Ruby and PHP across all ten
 //! protocol anti-patterns, with a per-language `*Generic` fallback when
 //! no framework-specific recommendation applies. The two messaging
@@ -18,6 +18,8 @@
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
+
+use regex::Regex;
 
 use serde::{Deserialize, Serialize};
 
@@ -1738,6 +1740,9 @@ fn messaging_system_of(finding: &Finding) -> Option<MessagingSystem> {
 ///    no generic fallback (language unknown).
 /// 5. Service name substrings, lowest confidence.
 ///
+/// Where 2 and 3 fall back to the Java generic, a SELECT Hibernate
+/// generated still yields `JavaJpa` (see [`language_fallback`]).
+///
 /// `None` when no signal is available.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
     if let Some(framework) = detect_framework_from_scopes(&finding.instrumentation_scopes) {
@@ -1757,14 +1762,15 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
                     detect_framework_from_service_name(&finding.service)
                         .filter(|fw| fw.generic() == language.generic())
                 })
-                .unwrap_or(language.generic()),
+                .unwrap_or_else(|| language_fallback(finding, language)),
         );
     }
     if let Some(loc) = finding.code_location.as_ref() {
         let ns = loc.namespace.as_deref().unwrap_or("");
         if let Some(language) = loc.filepath.as_deref().and_then(language_from_filepath) {
             return Some(
-                match_namespace_against_language(ns, language).unwrap_or(language.generic()),
+                match_namespace_against_language(ns, language)
+                    .unwrap_or_else(|| language_fallback(finding, language)),
             );
         }
         if let Some(fw) = (!ns.is_empty())
@@ -1798,13 +1804,49 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
     detect_framework_from_service_name(&finding.service)
 }
 
+/// Hibernate 6 and later alias each table of a query it generates as
+/// `<stem><n>_<m>` (`select d1_0.id from dossier d1_0`). Hand-written SQL
+/// rarely takes that shape: a schema named like `tenant1_0` would.
+static HIBERNATE_ALIAS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[a-z]+\d+_\d+\.").expect("static regex"));
+
+/// The generic of `language`, unless the statement itself names the ORM.
+/// A span may name neither Hibernate nor the repository that called it
+/// (Micrometer Observation spans never do, the Java agent's JDBC span does
+/// not when no Hibernate span wraps it), yet Hibernate still signs the SQL
+/// it generated with its aliases.
+///
+/// Only a SELECT qualifies: the JPA fixes are about fetching, and a bulk
+/// UPDATE or DELETE carries the same aliases. Hibernate Reactive generates
+/// them too, over the Vert.x SQL client, where the blocking JPA advice
+/// does not apply.
+fn language_fallback(finding: &Finding, language: Language) -> Framework {
+    let template = finding.pattern.template.trim_start();
+    let is_select = template
+        .get(..6)
+        .is_some_and(|head| head.eq_ignore_ascii_case("select"));
+    let reactive = finding
+        .instrumentation_scopes
+        .iter()
+        .any(|scope| scope.contains("vertx-sql-client"));
+    if matches!(language, Language::Java)
+        && is_select
+        && !reactive
+        && HIBERNATE_ALIAS_RE.is_match(template)
+    {
+        return Framework::JavaJpa;
+    }
+    language.generic()
+}
+
 /// Deduce the language from ecosystem-native scope prefixes that
 /// `SCOPE_RULES` cannot handle: `github.com/` (Go module path),
 /// `@opentelemetry/instrumentation-` or `@prisma/` (npm),
 /// `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*`
 /// (`NuGet`), `OpenTelemetry::Instrumentation::` (Ruby gem),
 /// `io.opentelemetry.contrib.php.` (PHP), then any other
-/// `io.opentelemetry.` scope (Java agent). Lower confidence than
+/// `io.opentelemetry.` scope (Java agent) and `org.springframework`
+/// (Spring Boot through Micrometer Observation). Lower confidence than
 /// `SCOPE_RULES`, fires only on prefixes that unambiguously identify the
 /// language. Python's `opentelemetry.instrumentation.` is not claimed.
 /// Rust tracer names have no usable prefix.
@@ -1842,6 +1884,12 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
         // Java agent scopes are `io.opentelemetry.<library>` (`jdbc`,
         // `apache-httpclient-5.0`). SCOPE_RULES catch the framework ones first.
         if scope.starts_with("io.opentelemetry.") {
+            return Some(Language::Java);
+        }
+        // Spring Boot names its Micrometer Observation tracer
+        // `org.springframework.boot` and puts every span under it, with no
+        // `code.namespace`: the language is all these spans reveal.
+        if vendor_prefix_matches(scope, "org.springframework") {
             return Some(Language::Java);
         }
     }

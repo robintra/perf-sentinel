@@ -1225,6 +1225,76 @@ fn go_generic_from_scope_prefix_without_code_location() {
 }
 
 #[test]
+fn java_generic_from_spring_boot_micrometer_scope() {
+    // A Spring Boot service traced through Micrometer Observation puts
+    // every span under `org.springframework.boot`, with no code.namespace.
+    let mut f = finding_with_location(FindingType::RedundantSql, None);
+    f.instrumentation_scopes = vec!["org.springframework.boot".to_string()];
+    let fix = lookup_fix(&f).expect("JavaGeneric via the Spring Boot scope");
+    assert_eq!(fix.framework, "java_generic");
+    // Segment boundary: a tracer merely named after Spring claims nothing.
+    f.instrumentation_scopes = vec!["org.springframeworkish".to_string()];
+    assert!(lookup_fix(&f).is_none());
+}
+
+#[test]
+fn java_jpa_from_hibernate_aliases_when_no_span_names_hibernate() {
+    let hibernate = "select d1_0.id,d1_0.code from crm.dossier d1_0 where d1_0.id=?";
+    for scope in ["org.springframework.boot", "io.opentelemetry.jdbc"] {
+        let mut f = finding_with_scopes(FindingType::NPlusOneSql, &[scope]);
+        f.pattern.template = hibernate.to_string();
+        let fix = lookup_fix(&f).expect("JavaJpa via Hibernate aliases");
+        assert_eq!(fix.framework, "java_jpa", "scope {scope}");
+    }
+    // Same through a filepath-derived language.
+    let mut f = finding_with_location(
+        FindingType::RedundantSql,
+        Some(loc("DossierService.java", None)),
+    );
+    f.pattern.template = hibernate.to_string();
+    assert_eq!(lookup_fix(&f).expect("fix").framework, "java_jpa");
+}
+
+#[test]
+fn hand_written_sql_keeps_the_java_generic() {
+    let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["org.springframework.boot"]);
+    for template in [
+        "select d.id, d.code from crm.dossier d where d.id = ?",
+        // An alias only resembling Hibernate's: glued to a word, or uppercase.
+        "select my_d1_0.id from t my_d1_0",
+        "select D1_0.id from t D1_0",
+        // Hibernate's INSERT carries no alias.
+        "insert into crm.dossier (code,id) values (?,?)",
+        // A bulk HQL UPDATE does, but the JPA fixes are about fetching.
+        "update crm.dossier d1_0 set code=? where d1_0.id=?",
+    ] {
+        f.pattern.template = template.to_string();
+        assert_eq!(
+            lookup_fix(&f).expect("fix").framework,
+            "java_generic",
+            "{template}"
+        );
+    }
+}
+
+#[test]
+fn hibernate_reactive_over_vertx_keeps_the_java_generic() {
+    let mut f = finding_with_scopes(
+        FindingType::NPlusOneSql,
+        &["io.opentelemetry.vertx-sql-client-4.0"],
+    );
+    f.pattern.template = "select b1_0.id from book b1_0 where b1_0.author_id=$?".to_string();
+    assert_eq!(lookup_fix(&f).expect("fix").framework, "java_generic");
+}
+
+#[test]
+fn hibernate_aliases_do_not_make_another_language_jpa() {
+    let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["github.com/jackc/pgx"]);
+    f.pattern.template = "select d1_0.id from dossier d1_0 where d1_0.id=?".to_string();
+    assert_eq!(lookup_fix(&f).expect("fix").framework, "go_generic");
+}
+
+#[test]
 fn node_generic_from_scope_prefix_without_code_location() {
     // nest-svc spans have scope `@opentelemetry/instrumentation-pg`
     // but no code.filepath.
