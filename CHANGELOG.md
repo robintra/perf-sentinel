@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-09-28
+
+This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature. A Java finding can now carry a different suggested fix, the Java one for a Spring Boot service traced through Micrometer Observation and the JPA one for a SELECT that Hibernate generated, and since the signature does not include the fix, acknowledgments keep matching. The daemon logs one warning fewer at start under the Helm chart.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure and found inside their window. Nothing in 0.25.3 touches the scoring code.
+
 ### Fixed
 
 - Findings from a Spring Boot service traced through Micrometer Observation now get a suggested fix. The `spring-boot-starter-opentelemetry` starter puts every span under the `org.springframework.boot` scope and sets no `code.namespace`, so framework detection found no signal and the finding carried only its generic suggestion. That scope now marks the service as Java.

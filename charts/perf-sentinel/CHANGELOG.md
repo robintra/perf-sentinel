@@ -10,6 +10,30 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.3]
+
+### Fixed
+
+- **`appVersion` moves to `0.25.3`.** The daemon no longer warns at every
+  start that it could not tighten the ack store directory to 0700. The chart
+  puts the ack store at the root of its volume, which belongs to root under
+  the pod's `fsGroup`, so that chmod always failed with a permission error
+  the daemon cannot act on. That case now logs at `debug`, and the ack file
+  keeps its 0600 mode.
+- Findings from a Spring Boot service traced through Micrometer Observation
+  now get the Java suggested fix, and a SELECT that Hibernate generated gets
+  the JPA one even when no span names Hibernate. Finding signatures do not
+  change, so acknowledgments keep matching.
+
+### Changed
+
+- The comments of `values.yaml`, the templates and the chart README are
+  reworded. The comments of the default `config.toml` are rendered into the
+  ConfigMap, so its `checksum/config` annotation changes. The image tag
+  changes in the same upgrade, so the rollout happens either way.
+
+No `values.yaml` key is added or removed, and no template logic changes.
+
 ## [0.25.2]
 
 ### Added
