@@ -56,6 +56,16 @@ filename. Keep those names when copying them into `.perf-sentinel.d/`:
 sharded Compose topologies. Mount it as `.perf-sentinel.toml`, then place only
 the optional GreenOps fragments in the sibling `.perf-sentinel.d/` directory.
 
+`perf-sentinel watch` adds one layer above every file. Its `--listen-address`,
+`--listen-port-http`, `--listen-port-grpc` and `--max-export-findings` flags
+join the merge as a last `[daemon]` document, so a flag replaces the same key
+from a fragment or from the main file, even when the file gives that key the
+wrong type. Validation runs once, on that result: a flag goes through the same
+bounds as the file, an out-of-range flag stops the daemon with exit code 75
+and an error that names the command-line flags, and each advisory prints once,
+with the values the daemon runs with. A value clap itself rejects, such as a
+port above 65535, exits with code 2 before any file is read.
+
 ## Subcommands
 
 | Subcommand     | Description                                                                                                                                                                                                     |
