@@ -1805,10 +1805,24 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 }
 
 /// Hibernate 6 and later alias each table of a query it generates as
-/// `<stem><n>_<m>` (`select d1_0.id from dossier d1_0`). Hand-written SQL
-/// rarely takes that shape: a schema named like `tenant1_0` would.
+/// `<stem><n>_<m>` (`select d1_0.id from dossier d1_0`).
 static HIBERNATE_ALIAS_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b[a-z]+\d+_\d+\.").expect("static regex"));
+    LazyLock::new(|| Regex::new(r"\b([a-z]+\d+_\d+)\.").expect("static regex"));
+
+/// A column qualified by a Hibernate-shaped alias that the query also
+/// declares after its table (`from dossier d1_0`). The declaration rules
+/// out a schema or table merely named that way (`tenant1_0.users`), which
+/// never stands alone.
+fn has_hibernate_alias(template: &str) -> bool {
+    HIBERNATE_ALIAS_RE.captures_iter(template).any(|caps| {
+        let alias = &caps[1];
+        template.match_indices(alias).any(|(at, _)| {
+            let declared_after_table = template[..at].ends_with(char::is_whitespace);
+            let end = template[at + alias.len()..].chars().next();
+            declared_after_table && end.is_none_or(|c| c.is_whitespace() || matches!(c, ',' | ')'))
+        })
+    })
+}
 
 /// The generic of `language`, unless the statement itself names the ORM.
 /// A span may name neither Hibernate nor the repository that called it
@@ -1822,17 +1836,22 @@ static HIBERNATE_ALIAS_RE: LazyLock<Regex> =
 /// does not apply.
 fn language_fallback(finding: &Finding, language: Language) -> Framework {
     let template = finding.pattern.template.trim_start();
-    let is_select = template
+    // `hibernate.use_sql_comments` opens the statement with a block comment.
+    let mut statement = template;
+    while let Some(rest) = statement.strip_prefix("/*") {
+        statement = rest
+            .split_once("*/")
+            .map_or("", |(_, after)| after)
+            .trim_start();
+    }
+    let is_select = statement
         .get(..6)
         .is_some_and(|head| head.eq_ignore_ascii_case("select"));
     let reactive = finding
         .instrumentation_scopes
         .iter()
         .any(|scope| scope.contains("vertx-sql-client"));
-    if matches!(language, Language::Java)
-        && is_select
-        && !reactive
-        && HIBERNATE_ALIAS_RE.is_match(template)
+    if matches!(language, Language::Java) && is_select && !reactive && has_hibernate_alias(template)
     {
         return Framework::JavaJpa;
     }
