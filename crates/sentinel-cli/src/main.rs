@@ -3100,8 +3100,9 @@ fn cmd_explain(
 }
 
 /// The `watch` flags as a `[daemon]` TOML table, `None` when none is set.
-/// A `Debug`-quoted string is a valid TOML basic string for anything a
-/// listen address can hold, and a control character fails to parse.
+/// A `Debug`-quoted string cannot break out of its TOML basic string. A tab,
+/// a newline or a quote round-trips, while any character `Debug` writes as
+/// `\u{..}` (other control and non-printable characters) fails the parse.
 #[cfg(feature = "daemon")]
 fn watch_flags_toml(
     listen_address: Option<&str>,
