@@ -410,9 +410,9 @@ impl Config {
     /// explicit (they changed the config) and a hard reject would force
     /// workarounds (e.g., iptables) that are harder to audit.
     ///
-    /// Kept separate from `validate()`, which stays free of daemon-only
-    /// advisories. The `watch` flags reach the config as a last TOML
-    /// fragment, so this runs once, on the address the daemon binds.
+    /// Called once by the loader, after `validate()`, on the merged
+    /// configuration. The `watch` flags reach it as a last TOML fragment, so
+    /// the address it reads is the one the daemon binds.
     pub fn warn_listen_addr_if_non_loopback(&self) {
         if !self.daemon_is_loopback() {
             tracing::warn!(
@@ -475,13 +475,8 @@ impl Config {
         Ok(())
     }
 
-    /// Reporting-section advisory warnings emitted at load time only.
-    /// Kept separate from `validate_reporting` because the daemon
-    /// entrypoint re-runs `validate()` after applying CLI overrides
-    /// (`--listen-address`, ports), and an advisory not affected by
-    /// those overrides must not be re-emitted. Otherwise an operator
-    /// upgrading from 0.6.2 to 0.7.0 sees the same warning twice and
-    /// suspects two daemon instances or a duplicated config layer.
+    /// Reporting-section advisory warnings, emitted once by the loader
+    /// after `validate()` on the merged configuration.
     pub(super) fn warn_reporting_advisory(&self) {
         if self
             .reporting
