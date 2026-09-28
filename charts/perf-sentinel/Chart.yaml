@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.2
-appVersion: "0.25.2"
+version: 0.25.3
+appVersion: "0.25.3"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,11 +36,15 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: added
-      description: "appVersion 0.25.2. Outbound HTTP spans from a Spring Boot service traced through Micrometer Observation keep their method and status. The daemon reads the `method` and `status` tags that the `spring-boot-starter-opentelemetry` starter and the Micrometer Zipkin bridge set, after both OpenTelemetry conventions, so such a call no longer reads as a `GET` without a status. A finding on a call that is not a `GET` gets a new signature. No values.yaml key is added or removed, and no template changes."
+    - kind: fixed
+      description: "appVersion 0.25.3. The daemon no longer warns at every start that it could not tighten the ack store directory to 0700. The chart puts the ack store at the root of its volume, which belongs to root under the pod's `fsGroup`, so that chmod always failed. That case now logs at `debug`, and the ack file keeps its 0600 mode."
+    - kind: fixed
+      description: "Findings from a Spring Boot service traced through Micrometer Observation now get the Java suggested fix, and a SELECT that Hibernate generated gets the JPA one even when no span names Hibernate. Finding signatures do not change, so acknowledgments keep matching."
+    - kind: changed
+      description: "The comments of values.yaml, the templates and the chart README are reworded. The default config.toml comments are rendered into the ConfigMap, so `checksum/config` changes. No values.yaml key is added or removed, and no template logic changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.2
+      image: ghcr.io/robintra/perf-sentinel:0.25.3
       platforms:
         - linux/amd64
         - linux/arm64
