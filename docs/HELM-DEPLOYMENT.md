@@ -718,7 +718,10 @@ rewrites `fsGroup` or `runAsUser` on the pod. The ack store then reports
 ack write routes return 503, `GET /api/acks` an empty list), so that
 half is a soft failure. But `[daemon.incidents] archive_path` is opened
 at startup and fails the daemon outright, with the offending mode named
-in the message. Check the log on first rollout.
+in the message. Check the log on first rollout. The mount directory
+itself stays owned by root, so the daemon cannot bring it to `0700`
+either: it logs that at `debug` only, since `fsGroup` leaves it closed
+to other users.
 
 **Load the CI TOML baseline from a ConfigMap.** Mount
 `.perf-sentinel-acknowledgments.toml` via `extraVolumes` and point
