@@ -84,7 +84,12 @@ fn cli_watch_rejects_max_export_findings_past_the_ceiling() {
         .output()
         .expect("failed to execute perf-sentinel");
 
-    assert!(!output.status.success(), "startup should have been refused");
+    // 75 like an invalid config file: the flag is its last layer.
+    assert_eq!(
+        output.status.code(),
+        Some(75),
+        "startup should have been refused"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("max_export_findings"),
