@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- The daemon no longer warns at every start that it could not tighten the ack store directory to 0700 when that directory is not its own. The Helm chart puts the ack store at the root of its volume, which belongs to root under the pod's `fsGroup`, so the chmod always failed there with a permission error the daemon cannot act on. That case now logs at `debug`. A directory other local users can write into still warns, as does any other chmod failure. The ack file itself keeps its 0600 mode.
+
 ## [0.25.2] - 2026-09-25
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. Findings can move for a Spring Boot service traced through Micrometer Observation. An outbound call that is not a `GET` now carries its own verb in its template, so the finding it raises gets a new signature and an acknowledgment recorded against the old `GET` signature stops matching it, and a `POST` and a `GET` to the same URL that had grouped into one finding now count apart, which can split that finding or leave each half below its threshold. A service traced by an OpenTelemetry agent or SDK keeps its signatures, since the OpenTelemetry keys still win.

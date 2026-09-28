@@ -508,6 +508,14 @@ async fn tighten_parent_dir_perms(parent: &Path) {
     if current & 0o077 != 0 {
         perms.set_mode(0o700);
         if let Err(e) = tokio::fs::set_permissions(parent, perms).await {
+            if is_expected_chmod_refusal(&e, current) {
+                tracing::debug!(
+                    path = %parent.display(),
+                    error = %e,
+                    "ack store parent directory is not ours to tighten to 0700"
+                );
+                return;
+            }
             tracing::warn!(
                 path = %parent.display(),
                 error = %e,
@@ -515,6 +523,14 @@ async fn tighten_parent_dir_perms(parent: &Path) {
             );
         }
     }
+}
+
+/// A Kubernetes volume root belongs to root under the pod's `fsGroup`, so
+/// the daemon can never tighten it: expected, not a fault, unless other
+/// local users can write into it.
+#[cfg(unix)]
+fn is_expected_chmod_refusal(error: &std::io::Error, mode: u32) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied && mode & 0o002 == 0
 }
 
 #[cfg(not(unix))]
@@ -938,6 +954,20 @@ mod tests {
         let active = store.list_active().await;
         assert_eq!(active[0].by.len(), MAX_BY_LEN);
         assert_eq!(active[0].reason.as_ref().unwrap().len(), MAX_REASON_LEN);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chmod_refusal_is_expected_only_on_a_dir_others_cannot_write() {
+        let eperm = std::io::Error::from_raw_os_error(1);
+        // fsGroup volume root (2775) and a root-owned 0755 directory.
+        assert!(is_expected_chmod_refusal(&eperm, 0o775));
+        assert!(is_expected_chmod_refusal(&eperm, 0o755));
+        // World-writable, like /tmp: still worth a warning.
+        assert!(!is_expected_chmod_refusal(&eperm, 0o777));
+        // Any other failure, here a read-only filesystem.
+        let erofs = std::io::Error::from_raw_os_error(30);
+        assert!(!is_expected_chmod_refusal(&erofs, 0o775));
     }
 
     #[cfg(unix)]
