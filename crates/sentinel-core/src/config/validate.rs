@@ -410,11 +410,9 @@ impl Config {
     /// explicit (they changed the config) and a hard reject would force
     /// workarounds (e.g., iptables) that are harder to audit.
     ///
-    /// Kept separate from `validate()` because it must run even when the
-    /// caller never re-validates. The daemon entrypoint does call
-    /// `validate()` a second time after applying its CLI overrides, so the
-    /// advisory warnings inside it are emitted twice when a config file
-    /// was loaded, the second pass reading the overridden values.
+    /// Kept separate from `validate()`, which stays free of daemon-only
+    /// advisories. The `watch` flags reach the config as a last TOML
+    /// fragment, so this runs once, on the address the daemon binds.
     pub fn warn_listen_addr_if_non_loopback(&self) {
         if !self.daemon_is_loopback() {
             tracing::warn!(

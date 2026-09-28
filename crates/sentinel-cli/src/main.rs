@@ -2098,12 +2098,18 @@ fn validate_daemon_url_or_exit(raw: Option<String>) -> Option<String> {
 }
 
 fn load_config(path: Option<&std::path::Path>) -> Config {
+    load_config_with_flags(path, None)
+}
+
+/// `flags` is a last TOML document carrying command-line overrides, merged
+/// before the one validation pass so its advisories read the final values.
+fn load_config_with_flags(path: Option<&std::path::Path>, flags: Option<&str>) -> Config {
     let config_path = path.map_or_else(
         || PathBuf::from(".perf-sentinel.toml"),
         std::path::Path::to_path_buf,
     );
 
-    match load_config_files(&config_path, path.is_some()) {
+    match load_config_files(&config_path, path.is_some(), flags) {
         Ok(config) => config,
         Err(error) => {
             if error.starts_with("read ") {
@@ -2116,7 +2122,11 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     }
 }
 
-fn load_config_files(config_path: &std::path::Path, require_main: bool) -> Result<Config, String> {
+fn load_config_files(
+    config_path: &std::path::Path,
+    require_main: bool,
+    flags: Option<&str>,
+) -> Result<Config, String> {
     let parent = config_path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -2178,6 +2188,9 @@ fn load_config_files(config_path: &std::path::Path, require_main: bool) -> Resul
             }
         }
         Err(error) => return Err(format!("read {}: {error}", config_path.display())),
+    }
+    if let Some(flags) = flags {
+        documents.push(("command-line flags".to_string(), flags.to_string()));
     }
     // No file at all still goes through the parser: the environment
     // overrides live in the conversion, so a container started with the
@@ -3086,6 +3099,33 @@ fn cmd_explain(
     }
 }
 
+/// The `watch` flags as a `[daemon]` TOML table, `None` when none is set.
+/// A `Debug`-quoted string is a valid TOML basic string for anything a
+/// listen address can hold, and a control character fails to parse.
+#[cfg(feature = "daemon")]
+fn watch_flags_toml(
+    listen_address: Option<&str>,
+    listen_port_http: Option<u16>,
+    listen_port_grpc: Option<u16>,
+    max_export_findings: Option<usize>,
+) -> Option<String> {
+    use std::fmt::Write as _;
+    let mut table = String::new();
+    if let Some(addr) = listen_address {
+        let _ = writeln!(table, "listen_address = {addr:?}");
+    }
+    if let Some(port) = listen_port_http {
+        let _ = writeln!(table, "listen_port_http = {port}");
+    }
+    if let Some(port) = listen_port_grpc {
+        let _ = writeln!(table, "listen_port_grpc = {port}");
+    }
+    if let Some(n) = max_export_findings {
+        let _ = writeln!(table, "max_export_findings = {n}");
+    }
+    (!table.is_empty()).then(|| format!("[daemon]\n{table}"))
+}
+
 #[cfg(feature = "daemon")]
 async fn cmd_watch(
     config_path: Option<&std::path::Path>,
@@ -3094,31 +3134,13 @@ async fn cmd_watch(
     listen_port_grpc: Option<u16>,
     max_export_findings: Option<usize>,
 ) {
-    let mut config = load_config(config_path);
-    if let Some(addr) = listen_address {
-        config.daemon.listen_addr = addr;
-    }
-    if let Some(port) = listen_port_http {
-        config.daemon.listen_port = port;
-    }
-    if let Some(port) = listen_port_grpc {
-        config.daemon.listen_port_grpc = port;
-    }
-    if let Some(n) = max_export_findings {
-        config.daemon.max_export_findings = n;
-    }
-    // Re-run strict validation so CLI overrides on listen_addr, ports and
-    // max_export_findings are checked against the same bounds the config
-    // file goes through. This second pass also re-emits the daemon-limit
-    // advisories, now reading the overrides rather than the file values, so
-    // a raised max_export_findings is comfort-checked against what will run.
-    // The non-loopback security advisory sits outside `validate()` and is
-    // re-checked separately below.
-    if let Err(e) = config.validate() {
-        eprintln!("Error: invalid daemon configuration after CLI overrides: {e}");
-        std::process::exit(1);
-    }
-    config.warn_listen_addr_if_non_loopback();
+    let flags = watch_flags_toml(
+        listen_address.as_deref(),
+        listen_port_http,
+        listen_port_grpc,
+        max_export_findings,
+    );
+    let config = load_config_with_flags(config_path, flags.as_deref());
     info!(
         "Starting daemon: gRPC={}:{}, HTTP={}:{}",
         config.daemon.listen_addr,
@@ -3439,7 +3461,7 @@ mod tests {
         let main = dir.path().join(".perf-sentinel.toml");
         std::fs::write(&main, "[detection]\nn_plus_one_min_occurrences = 13\n").unwrap();
 
-        let config = load_config_files(&main, false).unwrap();
+        let config = load_config_files(&main, false, None).unwrap();
         assert_eq!(config.detection.n_plus_one_threshold, 13);
         assert_eq!(config.green.default_region.as_deref(), Some("eu-west-3"));
     }
@@ -3455,8 +3477,35 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_config_files(&dir.path().join(".perf-sentinel.toml"), false).unwrap();
+        let config =
+            load_config_files(&dir.path().join(".perf-sentinel.toml"), false, None).unwrap();
         assert_eq!(config.detection.n_plus_one_threshold, 9);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn watch_flags_override_the_config_files() {
+        assert_eq!(watch_flags_toml(None, None, None, None), None);
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join(".perf-sentinel.toml");
+        std::fs::write(
+            &main,
+            "[daemon]\nlisten_address = \"127.0.0.1\"\nlisten_port_http = 4318\nmax_export_findings = 100\n",
+        )
+        .unwrap();
+        let flags = watch_flags_toml(Some("[::1]"), Some(14318), Some(14317), Some(250));
+        let config = load_config_files(&main, false, flags.as_deref()).unwrap();
+        assert_eq!(config.daemon.listen_addr, "[::1]");
+        assert_eq!(config.daemon.listen_port, 14318);
+        assert_eq!(config.daemon.listen_port_grpc, 14317);
+        assert_eq!(config.daemon.max_export_findings, 250);
+        // A flag goes through the same bounds as the file.
+        let flags = watch_flags_toml(None, Some(0), None, None);
+        assert!(load_config_files(&main, false, flags.as_deref()).is_err());
+        // A quote or a backslash stays inside the TOML string.
+        let flags = watch_flags_toml(Some("a\"b\\c"), None, None, None);
+        let config = load_config_files(&main, false, flags.as_deref()).unwrap();
+        assert_eq!(config.daemon.listen_addr, "a\"b\\c");
     }
 
     #[test]
@@ -3480,7 +3529,8 @@ mod tests {
         std::fs::create_dir(&fragments).unwrap();
         std::fs::write(fragments.join("30-green.toml"), "[green]\n").unwrap();
         std::fs::write(fragments.join("30-cloud.toml"), "[green.cloud]\n").unwrap();
-        let error = load_config_files(&dir.path().join(".perf-sentinel.toml"), false).unwrap_err();
+        let error =
+            load_config_files(&dir.path().join(".perf-sentinel.toml"), false, None).unwrap_err();
         assert!(error.contains("duplicate fragment priority 30"));
     }
 
