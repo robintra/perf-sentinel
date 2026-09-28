@@ -1,0 +1,12 @@
+# Keep GitHub's language breakdown to the engine itself: Rust, plus the HTML of the report.
+# Excluded here is everything around it: shell and Python tooling, the VHS tapes, the
+# TypeScript tests, and the packaging (Dockerfile, Helm templates). Matching by extension
+# keeps new files of those kinds out too. These files stay first-party, so neither
+# linguist-vendored nor linguist-generated would be true of them.
+*.sh linguist-detectable=false
+*.py linguist-detectable=false
+*.ts linguist-detectable=false
+*.tape linguist-detectable=false
+*.tpl linguist-detectable=false
+Dockerfile linguist-detectable=false
+scripts/hooks/pre-commit linguist-detectable=false
