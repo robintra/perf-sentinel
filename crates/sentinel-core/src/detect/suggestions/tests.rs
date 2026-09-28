@@ -1246,6 +1246,22 @@ fn java_jpa_from_hibernate_aliases_when_no_span_names_hibernate() {
         let fix = lookup_fix(&f).expect("JavaJpa via Hibernate aliases");
         assert_eq!(fix.framework, "java_jpa", "scope {scope}");
     }
+    // The alias declared inside a subquery, last in the statement, before a
+    // newline, and behind the comment `hibernate.use_sql_comments` adds.
+    for template in [
+        "select d1_0.id from crm.dossier d1_0 where d1_0.id in (select c1_0.id from crm.contact c1_0)",
+        "select d1_0.id from crm.dossier d1_0",
+        "select d1_0.id from crm.dossier d1_0\n\twhere d1_0.id=?",
+        "/* <criteria> */ select d1_0.id from crm.dossier d1_0 where d1_0.id=?",
+    ] {
+        let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["org.springframework.boot"]);
+        f.pattern.template = template.to_string();
+        assert_eq!(
+            lookup_fix(&f).expect("fix").framework,
+            "java_jpa",
+            "{template}"
+        );
+    }
     // Same through a filepath-derived language.
     let mut f = finding_with_location(
         FindingType::RedundantSql,
@@ -1263,6 +1279,8 @@ fn hand_written_sql_keeps_the_java_generic() {
         // An alias only resembling Hibernate's: glued to a word, or uppercase.
         "select my_d1_0.id from t my_d1_0",
         "select D1_0.id from t D1_0",
+        // A schema named like an alias, never declared as one.
+        "select u.id from tenant1_0.users u where u.id = ?",
         // Hibernate's INSERT carries no alias.
         "insert into crm.dossier (code,id) values (?,?)",
         // A bulk HQL UPDATE does, but the JPA fixes are about fetching.
