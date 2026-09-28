@@ -24,6 +24,9 @@ the chart version, to know which daemon image ships.
   now get the Java suggested fix, and a SELECT that Hibernate generated gets
   the JPA one even when no span names Hibernate. Finding signatures do not
   change, so acknowledgments keep matching.
+- The daemon logs each configuration advisory once at start. The chart's
+  default `config.toml` listens on `0.0.0.0`, so every pod printed the
+  non-loopback listen advisory twice.
 
 ### Changed
 
