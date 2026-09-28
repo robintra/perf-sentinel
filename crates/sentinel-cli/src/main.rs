@@ -2189,17 +2189,15 @@ fn load_config_files(
         }
         Err(error) => return Err(format!("read {}: {error}", config_path.display())),
     }
-    if let Some(flags) = flags {
-        documents.push(("command-line flags".to_string(), flags.to_string()));
-    }
     // No file at all still goes through the parser: the environment
     // overrides live in the conversion, so a container started with the
     // keys in its environment and no mounted config gets them applied
     // and validated instead of running with its write routes open.
-    let borrowed: Vec<_> = documents
+    let mut borrowed: Vec<_> = documents
         .iter()
         .map(|(name, content)| (name.as_str(), content.as_str()))
         .collect();
+    borrowed.extend(flags.map(|flags| ("command-line flags", flags)));
     sentinel_core::config::load_from_fragments(&borrowed).map_err(|error| error.to_string())
 }
 
