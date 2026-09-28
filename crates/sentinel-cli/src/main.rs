@@ -3500,7 +3500,8 @@ mod tests {
         assert_eq!(config.daemon.max_export_findings, 250);
         // A flag goes through the same bounds as the file.
         let flags = watch_flags_toml(None, Some(0), None, None);
-        assert!(load_config_files(&main, false, flags.as_deref()).is_err());
+        let error = load_config_files(&main, false, flags.as_deref()).unwrap_err();
+        assert!(error.starts_with("in command-line flags: "), "{error}");
         // A quote or a backslash stays inside the TOML string.
         let flags = watch_flags_toml(Some("a\"b\\c"), None, None, None);
         let config = load_config_files(&main, false, flags.as_deref()).unwrap();
