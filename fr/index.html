@@ -112,27 +112,27 @@
     </section>
 
     
-    <section data-dc-tpl="142" data-tech-only="" style="padding: 48px 0px 0px;">
-      <div data-dc-tpl="143" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; max-width: 760px;">
-        <div data-dc-tpl="144" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em; margin-bottom: 16px;"><span class="sc-interp">À lire en premier</span></div>
-        <div data-dc-tpl="145" style="display: flex; flex-direction: column; gap: 12px;">
-          <p data-dc-tpl="146" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="147" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prérequis :</span></strong> <span class="sc-interp">vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>), l’URL cible (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>) ou la destination broker (<code class="dc-cmd">messaging.system</code> / <code class="dc-cmd">messaging.destination.name</code>).</span> <span class="sc-interp">Mise en place</span> <a data-dc-tpl="148" href="docs/fr/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le <code class="dc-cmd">datadogreceiver</code> du Collector OTel, voir</span> <a data-dc-tpl="149" href="docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</p>
-          <p data-dc-tpl="150" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="151" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Auditez votre tracing d’abord :</span></strong> <span class="sc-interp">les spans qui ne portent pas ces attributs sont écartés. Sur une entrée OTLP, le rapport indique combien, mais un rapport maigre ou vide peut encore signifier aucun problème détecté ou aucune instrumentation exploitable. <code class="dc-cmd">perf-sentinel inspect</code> montre ce qui a été extrait. Un arbre de spans vide signifie que ces attributs manquent en amont. Voir</span> <a data-dc-tpl="152" href="docs/fr/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">ce qui borne les findings</span></a>.</p>
-          <p data-dc-tpl="153" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="154" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Ce que ce n’est pas :</span></strong> <span class="sc-interp">un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire standalone. Voir</span> <a data-dc-tpl="155" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">le comparatif</span></a>.</p>
-          <p data-dc-tpl="156" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="157" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturité :</span></strong> <span class="sc-interp">bêta, pré-1.0. En production dans une équipe depuis juin 2026, sur un cluster Kubernetes. La CLI, les clés de configuration et les formats sur disque peuvent encore changer avant la 1.0. Les enums de sortie JSON sont la seule partie sous contrat de stabilité explicite, les ruptures de compatibilité étant signalées dans les</span> <a data-dc-tpl="158" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">notes de version</span></a>.</p>
-        </div>
+    <section data-dc-tpl="142" style="padding: 64px 0px 12px;">
+      <div data-dc-tpl="143" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// le problème</span></div>
+      <h2 data-dc-tpl="144" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Pourquoi </span><span data-dc-tpl="145" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">Perf Sentinel</span></span><span class="sc-interp"> ?</span></h2>
+      <div data-dc-tpl="146" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
+        <p data-dc-tpl="147" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Les anti-patterns d’I/O touchent toute application, monolithe comme microservices. En distribué, une requête traverse plusieurs services en cascade, et le gaspillage n’apparaît qu’en regardant la trace entière.</span></p>
+        <p data-dc-tpl="148" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Les outils existants n’en couvrent qu’une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.</span></p>
+        <p data-dc-tpl="149" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Perf Sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l’ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.</span></p>
+        <p data-dc-tpl="150" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.</span></p>
       </div>
     </section>
 
     
-    <section data-dc-tpl="159" style="padding: 64px 0px 12px;">
-      <div data-dc-tpl="160" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// le problème</span></div>
-      <h2 data-dc-tpl="161" style="margin: 12px 0px 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text); max-width: 760px;"><span class="sc-interp">Pourquoi </span><span data-dc-tpl="162" data-why-accent="" style="color: var(--accent);"><span class="sc-interp">Perf Sentinel</span></span><span class="sc-interp"> ?</span></h2>
-      <div data-dc-tpl="163" style="margin-top: 26px; display: flex; flex-direction: column; gap: 18px; max-width: 720px;">
-        <p data-dc-tpl="164" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Les anti-patterns d’I/O touchent toute application, monolithe comme microservices. En distribué, une requête traverse plusieurs services en cascade, et le gaspillage n’apparaît qu’en regardant la trace entière.</span></p>
-        <p data-dc-tpl="165" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Les outils existants n’en couvrent qu’une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.</span></p>
-        <p data-dc-tpl="166" style="margin: 0px; font-size: 15.5px; color: var(--text-2); line-height: 1.65;"><span class="sc-interp">Perf Sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l’ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.</span></p>
-        <p data-dc-tpl="167" style="margin: 0px; font-size: 15.5px; color: var(--text); line-height: 1.65; border-left: 2px solid var(--accent); padding-left: 18px;"><span class="sc-interp">Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.</span></p>
+    <section data-dc-tpl="151" data-tech-only="" data-band="" style="padding: 48px 0px 0px;">
+      <div data-dc-tpl="152" style="background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; max-width: 760px;">
+        <div data-dc-tpl="153" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em; margin-bottom: 16px;"><span class="sc-interp">À lire en premier</span></div>
+        <div data-dc-tpl="154" style="display: flex; flex-direction: column; gap: 12px;">
+          <p data-dc-tpl="155" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="156" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Prérequis :</span></strong> <span class="sc-interp">vos services émettent des traces OpenTelemetry (spans SQL, HTTP et messaging), ou dd-trace via un pont Collector, portant le texte de la requête (<code class="dc-cmd">db.statement</code> / <code class="dc-cmd">db.query.text</code>), l’URL cible (<code class="dc-cmd">http.url</code> / <code class="dc-cmd">url.full</code>) ou la destination broker (<code class="dc-cmd">messaging.system</code> / <code class="dc-cmd">messaging.destination.name</code>).</span> <span class="sc-interp">Mise en place</span> <a data-dc-tpl="157" href="docs/fr/INSTRUMENTATION" data-clink="1" style="color: var(--accent);"><span class="sc-interp">par langage (Java, C#, Rust, Go, Node.js, Python, Ruby, PHP)</span></a>. <span class="sc-interp">Pas de SDK OpenTelemetry ? Les équipes sur Datadog font le pont du trafic dd-trace via le <code class="dc-cmd">datadogreceiver</code> du Collector OTel, voir</span> <a data-dc-tpl="158" href="docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</p>
+          <p data-dc-tpl="159" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="160" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Auditez votre tracing d’abord :</span></strong> <span class="sc-interp">les spans qui ne portent pas ces attributs sont écartés. Sur une entrée OTLP, le rapport indique combien, mais un rapport maigre ou vide peut encore signifier aucun problème détecté ou aucune instrumentation exploitable. <code class="dc-cmd">perf-sentinel inspect</code> montre ce qui a été extrait. Un arbre de spans vide signifie que ces attributs manquent en amont. Voir</span> <a data-dc-tpl="161" href="docs/fr/LIMITATIONS" data-clink="1" style="color: var(--accent);"><span class="sc-interp">ce qui borne les findings</span></a>.</p>
+          <p data-dc-tpl="162" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="163" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Ce que ce n’est pas :</span></strong> <span class="sc-interp">un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire standalone. Voir</span> <a data-dc-tpl="164" href="#comparatif" data-clink="1" style="color: var(--accent);"><span class="sc-interp">le comparatif</span></a>.</p>
+          <p data-dc-tpl="165" style="margin: 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.6;"><strong data-dc-tpl="166" style="color: var(--text); font-weight: 600;"><span class="sc-interp">Maturité :</span></strong> <span class="sc-interp">bêta, pré-1.0. En production dans une équipe depuis juin 2026, sur un cluster Kubernetes. La CLI, les clés de configuration et les formats sur disque peuvent encore changer avant la 1.0. Les enums de sortie JSON sont la seule partie sous contrat de stabilité explicite, les ruptures de compatibilité étant signalées dans les</span> <a data-dc-tpl="167" href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" data-clink="1" style="color: var(--accent);"><span class="sc-interp">notes de version</span></a>.</p>
+        </div>
       </div>
     </section>
 
@@ -225,7 +225,7 @@
     </section>
 
     
-    <section data-dc-tpl="245" data-tech-only="" data-screen-label="Détection" style="padding: 64px 0px 12px;">
+    <section data-dc-tpl="245" data-tech-only="" data-band="" data-screen-label="Détection" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="246" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
         <div data-dc-tpl="247">
           <div data-dc-tpl="248" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// ce qui est détecté</span></div>
@@ -338,7 +338,7 @@
     </section>
 
     
-    <section data-dc-tpl="285" data-tech-only="" data-screen-label="Performance" style="padding: 64px 0px 12px;">
+    <section data-dc-tpl="285" data-tech-only="" data-band="" data-screen-label="Performance" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="286" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--rust); letter-spacing: 0.04em;"><span class="sc-interp">// écrit en rust</span></div>
       <div data-dc-tpl="287" style="display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-top: 12px;">
         <h2 data-dc-tpl="288" style="margin: 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">Un mono-binaire </span><span data-dc-tpl="289" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp">, mesuré</span></h2><div data-dc-tpl="290" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
@@ -453,7 +453,7 @@
     </section>
 
     
-    <section data-dc-tpl="331" data-screen-label="GreenOps" style="padding: 64px 0px 12px;">
+    <section data-dc-tpl="331" data-band="" data-screen-label="GreenOps" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="332" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; padding: clamp(28px, 4vw, 48px);">
         <div data-dc-tpl="333" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
           <div data-dc-tpl="334">
@@ -572,7 +572,7 @@
     </section>
 
     
-    <section data-dc-tpl="390" data-hide-rse="" data-screen-label="License" style="padding: 64px 0px 12px;">
+    <section data-dc-tpl="390" data-hide-rse="" data-band="" data-screen-label="License" style="padding: 64px 0px 12px;">
       <div data-dc-tpl="391" style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
         <div data-dc-tpl="392">
           <div data-dc-tpl="393" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">// licence</span></div>
@@ -675,8 +675,9 @@
   html{scroll-behavior:smooth}
   body{margin:0}
   section{scroll-margin-top:84px}
+  [data-band]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding:56px 0!important;margin-top:40px}
   [data-ps-root]{
-    --bg:#F1F6F3; --surface:#FFFFFF;--embed-bg:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1;
+    --bg:#F1F6F3; --surface:#FFFFFF;--embed-bg:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1; --band:#E3EDE7;
     --text:#3A4A43; --text-2:#5C6F66;
     --accent:#0BA671; --accent-strong:#0b7d54; --accent-soft:#E0F4ED; --on-accent:#FFFFFF;
     --term-bg:#082A1E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#6FA791;
@@ -687,7 +688,7 @@
     transition:background-color .35s ease,color .35s ease;
   }
   [data-ps-root][data-theme="dark"]{
-    --bg:#061F2C; --surface:#0B2A38;--embed-bg:#161616; --surface-2:#0E3242; --border:#1B3F4F;
+    --bg:#061F2C; --surface:#0B2A38;--embed-bg:#161616; --surface-2:#0E3242; --border:#1B3F4F; --band:#08293A;
     --text:#E0F4ED; --text-2:#8FB0A6;
     --accent:#0BA671; --accent-strong:#0BA671; --accent-soft:#0E3A33; --on-accent:#FFFFFF;
     --term-bg:#03161E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#5E8A78;
@@ -909,19 +910,6 @@
       </div>
     </section>
 
-    <!-- READ FIRST -->
-    <section data-tech-only="" style="padding:48px 0 0">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em;margin-bottom:16px">{{ prereqTitle }}</div>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq1Label }}</strong> {{ prereq1Text }} {{ prereq1Setup }} <a href="{{ refBase }}INSTRUMENTATION" style="color:var(--accent);" data-clink="1">{{ prereq1Link }}</a>. {{ prereq1Dd }} <a href="{{ prereq1DdHref }}" style="color:var(--accent);" data-clink="1">{{ prereq1DdLink }}</a>.</p>
-          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq2Label }}</strong> {{ prereq2Text }} <a href="{{ refBase }}LIMITATIONS" style="color:var(--accent);" data-clink="1">{{ prereq2Link }}</a>.</p>
-          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq3Label }}</strong> {{ prereq3Text }} <a href="#comparatif" style="color:var(--accent);" data-clink="1">{{ prereq3Link }}</a>.</p>
-          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq4Label }}</strong> {{ prereq4Text }} <a href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" style="color:var(--accent);" data-clink="1">{{ prereq4Link }}</a>.</p>
-        </div>
-      </div>
-    </section>
-
     <!-- WHY -->
     <section id="why" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
@@ -931,6 +919,19 @@
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP3 }}</p>
         <p style="margin:0;font-size:15.5px;color:var(--text);line-height:1.65;border-left:2px solid var(--accent);padding-left:18px">{{ whyP4 }}</p>
+      </div>
+    </section>
+
+    <!-- READ FIRST -->
+    <section data-tech-only="" data-band="" style="padding:48px 0 0">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em;margin-bottom:16px">{{ prereqTitle }}</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq1Label }}</strong> {{ prereq1Text }} {{ prereq1Setup }} <a href="{{ refBase }}INSTRUMENTATION" style="color:var(--accent);" data-clink="1">{{ prereq1Link }}</a>. {{ prereq1Dd }} <a href="{{ prereq1DdHref }}" style="color:var(--accent);" data-clink="1">{{ prereq1DdLink }}</a>.</p>
+          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq2Label }}</strong> {{ prereq2Text }} <a href="{{ refBase }}LIMITATIONS" style="color:var(--accent);" data-clink="1">{{ prereq2Link }}</a>.</p>
+          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq3Label }}</strong> {{ prereq3Text }} <a href="#comparatif" style="color:var(--accent);" data-clink="1">{{ prereq3Link }}</a>.</p>
+          <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq4Label }}</strong> {{ prereq4Text }} <a href="https://github.com/robintra/perf-sentinel/releases" target="_blank" rel="noopener" style="color:var(--accent);" data-clink="1">{{ prereq4Link }}</a>.</p>
+        </div>
       </div>
     </section>
 
@@ -1015,7 +1016,7 @@
     </section>
 
     <!-- DETECTION -->
-    <section id="detection" data-tech-only="" data-screen-label="Détection" style="padding:64px 0 12px">
+    <section id="detection" data-tech-only="" data-band="" data-screen-label="Détection" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ detEyebrow }}</div>
@@ -1071,7 +1072,7 @@
     </section>
 
     <!-- PERFORMANCE -->
-    <section id="perf" data-tech-only="" data-screen-label="Performance" style="padding:64px 0 12px">
+    <section id="perf" data-tech-only="" data-band="" data-screen-label="Performance" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--rust);letter-spacing:.04em">{{ perfEyebrow }}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;margin-top:12px">
         <h2 style="margin:0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ perfT1 }}<span style="color:var(--rust)">{{ perfWRust }}</span>{{ perfT2 }}</h2>
@@ -1128,7 +1129,7 @@
     </section>
 
     <!-- GREENOPS -->
-    <section id="greenops" data-screen-label="GreenOps" style="padding:64px 0 12px">
+    <section id="greenops" data-band="" data-screen-label="GreenOps" style="padding:64px 0 12px">
       <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:clamp(28px,4vw,48px)">
         <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
           <div>
@@ -1183,7 +1184,7 @@
     </section>
 
     <!-- LICENSE -->
-    <section id="license" data-hide-rse="" data-screen-label="License" style="padding:64px 0 12px">
+    <section id="license" data-hide-rse="" data-band="" data-screen-label="License" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
