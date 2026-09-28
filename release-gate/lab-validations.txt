@@ -398,3 +398,33 @@ v0.25.1	f147b61	2026-09-24	PASS
 # Found on the way: Jaeger 2.21.0 removed /api/traces (jaegertracing/jaeger
 # #9260), the endpoint perf-sentinel jaeger-query calls.
 v0.25.2	17bf44f	2026-09-25	PASS
+#
+# v0.25.3, 2026-09-28. Targeted pass, not verify-all-scenarios: a fallback in
+# the suggested fix, one log level and the order in which `watch` applies its
+# flags, no ingest, no detector and no scoring code. Against 9ff2f5af as the
+# release binary (local build, 0.25.3) and its daemon image, built from the
+# same code (--version 0.25.3). No cluster.
+# New hibernate-alias-suggestion 14/14: a Spring Boot 4.1.1 + Spring Data JPA
+# app under the OTel Java agent 2.31.1, under the agent with its Hibernate and
+# Spring Data instrumentation off and SQL comments on, under the Micrometer
+# bridge, and straight into the daemon. Lazy loads, which no Hibernate span
+# wraps even under the default agent, and the commented derived SELECT read
+# java_jpa. The JdbcTemplate SELECT and the commented bulk UPDATE read
+# java_generic, and so does the Micrometer n_plus_one_http.
+# New ack-store-fsgroup-root 8/8: the daemon image, run as 65534 on a Docker
+# volume prepared as root:65534 2775 like a Kubernetes fsGroup root, starts
+# without the chmod warning, logs the refusal at debug, takes an ack and
+# writes acks.jsonl at 600. A world-writable root still warns, and a root the
+# daemon owns is tightened to 700. Listening on 0.0.0.0 like the chart, it
+# prints the non-loopback advisory once, whether the address comes from the
+# file or from --listen-address.
+# Control: the published 0.25.2 binary fails the 5 checks that read the new
+# fix (java_generic, and no fix through Micrometer) and passes the other 9.
+# The 0.25.2 image fails the 3 log checks (chmod warning twice over, advisory
+# printed twice from the file) and passes the other 5. On one capture both
+# binaries produce the same finding signatures.
+# Replayed on 0.25.3: ruby-activerecord-suggestion and micrometer-http-client,
+# both PASS, their daemon legs passing the listen ports as flags.
+# Not run: validate-findings. No lab stack asserts a Java suggested fix, and
+# the daemon legs above cover the receiver.
+v0.25.3	86e0143	2026-09-28	PASS
