@@ -219,6 +219,15 @@ pub(crate) fn namespace_from_qualified_name(fq: &str) -> Option<&str> {
         .map(|(ns, _)| ns)
 }
 
+/// Stable `code.function.name` is already qualified and the namespace was
+/// derived from it, so joining the two would repeat the prefix.
+#[must_use]
+pub(crate) fn function_carries_namespace(function: &str, namespace: &str) -> bool {
+    function
+        .strip_prefix(namespace)
+        .is_some_and(|rest| rest.starts_with(CODE_FRAME_SEPARATORS))
+}
+
 /// Reject what must not become an endpoint: blanks, and control characters,
 /// which `sanitize_span_event` already drops from the `code_*` fields and
 /// which `source.endpoint` does not filter on its own.
@@ -277,15 +286,7 @@ pub(crate) fn code_frame_endpoint(
         namespace.and_then(usable_code_frame_part),
         function.and_then(usable_code_frame_part),
     ) {
-        // Stable `code.function.name` is already qualified and the namespace
-        // was derived from it, so concatenating would repeat the prefix.
-        (Some(ns), Some(f))
-            if f.len() > ns.len()
-                && f.starts_with(ns)
-                && f[ns.len()..].starts_with(CODE_FRAME_SEPARATORS) =>
-        {
-            f.to_string()
-        }
+        (Some(ns), Some(f)) if function_carries_namespace(f, ns) => f.to_string(),
         // Join with the separator that attaches a function to this namespace,
         // so the legacy pair and the stable name spell one origin the same way.
         (Some(ns), Some(f)) => format!("{ns}{}{f}", frame_separator(ns)),
