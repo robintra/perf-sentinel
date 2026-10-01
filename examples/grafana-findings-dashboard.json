@@ -797,7 +797,7 @@
     {
       "type": "table",
       "title": "Findings",
-      "description": "One row per distinct problem, folded by the signature acknowledgments use. Filter with the column headers.\n\n'Traces' counts retained detections: it falls as they age out and resets on restart, so it measures presence, not a lifetime total. 'Occurrences' is the repeats inside the trace shown. 'Est. impact (ops)' is Traces x Ops/trace, the avoidable I/O to rank by, 0 for the types that waste none.\n\n'Suggestion' is the fix for the framework or broker inferred from the trace when there is one, the generic hint otherwise, and 'Fix for' names that technology, blank when the hint is generic.\n\n'Acked via' needs Include acked true: toml is the CI baseline file, daemon the runtime store. Grouping, Service and Finding type narrow the request, so a tenant is complete up to Max rows, and Skip rows reads on.",
+      "description": "One row per distinct problem, folded by the signature acknowledgments use. Filter with the column headers.\n\n'Traces' counts retained detections: it falls as they age out and resets on restart, so it measures presence, not a lifetime total. 'Occurrences' is the repeats inside the trace shown. 'Est. impact (ops)' is Traces x Ops/trace, the avoidable I/O to rank by, 0 for the types that waste none.\n\n'Suggestion' is the fix for the framework or broker inferred from the trace when there is one, the generic hint otherwise, and 'Fix for' names that technology, blank when the hint is generic. 'Code' is the call site from the span's code.* attributes, the function then file:line as the CLI prints them, either one alone when the other is missing, blank when the instrumentation sends none.\n\n'Acked via' needs Include acked true: toml is the CI baseline file, daemon the runtime store. Grouping, Service and Finding type narrow the request, so a tenant is complete up to Max rows, and Skip rows reads on.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -823,7 +823,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & \".\" & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -868,6 +868,11 @@
             {
               "selector": "finding.pattern.template",
               "text": "Operation",
+              "type": "string"
+            },
+            {
+              "selector": "code",
+              "text": "Code",
               "type": "string"
             },
             {
@@ -1037,6 +1042,22 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Code"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Traces"
             },
             "properties": [
@@ -1180,12 +1201,13 @@
               "Ops/trace": 8,
               "Est. impact (ops)": 9,
               "Operation": 10,
-              "Suggestion": 11,
-              "Fix for": 12,
-              "Acked via": 13,
-              "Trace": 14,
-              "Last seen": 15,
-              "Signature": 16
+              "Code": 11,
+              "Suggestion": 12,
+              "Fix for": 13,
+              "Acked via": 14,
+              "Trace": 15,
+              "Last seen": 16,
+              "Signature": 17
             },
             "renameByName": {}
           }
@@ -1967,7 +1989,7 @@
     {
       "type": "table",
       "title": "Incident findings",
-      "description": "The findings frozen for the incident selected above, from GET /api/incidents?id=, whatever page the Incidents table shows. A daemon before 0.24.0 ignores id and answers the Incidents table's page, where a clicked row is found too. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for and the column order follow the Findings table above.",
+      "description": "The findings frozen for the incident selected above, from GET /api/incidents?id=, whatever page the Incidents table shows. A daemon before 0.24.0 ignores id and answers the Incidents table's page, where a clicked row is found too. Empty until a row is clicked or Incident holds an id. The time picker does not apply.\n\nOne row per signature folded over the incident's window alone, so Traces and First seen describe the window, not the whole ring. The settle pass can add rows and raise counts, never remove. A First seen after Started fired only after the restart.\n\nSent with [daemon] read_api_key as X-API-Key. Est. impact, Suggestion, Fix for, Code and the column order follow the Findings table above.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "${DS_INFINITY}"
@@ -1993,7 +2015,7 @@
           "url_options": {
             "method": "GET"
           },
-          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & \".\" & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
           "columns": [
             {
               "selector": "finding.severity",
@@ -2038,6 +2060,11 @@
             {
               "selector": "finding.pattern.template",
               "text": "Operation",
+              "type": "string"
+            },
+            {
+              "selector": "code",
+              "text": "Code",
               "type": "string"
             },
             {
@@ -2207,6 +2234,22 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Code"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Traces"
             },
             "properties": [
@@ -2350,12 +2393,13 @@
               "Ops/trace": 8,
               "Est. impact (ops)": 9,
               "Operation": 10,
-              "Suggestion": 11,
-              "Fix for": 12,
-              "First seen": 13,
-              "Trace": 14,
-              "Last seen": 15,
-              "Signature": 16
+              "Code": 11,
+              "Suggestion": 12,
+              "Fix for": 13,
+              "First seen": 14,
+              "Trace": 15,
+              "Last seen": 16,
+              "Signature": 17
             },
             "renameByName": {}
           }
@@ -2378,7 +2422,7 @@
           "type": "table",
           "id": 101,
           "title": "Findings history",
-          "description": "One row per problem the Hub saw in the chosen environment inside the dashboard's time range, read from the Hub rather than from the daemon's ring. A day counts when the Hub observed the finding that day, on the Hub's clock in UTC.\n\n'First seen', 'Last seen' and 'Status' describe the chosen environment alone, the whole fleet on All. There are no occurrence columns: the daemon's counts are relative to its ring and do not add up over months.\n\n'Acked on' and 'Acked by' come from the Hub's mirror of each daemon's acks, 'Acked via' is the daemon's own annotation at the last observation. The Ack link opens the Hub's ack page for that signature, once Hub URL is set.\n\nNeeds PerfSentinelHub 0.3.0: an older Hub ignores the range and the environment and answers its latest state.",
+          "description": "One row per problem the Hub saw in the chosen environment inside the dashboard's time range, read from the Hub rather than from the daemon's ring. A day counts when the Hub observed the finding that day, on the Hub's clock in UTC.\n\n'First seen', 'Last seen' and 'Status' describe the chosen environment alone, the whole fleet on All. There are no occurrence columns: the daemon's counts are relative to its ring and do not add up over months. 'Code' is the call site as the Findings table above shows it, at the last observation.\n\n'Acked on' and 'Acked by' come from the Hub's mirror of each daemon's acks, 'Acked via' is the daemon's own annotation at the last observation. The Ack link opens the Hub's ack page for that signature, once Hub URL is set.\n\nNeeds PerfSentinelHub 0.3.0: an older Hub ignores the range and the environment and answers its latest state.",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
             "uid": "${DS_HUB}"
@@ -2404,7 +2448,7 @@
               "url_options": {
                 "method": "GET"
               },
-              "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"first_seen\": $i.first_seen, \"last_seen\": $i.last_seen, \"status\": $i.status, \"max_confidence\": $i.max_confidence, \"sources\": $join([$i.sources.name], \", \"), \"acked_on\": $join([$i.acks.source_id], \", \"), \"acked_by\": $join([$i.acks.by], \", \"), \"acknowledged_by\": $i.acknowledged_by, \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+              "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"first_seen\": $i.first_seen, \"last_seen\": $i.last_seen, \"status\": $i.status, \"max_confidence\": $i.max_confidence, \"sources\": $join([$i.sources.name], \", \"), \"acked_on\": $join([$i.acks.source_id], \", \"), \"acked_by\": $join([$i.acks.by], \", \"), \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & \".\" & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
               "columns": [
                 {
                   "selector": "ack",
@@ -2474,6 +2518,11 @@
                 {
                   "selector": "finding.pattern.template",
                   "text": "Operation",
+                  "type": "string"
+                },
+                {
+                  "selector": "code",
+                  "text": "Code",
                   "type": "string"
                 },
                 {
@@ -2633,6 +2682,22 @@
               {
                 "matcher": {
                   "id": "byName",
+                  "options": "Code"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 460
+                  },
+                  {
+                    "id": "custom.inspect",
+                    "value": true
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
                   "options": "Status"
                 },
                 "properties": [
@@ -2750,11 +2815,12 @@
                   "Acked by": 11,
                   "Acked via": 12,
                   "Operation": 13,
-                  "Suggestion": 14,
-                  "Fix for": 15,
-                  "Confidence": 16,
-                  "Trace": 17,
-                  "Signature": 18
+                  "Code": 14,
+                  "Suggestion": 15,
+                  "Fix for": 16,
+                  "Confidence": 17,
+                  "Trace": 18,
+                  "Signature": 19
                 },
                 "renameByName": {}
               }
@@ -2781,5 +2847,5 @@
     }
   ],
   "timezone": "browser",
-  "version": 12
+  "version": 13
 }

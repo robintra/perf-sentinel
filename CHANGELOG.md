@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Added
+
+- The findings dashboard's `Findings`, `Incident findings` and `Findings history` tables name the call site of each finding in a `Code` column after `Operation`. It reads the `code_location` every finding already carries, from the span's `code.*` attributes, and prints it as the CLI does, the function then `file:line`, the function alone when the instrumentation sends no file or line, `file:line` alone when it sends no function, blank when it sends none. Where the function name is already qualified, as the stable `code.function.name` attribute sends it, the namespace is not repeated in front of it. The column is 460 pixels wide like `Operation`, and its cell's inspect button shows a long path whole. The daemon already sends the field and PerfSentinelHub returns each finding as the daemon sent it, so neither needs upgrading, but a daemon older than 0.24.0 leaves the column blank on `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation`, which only carry a location since that release. Dashboard `version` 13. `docs/HELM-DEPLOYMENT.md` and its French mirror describe it.
+
 ## [0.25.3] - 2026-09-28
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature. A Java finding can now carry a different suggested fix, the Java one for a Spring Boot service traced through Micrometer Observation and the JPA one for a SELECT that Hibernate generated, and since the signature does not include the fix, acknowledgments keep matching. At start the daemon logs each configuration advisory once instead of twice, and one warning fewer under the Helm chart. A `watch` flag that fails validation now exits with code 75, like an invalid configuration file, instead of 1.
