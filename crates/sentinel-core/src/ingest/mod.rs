@@ -219,13 +219,21 @@ pub(crate) fn namespace_from_qualified_name(fq: &str) -> Option<&str> {
         .map(|(ns, _)| ns)
 }
 
-/// Stable `code.function.name` is already qualified and the namespace was
-/// derived from it, so joining the two would repeat the prefix.
+/// `namespace` joined to `function` with [`frame_separator`], or `function`
+/// alone when it already carries the namespace: stable `code.function.name`
+/// is qualified and the namespace was derived from it, so joining the two
+/// would repeat the prefix. Shared by the endpoint fallback and
+/// [`crate::event::CodeLocation::display_string`].
 #[must_use]
-pub(crate) fn function_carries_namespace(function: &str, namespace: &str) -> bool {
-    function
+pub(crate) fn join_code_frame(namespace: &str, function: &str) -> String {
+    let carries = function
         .strip_prefix(namespace)
-        .is_some_and(|rest| rest.starts_with(CODE_FRAME_SEPARATORS))
+        .is_some_and(|rest| rest.starts_with(CODE_FRAME_SEPARATORS));
+    if carries {
+        function.to_string()
+    } else {
+        format!("{namespace}{}{function}", frame_separator(namespace))
+    }
 }
 
 /// Reject what must not become an endpoint: blanks, and control characters,
@@ -286,10 +294,8 @@ pub(crate) fn code_frame_endpoint(
         namespace.and_then(usable_code_frame_part),
         function.and_then(usable_code_frame_part),
     ) {
-        (Some(ns), Some(f)) if function_carries_namespace(f, ns) => f.to_string(),
-        // Join with the separator that attaches a function to this namespace,
-        // so the legacy pair and the stable name spell one origin the same way.
-        (Some(ns), Some(f)) => format!("{ns}{}{f}", frame_separator(ns)),
+        // The legacy pair and the stable name spell one origin the same way.
+        (Some(ns), Some(f)) => join_code_frame(ns, f),
         (Some(ns), None) => ns.to_string(),
         (None, Some(f)) if f.contains(CODE_FRAME_SEPARATORS) => f.to_string(),
         _ => return None,

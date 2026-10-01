@@ -200,7 +200,7 @@ When `code_location` is present, the CLI renders a "Source:" line below the find
     Source:   com.example.OrderService.processItems (OrderService.java:42)
 ```
 
-The format is `namespace.function (filepath:lineno)`, with each part omitted if absent. The rendering logic builds the string incrementally: namespace and function are joined with a dot, filepath and lineno are appended in parentheses only when the name portion is also present.
+The format is `namespace.function (filepath:lineno)`, with each part omitted if absent. The rendering logic builds the string incrementally: namespace and function are joined with a dot, or with `::` when the namespace holds `\` or `::` (PHP, Rust, C++, Ruby), the function stands alone when it already starts with the namespace and a separator, as the stable `code.function.name` does, and filepath and lineno are appended in parentheses only when the name portion is also present.
 
 ### SARIF `physicalLocation` enhancement
 
