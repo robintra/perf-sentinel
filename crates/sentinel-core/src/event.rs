@@ -304,24 +304,27 @@ impl CodeLocation {
     }
 
     /// Render the location as `namespace.function (filepath:lineno)`,
-    /// omitting absent parts, and the function alone when it already
-    /// carries the namespace. Returns an empty string when the location
-    /// has nothing displayable, so callers can skip the line entirely
-    /// rather than printing a bare `Source:` label.
+    /// omitting absent or empty parts, and the function alone when it
+    /// already carries the namespace. A namespace holding `\` or `::`
+    /// joins with `::`. Returns an empty string when the location has nothing
+    /// displayable, so callers can skip the line entirely rather than
+    /// printing a bare `Source:` label.
     ///
     /// Single source of truth for the CLI text output, `explain` and the
     /// TUI detail panel. The findings dashboard mirrors it in `JSONata`.
     #[must_use]
     pub fn display_string(&self) -> String {
-        let mut src = match (&self.namespace, &self.function) {
-            (Some(ns), Some(f)) if !crate::ingest::function_carries_namespace(f, ns) => {
-                format!("{ns}.{f}")
-            }
-            (_, Some(name)) | (Some(name), None) => name.clone(),
+        // Empty counts as absent, as it does in the dashboard's mirror.
+        fn part(s: Option<&String>) -> Option<&str> {
+            s.map(String::as_str).filter(|s| !s.is_empty())
+        }
+        let mut src = match (part(self.namespace.as_ref()), part(self.function.as_ref())) {
+            (Some(ns), Some(f)) => crate::ingest::join_code_frame(ns, f),
+            (_, Some(name)) | (Some(name), None) => name.to_string(),
             (None, None) => String::new(),
         };
         let has_name = !src.is_empty();
-        if let Some(ref fp) = self.filepath {
+        if let Some(fp) = part(self.filepath.as_ref()) {
             if has_name {
                 src.push_str(" (");
             }
@@ -540,6 +543,32 @@ mod tests {
             loc.display_string(),
             "com.foo.OrderService (OrderService.java:42)"
         );
+        // An empty attribute reads as absent, no dangling separator.
+        let empty = CodeLocation {
+            function: Some(String::new()),
+            filepath: Some(String::new()),
+            lineno: Some(42),
+            namespace: Some("com.foo.OrderService".to_string()),
+        };
+        assert_eq!(empty.display_string(), "com.foo.OrderService");
+    }
+
+    #[test]
+    fn code_location_display_string_joins_with_the_namespace_separator() {
+        let php = CodeLocation {
+            function: Some("handle".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: Some(r"App\Jobs\PurgeJob".to_string()),
+        };
+        assert_eq!(php.display_string(), r"App\Jobs\PurgeJob::handle");
+        let rust = CodeLocation {
+            function: Some("load".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: Some("crate::db".to_string()),
+        };
+        assert_eq!(rust.display_string(), "crate::db::load");
     }
 
     #[test]
