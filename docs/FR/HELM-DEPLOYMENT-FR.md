@@ -916,7 +916,13 @@ colonne `Acked via` qui nomme la source (`toml` pour la baseline CI,
 `daemon` pour le stockage à chaud). `Suggestion` est le correctif propre
 au cadriciel ou au courtier que le daemon a déduit de la trace quand il
 y en a un, l'indication générique sinon, et `Fix for` nomme cette
-technologie, vide quand l'indication est générique. Les types s'affichent
+technologie, vide quand l'indication est générique. `Code` est le site
+d'appel tiré des attributs `code.*` du span, la fonction puis
+`fichier:ligne` comme la CLI les affiche, la fonction seule quand
+l'instrumentation n'envoie ni fichier ni ligne, `fichier:ligne` seul
+quand elle n'envoie pas de fonction, vide quand elle n'en envoie aucun.
+Un chemin long se lit en entier par le bouton d'inspection de la
+cellule. Les types s'affichent
 par leur libellé, `N+1 SQL` plutôt que `n_plus_one_sql`, sur les deux
 tableaux de bord. Une colonne `Grouping` nomme le
 déploiement auquel appartient chaque ligne, le premier `[detection]

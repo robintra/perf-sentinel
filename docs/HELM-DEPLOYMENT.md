@@ -1155,7 +1155,12 @@ back with an `Acked via` column naming the source (`toml` for the CI
 baseline, `daemon` for the runtime store). `Suggestion` is the fix for the
 framework or broker the daemon inferred from the trace when there is
 one, the generic hint otherwise, and `Fix for` names that technology,
-blank when the hint is generic. Types read as their labels, `N+1 SQL`
+blank when the hint is generic. `Code` is the call site from the span's
+`code.*` attributes, the function then `file:line` as the CLI prints
+them, the function alone when the instrumentation sends no file or line,
+`file:line` alone when it sends no function, blank when it sends none.
+A long path reads whole through the cell's inspect button. Types read
+as their labels, `N+1 SQL`
 rather than `n_plus_one_sql`, on both dashboards. A `Grouping` column names the
 deployment each row belongs to, the first `[detection]
 grouping_attributes` its spans carried. The dashboard declares the
