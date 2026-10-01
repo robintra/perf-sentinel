@@ -59,7 +59,7 @@ Pour des images fixes à examiner panneau par panneau, allez aux [Captures](#cap
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
-  <img alt="tableau de bord Grafana findings : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération et l'endpoint, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+  <img alt="tableau de bord Grafana findings : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération, l'endpoint et le site d'appel, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
 </picture>
 
 <details>

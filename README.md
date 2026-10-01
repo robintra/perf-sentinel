@@ -59,7 +59,7 @@ For frozen frames you can zoom into panel by panel, jump to [Still frames](#stil
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
-  <img alt="Grafana findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation and endpoint, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+  <img alt="Grafana findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation, endpoint and call site, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
 </picture>
 
 <details>
