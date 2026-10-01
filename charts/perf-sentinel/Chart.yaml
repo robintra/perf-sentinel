@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.3
-appVersion: "0.25.3"
+version: 0.25.4
+appVersion: "0.25.4"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,16 +37,12 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: fixed
-      description: "appVersion 0.25.3. The daemon no longer warns at every start that it could not tighten the ack store directory to 0700. The chart puts the ack store at the root of its volume, which belongs to root under the pod's `fsGroup`, so that chmod always failed. That case now logs at `debug`, and the ack file keeps its 0600 mode."
-    - kind: fixed
-      description: "Findings from a Spring Boot service traced through Micrometer Observation now get the Java suggested fix, and a SELECT that Hibernate generated gets the JPA one even when no span names Hibernate. Finding signatures do not change, so acknowledgments keep matching."
-    - kind: fixed
-      description: "The daemon logs each configuration advisory once at start. The chart's default config.toml listens on 0.0.0.0, so every pod printed the non-loopback listen advisory twice."
-    - kind: changed
-      description: "The comments of values.yaml, the templates and the chart README are reworded. The default config.toml comments are rendered into the ConfigMap, so `checksum/config` changes. No values.yaml key is added or removed, and no template logic changes."
+      description: "appVersion 0.25.4. The daemon's API, its metrics and the findings it exports do not change. The perf-sentinel CLI in the image prints a finding's code location without repeating the namespace of a qualified `code.function.name`, and joins a PHP, Rust, C++ or Ruby namespace to its function with `::`."
+    - kind: added
+      description: "The example findings dashboard under `examples/` moves to version 13 and names each finding's call site in a new `Code` column. It does not ship in the chart, re-import it where it is provisioned. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.3
+      image: ghcr.io/robintra/perf-sentinel:0.25.4
       platforms:
         - linux/amd64
         - linux/arm64

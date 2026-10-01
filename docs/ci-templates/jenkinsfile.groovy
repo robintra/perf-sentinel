@@ -114,7 +114,7 @@ pipeline {
     }
 
     environment {
-        PERF_SENTINEL_VERSION = '0.25.3'
+        PERF_SENTINEL_VERSION = '0.25.4'
         PERF_SENTINEL_TRACES  = 'target/traces.json'
         PERF_SENTINEL_CONFIG  = '.perf-sentinel.toml'
     }

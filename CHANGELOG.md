@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.25.4] - 2026-10-01
+
+This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature, and the daemon's API, its metrics and the findings it exports do not change. The findings dashboard under `examples/` names each finding's call site in a new `Code` column, and the code location the CLI prints changes spelling in three cases: a qualified `code.function.name` no longer repeats its namespace, a namespace holding `\` or `::` joins its function with `::`, and a missing or empty attribute leaves no stray separator.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure three days after 0.25.3 audited them and found inside their window. Nothing in 0.25.4 touches the scoring code.
+
 ### Added
 
 - The findings dashboard's `Findings`, `Incident findings` and `Findings history` tables name the call site of each finding in a `Code` column after `Operation`. It reads the `code_location` every finding already carries, from the span's `code.*` attributes, and prints it as the CLI does, the function then `file:line`, the function alone when the instrumentation sends no file or line, `file:line` alone when it sends no function, blank when it sends none. Where the function name is already qualified, as the stable `code.function.name` attribute sends it, the namespace is not repeated in front of it. The column is 460 pixels wide like `Operation`, and its cell's inspect button shows a long path whole. The daemon already sends the field and PerfSentinelHub returns each finding as the daemon sent it, so neither needs upgrading, but a daemon older than 0.24.0 leaves the column blank on `serialized_calls`, `excessive_fanout`, `chatty_service` and `pool_saturation`, which only carry a location since that release. Dashboard `version` 13. `docs/HELM-DEPLOYMENT.md` and its French mirror describe it.
