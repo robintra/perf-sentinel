@@ -304,22 +304,22 @@ impl CodeLocation {
     }
 
     /// Render the location as `namespace.function (filepath:lineno)`,
-    /// omitting absent parts. Returns an empty string when the location
+    /// omitting absent parts, and the function alone when it already
+    /// carries the namespace. Returns an empty string when the location
     /// has nothing displayable, so callers can skip the line entirely
     /// rather than printing a bare `Source:` label.
     ///
-    /// Single source of truth for the CLI text output, the SARIF
-    /// `physicalLocation` message, and the TUI detail panel.
+    /// Single source of truth for the CLI text output, `explain` and the
+    /// TUI detail panel. The findings dashboard mirrors it in `JSONata`.
     #[must_use]
     pub fn display_string(&self) -> String {
-        let mut src = String::new();
-        if let Some(ref ns) = self.namespace {
-            src.push_str(ns);
-            src.push('.');
-        }
-        if let Some(ref func) = self.function {
-            src.push_str(func);
-        }
+        let mut src = match (&self.namespace, &self.function) {
+            (Some(ns), Some(f)) if !crate::ingest::function_carries_namespace(f, ns) => {
+                format!("{ns}.{f}")
+            }
+            (_, Some(name)) | (Some(name), None) => name.clone(),
+            (None, None) => String::new(),
+        };
         let has_name = !src.is_empty();
         if let Some(ref fp) = self.filepath {
             if has_name {
@@ -493,6 +493,52 @@ mod tests {
             loc.display_string(),
             "com.example.order.repository.OrderItemRepository.findByOrderId \
              (order-service/src/main/java/OrderItemRepository.java:42)"
+        );
+    }
+
+    #[test]
+    fn code_location_display_string_does_not_repeat_derived_namespace() {
+        let loc = CodeLocation {
+            function: Some("com.foo.OrderService.findItems".to_string()),
+            filepath: Some("src/main/java/com/foo/OrderService.java".to_string()),
+            lineno: Some(42),
+            namespace: Some("com.foo.OrderService".to_string()),
+        };
+        assert_eq!(
+            loc.display_string(),
+            "com.foo.OrderService.findItems (src/main/java/com/foo/OrderService.java:42)"
+        );
+        let php = CodeLocation {
+            function: Some(r"App\Controller\OrderController::index".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: Some(r"App\Controller".to_string()),
+        };
+        assert_eq!(
+            php.display_string(),
+            r"App\Controller\OrderController::index"
+        );
+        // A prefix without a separator is a legacy pair, joined as before.
+        let lambda = CodeLocation {
+            function: Some("handler".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: Some("handler".to_string()),
+        };
+        assert_eq!(lambda.display_string(), "handler.handler");
+    }
+
+    #[test]
+    fn code_location_display_string_namespace_only_has_no_trailing_dot() {
+        let loc = CodeLocation {
+            function: None,
+            filepath: Some("OrderService.java".to_string()),
+            lineno: Some(42),
+            namespace: Some("com.foo.OrderService".to_string()),
+        };
+        assert_eq!(
+            loc.display_string(),
+            "com.foo.OrderService (OrderService.java:42)"
         );
     }
 
