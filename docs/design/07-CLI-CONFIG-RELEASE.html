@@ -238,7 +238,7 @@
 <h3 id="cli-display" class="ps-h3">CLI display</h3>
 <p class="ps-p">When <code class="ps-ic">code_location</code> is present, the CLI renders a "Source:" line below the finding's endpoint:</p>
 <div class="ps-code"><pre><code>    Source:   com.example.OrderService.processItems (OrderService.java:42)</code></pre></div>
-<p class="ps-p">The format is <code class="ps-ic">namespace.function (filepath:lineno)</code>, with each part omitted if absent. The rendering logic builds the string incrementally: namespace and function are joined with a dot, filepath and lineno are appended in parentheses only when the name portion is also present.</p>
+<p class="ps-p">The format is <code class="ps-ic">namespace.function (filepath:lineno)</code>, with each part omitted if absent. The rendering logic builds the string incrementally: namespace and function are joined with a dot, or with <code class="ps-ic">::</code> when the namespace holds <code class="ps-ic">\</code> or <code class="ps-ic">::</code> (PHP, Rust, C++, Ruby), the function stands alone when it already starts with the namespace and a separator, as the stable <code class="ps-ic">code.function.name</code> does, and filepath and lineno are appended in parentheses only when the name portion is also present.</p>
 <h3 id="sarif-physicallocation-enhancement" class="ps-h3">SARIF <code class="ps-ic">physicalLocation</code> enhancement</h3>
 <p class="ps-p">When a finding carries a <code class="ps-ic">CodeLocation</code> with at least a <code class="ps-ic">filepath</code>, the SARIF output includes a <code class="ps-ic">locations</code> array with a <code class="ps-ic">physicalLocation</code> entry:</p>
 <div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{
