@@ -865,7 +865,7 @@ installez-le d'abord et épinglez sa version là où vous le provisionnez) :
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
-  <img alt="tableau de bord findings perf-sentinel : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération et l'endpoint, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+  <img alt="tableau de bord findings perf-sentinel : la ligne d'état du daemon avec sa pastille Compatibility, la table des findings qui nomme l'opération, l'endpoint et le site d'appel, et les corrélations entre services" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
 </picture>
 
 **Ni port-forward, ni Ingress.** C'est le backend de Grafana qui fait la

@@ -1108,7 +1108,7 @@ install it first and pin its version where you provision it):
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings-dark.png">
-  <img alt="perf-sentinel findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation and endpoint, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
+  <img alt="perf-sentinel findings dashboard: the daemon status line with its Compatibility badge, the findings table naming operation, endpoint and call site, and the cross-service correlations" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png">
 </picture>
 
 **No port-forward and no Ingress.** Grafana's backend performs the
