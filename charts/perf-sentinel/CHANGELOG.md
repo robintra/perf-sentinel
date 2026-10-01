@@ -10,6 +10,25 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.4]
+
+### Fixed
+
+- **`appVersion` moves to `0.25.4`.** The daemon's API, its metrics and the
+  findings it exports do not change. The `perf-sentinel` CLI in the image
+  prints a finding's code location without repeating the namespace of a
+  qualified `code.function.name`, and joins a PHP, Rust, C++ or Ruby
+  namespace to its function with `::`.
+
+### Added
+
+- The example findings dashboard under `examples/` moves to `version` 13.
+  Its `Findings`, `Incident findings` and `Findings history` tables name
+  each finding's call site in a `Code` column. `__inputs` is unchanged. It
+  does not ship in the chart, re-import it where it is provisioned.
+
+No `values.yaml` key is added or removed, and no template changes.
+
 ## [0.25.3]
 
 ### Fixed
