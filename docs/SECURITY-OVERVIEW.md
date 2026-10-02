@@ -54,7 +54,7 @@ The Hub calls its configured daemon sources (poll, ack relay, live view), and th
 
 ## Data handled and stored
 
-**Normalization.** Spans are processed in memory, inside a streaming window (30 s TTL, 10,000 traces at most by default). SQL literals become `?`, numeric and UUID path segments become `{id}` and `{uuid}`, and the query string is dropped. A finding carries the resulting template and a count of distinct values, not the values. A few things stay verbatim, such as text between double quotes, SQL comments and non-numeric path segments: see [What stays verbatim in a template](LIMITATIONS.md#sql-tokenizer). A finding also carries the service name, the grouping attribute values, the code location and the trace id.
+**Normalization.** Spans are processed in memory, inside a streaming window (30 s TTL, 10,000 traces at most by default). SQL literals become `?`, numeric and UUID path segments become `{id}` and `{uuid}`, and the query string is dropped. A finding carries the resulting template and a count of distinct values, not the values. A few things stay verbatim, such as SQL comments, non-numeric path segments and, outside MySQL and MariaDB, text between double quotes: see [What stays verbatim in a template](LIMITATIONS.md#sql-tokenizer). A finding also carries the service name, the grouping attribute values, the code location and the trace id.
 
 **What the daemon writes to disk.**
 - The ack log, `acks.jsonl`, under the user's local data directory, mode `0600`.
@@ -180,6 +180,6 @@ Both projects take reports through GitHub private vulnerability reporting.
 4. Encrypt the traffic with `[daemon.tls]`, a service mesh or the ingress.
 5. For the Hub, turn on `hub.auth`, terminate TLS and add the security headers at the ingress, and write a NetworkPolicy, since the chart ships none.
 6. In a cluster with no egress, set `hub.updateCheck.enabled: false`.
-7. Set `http.route` in your instrumentation, and keep personal data out of URL path segments and MySQL double-quoted strings.
+7. Set `http.route` in your instrumentation, and keep personal data out of URL path segments and SQL comments.
 8. Treat the files written by `capture` as sensitive. They hold raw spans.
 9. If your policy requires signed images, verify the release binary and build or sign the image in your own registry.

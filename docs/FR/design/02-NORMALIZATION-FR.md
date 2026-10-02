@@ -25,14 +25,14 @@ Le tokenizer est aussi *total*. Il produit toujours un template, construit au mi
 
 ## Tokenizer SQL : machine à états en une seule passe
 
-`normalize_sql()` traite la requête octet par octet à travers six états :
+`normalize_sql()` traite la requête octet par octet à travers six états. `normalize_sql_for(query, db_system)` fait tourner la même machine, en lisant `"` comme un guillemet de chaîne quand `db_system` vaut `mysql` ou `mariadb`. Le pipeline passe le `db.system` du span, et `mysql-stat` passe `mysql` :
 
 | État              | Déclencheur (entrée)         | Action                                                | Déclencheur (sortie)                     |
 |-------------------|------------------------------|-------------------------------------------------------|------------------------------------------|
 | **Normal**        | Défaut / fin de littéral     | Accumule dans le template                             | `'`, `"`, `` ` ``, `$$`/`$tag$`, ou chiffre isolé |
-| **InString**      | Guillemet ouvrant `'`        | Accumule dans `current_value`                         | Guillemet fermant `'` (pas `''`)         |
+| **InString**      | Guillemet ouvrant `'`, ou `"` sur MySQL/MariaDB | Accumule dans `current_value`     | Même guillemet, non doublé               |
 | **InNumber**      | Chiffre isolé                | Accumule chiffres/point                               | Non-chiffre ou deuxième point            |
-| **InDoubleQuote** | Guillemet double ouvrant `"` | Laisse passer dans le template (identifiant préservé) | Guillemet double fermant `"`             |
+| **InDoubleQuote** | Guillemet double ouvrant `"`, autres moteurs | Laisse passer dans le template (identifiant préservé) | Guillemet double fermant `"` |
 | **InBacktick** | Accent grave ouvrant `` ` `` (identifiant MySQL) | Laisse passer dans le template (identifiant préservé) | Accent grave fermant `` ` `` |
 | **InDollarQuote** | `$$` ou `$tag$`              | Accumule le corps dans `current_value`, émet un `?`   | `$$` / `$tag$` correspondant             |
 

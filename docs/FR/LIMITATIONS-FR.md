@@ -124,7 +124,7 @@ Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un
 
 **Ce qui reste tel quel dans un template.** Le template est ce que portent les rapports, l'API de requête, l'archive NDJSON et le Hub, donc tout ce que les normaliseurs laissent en place voyage avec lui :
 
-- Le texte entre guillemets doubles est gardé comme un identifiant. Dans le mode par défaut de MySQL (sans `ANSI_QUOTES`), `"..."` est un littéral de chaîne, donc une valeur écrite ainsi arrive dans le template sans masque.
+- Le texte entre guillemets doubles est gardé comme un identifiant, sauf sur MySQL et MariaDB, où `"..."` est un littéral de chaîne masqué comme `'...'`. Le moteur vient du `db.system` du span, donc une entrée qui ne le porte pas (le JSON natif, dont `operation` est un verbe) garde la lecture identifiant. Un serveur MySQL en mode `ANSI_QUOTES` perd ses identifiants entre guillemets doubles au profit de `?`.
 - Les commentaires SQL (`-- ...`, `/* ... */`) ne sont pas retirés, donc les mots qu'ils contiennent restent dans le template.
 - Le normaliseur de chemins HTTP masque les segments numériques (`{id}`) et les UUID (`{uuid}`) et retire la query string. Tout autre segment reste tel quel : une adresse e-mail, un nom d'utilisateur, un slug ou un jeton opaque dans le chemin arrive dans le template.
 - L'endpoint auquel un finding est rattaché (`source.endpoint`) vient de `http.route` quand l'instrumentation le pose. Sans lui, le chemin brut de la requête est gardé, privé de sa query string, de son fragment et de ses identifiants de connexion, et ses segments numériques ne sont pas masqués.

@@ -54,7 +54,7 @@ Le Hub appelle ses sources de daemons configurées (collecte, relais d'acquittem
 
 ## Données traitées et stockées
 
-**Normalisation.** Les spans sont traités en mémoire, dans une fenêtre glissante (TTL de 30 s, 10 000 traces au plus par défaut). Les littéraux SQL deviennent `?`, les segments de chemin numériques et les UUID deviennent `{id}` et `{uuid}`, et la query string est retirée. Un finding porte le template obtenu et un décompte des valeurs distinctes, pas les valeurs. Quelques éléments restent tels quels, comme le texte entre guillemets doubles, les commentaires SQL et les segments de chemin non numériques : voir [Ce qui reste tel quel dans un template](LIMITATIONS-FR.md#tokenizer-sql). Un finding porte aussi le nom du service, les valeurs des attributs de regroupement, l'emplacement dans le code et l'identifiant de trace.
+**Normalisation.** Les spans sont traités en mémoire, dans une fenêtre glissante (TTL de 30 s, 10 000 traces au plus par défaut). Les littéraux SQL deviennent `?`, les segments de chemin numériques et les UUID deviennent `{id}` et `{uuid}`, et la query string est retirée. Un finding porte le template obtenu et un décompte des valeurs distinctes, pas les valeurs. Quelques éléments restent tels quels, comme les commentaires SQL, les segments de chemin non numériques et, hors MySQL et MariaDB, le texte entre guillemets doubles : voir [Ce qui reste tel quel dans un template](LIMITATIONS-FR.md#tokenizer-sql). Un finding porte aussi le nom du service, les valeurs des attributs de regroupement, l'emplacement dans le code et l'identifiant de trace.
 
 **Ce que le daemon écrit sur disque.**
 - Le journal des acquittements, `acks.jsonl`, dans le répertoire de données local de l'utilisateur, en mode `0600`.
@@ -180,6 +180,6 @@ Les deux projets reçoivent les signalements par le signalement privé de vulné
 4. Chiffrez le trafic avec `[daemon.tls]`, un service mesh ou l'ingress.
 5. Pour le Hub, activez `hub.auth`, terminez le TLS et ajoutez les en-têtes de sécurité sur l'ingress, et écrivez une NetworkPolicy, puisque le chart n'en fournit pas.
 6. Dans un cluster sans accès sortant, posez `hub.updateCheck.enabled: false`.
-7. Posez `http.route` dans votre instrumentation, et gardez les données personnelles hors des segments de chemin d'URL et des chaînes MySQL entre guillemets doubles.
+7. Posez `http.route` dans votre instrumentation, et gardez les données personnelles hors des segments de chemin d'URL et des commentaires SQL.
 8. Traitez les fichiers écrits par `capture` comme sensibles. Ils contiennent des spans bruts.
 9. Si votre politique exige des images signées, vérifiez le binaire de release et construisez ou signez l'image dans votre propre registre.

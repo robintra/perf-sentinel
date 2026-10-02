@@ -25,14 +25,14 @@ The tokenizer is also *total*. It always emits a best-effort template, even on t
 
 ## SQL tokenizer: single-pass state machine
 
-`normalize_sql()` processes the query byte-by-byte through six states:
+`normalize_sql()` processes the query byte-by-byte through six states. `normalize_sql_for(query, db_system)` runs the same machine, reading `"` as a string quote when `db_system` is `mysql` or `mariadb`. The pipeline passes the span's `db.system`, and `mysql-stat` passes `mysql`:
 
 | State             | Trigger (enter)          | Action                                             | Trigger (exit)                              |
 |-------------------|--------------------------|----------------------------------------------------|---------------------------------------------|
 | **Normal**        | Default / end of literal | Accumulate into template                           | `'`, `"`, `` ` ``, `$$`/`$tag$`, or standalone digit |
-| **InString**      | Opening `'`              | Accumulate into `current_value`                    | Closing `'` (not `''`)                      |
+| **InString**      | Opening `'`, or `"` on MySQL/MariaDB | Accumulate into `current_value`         | Same quote, not doubled                     |
 | **InNumber**      | Standalone digit         | Accumulate digits/dot                              | Non-digit or second dot                     |
-| **InDoubleQuote** | Opening `"`              | Pass through into template (identifier preserved)  | Closing `"`                                 |
+| **InDoubleQuote** | Opening `"`, other engines | Pass through into template (identifier preserved) | Closing `"`                              |
 | **InBacktick** | Opening `` ` `` (MySQL identifier) | Pass through into template (identifier preserved) | Closing `` ` `` |
 | **InDollarQuote** | `$$` or `$tag$`          | Accumulate body into `current_value`, emit one `?` | Matching `$$` / `$tag$`                     |
 

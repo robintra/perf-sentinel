@@ -123,7 +123,7 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 
 **What stays verbatim in a template.** The template is what reports, the query API, the NDJSON archive and the Hub carry, so anything the normalizers leave in place travels with it:
 
-- Text between double quotes is kept as an identifier. In MySQL's default mode (without `ANSI_QUOTES`), `"..."` is a string literal, so a value written that way reaches the template unmasked.
+- Text between double quotes is kept as an identifier, except on MySQL and MariaDB, where `"..."` is a string literal and is masked like `'...'`. The engine comes from the span's `db.system`, so input that does not carry it (native JSON, whose `operation` is a verb) keeps the identifier reading. A MySQL server in `ANSI_QUOTES` mode loses its double-quoted identifiers to `?`.
 - SQL comments (`-- ...`, `/* ... */`) are not stripped, so the words they contain stay in the template.
 - The HTTP path normalizer masks numeric segments (`{id}`) and UUIDs (`{uuid}`) and drops the query string. Any other segment stays as is: an email address, a username, a slug or an opaque token in the path reaches the template.
 - The endpoint a finding is attributed to (`source.endpoint`) comes from `http.route` when the instrumentation sets it. Without it, the raw request path is kept, minus its query string, fragment and credentials, and its numeric segments are not masked.
