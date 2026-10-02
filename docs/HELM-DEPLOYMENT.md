@@ -53,28 +53,10 @@ the upstream
 chart instead of bundling a collector that would get out of sync with
 upstream releases.
 
-```mermaid
-flowchart LR
-    subgraph apps [Application namespaces]
-        A[api-gateway]
-        B[order-svc]
-        C[payment-svc]
-        D[chat-svc]
-    end
-    subgraph obs [observability namespace]
-        OC[OTel Collector<br/>open-telemetry/opentelemetry-collector]
-        PS[perf-sentinel<br/>this chart]
-    end
-    subgraph mon [monitoring namespace]
-        T[Tempo]
-    end
-    A -->|OTLP or Zipkin| OC
-    B -->|OTLP or Zipkin| OC
-    C -->|OTLP or Zipkin| OC
-    D -->|OTLP or Zipkin| OC
-    OC -->|OTLP gRPC 4317| T
-    OC -->|OTLP gRPC 4317| PS
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology_dark.svg">
+  <img alt="Helm deployment topology" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology.svg">
+</picture>
 
 ### Collector sampling and what reaches the daemon
 

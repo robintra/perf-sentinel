@@ -1,0 +1,28 @@
+---
+title: Helm deployment topology
+---
+flowchart LR
+    subgraph apps["Application namespaces"]
+        A["api-gateway"]
+        B["order-svc"]
+        C["payment-svc"]
+        D["chat-svc"]
+    end
+
+    subgraph obs["observability namespace"]
+        OC["OTel Collector<br/><i>open-telemetry/opentelemetry-collector</i>"]
+        PS["perf-sentinel<br/><i>this chart</i>"]
+    end
+
+    subgraph mon["monitoring namespace"]
+        T["Tempo"]
+    end
+
+    A -->|"OTLP or Zipkin"| OC
+    B -->|"OTLP or Zipkin"| OC
+    C -->|"OTLP or Zipkin"| OC
+    D -->|"OTLP or Zipkin"| OC
+    OC -->|"OTLP gRPC 4317"| T
+    OC -->|"OTLP gRPC 4317"| PS
+
+    style PS fill:#2d4a3e,stroke:#4ade80
