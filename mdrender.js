@@ -167,15 +167,21 @@
     if (href === '') return { internal: true, id: ctx.id, anchor: anchor };
     if (/^https?:\/\//.test(href) || /^mailto:/.test(href)) return { external: true, href: href + (anchor ? '#' + anchor : '') };
     if (/\.md$/i.test(href)) {
+      // Resolve from the doc's real dir under docs/ (FR docs live in FR/). A link
+      // that climbs out of docs/ (../README.md) is not a doc: send it to GitHub below.
       var curDir = ctx.id.indexOf('/') >= 0 ? ctx.id.replace(/\/[^/]*$/, '') : '';
-      var segs = curDir ? curDir.split('/') : [];
+      var segs = (ctx.lang === 'fr' ? ['FR'] : []).concat(curDir ? curDir.split('/') : []);
+      var escaped = false;
       href.replace(/^\.\//, '').split('/').forEach(function (seg) {
-        if (seg === '..') segs.pop();
+        if (seg === '..') { if (segs.length) segs.pop(); else escaped = true; }
         else if (seg === '.' || seg === '') { }
         else segs.push(seg);
       });
-      var id = segs.join('/').replace(/\.md$/i, '').replace(/-FR$/, '');
-      return { internal: true, id: id, anchor: anchor };
+      if (!escaped) {
+        if (segs[0] === 'FR') segs.shift();
+        var id = segs.join('/').replace(/\.md$/i, '').replace(/-FR$/, '');
+        return { internal: true, id: id, anchor: anchor };
+      }
     }
     // other relative resources -> GitHub. Resolve from the doc's real
     // source dir (docs/ for EN, docs/FR/ for FR) and normalize `..`, else a
