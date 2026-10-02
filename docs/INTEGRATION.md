@@ -578,7 +578,7 @@ Instead of querying Tempo, you can configure Tempo to forward a copy of traces t
 
 ## Jaeger query API integration (Jaeger and Victoria Traces)
 
-If your infrastructure uses Jaeger upstream or [Victoria Traces](https://docs.victoriametrics.com/victoriatraces/) as the trace backend, both speak the Jaeger query HTTP API and are covered by a single subcommand, `perf-sentinel jaeger-query`. Unlike Tempo's `/api/search` (ID-only), Jaeger's `/api/traces` returns full traces in one HTTP round trip, so the CLI does not parallelize per-trace fetches.
+If your infrastructure uses Jaeger upstream or [Victoria Traces](https://docs.victoriametrics.com/victoriatraces/) as the trace backend, both speak the Jaeger query HTTP API and are covered by a single subcommand, `perf-sentinel jaeger-query`. Unlike Tempo's `/api/search` (ID-only), Jaeger's `/api/traces` returns full traces in one HTTP round trip, so the CLI does not parallelize per-trace fetches. Jaeger 2.21 and later no longer serve that search endpoint, see the requirements below.
 
 ### Single trace analysis
 
@@ -602,7 +602,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 ### Requirements
 
-- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger upstream (all recent versions) and Victoria Traces both qualify out of the box. `start` and `end` are the bounds Perf Sentinel sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it would run unbounded from the Unix epoch.
+- The backend must expose the Jaeger query HTTP API (`/api/traces?service=...&start=...&end=...&limit=...` and `/api/traces/<id>`). Jaeger up to 2.20 and Victoria Traces qualify out of the box. Jaeger 2.21 and later removed the v1 search endpoint `GET /api/traces`, so the service search does not work against them. `start` and `end` are the bounds Perf Sentinel sends, in microseconds, for a relative and an absolute window alike. `lookback` is never sent: Victoria Traces reads it only on its service-graph endpoint and never on this search, so a request carrying it would run unbounded from the Unix epoch.
 - The `--endpoint` flag points to the query API base URL, the part the CLI appends `/api/traces` to. Jaeger upstream serves it at the root on port 16686. Victoria Traces serves it under `/select/jaeger` on port 10428, so the flag needs that prefix.
 - Traces are fetched as JSON, parsed through the same `{"data": [...]}` path as the file-mode Jaeger ingestion, then run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
 - `--lookback` accepts the same `1h / 30m / 7d / 2h30m` format as the `tempo` subcommand.
