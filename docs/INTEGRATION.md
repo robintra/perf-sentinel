@@ -624,7 +624,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 1. **Check connectivity.** From inside the container: `curl http://host.docker.internal:4318/metrics`. If it fails, Perf Sentinel is not reachable.
 2. **Check bind address.** Perf Sentinel defaults to `127.0.0.1`. For Docker access, configure `listen_address = "0.0.0.0"` in `.perf-sentinel.toml` or run natively on the host.
-3. **Check protocol.** The Java Agent defaults to gRPC (port 4317). Ensure `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` matches the port you are targeting.
+3. **Check protocol.** The Java Agent 2.x defaults to `http/protobuf` (port 4318), and so does the Spring Boot starter. Set `OTEL_EXPORTER_OTLP_PROTOCOL` explicitly and match the port: `grpc` with 4317, `http/protobuf` with 4318.
 
 ### Events received but no findings
 
@@ -637,6 +637,6 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 The Java Agent (`-javaagent:`) is incompatible with JEP 483 AOT caches. If you see `Unable to map shared spaces` or `Mismatched values for property jdk.module.addmods`, bypass the AOT cache when the agent is active (see the Java section of [INSTRUMENTATION.md](./INSTRUMENTATION.md#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)).
 
-### Spring Boot starter does not capture outbound HTTP calls
+### Spring Boot starter: missing SQL or outbound HTTP spans
 
-The `spring-boot-starter-opentelemetry` (Spring Boot 4) bridges Micrometer metrics to OTel but does not fully instrument outbound `WebClient` or `RestTemplate` calls with trace context propagation. Use the Java Agent for complete instrumentation.
+The `spring-boot-starter-opentelemetry` starter (Spring Boot 4) traces only what the Spring projects observe. No SQL span usually means JDBC is not instrumented: add `datasource-micrometer-spring-boot` with its `datasource-micrometer-opentelemetry` module, which writes the statement into `db.query.text`. A missing outbound call usually comes from a client built without the Spring Boot builder, which carries neither a span nor `traceparent`. Both are covered in the [starter section of INSTRUMENTATION.md](./INSTRUMENTATION.md#java-spring-boot-4-starter-spring-boot-starter-opentelemetry).

@@ -316,10 +316,10 @@ curl -sf http://perf-sentinel:4318/metrics
 **Likely causes, in order.**
 
 1. **Bind address.** The daemon defaults to `127.0.0.1`, unreachable from other containers. Set `listen_address = "0.0.0.0"` in `.perf-sentinel.toml` and restart.
-2. **Protocol mismatch.** The OTel Java Agent defaults to gRPC on port 4317. Confirm `OTEL_EXPORTER_OTLP_PROTOCOL` matches the port your service targets: `grpc` → 4317, `http/protobuf` → 4318.
+2. **Protocol mismatch.** The OTel Java Agent 2.x defaults to `http/protobuf` on port 4318, and so does the Spring Boot starter. Confirm `OTEL_EXPORTER_OTLP_PROTOCOL` matches the port your service targets: `grpc` → 4317, `http/protobuf` → 4318.
 3. **Network policy.** A Kubernetes `NetworkPolicy` or security group may block cross-namespace traffic. Temporarily disable it or explicitly allow the path from the service to the daemon.
 4. **Service not instrumented.** Verify `OTEL_SDK_DISABLED=false` and that the service is producing spans (most OTel SDKs have internal counters or debug logs).
-5. **OTLP endpoint URL typo.** `OTEL_EXPORTER_OTLP_ENDPOINT` should be `http://<host>:4318`. No `/v1/traces` suffix, the SDK appends it.
+5. **OTLP endpoint URL typo.** `OTEL_EXPORTER_OTLP_ENDPOINT` should be `http://<host>:4318`. No `/v1/traces` suffix, the SDK appends it. The Spring Boot property `management.opentelemetry.tracing.export.otlp.endpoint` is the exception: it takes the full URL, `/v1/traces` included.
 6. **Spans arrive but none is analyzable.** `perf_sentinel_otlp_spans_received_total` rising while `events_processed_total` stays flat means the daemon receives spans but every one is filtered out (no `db.statement`, no `http.url`). Check `perf_sentinel_otlp_spans_filtered_total` by `reason`: a dominant `missing_db_statement` points at drivers configured to omit query text (see [LIMITATIONS.md](./LIMITATIONS.md#instrumentation-quality-bounds-findings) and the per-language settings in [INSTRUMENTATION.md](./INSTRUMENTATION.md#required-span-attributes)).
 
 **Sanity check.** After a fix, drive one request through an instrumented service and watch:

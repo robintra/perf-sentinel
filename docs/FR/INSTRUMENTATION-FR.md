@@ -13,6 +13,7 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
 - [Dev/staging : instrumentation par langage](#devstaging--instrumentation-par-langage) :
   - Java
     - [Spring Boot, Helidon 4.x](#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)
+    - [Starter Spring Boot 4, sans agent](#java-spring-boot-4-starter-spring-boot-starter-opentelemetry)
     - [Quarkus 3.33 LTS](#java-quarkus-333-lts--quarkus-opentelemetry--otel-agent-v227)
   - [.NET (ASP.NET Core + Entity Framework Core)](#net-aspnet-core--entity-framework-core--opentelemetry-sdk-115)
   - [Go (pgx)](#go-otelhttp-068--otelpgx-011-otel-sdk-143)
@@ -384,23 +385,27 @@ La détection d'anti-patterns repose sur du comptage d'événements. Le sampling
 
 Perf Sentinel détecte les anti-patterns I/O en examinant des attributs de span spécifiques. Les conventions sémantiques legacy et stables d'[OpenTelemetry](https://opentelemetry.io/docs/specs/semconv/) sont toutes deux prises en charge.
 
-| Usage                | Attribut legacy (pré-1.21)                | Attribut stable (1.21+)      | Exemple                                   |
-|----------------------|-------------------------------------------|------------------------------|-------------------------------------------|
-| Texte requête SQL    | `db.statement`                            | `db.query.text`              | `SELECT * FROM player WHERE game_id = 42` |
-| Système SQL          | `db.system`                               | `db.system`                  | `postgresql`, `mysql`                     |
-| URL cible HTTP       | `http.url`                                | `url.full`                   | `http://account-svc:5000/api/account/123` |
-| Méthode HTTP         | `http.method`                             | `http.request.method`        | `GET`, `POST`                             |
-| Statut HTTP          | `http.status_code`                        | `http.response.status_code`  | `200`, `404`                              |
-| Appelé RPC           | `rpc.system` + `rpc.service`/`rpc.method` | (idem)                       | `grpc`, `order.v1.OrderService/GetOrder`  |
-| Système de broker    | `messaging.system`                        | (idem)                       | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
-| Destination broker   | `messaging.destination`                   | `messaging.destination.name` | `orders`, `signature.jobs`                |
-| Taille du message    | `messaging.message.body.size`             | (idem)                       | `4096`                                    |
-| Endpoint source      | `http.route`, `url.path`                  | `http.route`, `url.path`     | `POST /api/game/{id}/start`               |
-| Nom du service       | `service.name` (ressource)                | `service.name` (ressource)   | `game`, `account-svc`                     |
-| Namespace de service | `service.namespace` (ressource)           | (idem)                       | `commerce`                                |
-| Namespace Kubernetes | `k8s.namespace.name` (ressource)          | (idem)                       | `prod-eu`                                 |
+| Usage                | Attribut legacy (pré-1.21)                | Attribut stable (1.21+)              | Exemple                                   |
+|----------------------|-------------------------------------------|--------------------------------------|-------------------------------------------|
+| Texte requête SQL    | `db.statement`                            | `db.query.text`                      | `SELECT * FROM player WHERE game_id = 42` |
+| Système SQL          | `db.system`                               | `db.system.name`                     | `postgresql`, `mysql`                     |
+| URL cible HTTP       | `http.url`                                | `url.full`                           | `http://account-svc:5000/api/account/123` |
+| Méthode HTTP         | `http.method`                             | `http.request.method`                | `GET`, `POST`                             |
+| Statut HTTP          | `http.status_code`                        | `http.response.status_code`          | `200`, `404`                              |
+| Appelé RPC           | `rpc.system` + `rpc.service`/`rpc.method` | (idem)                               | `grpc`, `order.v1.OrderService/GetOrder`  |
+| Système de broker    | `messaging.system`                        | (idem)                               | `kafka`, `rabbitmq`, `pulsar`, `aws_sqs`  |
+| Destination broker   | `messaging.destination`                   | `messaging.destination.name`         | `orders`, `signature.jobs`                |
+| Taille du message    | `messaging.message.body.size`             | (idem)                               | `4096`                                    |
+| Endpoint source      | `http.route`, `url.path`                  | `http.route`, `url.path`             | `POST /api/game/{id}/start`               |
+| Nom du service       | `service.name` (ressource)                | `service.name` (ressource)           | `game`, `account-svc`                     |
+| Namespace de service | `service.namespace` (ressource)           | (idem)                               | `commerce`                                |
+| Namespace Kubernetes | `k8s.namespace.name` (ressource)          | (idem)                               | `prod-eu`                                 |
+| Fonction du code     | `code.namespace` + `code.function`        | `code.function.name`                 | `com.example.OrderService.place`          |
+| Fichier et ligne     | `code.filepath`, `code.lineno`            | `code.file.path`, `code.line.number` | `OrderService.java`, `42`                 |
 
-Les services Spring Boot tracés par Micrometer Observation (le starter `spring-boot-starter-opentelemetry`, ou le pont Micrometer vers Zipkin) posent `method` et `status` sur leurs spans HTTP sortants au lieu des noms OTel. Perf Sentinel lit ces deux tags en dernier recours, et seulement sur un span déjà classé comme appel sortant par son URL. Un `status` non numérique comme `CLIENT_ERROR` laisse le statut vide. Avec le starter, en OTLP, chaque span est rangé sous le scope `org.springframework.boot` sans `code.namespace`, donc le scope ne nomme que le langage : un SELECT généré par Hibernate reçoit quand même le correctif JPA, car Hibernate 6 le signe de ses alias de table (`d1_0.id`), et les autres findings dont le correctif dépend du framework reçoivent le correctif Java générique. Le pont Zipkin ne porte aucun scope, donc ses findings gardent la seule suggestion générique.
+Les services Spring Boot tracés par Micrometer Observation (le starter `spring-boot-starter-opentelemetry`, ou le pont Micrometer vers Zipkin) posent `method` et `status` sur leurs spans HTTP sortants au lieu des noms OTel. Perf Sentinel lit ces deux tags en dernier recours, et seulement sur un span déjà classé comme appel sortant par son URL. Un `status` non numérique comme `CLIENT_ERROR` laisse le statut vide. Avec le starter, en OTLP, chaque span est rangé sous le scope `org.springframework.boot`, et par défaut aucun span ne porte d'attribut `code.*`, donc le scope ne nomme que le langage : un SELECT généré par Hibernate reçoit quand même le correctif JPA, car Hibernate 6 le signe de ses alias de table (`d1_0.id`), et les autres findings dont le correctif dépend du framework reçoivent le correctif Java générique. Le pont Zipkin ne porte aucun scope, donc ses findings gardent la seule suggestion générique. Un service qui ajoute des attributs `code.*` à ses spans, comme le décrit la [section du starter](#6-localisation-du-code), reçoit le correctif que désigne sa localisation de code.
+
+Les attributs de code sont facultatifs. Un finding porte une localisation de code quand son span, ou en OTLP son plus proche ancêtre dans le même service (jusqu'à huit niveaux au-dessus), porte l'un d'eux. Les noms stables l'emportent sur les noms legacy, un `code.function.name` qualifié donne aussi le namespace, et en OTLP `code.line.number` n'est lu que comme entier : un numéro de ligne envoyé sous forme de chaîne est ignoré. Jaeger et Zipkin lisent les attributs de code sur le span d'I/O lui-même, et acceptent un numéro de ligne écrit sous forme de chaîne.
 
 Les spans qui ne portent aucun attribut SQL, HTTP, RPC ou messaging sont ignorés : ce ne sont pas des opérations d'I/O. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. Perf Sentinel gère les deux de manière transparente.
 
@@ -435,10 +440,12 @@ Trois conséquences à connaître sur les findings messaging :
 
 > **La stabilité des acks dépend de `http.route`.** La signature
 > d'acquittement repose sur le template de route, pas sur l'URL
-> instanciée. Les services qui émettent `http.route` (Spring Boot,
-> ASP.NET Core, Express, toute auto-instrumentation moderne)
-> conservent des acks qui survivent aux redémarrages et aux ids de
-> requête tournants. Les services qui se rabattent sur `http.url` ou
+> instanciée. Les services qui émettent `http.route` (Spring Boot avec
+> l'agent Java, ASP.NET Core, Express, toute auto-instrumentation
+> moderne) conservent des acks qui survivent aux redémarrages et aux
+> ids de requête tournants. Le starter Spring Boot a besoin d'une
+> convention serveur pour cela, voir
+> [Route entrante](#4-route-entrante). Les services qui se rabattent sur `http.url` ou
 > `url.full` perdent cette stabilité. Voir
 > [`ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md#stabilité-de-signature-et-redémarrages-de-service)
 > pour la recette de vérification.
@@ -452,6 +459,8 @@ Quand aucun OTel Collector n'est disponible, instrumentez les services directeme
 ### Java (OpenTelemetry Java Agent v2.27+, Spring Boot, Helidon 4.x)
 
 Le [Java Agent OTel](https://opentelemetry.io/docs/zero-code/java/agent/) instrumente JDBC, R2DBC, les clients HTTP, Spring Web et la plupart des frameworks automatiquement, sans modification de code. C'est l'approche la plus proche du plug and play.
+
+Sur Spring Boot 4, le [starter `spring-boot-starter-opentelemetry`](#java-spring-boot-4-starter-spring-boot-starter-opentelemetry) est l'autre voie, par une dépendance Maven et sans agent. Il convient aux applications qui utilisent le cache AOT ou les images natives, ou qui ne doivent pas dépendre d'une instrumentation de bytecode alignée sur les versions de leurs bibliothèques, au prix de quelques ajouts décrits dans sa section. L'agent reste la voie la plus courte pour Spring Boot 3, pour les parcs mixtes, et pour les bibliothèques que les projets Spring n'observent pas.
 
 #### 1. Téléchargez l'agent
 
@@ -474,7 +483,7 @@ java -jar my-app.jar
 ```
 
 L'agent capture automatiquement :
-- `db.query.text` depuis JDBC (Spring Data JPA, Hibernate) et R2DBC (Spring WebFlux réactif)
+- La requête SQL depuis JDBC (Spring Data JPA, Hibernate) et R2DBC (Spring WebFlux réactif), dans `db.statement` par défaut et dans `db.query.text` avec `otel.semconv-stability.opt-in=database`. Perf Sentinel lit les deux
 - `url.full` depuis les clients HTTP (WebClient, RestTemplate, HttpClient)
 - `http.route` depuis Spring MVC et Spring WebFlux (requêtes entrantes)
 - Propagation du trace context entre les appels asynchrones, les chaînes réactives et les appels inter-services
@@ -505,6 +514,16 @@ Ajoutez le JAR de l'agent à votre Dockerfile :
 ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 ```
 
+#### Sur une plateforme partagée
+
+- **Ne comptez pas sur un `JAVA_TOOL_OPTIONS` défini dans l'image.** Quand la plateforme définit elle-même la variable (l'environnement supplémentaire d'un chart Helm, un préréglage mémoire), elle remplace la valeur du Dockerfile et l'agent ne se charge jamais, sans erreur. Placez `-javaagent:` dans l'entrypoint, ou dans une variable que la plateforme ne gère pas, et vérifiez les flags de la JVM en cours d'exécution.
+- **Configurez l'agent par de vraies variables d'environnement ou des propriétés système.** Il démarre en `premain`, avant Spring, donc les valeurs de `application.properties`, ou d'une ConfigMap montée comme tel, ne l'atteignent jamais.
+- **Une seule image, l'agent activé par environnement.** Embarquez le jar dans chaque image et activez-le avec `OTEL_JAVAAGENT_ENABLED`, à `false` par défaut et à `true` là où les traces sont voulues, plutôt que de construire une image par cas.
+- **Laissez de la place dans le Metaspace.** L'agent charge beaucoup de classes. Un `-XX:MaxMetaspaceSize` dimensionné pour la seule application peut finir en `OutOfMemoryError: Metaspace` peu après l'activation de l'agent. Augmentez-le et mesurez.
+- **Un seul traceur par JVM.** Si l'application a aussi un pont de tracing Micrometer, les spans HTTP et messaging sont émis deux fois. Désactivez le traceur applicatif là où l'agent tourne : `management.tracing.enabled=false` sur Spring Boot 3, `management.tracing.export.enabled=false` sur Spring Boot 4.
+
+**Localisation du code.** L'agent pose des attributs `code.*` sur ses spans de repository Spring Data, par défaut sous les noms legacy `code.namespace` et `code.function`, et sous le nom stable `code.function.name` avec `otel.semconv-stability.opt-in=code`. Perf Sentinel lit les deux, et en OTLP le SQL sous un span de repository hérite de sa localisation de code (voir [Attributs de span requis](#attributs-de-span-requis)). Les chargements paresseux, les flushs et les appels HTTP sortants n'ont pas d'ancêtre repository, donc leurs findings restent sans site d'appel, sauf si les spans de contrôleur sont activés avec `otel.instrumentation.common.experimental.controller-telemetry.enabled=true`, qui nomme alors la méthode du handler.
+
 #### Limitations connues
 
 **Incompatibilité Project Leyden / AOT cache.** Le flag `-javaagent:` est incompatible avec les AOT caches JEP 483 (`-XX:AOTCache`). Désactivez le cache AOT quand l'agent est actif :
@@ -517,7 +536,7 @@ else
 fi
 ```
 
-**Le starter Spring Boot ne suffit pas.** Le `spring-boot-starter-opentelemetry` (Spring Boot 4) n'instrumente pas les appels sortants `WebClient` ou `RestTemplate` avec propagation du trace context. Utilisez le Java Agent pour une détection N+1 HTTP complète.
+**Les clients sortants que l'agent voit, le starter peut ne pas les voir.** L'agent instrumente la bibliothèque HTTP sous-jacente, donc chaque appel `RestClient`, `RestTemplate` ou `WebClient` est tracé, quelle que soit la façon dont le client a été construit. Avec le starter Spring Boot, seuls les clients construits à partir des builders auto-configurés le sont, voir [Clients HTTP sortants](#3-clients-http-sortants).
 
 #### Tests d'intégration en CI (Maven Failsafe)
 
@@ -665,6 +684,213 @@ Un test en échec laisse quand même un fichier complet et analysable.
 `<forkCount>0</forkCount>` supprime le fork, donc le canal de commande, et `experimental-otlp/stdout` atteint alors la console : un grep sur le log de build donne le fichier de traces. Cette voie ne demande aucun écouteur, mais elle a un coût. L'isolation des tests disparaît, la capture porte alors les spans de Maven en plus de ceux de l'application, et tout ce qui reposait sur `<argLine>`, en particulier un placeholder JaCoCo `@{argLine}`, doit passer par `MAVEN_OPTS` sous peine de cesser silencieusement de s'appliquer. À réserver aux cas où rien ne peut écouter sur un port et où l'agent est antérieur à 2.32.0.
 
 **Trois noms d'exporteur voisins n'aident pas ici.** `logging` affiche un résumé de span lisible par un humain et non du JSON OTLP, donc Perf Sentinel ne peut pas le parser du tout. `logging-otlp` émet bien du JSON OTLP, mais via un logger, donc chaque ligne porte le préfixe ajouté par la configuration de logs de l'application. `otlp_file` et `OTEL_EXPORTER_OTLP_FILE_PATH` n'existent pas du tout, malgré leurs noms plausibles. Le vrai mécanisme est `otlp_file/development` avec `output_stream` (option 3).
+
+---
+
+### Java (Spring Boot 4 starter, spring-boot-starter-opentelemetry)
+
+Spring Boot 4.0 fournit son propre support OpenTelemetry, le starter [`spring-boot-starter-opentelemetry`](https://spring.io/blog/2025/11/18/opentelemetry-with-spring-boot/), et l'équipe Spring le présente comme son option préférée pour les applications Spring Boot. Il n'y a pas d'agent : les projets Spring créent les spans par Micrometer Observation, le pont de tracing Micrometer les transmet au SDK OpenTelemetry que Spring Boot configure, et le SDK les exporte en OTLP. Rien ne modifie le bytecode, donc le cache AOT et les images natives continuent de fonctionner, et l'instrumentation correspond toujours aux versions des bibliothèques qu'elle observe.
+
+La contrepartie est la couverture. Le starter trace moins que l'agent par défaut, et ses spans suivent les conventions Spring plutôt que celles d'OpenTelemetry. Le tableau liste ce dont Perf Sentinel a besoin et d'où vient chaque élément.
+
+| Ce que lit Perf Sentinel              | Par défaut                                                         | Ce qu'il faut ajouter                                                                                    |
+|---------------------------------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| Texte SQL (`db.query.text`)           | Non, Spring Boot n'instrumente pas JDBC                            | `datasource-micrometer-spring-boot` et `datasource-micrometer-opentelemetry` ([étape 1](#1-dépendances)) |
+| Appels HTTP sortants                  | Oui, pour les clients construits à partir des builders Spring Boot | Construire chaque client à partir du builder injecté ([étape 3](#3-clients-http-sortants))               |
+| Route entrante (`http.route`)         | Non, le span serveur ne porte que le chemin brut                   | Une convention d'observation serveur ([étape 4](#4-route-entrante))                                      |
+| Publications RabbitMQ et Kafka        | Non, l'observation est désactivée par défaut                       | Les propriétés `observation-enabled` ([étape 2](#2-configuration))                                       |
+| SQL des méthodes `@Async` et des jobs | Non, l'observation ne suit pas le changement de thread             | La propagation de contexte, un listener Quartz ([étape 5](#5-threads-et-jobs))                           |
+| Localisation du code (`code.*`)       | Seulement sur les méthodes `@Scheduled`                            | Des observations de repository et l'attribution du site d'appel ([étape 6](#6-localisation-du-code))     |
+
+Un seul traceur par JVM. Avec l'agent Java attaché à un service qui a aussi le starter, les spans HTTP et messaging sont émis deux fois. Partout où l'agent tourne, désactivez l'export du starter avec `management.tracing.export.enabled=false`.
+
+#### 1. Dépendances
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-opentelemetry</artifactId>
+</dependency>
+<!-- Spring Boot n'instrumente pas JDBC : un span par requête. -->
+<dependency>
+    <groupId>net.ttddyy.observation</groupId>
+    <artifactId>datasource-micrometer-spring-boot</artifactId>
+    <version>2.3.0</version>
+</dependency>
+<!-- Place la requête dans db.query.text, l'attribut que lit Perf Sentinel. -->
+<dependency>
+    <groupId>net.ttddyy.observation</groupId>
+    <artifactId>datasource-micrometer-opentelemetry</artifactId>
+    <version>2.3.0</version>
+</dependency>
+```
+
+La ligne 2.x de [datasource-micrometer](https://github.com/jdbc-observations/datasource-micrometer) cible Spring Boot 4, la ligne 1.x Spring Boot 3. Gardez les deux modules sur la même version. Sans le module OpenTelemetry, la requête va dans un tag `jdbc.query[0]` que Perf Sentinel ne lit pas, donc les spans SQL sont ignorés. Avec lui, la requête est sanitisée avant l'export (`?` à la place des littéraux), ce que gère la détection N+1 sanitizer-aware.
+
+#### 2. Configuration
+
+```properties
+spring.application.name=my-service
+# OTLP en HTTP/protobuf, le transport par défaut : port 4318 et chemin /v1/traces.
+management.opentelemetry.tracing.export.otlp.endpoint=http://otel-collector:4318/v1/traces
+# La valeur par défaut est 0.1, ce qui supprime la plupart des appels répétés dont dépend la détection N+1.
+management.tracing.sampling.probability=1.0
+# Un span par requête SQL, pas de span de connexion ni de result set.
+jdbc.includes=query
+# Les spans messaging et la propagation de trace dans les en-têtes de message sont désactivés par défaut.
+spring.rabbitmq.listener.simple.observation-enabled=true
+spring.rabbitmq.template.observation-enabled=true
+spring.kafka.listener.observation-enabled=true
+spring.kafka.template.observation-enabled=true
+# Le starter pousse aussi les métriques en OTLP. Désactivez-le quand Prometheus les collecte.
+management.otlp.metrics.export.enabled=false
+```
+
+- **Sans endpoint, pas d'export.** L'endpoint n'a pas de valeur par défaut. Tant qu'il n'est pas défini, les spans sont créés et propagés mais ne quittent jamais la JVM.
+- **`service.name`** vient de `spring.application.name`, et `service.namespace` de `spring.application.group`. Ajoutez d'autres attributs de ressource, comme `k8s.namespace.name` pour [`grouping_attributes`](./CONFIGURATION-FR.md), avec `management.opentelemetry.resource-attributes.*`.
+- **La propagation** produit uniquement le W3C `traceparent` et accepte W3C et B3. Modifiez-la avec `management.tracing.propagation.produce` et `consume`. L'ancienne propriété `management.tracing.propagation.type` remplace les deux quand elle est définie, donc une valeur oubliée les écrase sans prévenir.
+- **Variables `OTEL_*`.** Spring Boot 4.1 en reporte une partie sur ces propriétés, dont `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` (avec `/v1/traces` ajouté), `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER` et `OTEL_PROPAGATORS`. Les autres variables `OTEL_*` sont ignorées. Spring Boot 4.0 ne lit que `OTEL_SERVICE_NAME` et `OTEL_RESOURCE_ATTRIBUTES`.
+- **Activer l'export par environnement.** `management.tracing.export.otlp.enabled` désactive l'export OTLP sans retirer l'instrumentation, donc le même artefact tourne partout et seul le déploiement décide où vont les traces.
+
+#### 3. Clients HTTP sortants
+
+Un `RestClient`, `RestTemplate` ou `WebClient` n'est tracé, et n'envoie `traceparent`, que s'il porte l'`ObservationRegistry`. Spring Boot le pose sur les builders qu'il auto-configure. Un client construit par une fabrique statique n'a ni span ni en-têtes de trace, donc ses appels sont invisibles pour les détecteurs N+1 et fan-out, et le service en aval démarre une nouvelle trace.
+
+```java
+@Bean
+RestClient inventoryClient(RestClient.Builder builder) { // injecté, observé
+    return builder.baseUrl("http://inventory").build();
+}
+// Non tracé : RestClient.builder().baseUrl("http://inventory").build()
+// Sauf si le registry est posé à la main : RestClient.builder().observationRegistry(registry)
+```
+
+Ces spans nomment la méthode et le statut dans les tags Micrometer `method` et `status` plutôt que dans les attributs OpenTelemetry, et Perf Sentinel lit les deux formes.
+
+#### 4. Route entrante
+
+La convention serveur par défaut ne pose la route que sur les métriques. Le span porte le chemin brut, donc les findings sont regroupés par URL instanciée, un endpoint par id, et les [acquittements](./ACK-WORKFLOW-FR.md#stabilité-de-signature-et-redémarrages-de-service) perdent leur stabilité. Deux façons de poser `http.route` sur le span :
+
+- Déclarer un bean `OpenTelemetryServerRequestObservationConvention`. Le span suit alors les conventions HTTP d'OpenTelemetry, de même que les métriques HTTP serveur, renommées `http.server.request.duration`.
+- Étendre la convention par défaut et ajouter la route comme clé à haute cardinalité. Les clés à haute cardinalité ne vont que dans les traces, donc les métriques Prometheus gardent leurs noms et leurs tags.
+
+```java
+@Bean
+ServerRequestObservationConvention routeConvention() {
+    return new DefaultServerRequestObservationConvention() {
+        @Override
+        public KeyValues getHighCardinalityKeyValues(ServerRequestObservationContext context) {
+            KeyValues keyValues = super.getHighCardinalityKeyValues(context);
+            String route = context.getPathPattern();
+            return route == null ? keyValues : keyValues.and("http.route", route);
+        }
+    };
+}
+```
+
+#### 5. Threads et jobs
+
+Une requête n'appartient à une trace que si une observation est courante sur son thread quand elle s'exécute.
+
+- **Méthodes `@Async`.** Sur Spring Boot 4.1, définissez `spring.task.execution.propagate-context=true` pour l'executor auto-configuré. Sur Spring Boot 4.0, ou pour un executor que vous construisez vous-même, enregistrez un `ContextPropagatingTaskDecorator`. Capturer tous les contextes transmet aussi le contexte de sécurité de l'appelant à la tâche. Pour ne propager que l'observation :
+
+  ```java
+  @Bean
+  TaskDecorator observationOnlyTaskDecorator() {
+      return new ContextPropagatingTaskDecorator(ContextSnapshotFactory.builder()
+              .captureKeyPredicate(ObservationThreadLocalAccessor.KEY::equals)
+              .build());
+  }
+  ```
+
+- **Les méthodes `@Scheduled`** reçoivent une observation automatiquement.
+- **Les jobs Quartz** n'en reçoivent aucune, et `@Observed` sur une classe de job ne fait rien car Quartz instancie les jobs hors de Spring AOP. Enregistrez un `JobListener` global par un `SchedulerFactoryBeanCustomizer` : ouvrez un scope d'observation dans `jobToBeExecuted` et fermez-le dans `jobWasExecuted`, puisque les deux s'exécutent sur le thread du job.
+
+Le SQL exécuté hors de toute observation (démarrage, migrations, un check-in de cluster) devient une trace racine par requête. Cela coûte du volume et ajoute des requêtes sur lesquelles on ne peut pas agir. Un `ObservationPredicate` peut écarter les observations `jdbc.*` qui démarrent sans observation courante sur le thread. Regardez l'observation courante plutôt que le parent : avec `jdbc.includes=query`, le parent d'une requête est l'observation de connexion, un no-op.
+
+```java
+@Bean
+ObservationPredicate skipSqlOutsideAnyObservation(ObjectProvider<ObservationRegistry> registry) {
+    return (name, context) -> !name.startsWith("jdbc.")
+            || registry.getObject().getCurrentObservation() != null;
+}
+```
+
+#### 6. Localisation du code
+
+Le starter ne pose aucun attribut `code.*` sur les spans HTTP ou SQL, donc les findings arrivent sans site d'appel, et le correctif suggéré Java ne repose que sur le scope `org.springframework.boot` et la forme du SQL (voir [Attributs de span requis](#attributs-de-span-requis)). Perf Sentinel lit d'abord les noms stables `code.function.name`, `code.file.path` et `code.line.number`, puis les noms legacy. En OTLP, un span d'I/O sans attribut `code.*` prend la localisation de code de son plus proche ancêtre qui en a une, jusqu'à huit niveaux au-dessus dans le même service. Deux ajouts couvrent la plupart des spans d'I/O.
+
+**Un span par appel de repository.** Spring Data ne crée aucun span pour une méthode de repository. Un `MethodInterceptor` ajouté à chaque proxy de repository peut ouvrir une observation portant `code.function.name`, et le SQL émis par la méthode se range dessous. Ajoutez l'advice en position 0 pour que le span couvre aussi le flush quand le repository valide sa propre transaction.
+
+```java
+@Bean
+static BeanPostProcessor repositoryObservation(ObjectProvider<ObservationRegistry> registry) {
+    return new BeanPostProcessor() {
+        @Override
+        public Object postProcessBeforeInitialization(Object bean, String name) {
+            if (bean instanceof RepositoryFactoryBeanSupport<?, ?, ?> factoryBean) {
+                factoryBean.addRepositoryFactoryCustomizer(factory -> factory.addRepositoryProxyPostProcessor(
+                        (proxy, info) -> proxy.addAdvice(0, (MethodInterceptor) invocation -> {
+                            ObservationRegistry r = registry.getIfAvailable(() -> ObservationRegistry.NOOP);
+                            if (r.getCurrentObservation() == null) {
+                                return invocation.proceed(); // aucune trace à laquelle se rattacher
+                            }
+                            String function = info.getRepositoryInterface().getName() + "." + invocation.getMethod().getName();
+                            return Observation.createNotStarted("repository.invocation", r)
+                                    .highCardinalityKeyValue("code.function.name", function)
+                                    .observeChecked(invocation::proceed);
+                        })));
+            }
+            return bean;
+        }
+    };
+}
+```
+
+**Le site d'appel depuis la pile.** Les spans de repository laissent de côté les chargements paresseux, l'initialisation des proxies et chaque appel HTTP sortant. La méthode applicative responsable est encore sur la pile quand le span se termine, car les filtres d'observation s'exécutent sur le thread appelant à l'arrêt de l'observation. Un `ObservationFilter` sur le `QueryContext` de datasource-micrometer et sur le `ClientRequestObservationContext` de Spring peut parcourir la pile avec `StackWalker` et garder la première frame qui appartient à l'application. Trois règles gardent le résultat fiable :
+
+- **S'arrêter aux frontières.** Si un appel de repository apparaît en premier sur la pile, laissez le span tel quel : son ancêtre repository nomme déjà le code. Si le flush d'Hibernate (`org.hibernate.engine.spi.ActionQueue.executeActions`) ou un commit (`AbstractPlatformTransactionManager.processCommit`) apparaît en premier, la pile ne dit pas où l'entité a changé, donc ne posez rien.
+- **Reconnaître les classes applicatives par leur emplacement de chargement, pas par leur package.** Quand le service et ses bibliothèques partagées ont le même package racine, comparez le `CodeSource` du `ProtectionDomain` de chaque classe avec celui de la classe `@SpringBootConfiguration`, ignorez les sous-classes générées (proxies `$$`, proxies Hibernate) et mettez la réponse en cache par classe avec `ClassValue`. Si l'emplacement de l'application est inconnu, ne traitez aucune classe comme du code applicatif : les classes du JDK n'ont pas non plus de `CodeSource`.
+- **Écrire le numéro de ligne comme un entier.** Les valeurs de clé d'observation sont des chaînes, et Perf Sentinel ne lit `code.line.number` que comme entier en OTLP. Posez les attributs sur le span de tracing lui-même, par le `TracingObservationHandler.TracingContext` du contexte d'observation :
+
+  ```java
+  TracingObservationHandler.TracingContext tracing = context.get(TracingObservationHandler.TracingContext.class);
+  Span span = tracing == null ? null : tracing.getSpan();
+  if (span == null || span.isNoop()) {
+      return context; // non tracé, ou non échantillonné : pas de parcours de pile
+  }
+  // frame : la première frame applicative trouvée par StackWalker
+  span.tag("code.function.name", frame.getClassName() + "." + frame.getMethodName());
+  span.tag("code.file.path", frame.getFileName());
+  span.tag("code.line.number", (long) frame.getLineNumber());
+  ```
+
+Avec les deux en place, la plupart des findings SQL et HTTP d'un service sous starter portent une localisation de code, davantage qu'avec l'agent par défaut, qui ne nomme que les méthodes de repository. Deux limites demeurent. Un helper HTTP générique du service devient la localisation rapportée de chaque appel qui passe par lui, et un getter d'entité qui déclenche un chargement paresseux est rapporté à la place de son appelant. Le parcours de pile coûte quelques microsecondes par appel d'I/O tracé.
+
+#### 7. Tests d'intégration
+
+`@SpringBootTest` tourne dans la JVM de Failsafe, donc le starter trace les tests d'intégration sans agent à attacher. Pointez le fork vers [`perf-sentinel capture`](#option-1-perf-sentinel-capture-recommandée) par des propriétés système :
+
+```xml
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-failsafe-plugin</artifactId>
+  <configuration>
+    <systemPropertyVariables>
+      <management.opentelemetry.tracing.export.otlp.endpoint>http://localhost:4318/v1/traces</management.opentelemetry.tracing.export.otlp.endpoint>
+      <management.tracing.export.otlp.enabled>true</management.tracing.export.otlp.enabled>
+      <management.tracing.sampling.probability>1.0</management.tracing.sampling.probability>
+    </systemPropertyVariables>
+  </configuration>
+</plugin>
+```
+
+```bash
+perf-sentinel capture --grace-ms 3000 --output target/traces.json -- mvn verify
+perf-sentinel analyze --ci --input target/traces.json
+```
+
+Sans écouteur, l'export échoue en arrière-plan sans faire échouer de test, donc cette configuration peut rester dans le POM. Le délai de grâce laisse au batch span processor le temps de vider son tampon après le dernier test.
 
 ---
 

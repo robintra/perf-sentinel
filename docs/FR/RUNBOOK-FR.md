@@ -323,10 +323,10 @@ curl -sf http://perf-sentinel:4318/metrics
 **Causes probables, par ordre.**
 
 1. **Adresse de bind.** Le daemon écoute par défaut sur `127.0.0.1`, injoignable depuis d'autres containers. Mettez `listen_address = "0.0.0.0"` dans `.perf-sentinel.toml` et redémarrez.
-2. **Protocole mal aligné.** L'OTel Java Agent utilise gRPC par défaut sur le port 4317. Vérifiez que `OTEL_EXPORTER_OTLP_PROTOCOL` correspond au port visé : `grpc` → 4317, `http/protobuf` → 4318.
+2. **Protocole mal aligné.** L'OTel Java Agent 2.x utilise `http/protobuf` par défaut sur le port 4318, tout comme le starter Spring Boot. Vérifiez que `OTEL_EXPORTER_OTLP_PROTOCOL` correspond au port visé : `grpc` → 4317, `http/protobuf` → 4318.
 3. **Politique réseau.** Un `NetworkPolicy` Kubernetes ou un security group peut bloquer le trafic cross-namespace. Désactivez temporairement ou autorisez explicitement le chemin du service vers le daemon.
 4. **Service non instrumenté.** Vérifiez `OTEL_SDK_DISABLED=false` et que le service produit bien des spans (la plupart des SDKs OTel ont des compteurs internes ou des logs debug).
-5. **Faute de frappe sur l'endpoint OTLP.** `OTEL_EXPORTER_OTLP_ENDPOINT` doit être `http://<host>:4318`. Pas de suffixe `/v1/traces`, le SDK l'ajoute.
+5. **Faute de frappe sur l'endpoint OTLP.** `OTEL_EXPORTER_OTLP_ENDPOINT` doit être `http://<host>:4318`. Pas de suffixe `/v1/traces`, le SDK l'ajoute. La propriété Spring Boot `management.opentelemetry.tracing.export.otlp.endpoint` fait exception : elle prend l'URL complète, `/v1/traces` compris.
 6. **Les spans arrivent mais aucun n'est analysable.** `perf_sentinel_otlp_spans_received_total` qui monte pendant que `events_processed_total` reste plat signifie que le daemon reçoit des spans mais que chacun est filtré (pas de `db.statement`, pas de `http.url`). Examinez `perf_sentinel_otlp_spans_filtered_total` par `reason` : un `missing_db_statement` dominant pointe vers des drivers configurés pour omettre le texte des requêtes (voir [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#la-qualité-de-linstrumentation-borne-les-findings) et les réglages par langage dans [INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md#attributs-de-span-requis)).
 
 **Vérification après correctif.** Déclenchez une requête via un service instrumenté et observez :
