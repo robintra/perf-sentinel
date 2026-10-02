@@ -48,9 +48,10 @@ Documentation utilisateur de Perf Sentinel. Pour la documentation de conception 
 | [INSTANCE-TYPES-FR.md](INSTANCE-TYPES-FR.md) | Tous les `instance_type` portant un profil de puissance embarqué, avec leurs watts repos et max              |
 | [LIMITATIONS-FR.md](LIMITATIONS-FR.md) | Compromis connus, contraintes amont, limites de la détection                                                          |
 
-## Chaîne d'approvisionnement et release
+## Sécurité, chaîne d'approvisionnement et release
 
-| Document                                           | Description                                                                                 |
-|----------------------------------------------------|---------------------------------------------------------------------------------------------|
-| [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md)           | Épinglage des entrées de build, signature Sigstore, provenance SLSA, chaîne `verify-hash`   |
-| [RELEASE-PROCEDURE-FR.md](RELEASE-PROCEDURE-FR.md) | Procédure de release de bout en bout depuis la 0.7.0, gate lab de simulation, lockstep Helm |
+| Document                                           | Description                                                                                                                       |
+|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| [SECURITY-OVERVIEW-FR.md](SECURITY-OVERVIEW-FR.md) | Vue d'ensemble pour une revue de sécurité : flux réseau, contrôle d'accès, données stockées, durcissement, intégrité des releases |
+| [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md)           | Épinglage des entrées de build, signature Sigstore, provenance SLSA, chaîne `verify-hash`                                         |
+| [RELEASE-PROCEDURE-FR.md](RELEASE-PROCEDURE-FR.md) | Procédure de release de bout en bout depuis la 0.7.0, gate lab de simulation, lockstep Helm                                       |

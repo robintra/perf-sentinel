@@ -48,9 +48,10 @@ Perf Sentinel's user-facing documentation. For deep design rationale aimed at co
 | [INSTANCE-TYPES.md](INSTANCE-TYPES.md) | Every `instance_type` carrying an embedded power profile, with its idle and max wattage       |
 | [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries                                  |
 
-## Supply chain and release
+## Security, supply chain and release
 
-| Document                                     | Description                                                                         |
-|----------------------------------------------|-------------------------------------------------------------------------------------|
-| [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md)           | Build input pinning, Sigstore signing, SLSA provenance, `verify-hash` chain         |
-| [RELEASE-PROCEDURE.md](RELEASE-PROCEDURE.md) | End-to-end release procedure from 0.7.0 onwards, simulation-lab gate, Helm lockstep |
+| Document                                     | Description                                                                                        |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------|
+| [SECURITY-OVERVIEW.md](SECURITY-OVERVIEW.md) | Security review overview: network flows, access control, stored data, hardening, release integrity |
+| [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md)           | Build input pinning, Sigstore signing, SLSA provenance, `verify-hash` chain                        |
+| [RELEASE-PROCEDURE.md](RELEASE-PROCEDURE.md) | End-to-end release procedure from 0.7.0 onwards, simulation-lab gate, Helm lockstep                |
