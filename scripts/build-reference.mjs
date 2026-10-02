@@ -109,7 +109,9 @@ const FRAME_STYLE = grab('00-INDEX.html', /<style>[\s\S]*?<\/style>/)
   .replace('header [aria-label="Language"]:hover,header [aria-label="Theme"]:hover{', 'header [aria-label="Theme"]:hover{')
   // Align the dark-mode accent to the vitrine (#0BA671); the frame drifted to
   // the brighter terminal green (#26CD94). --term-accent stays untouched.
-  .replace('--accent:#26CD94; --accent-strong:#26CD94;', '--accent:#0BA671; --accent-strong:#0BA671;');
+  .replace('--accent:#26CD94; --accent-strong:#26CD94;', '--accent:#0BA671; --accent-strong:#0BA671;')
+  // Square the left corners so the active item's accent border stays straight.
+  .replace('.ps-docnav a{display:block;padding:6px 12px;border-radius:8px;', '.ps-docnav a{display:block;padding:6px 12px;border-radius:0 8px 8px 0;');
 // Shrink the logo on the narrowest phones so the menu button stays on screen.
 // The frame style is lifted from an already-built page, so inject only once.
 const LOGO_380 = '@media(max-width:380px){.ps-chrome img[data-logo]{height:30px!important}}';
