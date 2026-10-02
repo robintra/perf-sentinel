@@ -328,8 +328,8 @@ La vérification de `listen_addr` non-loopback émet un avertissement mais ne re
 ```rust
 tracing::warn!(
     "Daemon configured to listen on non-loopback address: {}. \
-     Endpoints have no authentication: use a reverse proxy or \
-     network policy for security.",
+     OTLP ingest, /metrics and the read endpoints are never \
+     authenticated. Put a reverse proxy or a network policy in front.",
     self.listen_addr
 );
 ```
