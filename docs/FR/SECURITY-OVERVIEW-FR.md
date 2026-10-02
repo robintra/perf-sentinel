@@ -169,7 +169,7 @@ Aucun des deux dépôts n'exige aujourd'hui de commits signés sur sa branche pr
 ## Signaler une vulnérabilité
 
 Les deux projets reçoivent les signalements par le signalement privé de vulnérabilités de GitHub.
-- **Moteur :** accusé de réception sous 72 heures, au mieux puisque le projet a un seul mainteneur. Première évaluation sous 7 jours. Un CVE est demandé à partir de la sévérité Medium. Seule la dernière version mineure reçoit les correctifs. Voir [SECURITY.md](https://github.com/robintra/perf-sentinel/blob/main/SECURITY.md).
+- **Moteur :** accusé de réception sous 72 heures, au mieux puisque le projet a un seul mainteneur pour le moment. Première évaluation sous 7 jours. Un CVE est demandé à partir de la sévérité Medium. Seule la dernière version mineure reçoit les correctifs. Voir [SECURITY.md](https://github.com/robintra/perf-sentinel/blob/main/SECURITY.md).
 - **Hub :** accusé de réception sous 3 jours ouvrés, évaluation sous 7 jours ouvrés. Seule la dernière version `0.x` publiée reçoit les correctifs. Voir la [politique de sécurité du Hub](https://github.com/robintra/PerfSentinelHub/blob/main/SECURITY.md).
 
 ## Recommandations de déploiement
