@@ -179,7 +179,7 @@ This compiles the full batch pipeline (normalize, correlate, detect, score, repo
 
 ### `CodeLocation` struct
 
-When OTel spans carry source code attributes (`code.function`, `code.filepath`, `code.lineno`, `code.namespace`), these are extracted during OTLP conversion and stored on `SpanEvent` as four optional fields. The detection pipeline propagates them to `Finding.code_location: Option<CodeLocation>`:
+When OTel spans carry source code attributes, the stable `code.function.name`, `code.file.path` and `code.line.number` or the legacy `code.function`, `code.filepath`, `code.lineno` and `code.namespace`, these are extracted during ingestion and stored on `SpanEvent` as four optional fields. The detection pipeline propagates them to `Finding.code_location: Option<CodeLocation>`:
 
 ```rust
 pub struct CodeLocation {
@@ -190,7 +190,7 @@ pub struct CodeLocation {
 }
 ```
 
-All four fields are optional and independently present. Most auto-instrumented OTel agents emit `code.function` and `code.namespace` but not `code.filepath` or `code.lineno`. The system degrades gracefully: findings without source attributes appear without a source line, with no noise in the output. The structural findings (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) carry the location of a representative call, see the framework detector section of `04-DETECTION.md`.
+All four fields are optional and independently present. The stable names take precedence over the legacy ones, and a qualified `code.function.name` also yields the namespace. Over OTLP, a span without any code attribute takes the location of its nearest ancestor that has one, within the same service, up to `ANCESTOR_WALK_MAX_DEPTH` levels. Most auto-instrumented OTel agents emit a function name but no file path or line number, and the Spring Boot starter emits none of them by default. The system degrades gracefully: findings without source attributes appear without a source line, with no noise in the output. The structural findings (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) carry the location of a representative call, see the framework detector section of `04-DETECTION.md`.
 
 ### CLI display
 

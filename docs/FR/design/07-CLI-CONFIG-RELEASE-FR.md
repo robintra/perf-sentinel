@@ -179,7 +179,7 @@ Cela compile le pipeline batch complet (normalize, correlate, detect, score, rep
 
 ### Structure `CodeLocation`
 
-Quand les spans OTel portent des attributs de code source (`code.function`, `code.filepath`, `code.lineno`, `code.namespace`), ils sont extraits pendant la conversion OTLP et stockés sur `SpanEvent` sous forme de quatre champs optionnels. Le pipeline de détection les propage vers `Finding.code_location: Option<CodeLocation>` :
+Quand les spans OTel portent des attributs de code source, les noms stables `code.function.name`, `code.file.path` et `code.line.number` ou les noms legacy `code.function`, `code.filepath`, `code.lineno` et `code.namespace`, ils sont extraits pendant l'ingestion et stockés sur `SpanEvent` sous forme de quatre champs optionnels. Le pipeline de détection les propage vers `Finding.code_location: Option<CodeLocation>` :
 
 ```rust
 pub struct CodeLocation {
@@ -190,7 +190,7 @@ pub struct CodeLocation {
 }
 ```
 
-Les quatre champs sont optionnels et présents indépendamment les uns des autres. La plupart des agents OTel auto-instrumentés émettent `code.function` et `code.namespace` mais pas `code.filepath` ni `code.lineno`. Le système se dégrade proprement : les findings sans attributs source apparaissent sans ligne source, sans bruit dans la sortie. Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) portent la localisation d'un appel représentatif, voir la section sur le détecteur de framework de `04-DETECTION-FR.md`.
+Les quatre champs sont optionnels et présents indépendamment les uns des autres. Les noms stables l'emportent sur les noms legacy, et un `code.function.name` qualifié donne aussi le namespace. En OTLP, un span sans attribut de code prend la localisation de son plus proche ancêtre qui en a une, dans le même service, jusqu'à `ANCESTOR_WALK_MAX_DEPTH` niveaux. La plupart des agents OTel auto-instrumentés émettent un nom de fonction mais ni chemin de fichier ni numéro de ligne, et le starter Spring Boot n'en émet aucun par défaut. Le système se dégrade proprement : les findings sans attributs source apparaissent sans ligne source, sans bruit dans la sortie. Les findings structurels (`serialized_calls`, `excessive_fanout`, `chatty_service`, `pool_saturation`) portent la localisation d'un appel représentatif, voir la section sur le détecteur de framework de `04-DETECTION-FR.md`.
 
 ### Affichage CLI
 

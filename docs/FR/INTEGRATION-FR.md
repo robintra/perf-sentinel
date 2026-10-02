@@ -624,7 +624,7 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 1. **Vérifiez la connectivité.** Depuis le conteneur : `curl http://host.docker.internal:4318/metrics`. S'il échoue, Perf Sentinel n'est pas joignable.
 2. **Vérifiez l'adresse d'écoute.** Perf Sentinel écoute sur `127.0.0.1` par défaut. Pour l'accès Docker, configurez `listen_address = "0.0.0.0"` dans `.perf-sentinel.toml` ou lancez-le nativement sur l'hôte.
-3. **Vérifiez le protocole.** Le Java Agent utilise gRPC par défaut (port 4317). Assurez-vous que `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` correspond au port que vous ciblez.
+3. **Vérifiez le protocole.** Le Java Agent 2.x utilise `http/protobuf` par défaut (port 4318), tout comme le starter Spring Boot. Définissez `OTEL_EXPORTER_OTLP_PROTOCOL` explicitement et alignez le port : `grpc` avec 4317, `http/protobuf` avec 4318.
 
 ### Events reçus mais aucun finding
 
@@ -637,6 +637,6 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 
 Le Java Agent (`-javaagent:`) est incompatible avec les caches AOT de la JEP 483. Si vous voyez `Unable to map shared spaces` ou `Mismatched values for property jdk.module.addmods`, contournez le cache AOT quand l'agent est actif (voir la section Java de [INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)).
 
-### Le starter Spring Boot ne capture pas les appels HTTP sortants
+### Starter Spring Boot : spans SQL ou HTTP sortants manquants
 
-Le `spring-boot-starter-opentelemetry` (Spring Boot 4) fait le pont entre les métriques Micrometer et OTel mais n'instrumente pas complètement les appels sortants `WebClient` ou `RestTemplate` avec la propagation du contexte de trace. Utilisez le Java Agent pour une instrumentation complète.
+Le starter `spring-boot-starter-opentelemetry` (Spring Boot 4) ne trace que ce que les projets Spring observent. L'absence de span SQL signifie en général que JDBC n'est pas instrumenté : ajoutez `datasource-micrometer-spring-boot` avec son module `datasource-micrometer-opentelemetry`, qui écrit la requête dans `db.query.text`. Un appel sortant manquant vient en général d'un client construit sans le builder Spring Boot, qui ne porte ni span ni `traceparent`. Les deux cas sont traités dans la [section du starter d'INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md#java-spring-boot-4-starter-spring-boot-starter-opentelemetry).

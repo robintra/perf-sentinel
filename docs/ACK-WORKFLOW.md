@@ -299,7 +299,7 @@ string, not as a recommended posture.
 
 Standard OpenTelemetry agents emit `http.route` automatically:
 
-- Spring Boot 3+ with the OpenTelemetry Java agent.
+- Spring Boot 3+ with the OpenTelemetry Java agent. The Spring Boot 4 starter does not by default, see [Inbound route](./INSTRUMENTATION.md#4-inbound-route).
 - ASP.NET Core with the OpenTelemetry .NET SDK.
 - Express.js, Fastify, Koa with `@opentelemetry/instrumentation-*`.
 - Most modern HTTP framework auto-instrumentations.
