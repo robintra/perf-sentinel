@@ -212,6 +212,13 @@
 <li><code class="ps-ic">CALL</code> statements normalize literal params, SQL expressions like <code class="ps-ic">NOW()</code> and <code class="ps-ic">INTERVAL '...'</code> are handled.</li>
 <li>SQL Server <code class="ps-ic">[...]</code> identifiers are not special-cased (<code class="ps-ic">[</code> is a normal character). Common ones like <code class="ps-ic">[Order Details]</code> or <code class="ps-ic">[Col1]</code> stay intact, while an all-numeric bracketed identifier such as <code class="ps-ic">[123]</code> has its digits replaced with <code class="ps-ic">?</code>. Treating <code class="ps-ic">[</code> as a normal character keeps PostgreSQL array literals and subscripts (<code class="ps-ic">ARRAY['a', 'b']</code>, <code class="ps-ic">arr[1]</code>) correctly redacted.</li>
 </ul>
+<p class="ps-p"><strong>What stays verbatim in a template.</strong> The template is what reports, the query API, the NDJSON archive and the Hub carry, so anything the normalizers leave in place travels with it:</p>
+<ul>
+<li>Text between double quotes is kept as an identifier. In MySQL's default mode (without <code class="ps-ic">ANSI_QUOTES</code>), <code class="ps-ic">"..."</code> is a string literal, so a value written that way reaches the template unmasked.</li>
+<li>SQL comments (<code class="ps-ic">-- ...</code>, <code class="ps-ic">/* ... */</code>) are not stripped, so the words they contain stay in the template.</li>
+<li>The HTTP path normalizer masks numeric segments (<code class="ps-ic">{id}</code>) and UUIDs (<code class="ps-ic">{uuid}</code>) and drops the query string. Any other segment stays as is: an email address, a username, a slug or an opaque token in the path reaches the template.</li>
+<li>The endpoint a finding is attributed to (<code class="ps-ic">source.endpoint</code>) comes from <code class="ps-ic">http.route</code> when the instrumentation sets it. Without it, the raw request path is kept, minus its query string, fragment and credentials, and its numeric segments are not masked.</li>
+</ul>
 <p class="ps-p">If a query normalizes incorrectly, open an issue with the raw SQL anonymized.</p>
 <p class="ps-p"><strong>Complementarity with pg_stat_statements.</strong> Perf Sentinel sees per-trace patterns (N+1, redundant) that pg_stat_statements cannot. pg_stat_statements provides aggregate server-side stats (total calls, mean time) that Perf Sentinel does not track. Use both for full coverage.</p>
 <h2 id="orm-bind-parameters-and-n1-vs-redundant-classification" class="ps-h2">ORM bind parameters and N+1 vs redundant classification</h2>
