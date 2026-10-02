@@ -1840,7 +1840,7 @@ class Component extends DCLogic {
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'per event, p50 to p99' },
-          { icon: 'memory', value: '17 →\u00a0980\u00a0MB', label: 'daemon RSS: idle, then set by `max_retained_findings` (7-day production median at 100k)' },
+          { icon: 'memory', value: '17 →\u00a0980\u00a0MB', label: 'daemon RSS: idle, then production median at ten times the default retention' },
           { icon: 'package', value: 'Rust 2024', label: 'with a static musl binary and a FROM scratch image' },
         ],
         goEyebrow: '// greenops',
@@ -1857,7 +1857,7 @@ class Component extends DCLogic {
         cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
         compare: [
-          { cap: 'Runtime footprint', apm: 'Agent per host or inside each service (~130 MB RSS for the Datadog Agent)', ps: 'One daemon for the whole fleet, 17 MB idle, RSS then set by `max_retained_findings`' },
+          { cap: 'Runtime footprint', apm: 'Agent per host or inside each service (~130 MB RSS for the Datadog Agent)', ps: 'One daemon for the whole fleet, 17 MB idle, then sized by the findings it retains' },
           { cap: 'Language coverage', apm: 'Per-language agents or SDK', ps: 'Any OTel-instrumented runtime' },
           { cap: 'N+1 SQL & HTTP detection', apm: 'Yes, agent-bound', ps: 'Yes, protocol-level' },
           { cap: 'Cross-service correlation', apm: 'Yes', ps: 'Yes, via trace ID' },
@@ -2021,7 +2021,7 @@ class Component extends DCLogic {
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'par évènement, p50 à p99' },
-          { icon: 'memory', value: '17 →\u00a0980\u00a0Mo', label: 'RSS daemon : au repos, puis fixé par `max_retained_findings` (médiane 7 j en production à 100k)' },
+          { icon: 'memory', value: '17 →\u00a0980\u00a0Mo', label: 'RSS du daemon : au repos, puis médiane en production à dix fois la rétention par défaut' },
           { icon: 'package', value: 'Rust 2024', label: 'avec binaire statique musl et image FROM scratch' },
         ],
         goEyebrow: '// greenops',
@@ -2038,7 +2038,7 @@ class Component extends DCLogic {
         cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
         compare: [
-          { cap: 'Empreinte runtime', apm: 'Agent par hôte ou dans chaque service (~130 Mo RSS pour l\u2019Agent Datadog)', ps: 'Un seul daemon pour toute la flotte, 17 Mo au repos, RSS fixé par `max_retained_findings`' },
+          { cap: 'Empreinte runtime', apm: 'Agent par hôte ou dans chaque service (~130 Mo RSS pour l\u2019Agent Datadog)', ps: 'Un seul daemon pour toute la flotte, 17 Mo au repos, puis selon les findings retenus' },
           { cap: 'Couverture langages', apm: 'Agents par langage ou SDK', ps: 'Tout runtime instrumenté OTel' },
           { cap: 'Détection N+1 SQL & HTTP', apm: 'Oui, liée à l\u2019agent', ps: 'Oui, au niveau protocole' },
           { cap: 'Corrélation cross-service', apm: 'Oui', ps: 'Oui, via trace ID' },
