@@ -505,13 +505,13 @@ Un `instance_type` inconnu émet un avertissement et se rabat sur un défaut fou
 
 Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), Redfish lit la sortie réelle de l'alimentation via le BMC, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse. Bare-metal uniquement, pas de VMs cloud.
 
-| Champ                  | Type   | Défaut    | Description                                                                                                                                                                                                                     |
-|------------------------|--------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `endpoints`            | table  | *(vide)*  | Table `chassis_id` → table d'endpoint avec `url` + `schema`. Obligatoire pour activer le scraper.                                                                                                                               |
-| `scrape_interval_secs` | entier | `60`      | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC, plusieurs BMCs limitent en dessous de 30 s).                                                                             |
-| `service_mappings`     | table  | `{}`      | Associe les noms de service Perf Sentinel au châssis qui les héberge. Chaque service mappé au même châssis reçoit le même coefficient au niveau du châssis.                                                                     |
-| `ca_bundle_path`       | chaîne | *(aucun)* | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Les certificats BMC auto-signés ne sont pas pris en charge dans cette version.                        |
-| `auth_header`          | chaîne | *(aucun)* | En-tête d'authentification Basic au format curl. Préférer la variable d'environnement `PERF_SENTINEL_REDFISH_AUTH_HEADER`. L'authentification Session-token (POST `/SessionService/Sessions`) n'est pas encore prise en charge. |
+| Champ                  | Type   | Défaut    | Description                                                                                                                                                                                                                                                                                                                                                                        |
+|------------------------|--------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoints`            | table  | *(vide)*  | Table `chassis_id` → table d'endpoint avec `url` + `schema`. Obligatoire pour activer le scraper.                                                                                                                                                                                                                                                                                  |
+| `scrape_interval_secs` | entier | `60`      | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC, plusieurs BMCs limitent en dessous de 30 s).                                                                                                                                                                                                                                |
+| `service_mappings`     | table  | `{}`      | Associe les noms de service Perf Sentinel au châssis qui les héberge. Chaque service mappé au même châssis reçoit le même coefficient au niveau du châssis.                                                                                                                                                                                                                        |
+| `ca_bundle_path`       | chaîne | *(aucun)* | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Un certificat BMC émis par une CA privée, ou un certificat auto-signé dont les noms alternatifs (SAN) couvrent l'hôte de l'endpoint, est accepté dès qu'il figure dans `SSL_CERT_FILE` (voir [Proxy sortant et CA privée](#proxy-sortant-et-ca-privée)). |
+| `auth_header`          | chaîne | *(aucun)* | En-tête d'authentification Basic au format curl. Préférer la variable d'environnement `PERF_SENTINEL_REDFISH_AUTH_HEADER`. L'authentification Session-token (POST `/SessionService/Sessions`) n'est pas encore prise en charge.                                                                                                                                                    |
 
 Chaque table d'endpoint a deux champs : `url` (chaîne, URL Redfish complète chemin inclus) et `schema` (chaîne, soit `"legacy_power"` soit `"environment_metrics"`). Le schema sélectionne le pointeur JSON canonique utilisé par le parser, sans pointeur tapé par l'opérateur :
 
@@ -1088,6 +1088,39 @@ Les fichiers de configuration ne doivent jamais contenir de secrets. Pour les va
 | `PERF_SENTINEL_DAEMON_URL`        | l'URL `--daemon` des commandes `ack` et `query`                                     | CLI                         |
 
 Les surcharges s'appliquent à chaque exécution, commandes batch et exécution sans aucun fichier de config comprises, donc un job qui hérite du Secret du daemon doit lui aussi porter des valeurs valides (la clé d'incidents ne compte qu'une fois `[daemon.incidents] enabled` posé). Une variable définie à la chaîne vide compte comme définie : une clé vide est rejetée au chargement de la config plutôt qu'ignorée en silence, donc un Secret monté vide fait échouer toute commande qui la charge, daemon compris, au lieu d'ouvrir la route.
+
+### Proxy sortant et CA privée
+
+Quatre autres variables régissent chaque appel HTTPS sortant, depuis le daemon (sources d'énergie, Electricity Maps, export vers le Hub) comme depuis la CLI (`tempo`, `jaeger-query`, `pg-stat` et `mysql-stat` avec `--prometheus`, `report` avec une source Prometheus, `query`, `ack`, `verify-hash --url`) :
+
+| Variable                     | Effet                                                                                                                                                                                    |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HTTPS_PROXY`, `https_proxy` | Proxy des destinations `https://`, joint par un tunnel HTTP `CONNECT`. Les identifiants de son URL (`http://user:pass@proxy:3128`) deviennent une authentification Basic auprès du proxy |
+| `ALL_PROXY`, `all_proxy`     | Proxy utilisé quand `HTTPS_PROXY` n'est pas posée                                                                                                                                        |
+| `NO_PROXY`, `no_proxy`       | Hôtes, domaines et réseaux joints directement, selon les règles de curl (`localhost,.svc,10.0.0.0/8`)                                                                                    |
+| `SSL_CERT_FILE`              | Bundle PEM dont les certificats s'ajoutent aux racines Mozilla embarquées, en général la CA racine d'un proxy qui inspecte le TLS ou d'une PKI interne                                   |
+
+Les destinations `http://` sont toujours jointes directement, et `HTTP_PROXY` est ignorée : ces appels visent des services internes, qu'un proxy posé à l'échelle du cluster ne doit pas détourner. Le proxy lui-même est joint en HTTP simple, et le TLS va de bout en bout entre Perf Sentinel et la destination, à l'intérieur du tunnel. Seules les URL de proxy en `http://` sont utilisées : une URL de proxy en `socks5://` ou `https://` produit un avertissement, et l'appel part en direct. Les variables de proxy sont ignorées quand `REQUEST_METHOD` est posée, la garde CGI de la bibliothèque sous-jacente. Un `SSL_CERT_FILE` illisible, ou qui ne contient aucun certificat, produit un avertissement et laisse les racines embarquées en place.
+
+Avec le chart Helm, posez-les via `extraEnv` et montez le bundle depuis une ConfigMap ou un Secret :
+
+```yaml
+extraEnv:
+  - name: HTTPS_PROXY
+    value: http://proxy.corp.example:3128
+  - name: NO_PROXY
+    value: localhost,.svc,.cluster.local,10.0.0.0/8
+  - name: SSL_CERT_FILE
+    value: /etc/perf-sentinel/ca/corp-root.pem
+extraVolumes:
+  - name: corp-ca
+    configMap:
+      name: corp-root-ca
+extraVolumeMounts:
+  - name: corp-ca
+    mountPath: /etc/perf-sentinel/ca
+    readOnly: true
+```
 
 ## Fichier d'acknowledgments
 

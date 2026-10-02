@@ -35,20 +35,20 @@ Le Hub écoute en HTTP simple sur `8080`. Le TLS est attendu sur l'ingress.
 
 Le moteur ne fait aucun appel sortant tant que la configuration ou la ligne de commande ne nomme pas de destination :
 
-| Destination | Ce qui le déclenche |
-|---|---|
-| Sources d'énergie : Alumet, Scaphandre, Kepler, BMC Redfish, énergie cloud via Prometheus | Une section `[green.*]` dans la configuration |
-| Electricity Maps (`api.electricitymaps.com`) | Une section `[green.electricity_maps]` |
-| Tempo, Jaeger, Victoria Traces | Les commandes `tempo` et `jaeger-query` |
-| Prometheus | `pg-stat` et `mysql-stat` avec `--prometheus` |
-| PerfSentinelHub | `[daemon.hub_export] enabled = true` |
-| Un daemon en cours d'exécution | Les commandes `query`, `ack` et la TUI |
-| Une URL HTTPS | `verify-hash --url` |
-| Des processus locaux | `verify-hash` lance `cosign` et `gh`, `capture` lance la commande que vous lui donnez |
+| Destination                                                                               | Ce qui le déclenche                                                                   |
+|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| Sources d'énergie : Alumet, Scaphandre, Kepler, BMC Redfish, énergie cloud via Prometheus | Une section `[green.*]` dans la configuration                                         |
+| Electricity Maps (`api.electricitymaps.com`)                                              | Une section `[green.electricity_maps]`                                                |
+| Tempo, Jaeger, Victoria Traces                                                            | Les commandes `tempo` et `jaeger-query`                                               |
+| Prometheus                                                                                | `pg-stat` et `mysql-stat` avec `--prometheus`                                         |
+| PerfSentinelHub                                                                           | `[daemon.hub_export] enabled = true`                                                  |
+| Un daemon en cours d'exécution                                                            | Les commandes `query`, `ack` et la TUI                                                |
+| Une URL HTTPS                                                                             | `verify-hash --url`                                                                   |
+| Des processus locaux                                                                      | `verify-hash` lance `cosign` et `gh`, `capture` lance la commande que vous lui donnez |
 
 Les données de référence (intensités carbone, tables de puissance) sont compilées dans le binaire et jamais téléchargées à l'exécution.
 
-Le client HTTPS du moteur ne fait confiance qu'aux certificats racines Mozilla embarqués. Il ne lit aucune variable de proxy et n'accepte pas de CA privée, donc un appel HTTPS sortant à travers un proxy qui inspecte le TLS échoue. Le HTTP simple vers un endpoint interne n'est pas concerné.
+Derrière un proxy d'entreprise, les appels HTTPS du moteur, `verify-hash --url` compris, suivent les variables habituelles. Une destination `https://` passe par `HTTPS_PROXY` (ou `ALL_PROXY`) dans un tunnel `CONNECT`, sauf si `NO_PROXY` l'en exempte, et les certificats PEM de `SSL_CERT_FILE` s'ajoutent aux racines Mozilla embarquées, ce qui couvre un proxy qui inspecte le TLS comme une PKI interne. Les destinations `http://` sont toujours jointes directement, `HTTP_PROXY` compris, et seule une URL de proxy en `http://` est utilisée, donc un proxy SOCKS ou `https://` ne reçoit jamais de `CONNECT` en clair. Le magasin de certificats du système n'est pas lu. Voir [Proxy sortant et CA privée](CONFIGURATION-FR.md#proxy-sortant-et-ca-privée).
 
 Le Hub appelle ses sources de daemons configurées (collecte, relais d'acquittement, vue en direct), et le sous-processus moteur qu'il lance joint le backend de traces fixé dans sa configuration. Quand la connexion est activée, il appelle les endpoints token et userinfo du fournisseur d'identité. Une fois par jour, il demande à l'API GitHub les dernières versions du moteur et du Hub. Cette vérification est active par défaut, et `hub.updateCheck.enabled: false` la désactive pour un cluster sans accès sortant.
 
@@ -183,3 +183,4 @@ Les deux projets reçoivent les signalements par le signalement privé de vulné
 7. Posez `http.route` dans votre instrumentation, et gardez les données personnelles hors des segments de chemin d'URL et des commentaires SQL.
 8. Traitez les fichiers écrits par `capture` comme sensibles. Ils contiennent des spans bruts.
 9. Si votre politique exige des images signées, vérifiez le binaire de release et construisez ou signez l'image dans votre propre registre.
+10. Derrière un proxy qui inspecte le TLS, posez `HTTPS_PROXY` et `NO_PROXY`, et placez la CA racine du proxy dans le bundle `SSL_CERT_FILE`.

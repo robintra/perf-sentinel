@@ -490,13 +490,13 @@ An unknown `instance_type` warns and falls back to a provider default rather tha
 
 Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. Unlike Scaphandre and Kepler (which measure CPU + DRAM only), Redfish reads the actual power supply output via the BMC, so periphery (NIC, drives, fans, PSU overhead) is included. Bare-metal only, no cloud VMs.
 
-| Field                  | Type   | Default   | Description                                                                                                                                                                  |
-|------------------------|--------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `endpoints`            | table  | *(empty)* | Map of `chassis_id` → endpoint table with `url` + `schema`. Required to activate the scraper                                                                                 |
-| `scrape_interval_secs` | int    | `60`      | How often to scrape each chassis. Valid range: 15-3600 (BMC rate-limit defense, several BMCs throttle below 30s)                                                             |
-| `service_mappings`     | table  | `{}`      | Maps Perf Sentinel service names to the chassis hosting them. Every service mapped to the same chassis receives the same chassis-level coefficient                           |
-| `ca_bundle_path`       | string | *(none)*  | **Reserved for a later release.** Setting this field today causes the scraper to refuse to start with a clear error. Self-signed BMC certs are not supported in this release |
-| `auth_header`          | string | *(none)*  | Curl-style Basic auth header. Prefer `PERF_SENTINEL_REDFISH_AUTH_HEADER` env var. Session-token auth (POST `/SessionService/Sessions`) is not yet supported                  |
+| Field                  | Type   | Default   | Description                                                                                                                                                                                                                                                                                                                                                 |
+|------------------------|--------|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoints`            | table  | *(empty)* | Map of `chassis_id` → endpoint table with `url` + `schema`. Required to activate the scraper                                                                                                                                                                                                                                                                |
+| `scrape_interval_secs` | int    | `60`      | How often to scrape each chassis. Valid range: 15-3600 (BMC rate-limit defense, several BMCs throttle below 30s)                                                                                                                                                                                                                                            |
+| `service_mappings`     | table  | `{}`      | Maps Perf Sentinel service names to the chassis hosting them. Every service mapped to the same chassis receives the same chassis-level coefficient                                                                                                                                                                                                          |
+| `ca_bundle_path`       | string | *(none)*  | **Reserved for a later release.** Setting this field today causes the scraper to refuse to start with a clear error. A BMC certificate issued by a private CA, or a self-signed one whose subject alternative names cover the endpoint host, is trusted once it is in `SSL_CERT_FILE` (see [Outbound proxy and private CA](#outbound-proxy-and-private-ca)) |
+| `auth_header`          | string | *(none)*  | Curl-style Basic auth header. Prefer `PERF_SENTINEL_REDFISH_AUTH_HEADER` env var. Session-token auth (POST `/SessionService/Sessions`) is not yet supported                                                                                                                                                                                                 |
 
 Each endpoint table has two fields: `url` (string, full Redfish URL including path) and `schema` (string, either `"legacy_power"` or `"environment_metrics"`). The schema selects the canonical JSON pointer the parser uses, no operator-typed pointer involved:
 
@@ -1058,6 +1058,39 @@ Configuration files must never contain secrets. For sensitive values (API keys, 
 | `PERF_SENTINEL_DAEMON_URL`        | the `--daemon` URL of the `ack` and `query` commands                                  | CLI                      |
 
 The overrides apply on every run, batch commands and a run without any config file included, so a job that inherits the daemon's Secret must carry valid values too (the incidents key only counts once `[daemon.incidents] enabled` is set). A variable set to an empty string counts as set: an empty key is rejected at config load rather than silently ignored, so a Secret mounted empty fails every command that loads it, the daemon included, instead of opening the route.
+
+### Outbound proxy and private CA
+
+Four more variables shape every outbound HTTPS call, from the daemon (energy scrapers, Electricity Maps, the Hub export) and from the CLI (`tempo`, `jaeger-query`, `pg-stat` and `mysql-stat` with `--prometheus`, `report` with a Prometheus source, `query`, `ack`, `verify-hash --url`):
+
+| Variable                     | Effect                                                                                                                                                              |
+|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HTTPS_PROXY`, `https_proxy` | Proxy for `https://` destinations, reached over an HTTP `CONNECT` tunnel. Credentials in its URL (`http://user:pass@proxy:3128`) become a Basic proxy authorization |
+| `ALL_PROXY`, `all_proxy`     | Proxy used when `HTTPS_PROXY` is unset                                                                                                                              |
+| `NO_PROXY`, `no_proxy`       | Hosts, domains and networks reached directly, with curl's rules (`localhost,.svc,10.0.0.0/8`)                                                                       |
+| `SSL_CERT_FILE`              | PEM bundle whose certificates are trusted next to the bundled Mozilla roots, typically the root CA of a TLS-inspecting proxy or of an internal PKI                  |
+
+`http://` destinations always connect directly, and `HTTP_PROXY` is ignored: those calls reach internal services, and a cluster-wide proxy must not divert them. The proxy itself is reached over plain HTTP, and TLS runs end to end between Perf Sentinel and the destination, inside the tunnel. Only `http://` proxy URLs are used: a `socks5://` or `https://` proxy URL logs a warning and the call connects directly. The proxy variables are ignored when `REQUEST_METHOD` is set, the CGI guard of the underlying library. An `SSL_CERT_FILE` that cannot be read, or holds no certificate, logs a warning and leaves the bundled roots alone.
+
+With the Helm chart, set them through `extraEnv` and mount the bundle from a ConfigMap or a Secret:
+
+```yaml
+extraEnv:
+  - name: HTTPS_PROXY
+    value: http://proxy.corp.example:3128
+  - name: NO_PROXY
+    value: localhost,.svc,.cluster.local,10.0.0.0/8
+  - name: SSL_CERT_FILE
+    value: /etc/perf-sentinel/ca/corp-root.pem
+extraVolumes:
+  - name: corp-ca
+    configMap:
+      name: corp-root-ca
+extraVolumeMounts:
+  - name: corp-ca
+    mountPath: /etc/perf-sentinel/ca
+    readOnly: true
+```
 
 ## Acknowledgments file
 

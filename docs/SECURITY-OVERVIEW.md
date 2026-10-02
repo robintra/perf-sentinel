@@ -35,20 +35,20 @@ The Hub listens on plain HTTP `8080`. TLS is expected at the ingress.
 
 The engine makes no outbound call unless the configuration or the command line names a destination:
 
-| Destination | What triggers it |
-|---|---|
-| Energy sources: Alumet, Scaphandre, Kepler, Redfish BMC, cloud energy through Prometheus | A `[green.*]` section in the configuration |
-| Electricity Maps (`api.electricitymaps.com`) | A `[green.electricity_maps]` section |
-| Tempo, Jaeger, Victoria Traces | The `tempo` and `jaeger-query` commands |
-| Prometheus | `pg-stat` and `mysql-stat` with `--prometheus` |
-| PerfSentinelHub | `[daemon.hub_export] enabled = true` |
-| A running daemon | The `query`, `ack` and TUI commands |
-| An HTTPS URL | `verify-hash --url` |
-| Local processes | `verify-hash` runs `cosign` and `gh`, `capture` runs the command you give it |
+| Destination                                                                              | What triggers it                                                             |
+|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| Energy sources: Alumet, Scaphandre, Kepler, Redfish BMC, cloud energy through Prometheus | A `[green.*]` section in the configuration                                   |
+| Electricity Maps (`api.electricitymaps.com`)                                             | A `[green.electricity_maps]` section                                         |
+| Tempo, Jaeger, Victoria Traces                                                           | The `tempo` and `jaeger-query` commands                                      |
+| Prometheus                                                                               | `pg-stat` and `mysql-stat` with `--prometheus`                               |
+| PerfSentinelHub                                                                          | `[daemon.hub_export] enabled = true`                                         |
+| A running daemon                                                                         | The `query`, `ack` and TUI commands                                          |
+| An HTTPS URL                                                                             | `verify-hash --url`                                                          |
+| Local processes                                                                          | `verify-hash` runs `cosign` and `gh`, `capture` runs the command you give it |
 
 Reference data (carbon intensities, power tables) is compiled into the binary and never fetched at runtime.
 
-The engine's HTTPS client trusts the bundled Mozilla root certificates only. It reads no proxy variable and accepts no private CA, so outbound HTTPS through a TLS-inspecting proxy fails. Plain HTTP to an internal endpoint is not affected.
+Behind a corporate proxy, the engine's HTTPS calls, `verify-hash --url` included, follow the usual variables: an `https://` destination goes through `HTTPS_PROXY` (or `ALL_PROXY`) over a `CONNECT` tunnel unless `NO_PROXY` exempts it, and the PEM certificates of `SSL_CERT_FILE` are trusted next to the bundled Mozilla roots, which covers a TLS-inspecting proxy and an internal PKI. `http://` destinations always connect directly, `HTTP_PROXY` included, and only an `http://` proxy URL is used, so a SOCKS or `https://` proxy never receives a plaintext `CONNECT`. The operating system's certificate store is not read. See [Outbound proxy and private CA](CONFIGURATION.md#outbound-proxy-and-private-ca).
 
 The Hub calls its configured daemon sources (poll, ack relay, live view), and the engine subprocess it launches reaches the trace backend set in its configuration. With sign-in enabled, it calls the identity provider's token and userinfo endpoints. Once a day, it asks the GitHub releases API for the latest engine and Hub versions. This check is on by default, and `hub.updateCheck.enabled: false` turns it off for a cluster with no egress.
 
@@ -183,3 +183,4 @@ Both projects take reports through GitHub private vulnerability reporting.
 7. Set `http.route` in your instrumentation, and keep personal data out of URL path segments and SQL comments.
 8. Treat the files written by `capture` as sensitive. They hold raw spans.
 9. If your policy requires signed images, verify the release binary and build or sign the image in your own registry.
+10. Behind a TLS-inspecting proxy, set `HTTPS_PROXY` and `NO_PROXY`, and put the proxy's root CA in the `SSL_CERT_FILE` bundle.

@@ -81,6 +81,7 @@ The following choices are deliberate and documented:
 - **Payload size limits**: JSON/OTLP payloads are bounded (`max_payload_size`, default 16 MiB).
 - **Memory-pressure admission control**: opt-in via `[daemon] memory_high_water_pct`. Under memory pressure the OTLP listeners shed load with retryable `503`/`UNAVAILABLE` responses, counted on `perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`.
 - **No default outbound network**: scrapers are opt-in and only connect to explicitly configured endpoints.
+- **Corporate proxy and private CA**: `https://` calls go through `HTTPS_PROXY` / `ALL_PROXY` minus `NO_PROXY` over a `CONNECT` tunnel, and `SSL_CERT_FILE` adds PEM roots next to the bundled Mozilla ones. `http://` calls always connect directly, and only an `http://` proxy URL is tunneled to, so a SOCKS or `https://` proxy never receives a plaintext `CONNECT`.
 - **Credentials rejected at config load**: endpoint URLs containing `user:pass@` are rejected with a clear error. Secrets belong in environment variables, which take precedence over the config file. A key written in the config file is still accepted.
 - **Log redaction**: credentials are redacted in all scraper logs via `redact_endpoint`.
 - **TLS for OTLP listeners**: opt-in via `[daemon.tls]`. The recommended production pattern remains a reverse proxy (envoy, nginx) for broader TLS feature coverage.
