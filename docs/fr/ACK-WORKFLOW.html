@@ -226,7 +226,7 @@
 <p class="ps-p">Quand <code class="ps-ic">http.route</code> est absent sur un span explicitement SERVER, Perf Sentinel se rabat sur <code class="ps-ic">http.url</code>, <code class="ps-ic">url.full</code>, <code class="ps-ic">url.path</code>, puis <code class="ps-ic">http.target</code> selon le format d'ingestion. Les spans CLIENT portant uniquement une URL restent des opérations sortantes et ne sont pas pris pour des points d'entrée. Chaque URL unique produit une signature différente, le renouvellement des acks devient proportionnel à la cardinalité des URL, et les findings différés réapparaissent à chaque nouvel id de requête. Le repli existe pour que l'opérateur voie encore une chaîne d'endpoint exploitable, pas comme posture recommandée.</p>
 <p class="ps-p">Les agents OpenTelemetry standard émettent <code class="ps-ic">http.route</code> automatiquement :</p>
 <ul>
-<li>Spring Boot 3+ avec l'agent Java OpenTelemetry.</li>
+<li>Spring Boot 3+ avec l'agent Java OpenTelemetry. Le starter Spring Boot 4 ne le fait pas par défaut, voir <a href="/docs/fr/INSTRUMENTATION#4-route-entrante">Route entrante</a>.</li>
 <li>ASP.NET Core avec le SDK .NET OpenTelemetry.</li>
 <li>Express.js, Fastify, Koa avec <code class="ps-ic">@opentelemetry/instrumentation-*</code>.</li>
 <li>La plupart des auto-instrumentations de frameworks HTTP modernes.</li>
