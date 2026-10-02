@@ -177,7 +177,7 @@ pub(super) fn build_tls_acceptor(
     cert_pem: &[u8],
     key_pem: &[u8],
 ) -> Result<tokio_rustls::TlsAcceptor, DaemonError> {
-    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 
     let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem)
         .collect::<Result<_, _>>()
@@ -185,7 +185,7 @@ pub(super) fn build_tls_acceptor(
     let key = PrivateKeyDer::from_pem_slice(key_pem)
         .map_err(|e| DaemonError::TlsConfig(TlsConfigError::ParseKey(e)))?;
 
-    let config = tokio_rustls::rustls::ServerConfig::builder()
+    let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| DaemonError::TlsConfig(TlsConfigError::ServerConfig(e)))?;

@@ -194,14 +194,14 @@ pub enum TlsConfigError {
     },
     /// The certificate chain PEM could not be parsed.
     #[error("failed to parse TLS cert chain")]
-    ParseCerts(#[source] tokio_rustls::rustls::pki_types::pem::Error),
+    ParseCerts(#[source] rustls::pki_types::pem::Error),
     /// The private key PEM could not be parsed.
     #[error("failed to parse TLS private key")]
-    ParseKey(#[source] tokio_rustls::rustls::pki_types::pem::Error),
+    ParseKey(#[source] rustls::pki_types::pem::Error),
     /// `rustls::ServerConfig::with_single_cert` rejected the cert+key pair
     /// (e.g. mismatched key, unsupported algorithm).
     #[error("rustls server config rejected the cert+key pair")]
-    ServerConfig(#[source] tokio_rustls::rustls::Error),
+    ServerConfig(#[source] rustls::Error),
 }
 
 /// Publish the configured caps once at startup. They are constant for
