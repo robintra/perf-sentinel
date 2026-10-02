@@ -11,7 +11,7 @@ Perf Sentinel est un binaire unique, auto-hébergé, qui analyse des traces Open
 | Hébergement | Votre infrastructure, binaire ou conteneur | Votre infrastructure, une seule réplique, SQLite |
 | Ports entrants | OTLP gRPC `4317`, OTLP HTTP `4318`. L'API de requête, `/metrics` et `/health` partagent le `4318` | HTTP `8080` |
 | Adresse d'écoute par défaut | `127.0.0.1` pour le binaire, `0.0.0.0` dans le chart Helm | Toutes les interfaces |
-| TLS | Optionnel (`[daemon.tls]`), sans certificat client | Aucun dans le processus, à terminer sur l'ingress |
+| TLS | Optionnel (`tls_cert_path` et `tls_key_path` dans `[daemon]`), sans certificat client | Aucun dans le processus, à terminer sur l'ingress |
 | Authentification | L'ingestion, `/metrics`, `/health` et les endpoints de lecture ne sont jamais authentifiés. Les écritures d'acquittement demandent une clé dès qu'elle est posée | L'envoi de findings demande une clé par source. L'interface est ouverte par défaut, avec une connexion OAuth2 optionnelle |
 | Appels sortants par défaut | Aucun | Une vérification quotidienne des dernières versions sur l'API GitHub, qu'un réglage désactive |
 | Données au repos | Le journal des acquittements, plus une archive NDJSON optionnelle. Jamais de spans bruts | Base SQLite, findings gardés 180 jours |
@@ -83,12 +83,12 @@ Le daemon fait confiance à ses émetteurs de traces. C'est le modèle de menace
 
 Routes protégées par une clé :
 - Les écritures d'acquittement (`POST` et `DELETE /api/findings/{signature}/ack`) restent ouvertes tant que `[daemon.ack] api_key` ou `PERF_SENTINEL_ACK_API_KEY` n'est pas posé.
-- `GET /api/acks` et `GET /api/incidents` acceptent alors cette clé ou `[daemon] read_api_key`.
-- `POST /api/incidents` exige une clé quand il est activé.
+- `GET /api/acks` accepte alors cette clé ou `[daemon] read_api_key`.
+- `GET` et `POST /api/incidents` exigent `[daemon.incidents] api_key` quand les incidents sont activés, et `GET` accepte aussi `[daemon] read_api_key`.
 
 Les clés passent par `X-API-Key` ou `Authorization: Bearer` et sont comparées en temps constant. L'auteur d'un acquittement (`by`) est déclaré par l'appelant, pas authentifié.
 
-Le CORS est désactivé par défaut, et une origine joker combinée à une clé d'écriture est refusée au démarrage. Le TLS couvre les deux listeners OTLP quand `[daemon.tls]` est posé. Les certificats clients (mTLS) ne sont pas pris en charge.
+Le CORS est désactivé par défaut, et une origine joker combinée à une clé d'écriture est refusée au démarrage. Le TLS couvre les deux listeners OTLP quand `tls_cert_path` et `tls_key_path` sont posés dans `[daemon]`. Les certificats clients (mTLS) ne sont pas pris en charge.
 
 ### Hub
 
@@ -146,7 +146,7 @@ Les binaires de release portent :
 - les données de dépendances `cargo-auditable` embarquées
 - un SBOM SPDX attesté
 
-Le chart Helm est signé avec Cosign. Les images de conteneur ne portent ni signature ni attestation. Voir la [politique de pinning supply chain](SUPPLY-CHAIN-FR.md) pour le détail et la [chaîne d'approvisionnement logicielle](HELM-DEPLOYMENT-FR.md#chaîne-dapprovisionnement-logicielle) pour le chart.
+Le chart Helm est signé avec Cosign. Les images de conteneur ne portent aucune signature Cosign et le workflow de release n'émet aucune attestation pour elles. BuildKit ajoute à l'index de l'image un document de provenance non signé, que rien ne relie à l'attestation du binaire. Voir la [politique de pinning supply chain](SUPPLY-CHAIN-FR.md) pour le détail et la [chaîne d'approvisionnement logicielle](HELM-DEPLOYMENT-FR.md#chaîne-dapprovisionnement-logicielle) pour le chart.
 
 ```bash
 gh attestation verify perf-sentinel-linux-amd64 --repo robintra/perf-sentinel
@@ -164,7 +164,7 @@ cargo audit bin perf-sentinel-linux-amd64
 
 L'image poussée sur GHCR n'est pas signée dans le registre : vérifiez les artefacts de release comme le décrit la [procédure de release du Hub](https://github.com/robintra/PerfSentinelHub/blob/main/RELEASING.md).
 
-Aucun des deux dépôts n'exige aujourd'hui de commits signés sur sa branche principale. Les tags de release sont signés sur les deux.
+Le dépôt du moteur n'a aujourd'hui aucun ensemble de règles et n'exige pas de commits signés sur sa branche principale. Le dépôt du Hub les exige par son ensemble de règles `Protect default branch`, que le rôle Administrateur peut contourner. Les tags de release sont signés sur les deux.
 
 ## Signaler une vulnérabilité
 
@@ -177,7 +177,7 @@ Les deux projets reçoivent les signalements par le signalement privé de vulné
 1. Gardez l'ingestion OTLP sur un réseau de confiance. Le daemon fait confiance à ses émetteurs.
 2. Activez la NetworkPolicy du chart du moteur avec des sélecteurs de namespace ou de pod. Pour soustraire l'API de requête à tout ce qui envoie des traces, placez devant le `4318` un reverse proxy qui filtre `/api/*`.
 3. Si vous utilisez les acquittements, posez `PERF_SENTINEL_ACK_API_KEY` depuis un Secret. Sans elle, quiconque atteint le port peut acquitter un finding.
-4. Chiffrez le trafic avec `[daemon.tls]`, un service mesh ou l'ingress.
+4. Chiffrez le trafic avec `tls_cert_path` et `tls_key_path` dans `[daemon]`, un service mesh ou l'ingress.
 5. Pour le Hub, activez `hub.auth`, terminez le TLS et ajoutez les en-têtes de sécurité sur l'ingress, et écrivez une NetworkPolicy, puisque le chart n'en fournit pas.
 6. Dans un cluster sans accès sortant, posez `hub.updateCheck.enabled: false`.
 7. Posez `http.route` dans votre instrumentation, et gardez les données personnelles hors des segments de chemin d'URL et des commentaires SQL.

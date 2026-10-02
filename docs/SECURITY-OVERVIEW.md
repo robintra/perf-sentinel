@@ -11,7 +11,7 @@ Perf Sentinel is a single self-hosted binary that analyzes OpenTelemetry traces,
 | Hosting | Your infrastructure, binary or container | Your infrastructure, one replica, SQLite |
 | Inbound ports | OTLP gRPC `4317`, OTLP HTTP `4318`. The query API, `/metrics` and `/health` share `4318` | HTTP `8080` |
 | Default bind | `127.0.0.1` for the binary, `0.0.0.0` in the Helm chart | All interfaces |
-| TLS | Opt-in (`[daemon.tls]`), no client certificates | None in the process, terminate it at the ingress |
+| TLS | Opt-in (`tls_cert_path` and `tls_key_path` in `[daemon]`), no client certificates | None in the process, terminate it at the ingress |
 | Authentication | Ingest, `/metrics`, `/health` and the read endpoints are never authenticated. Ack writes need a key once one is set | The findings push needs a per-source key. The UI is open by default, with an optional OAuth2 sign-in |
 | Outbound calls by default | None | A daily check of the latest releases on the GitHub API, one setting turns it off |
 | Data at rest | The ack log, plus an opt-in NDJSON archive. Never raw spans | SQLite database, findings kept 180 days |
@@ -83,12 +83,12 @@ The daemon trusts its trace senders. This is the stated threat model: [No authen
 
 Key-protected routes:
 - Ack writes (`POST` and `DELETE /api/findings/{signature}/ack`) are open until `[daemon.ack] api_key` or `PERF_SENTINEL_ACK_API_KEY` is set.
-- `GET /api/acks` and `GET /api/incidents` then accept that key or `[daemon] read_api_key`.
-- `POST /api/incidents` requires a key when it is enabled.
+- `GET /api/acks` then accepts that key or `[daemon] read_api_key`.
+- `GET` and `POST /api/incidents` require `[daemon.incidents] api_key` when incidents are enabled, and `GET` also accepts `[daemon] read_api_key`.
 
 Keys travel in `X-API-Key` or `Authorization: Bearer` and are compared in constant time. The ack author (`by`) is declared by the caller, not authenticated.
 
-CORS is off by default, and a wildcard origin combined with a write key is refused at startup. TLS covers both OTLP listeners when `[daemon.tls]` is set. Client certificates (mTLS) are not supported.
+CORS is off by default, and a wildcard origin combined with a write key is refused at startup. TLS covers both OTLP listeners when `tls_cert_path` and `tls_key_path` are set in `[daemon]`. Client certificates (mTLS) are not supported.
 
 ### Hub
 
@@ -146,7 +146,7 @@ Release binaries carry:
 - embedded `cargo-auditable` dependency data
 - an attested SPDX SBOM
 
-The Helm chart is signed with Cosign. The container images carry no signature and no attestation. See [Supply chain pinning policy](SUPPLY-CHAIN.md) for the details and [Software supply chain](HELM-DEPLOYMENT.md#software-supply-chain) for the chart.
+The Helm chart is signed with Cosign. The container images carry no Cosign signature and the release workflow issues no attestation for them. BuildKit adds an unsigned provenance document to the image index, not tied to the binary's attestation. See [Supply chain pinning policy](SUPPLY-CHAIN.md) for the details and [Software supply chain](HELM-DEPLOYMENT.md#software-supply-chain) for the chart.
 
 ```bash
 gh attestation verify perf-sentinel-linux-amd64 --repo robintra/perf-sentinel
@@ -164,7 +164,7 @@ cargo audit bin perf-sentinel-linux-amd64
 
 The image pushed to GHCR is not signed in the registry: verify the release artefacts as described in [Hub releasing](https://github.com/robintra/PerfSentinelHub/blob/main/RELEASING.md).
 
-Neither repository requires signed commits on its main branch today. Release tags are signed on both.
+The engine repository has no ruleset today and does not require signed commits on its main branch. The Hub repository requires them through its `Protect default branch` ruleset, which the Administrator role can bypass. Release tags are signed on both.
 
 ## Reporting a vulnerability
 
@@ -177,7 +177,7 @@ Both projects take reports through GitHub private vulnerability reporting.
 1. Keep OTLP ingestion on a trusted network. The daemon trusts its senders.
 2. Enable the engine chart's NetworkPolicy with namespace or pod selectors. To keep the query API from everything that sends traces, put a reverse proxy in front of `4318` that filters `/api/*`.
 3. If you use acks, set `PERF_SENTINEL_ACK_API_KEY` from a Secret. Without it, anyone who reaches the port can acknowledge a finding.
-4. Encrypt the traffic with `[daemon.tls]`, a service mesh or the ingress.
+4. Encrypt the traffic with `tls_cert_path` and `tls_key_path` in `[daemon]`, a service mesh or the ingress.
 5. For the Hub, turn on `hub.auth`, terminate TLS and add the security headers at the ingress, and write a NetworkPolicy, since the chart ships none.
 6. In a cluster with no egress, set `hub.updateCheck.enabled: false`.
 7. Set `http.route` in your instrumentation, and keep personal data out of URL path segments and SQL comments.

@@ -566,8 +566,8 @@ un proxy SSO en frontal, soit comme backend de l'Ingress, soit comme
 annotation d'auth du contrôleur, selon
 [les options proxy SSO et clé partagée](#store-dacks-runtime-du-daemon).
 Seul le chemin SSO donne un `by` d'audit par personne sur les
-acquittements. La clé partagée ne protège que les écritures d'ack et
-laisse toutes les lectures ouvertes.
+acquittements. La clé partagée protège les écritures d'ack et
+`GET /api/acks`, et laisse les lectures de findings ouvertes.
 
 Avant de recourir à l'une ou l'autre, vérifiez si vous avez besoin de
 l'Ingress tout court. La demande habituelle qui le motive, "arrêtez de
@@ -606,8 +606,9 @@ aussi un contrôleur configuré pour parler HTTP/2 au backend, soit
 `nginx.ingress.kubernetes.io/backend-protocol: GRPC` pour ingress-nginx.
 
 Faites la terminaison TLS au niveau du contrôleur. Le daemon parle HTTP
-en clair sauf si `[daemon.tls]` est configuré, et ce chart ne câble pas
-de certificats vers le backend de l'Ingress.
+en clair sauf si `tls_cert_path` et `tls_key_path` sont posés dans
+`[daemon]`, et ce chart ne câble pas de certificats vers le backend de
+l'Ingress.
 
 Une entrée d'hôte sans clé `host` correspond à tous les hôtes qui
 atteignent le contrôleur. C'est valide et parfois voulu sur un contrôleur

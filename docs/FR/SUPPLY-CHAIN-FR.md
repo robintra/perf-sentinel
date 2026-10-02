@@ -329,11 +329,14 @@ partagent le même ensemble de dépendances Rust à quelques crates spécifiques
 
 ## Images de conteneur
 
-Les images publiées sur GHCR et Docker Hub ne portent ni signature
-Cosign ni attestation. Avant le push, le workflow de release scanne
-l'image amd64 avec Trivy et bloque sur les vulnérabilités `HIGH`
-ou `CRITICAL` qui ont un correctif. L'image ne contient que le binaire
-de release (`FROM scratch`, UID 65534), mais rien ne relie le digest
+Les images publiées sur GHCR et Docker Hub ne portent aucune signature
+Cosign, et le workflow de release n'émet aucune attestation pour elles.
+BuildKit ajoute de lui-même à l'index de l'image un document de
+provenance non signé, que rien ne relie à l'attestation du binaire émise
+par GitHub. Avant le push, le workflow de release scanne l'image amd64
+avec Trivy et bloque sur les vulnérabilités `HIGH` ou `CRITICAL` qui
+ont un correctif. L'image ne contient que le binaire de release
+(`FROM scratch`, UID 65534), mais rien de vérifiable ne relie le digest
 d'une image tirée à la provenance ou au SBOM du binaire. Pour faire
 tourner un artefact que vous avez vérifié, vérifiez le binaire avec
 `gh attestation verify` et construisez l'image à partir de lui.

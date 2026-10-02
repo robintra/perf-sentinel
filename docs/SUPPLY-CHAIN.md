@@ -316,14 +316,16 @@ documents the release as a whole.
 
 ## Container images
 
-The images published to GHCR and Docker Hub carry neither a Cosign
-signature nor an attestation. Before the push, the release workflow
-scans the amd64 image with Trivy and blocks on `HIGH` or `CRITICAL`
-vulnerabilities that have a fix. The image holds nothing but the release
-binary (`FROM scratch`, UID 65534), yet nothing links a pulled image
-digest to the binary's provenance or SBOM. To run an artefact you
-have verified, verify the binary with `gh attestation verify` and
-build the image from it.
+The images published to GHCR and Docker Hub carry no Cosign signature,
+and the release workflow issues no attestation for them. BuildKit adds
+on its own an unsigned provenance document to the image index, which is
+not tied to the binary's attestation issued by GitHub. Before the push,
+the release workflow scans the amd64 image with Trivy and blocks on
+`HIGH` or `CRITICAL` vulnerabilities that have a fix. The image holds
+nothing but the release binary (`FROM scratch`, UID 65534), yet nothing
+verifiable links a pulled image digest to the binary's provenance or
+SBOM. To run an artefact you have verified, verify the binary with
+`gh attestation verify` and build the image from it.
 
 ## PR review checklist
 

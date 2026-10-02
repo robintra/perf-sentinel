@@ -787,7 +787,8 @@ soon as the host resolves beyond that: put an SSO proxy in front, either
 as the Ingress backend or as a controller auth annotation, per
 [the SSO proxy and shared-key options](#daemon-ack-runtime-store). Only
 the SSO path yields a per-person audit `by` on acknowledgments. The shared
-key gates ack writes alone and leaves every read open.
+key gates ack writes and `GET /api/acks`, and leaves the findings reads
+open.
 
 Before reaching for either, check whether you need the Ingress at all.
 The common ask behind it, "stop making me `kubectl port-forward` to look
@@ -825,8 +826,8 @@ HTTP/2 to the backend, for ingress-nginx
 `nginx.ingress.kubernetes.io/backend-protocol: GRPC`.
 
 Terminate TLS at the controller. The daemon speaks plaintext HTTP unless
-`[daemon.tls]` is configured, and this chart does not wire certificates
-into the Ingress backend.
+`tls_cert_path` and `tls_key_path` are set in `[daemon]`, and this chart
+does not wire certificates into the Ingress backend.
 
 A host entry with no `host` key matches every host reaching the
 controller. That is legal and sometimes wanted on an internal controller,
