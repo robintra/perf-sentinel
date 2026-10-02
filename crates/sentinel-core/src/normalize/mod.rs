@@ -39,7 +39,7 @@ pub fn normalize(mut event: SpanEvent) -> NormalizedEvent {
     }
     match event.event_type {
         EventType::Sql => {
-            let result = sql::normalize_sql(&event.target);
+            let result = sql::normalize_sql_for(&event.target, &event.operation);
             NormalizedEvent {
                 event,
                 template: Arc::from(result.template),
@@ -133,6 +133,15 @@ mod tests {
             code_namespace: None,
             instrumentation_scopes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn mysql_event_masks_double_quoted_values() {
+        let mut event = make_sql_event(r#"SELECT * FROM users WHERE email = "a@b.c""#);
+        event.operation = "mysql".to_string();
+        let n = normalize(event);
+        assert_eq!(&*n.template, "SELECT * FROM users WHERE email = ?");
+        assert_eq!(n.params, vec!["a@b.c"]);
     }
 
     #[test]

@@ -10,7 +10,7 @@
 //! view of SQL hotspots.
 
 use crate::detect::Finding;
-use crate::normalize::sql::normalize_sql;
+use crate::normalize::sql::normalize_sql_for;
 use serde::{Deserialize, Serialize};
 
 /// Picoseconds per millisecond: `MySQL` timer columns are picoseconds.
@@ -403,7 +403,7 @@ fn parse_csv(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
             parse_u64(&fields, i, line_num, "sum_rows_examined")
         })?;
 
-        let normalized = normalize_sql(&query);
+        let normalized = normalize_sql_for(&query, "mysql");
 
         entries.push(MySqlStatEntry {
             query,
@@ -473,7 +473,7 @@ fn parse_json(text: &str) -> Result<Vec<MySqlStatEntry>, MySqlStatError> {
         .filter_map(|raw| {
             // Skip the catch-all aggregation row (DIGEST_TEXT NULL).
             let digest_text = raw.digest_text.filter(|d| !is_null_marker(d.trim()))?;
-            let normalized = normalize_sql(&digest_text);
+            let normalized = normalize_sql_for(&digest_text, "mysql");
             let schema_name = parse_schema_name(raw.schema_name.as_ref());
             Some(MySqlStatEntry {
                 query: digest_text,
@@ -805,7 +805,7 @@ fn parse_prometheus_response(
             .map(str::to_string);
 
         let total_exec_time_ms = opts.unit.to_ms(scrape::sample_value(result));
-        let normalized = normalize_sql(&query_text);
+        let normalized = normalize_sql_for(&query_text, "mysql");
         // One key for every counter: all four queries folded on the same
         // identity, so a row either matches in all of them or in none.
         let key = scrape::identity_key(metric, &identity);
@@ -1242,6 +1242,21 @@ mod tests {
         assert_eq!(entries[0].calls, 1500);
         assert!((entries[0].total_exec_time_ms - 4500.5).abs() < f64::EPSILON);
         assert_eq!(entries[0].schema_name.as_deref(), Some("shop"));
+    }
+
+    #[test]
+    fn parse_json_masks_double_quoted_strings_as_mysql() {
+        let json = r#"[{
+            "DIGEST_TEXT": "SELECT * FROM users WHERE email = \"a@b.c\"",
+            "COUNT_STAR": 1,
+            "SUM_TIMER_WAIT": 1000000000,
+            "AVG_TIMER_WAIT": 1000000000
+        }]"#;
+        let entries = parse_mysql_stat(json.as_bytes(), 1_048_576).unwrap();
+        assert_eq!(
+            entries[0].normalized_template,
+            "SELECT * FROM users WHERE email = ?"
+        );
     }
 
     #[test]

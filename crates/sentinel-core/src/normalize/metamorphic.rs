@@ -15,7 +15,7 @@
 
 use proptest::prelude::*;
 
-use super::sql::normalize_sql;
+use super::sql::{normalize_sql, normalize_sql_for};
 
 /// Marker stamped on every generated string literal so a leak into the
 /// template is detectable by substring search (generated skeletons
@@ -67,6 +67,22 @@ fn str_lit() -> impl Strategy<Value = Lit> {
         let raw = format!("{MARKER}{}", chars.into_iter().collect::<String>());
         Lit {
             sql: format!("'{}'", raw.replace('\'', "''")),
+            param: raw,
+        }
+    })
+}
+
+/// `MySQL` double-quoted string literal. A `"` is escaped as `""` in the SQL
+/// text, a single quote is carried as is. A string only in `MySQL` mode.
+fn dq_str_lit() -> impl Strategy<Value = Lit> {
+    proptest::collection::vec(
+        prop_oneof![Just('a'), Just('7'), Just(' '), Just('\''), Just('"')],
+        0..8,
+    )
+    .prop_map(|chars| {
+        let raw = format!("{MARKER}{}", chars.into_iter().collect::<String>());
+        Lit {
+            sql: format!("\"{}\"", raw.replace('"', "\"\"")),
             param: raw,
         }
     })
@@ -184,5 +200,29 @@ proptest! {
             "digit leaked into template: {}",
             normalized.template
         );
+    }
+
+    /// `MySQL` mode: a double-quoted string is a literal like a quoted one.
+    /// It comes back exactly, leaves nothing in the template, and the
+    /// template stays a fixed point.
+    #[test]
+    fn mysql_double_quoted_strings_are_literals(
+        (shape, eq, list, _) in statement(),
+        note in dq_str_lit(),
+    ) {
+        let first = normalize_sql_for(&render(&shape, &eq, &list, &note), "mysql");
+
+        let expected: Vec<&str> = std::iter::once(&eq)
+            .chain(&list)
+            .chain(std::iter::once(&note))
+            .map(|l| l.param.as_str())
+            .collect();
+        prop_assert_eq!(&first.params, &expected);
+        prop_assert!(!first.template.contains(MARKER), "{}", first.template);
+        prop_assert!(!first.template.contains('"'), "{}", first.template);
+
+        let second = normalize_sql_for(&first.template, "mysql");
+        prop_assert_eq!(&second.template, &first.template);
+        prop_assert!(second.params.is_empty(), "{:?}", second.params);
     }
 }

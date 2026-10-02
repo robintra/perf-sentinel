@@ -6,7 +6,8 @@
 //! `params` (not extracted as literals). This keeps `params` empty for
 //! parameterized queries so the sanitizer-aware detection path can
 //! fire. Collapses `IN (?, ?, ?)` into `IN (?)`. Quoted identifiers are
-//! preserved verbatim: ANSI `"id"` and `MySQL` `` `id` ``.
+//! preserved verbatim: ANSI `"id"` and `MySQL` `` `id` ``. For `MySQL` and
+//! `MariaDB` (see [`normalize_sql_for`]), `"..."` is a string literal instead.
 
 use regex::Regex;
 use std::borrow::Cow;
@@ -51,15 +52,37 @@ struct Tokenizer<'a> {
     value_start: usize,
     /// The closing tag for dollar-quoted strings (e.g., `$$` or `$tag$`).
     dollar_tag: Vec<u8>,
+    /// Delimiter that closes the current string literal: `'`, or `"` in `MySQL` mode.
+    quote: u8,
+    /// `MySQL` mode: `"..."` is a string literal, not an identifier.
+    double_quote_is_string: bool,
 }
 
 /// Maximum query length accepted for normalization (64 KB).
 /// Queries exceeding this are truncated to prevent unbounded memory usage.
 const MAX_QUERY_LEN: usize = 65_536;
 
+/// Normalize a SQL query emitted by `db_system` (the canonical `db.system`).
+///
+/// `MySQL` and `MariaDB` read `"..."` as a string literal in their default
+/// mode, so it is masked like `'...'`. Every other value, unknown ones
+/// included, keeps the ANSI reading of [`normalize_sql`]. A `MySQL` server in
+/// `ANSI_QUOTES` mode loses its double-quoted identifiers to `?`, the
+/// privacy-safe side of the error.
+#[must_use]
+pub fn normalize_sql_for(query: &str, db_system: &str) -> SqlNormalized {
+    let mysql =
+        db_system.eq_ignore_ascii_case("mysql") || db_system.eq_ignore_ascii_case("mariadb");
+    tokenize(query, mysql)
+}
+
 /// Normalize a SQL query by replacing literal values with `?` placeholders.
 #[must_use]
 pub fn normalize_sql(query: &str) -> SqlNormalized {
+    tokenize(query, false)
+}
+
+fn tokenize(query: &str, double_quote_is_string: bool) -> SqlNormalized {
     // Truncate at a char boundary to prevent unbounded allocation from adversarial input
     let query = if query.len() > MAX_QUERY_LEN {
         &query[..query.floor_char_boundary(MAX_QUERY_LEN)]
@@ -79,6 +102,8 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
         normal_start: 0,
         value_start: 0,
         dollar_tag: Vec::new(),
+        quote: b'\'',
+        double_quote_is_string,
     };
 
     while t.i < t.bytes.len() {
@@ -189,13 +214,19 @@ fn checked_query_slice(query: &str, start: usize, end: usize) -> &str {
     &query[start..end]
 }
 
+/// `'` always opens a string literal, `"` only in `MySQL` mode.
+fn opens_string(t: &Tokenizer<'_>, b: u8) -> bool {
+    b == b'\'' || (b == b'"' && t.double_quote_is_string)
+}
+
 fn step_normal(t: &mut Tokenizer<'_>) {
     let b = t.bytes[t.i];
-    if b == b'\'' {
+    if opens_string(t, b) {
         flush_normal_run(t);
+        t.quote = b;
         t.state = State::InString;
         t.current_value.clear();
-        t.value_start = t.i + 1; // points after the opening '
+        t.value_start = t.i + 1; // points after the opening quote
     } else if b == b'"' {
         // Double-quoted identifier: preserve as-is (don't replace literals inside)
         t.state = State::InDoubleQuote;
@@ -247,12 +278,12 @@ fn step_normal(t: &mut Tokenizer<'_>) {
 
 fn step_in_string(t: &mut Tokenizer<'_>) {
     let b = t.bytes[t.i];
-    if b == b'\'' {
-        if t.i + 1 < t.bytes.len() && t.bytes[t.i + 1] == b'\'' {
-            // Escaped quote '': flush accumulated slice, push a single quote, reset start
+    if b == t.quote {
+        if t.i + 1 < t.bytes.len() && t.bytes[t.i + 1] == t.quote {
+            // Escaped quote ('' or ""): flush accumulated slice, push one quote, reset start
             t.current_value
                 .push_str(checked_query_slice(t.query, t.value_start, t.i));
-            t.current_value.push('\'');
+            t.current_value.push(char::from(t.quote));
             t.i += 2;
             t.value_start = t.i;
         } else {
@@ -645,6 +676,38 @@ mod tests {
         let r = normalize_sql(r#"SELECT * FROM "table_2" WHERE "col_3" = 'value'"#);
         assert_eq!(r.template, r#"SELECT * FROM "table_2" WHERE "col_3" = ?"#);
         assert_eq!(r.params, vec!["value"]);
+    }
+
+    #[test]
+    fn mysql_double_quoted_string_masked() {
+        let r = normalize_sql_for(
+            r#"SELECT * FROM users WHERE email = "alice@example.com""#,
+            "mysql",
+        );
+        assert_eq!(r.template, "SELECT * FROM users WHERE email = ?");
+        assert_eq!(r.params, vec!["alice@example.com"]);
+    }
+
+    #[test]
+    fn mariadb_double_quoted_string_masked_case_insensitive() {
+        let r = normalize_sql_for(r#"UPDATE t SET name = "Bob" WHERE id = 3"#, "MariaDB");
+        assert_eq!(r.template, "UPDATE t SET name = ? WHERE id = ?");
+        assert_eq!(r.params, vec!["Bob", "3"]);
+    }
+
+    #[test]
+    fn mysql_double_quoted_string_keeps_doubled_quote_and_apostrophe() {
+        let r = normalize_sql_for(r#"SELECT 1 FROM t WHERE a = "it's ""fine""""#, "mysql");
+        assert_eq!(r.template, "SELECT ? FROM t WHERE a = ?");
+        assert_eq!(r.params, vec!["1", r#"it's "fine""#]);
+    }
+
+    #[test]
+    fn non_mysql_double_quotes_stay_identifiers() {
+        let q = r#"SELECT "Name" FROM "Users" WHERE "Id" = 7"#;
+        let r = normalize_sql_for(q, "postgresql");
+        assert_eq!(r, normalize_sql(q));
+        assert_eq!(r.template, r#"SELECT "Name" FROM "Users" WHERE "Id" = ?"#);
     }
 
     // -- MySQL backtick identifiers --

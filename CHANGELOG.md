@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- On MySQL and MariaDB, a value between double quotes is now masked like one between single quotes. Both engines read `"..."` as a string literal in their default mode, but the tokenizer kept it as an ANSI identifier, so `WHERE email = "alice@example.com"` reached the template, the reports, the query API, the archive and PerfSentinelHub with the address in clear. The engine comes from the span's `db.system`, and `mysql-stat` normalizes as MySQL. Every other engine keeps `"..."` as an identifier, and so does input that carries no engine, such as native JSON. A finding whose template held such a value gets a new template and a new signature, so its acknowledgment no longer matches. These templates used to split into one finding per value and now group. A MySQL server in `ANSI_QUOTES` mode loses its double-quoted identifiers to `?`. `perf_sentinel_core::normalize::sql::normalize_sql_for` is the new entry point, `normalize_sql` keeps its behavior.
+
 ## [0.25.4] - 2026-10-01
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature, and the daemon's API, its metrics and the findings it exports do not change. The findings dashboard under `examples/` names each finding's call site in a new `Code` column, and the code location the CLI prints changes spelling in three cases: a qualified `code.function.name` no longer repeats its namespace, a namespace holding `\` or `::` joins its function with `::`, and a missing or empty attribute leaves no stray separator.
