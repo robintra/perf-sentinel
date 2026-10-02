@@ -169,7 +169,7 @@ Neither repository requires signed commits on its main branch today. Release tag
 ## Reporting a vulnerability
 
 Both projects take reports through GitHub private vulnerability reporting.
-- **Engine:** acknowledgment within 72 hours, best effort since the project has a single maintainer. Initial assessment within 7 days. A CVE is requested from Medium severity up. Only the latest minor release receives fixes. See [SECURITY.md](../SECURITY.md).
+- **Engine:** acknowledgment within 72 hours, best effort since the project has a single maintainer. Initial assessment within 7 days. A CVE is requested from Medium severity up. Only the latest minor release receives fixes. See [SECURITY.md](https://github.com/robintra/perf-sentinel/blob/main/SECURITY.md).
 - **Hub:** acknowledgment within 3 business days, assessment within 7 business days. Only the latest `0.x` release receives fixes. See the [Hub security policy](https://github.com/robintra/PerfSentinelHub/blob/main/SECURITY.md).
 
 ## Deployment recommendations
