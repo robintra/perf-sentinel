@@ -2,9 +2,10 @@
 
 This document describes how Perf Sentinel keeps its build inputs
 immutable. The goal is that a checkout of any tagged release
-produces byte-identical CI runs and binaries weeks or years later,
-and that a compromised upstream cannot silently swap a tag from
-under us.
+resolves the same build inputs (actions, images, crates) weeks or
+years later, and that a compromised upstream cannot silently swap a
+tag from under us. Pinned inputs are not a reproducible build: no job
+rebuilds a release to compare it byte for byte.
 
 The policy below is already enforced across the repository. This
 document formalises it so future contributors and reviewers can apply
@@ -70,7 +71,8 @@ dependency closure.
 - `Cargo.toml` declares semver ranges as usual.
 - `Cargo.lock` is committed and is the authoritative source for what
   the build compiles.
-- `cargo audit` runs daily and on every PR.
+- `cargo audit` runs daily, and on every push or PR to `main` that
+  touches `Cargo.toml`, `Cargo.lock` or `deny.toml`.
 - Acknowledged advisories live in `audit.toml` with a paragraph
   explaining why the affected code path is not exercised. See the
   `RUSTSEC-2026-0097` entry for the format and depth expected.
@@ -177,7 +179,8 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 ## CVE response process
 
-1. **Detection**: `cargo audit` runs daily and posts on PRs. GitHub
+1. **Detection**: `cargo audit` runs daily and on PRs that change the
+   Cargo files. GitHub
    Security Advisories surface the same data plus ecosystem-specific
    alerts. Dependabot opens security PRs automatically when a fix is
    available.
@@ -205,7 +208,7 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 If you have not used Sigstore before, this short primer is a prerequisite for the SLSA, Cosign, Rekor and in-toto references that follow. Other Perf Sentinel docs link back here for canonical definitions, see [docs/REPORTING.md](REPORTING.md#background-sigstore-primer), [docs/METHODOLOGY.md](METHODOLOGY.md#cryptographic-integrity-070), [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#software-supply-chain), [docs/SCHEMA.md](SCHEMA.md#integrity).
 
-**Why Sigstore.** Sigstore is an open-source toolkit hosted by the Open Source Security Foundation (OpenSSF) and maintained by Google, Red Hat, Chainguard, GitHub and the Linux Foundation. It is the de-facto standard for verifiable artefact signatures in the cloud-native ecosystem (Kubernetes, Helm, npm provenance and PyPI attestations all rely on it). Perf Sentinel uses it in three places: signing official release binaries (SLSA Build L3 attestation), signing the Helm chart (Cosign signature verifiable via `cosign verify`), and signing periodic disclosure reports (`integrity.signature` with a Rekor inclusion proof). Three properties drive the choice:
+**Why Sigstore.** Sigstore is an open-source toolkit hosted by the Open Source Security Foundation (OpenSSF) and maintained by Google, Red Hat, Chainguard, GitHub and the Linux Foundation. It is the de-facto standard for verifiable artefact signatures in the cloud-native ecosystem (Kubernetes, Helm, npm provenance and PyPI attestations all rely on it). Perf Sentinel uses it in three places: attesting the build provenance of official release binaries (SLSA build provenance), signing the Helm chart (Cosign signature verifiable via `cosign verify`), and signing periodic disclosure reports (`integrity.signature` with a Rekor inclusion proof). Three properties drive the choice:
 
 1. **Keyless signing**, no long-lived private key for the signer to manage or leak.
 2. **A public, tamper-evident log** (Rekor), so a third party can independently verify that a signature existed at a given point in time.
@@ -228,14 +231,14 @@ If you have not used Sigstore before, this short primer is a prerequisite for th
 - **OIDC (OpenID Connect)** is an identity protocol layered on OAuth 2.0. In this workflow it is how cosign proves "this signer is `user@example.org`" (or "this is the perf-sentinel release workflow on tag v0.7.1") to Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
 - **in-toto v1 statement** is an open OpenSSF specification for software-supply-chain attestations. A JSON envelope that pairs an artefact hash with a typed *claim* about it. SLSA provenance and the periodic disclosure attestation are both in-toto statements internally. Cosign signs the statement, not the raw artefact, so verifiers can chain the trust from artefact hash to in-toto statement to cosign signature to Fulcio cert. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
 - **Bundle (`bundle.sig`)** is the JSON file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single artefact, which enables fully offline verification later (a consumer validates against Rekor's public key without re-querying Rekor live).
-- **SLSA (Supply-chain Levels for Software Artifacts)** is a separate OpenSSF framework that describes *how* an artefact was built (source commit, builder, workflow). Perf Sentinel binaries and Helm charts carry SLSA Build L3 attestations produced by `actions/attest-build-provenance`. Level L3 requires Sigstore OIDC signing plus builder isolation, both of which a GitHub-hosted runner provides. [Spec](https://slsa.dev/spec/v1.0/).
+- **SLSA (Supply-chain Levels for Software Artifacts)** is a separate OpenSSF framework that describes *how* an artefact was built (source commit, builder, workflow). Perf Sentinel binaries and Helm charts carry SLSA build provenance attestations produced by `actions/attest-build-provenance`. GitHub documents these attestations, on their own, as [SLSA v1.0 Build Level 2](https://docs.github.com/en/actions/concepts/security/artifact-attestations). Level 3 needs the build to run in a reusable workflow isolated from the calling workflow, which the release workflows do not do yet. [Spec](https://slsa.dev/spec/v1.0/).
 - **SBOM (Software Bill of Materials)** is a structured inventory of an artefact's dependencies. Perf Sentinel ships an SPDX-format SBOM attested under the SPDX in-toto predicate, so consumers verify it the same way they verify the Cosign signature. [SPDX spec](https://spdx.dev/specifications/), [SPDX in-toto predicate](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
 - **CT log (Certificate Transparency)** is the broader pattern Rekor implements. Sigstore's Rekor public instance is at `rekor.sigstore.dev`. Operators with stricter requirements can run a private instance.
 
 ### Workflow
 
 Starting with v0.7.1, every official perf-sentinel release binary
-carries a SLSA Build L3 provenance attestation. The attestation is
+carries a SLSA build provenance attestation (Build Level 2). The attestation is
 generated by GitHub Actions through `actions/attest-build-provenance`
 (maintained under the GitHub `actions/` org) and stored on the
 GitHub attestations API associated with this repository. It is **not**
@@ -249,10 +252,11 @@ still on Node.js 20 while GitHub-hosted runners were due to switch to
 Node 24 default on 2 June 2026. The new pipeline preserves the SLSA
 Build Provenance contract and drops the release-asset
 `multiple.intoto.jsonl` (attestations now live in the attestations
-API). It also upgrades the level claim from L2 to L3, since
-`actions/attest-build-provenance` produces a level-3 attestation by
-construction (provenance signed via Sigstore OIDC, builder isolation
-on a GitHub-hosted runner).
+API). The level stays L2. Earlier versions of this document claimed
+L3 for the new pipeline, but GitHub documents artifact attestations
+on their own as [SLSA v1.0 Build Level 2](https://docs.github.com/en/actions/concepts/security/artifact-attestations),
+Level 3 requiring a reusable workflow that isolates the build from
+the calling workflow. The release workflow builds inline.
 
 Verify a downloaded binary:
 
@@ -309,6 +313,17 @@ gh attestation verify perf-sentinel-linux-amd64 \
 The SBOM is derived from the Linux amd64 binary. The four release binaries
 share their Rust dependency closure bar a few platform-shim crates, so the SBOM
 documents the release as a whole.
+
+## Container images
+
+The images published to GHCR and Docker Hub carry neither a Cosign
+signature nor an attestation. Before the push, the release workflow
+scans the amd64 image with Trivy and blocks on `HIGH` or `CRITICAL`
+vulnerabilities that have a fix. The image holds nothing but the release
+binary (`FROM scratch`, UID 65534), yet nothing links a pulled image
+digest to the binary's provenance or SBOM. To run an artefact you
+have verified, verify the binary with `gh attestation verify` and
+build the image from it.
 
 ## PR review checklist
 

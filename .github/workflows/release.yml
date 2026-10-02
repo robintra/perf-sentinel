@@ -180,7 +180,7 @@ jobs:
           predicate-type: https://spdx.dev/Document/v2.3
           predicate-path: out/perf-sentinel-sbom.spdx.json
 
-  # SLSA Build L3 provenance attestation for every release binary.
+  # SLSA build provenance attestation (Build Level 2) for every release binary.
   # Stored in the GitHub attestations API (no release asset), queryable
   # via `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.
   # Uses the GitHub-native `actions/attest-build-provenance` (maintained
