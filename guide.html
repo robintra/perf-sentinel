@@ -24,7 +24,7 @@
       <nav data-dc-tpl="13" class="ps-hdr-nav" style="display: flex; gap: 22px; margin-left: 6px; font-size: 15px; font-weight: 500; color: var(--text-2);">
         <a data-dc-tpl="14" data-plain="" href="/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;"><span data-dc-tpl="15" data-ltext=""><span class="sc-interp">Overview</span></span><span data-dc-tpl="16" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
         <span data-dc-tpl="17" aria-hidden="true" style="width: 1px; height: 15px; background: var(--border); align-self: center; margin: 0px 2px;"></span>
-        <a data-dc-tpl="18" data-plain="" href="docs/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Reference</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
+        <a data-dc-tpl="18" data-plain="" href="/docs/" class="scp0" style="display: inline-flex; align-items: center; gap: 4px;"><span data-dc-tpl="19" data-ltext=""><span class="sc-interp">Reference</span></span><span data-dc-tpl="20" data-arrow="" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
       <div data-dc-tpl="21" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="22" class="ps-lang-btn" aria-label="Switch language" title="Switch language"><span data-dc-tpl="23" class="ps-lang-ico"><svg data-dc-tpl="24" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="25" cx="12" cy="12" r="9"></circle><path data-dc-tpl="26" d="M3 12h18"></path><path data-dc-tpl="27" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="28" class="ps-lang-win"><span data-dc-tpl="29" class="ps-lang-track"><span data-dc-tpl="30" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">EN</span></span><span data-dc-tpl="31" class="ps-lang-cell ps-lang-next"><span class="sc-interp">FR</span></span></span></span></button>
@@ -35,7 +35,7 @@
       </div>
       <nav data-dc-tpl="39" data-mobnav="" aria-label="Menu">
         <a data-dc-tpl="40" data-plain="" href="/"><span class="sc-interp">Overview</span> <span data-dc-tpl="41" style="font-size: 11px; opacity: 0.7;">→</span></a>
-        <a data-dc-tpl="42" data-plain="" href="docs/"><span class="sc-interp">Reference</span> <span data-dc-tpl="43" style="font-size: 11px; opacity: 0.7;">→</span></a>
+        <a data-dc-tpl="42" data-plain="" href="/docs/"><span class="sc-interp">Reference</span> <span data-dc-tpl="43" style="font-size: 11px; opacity: 0.7;">→</span></a>
       </nav>
     </div>
   </header>
@@ -112,7 +112,7 @@
 <span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span></code></pre>
         </div>
         <p data-dc-tpl="64" style="margin: 16px 0px 0px; font-size: 14px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">demo --html is a full showcase: every dashboard tab is populated (Overview, Findings with inline Explain, Carbon, pg_stat, mysql_stat, Diff and synthesized cross-trace correlations).</span></p>
-        <p data-dc-tpl="65" style="margin: 10px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><strong data-dc-tpl="66" style="color: var(--text); font-weight: 600;"><span class="sc-interp">On dd-trace?</span></strong> <span class="sc-interp">Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, then either feed its <code class="dc-cmd">file</code> exporter OTLP JSON straight to <code class="dc-cmd">analyze --input</code> for batch (auto-detected), or stream to the <code class="dc-cmd">watch</code> daemon over OTLP. See</span> <a data-dc-tpl="67" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
+        <p data-dc-tpl="65" style="margin: 10px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><strong data-dc-tpl="66" style="color: var(--text); font-weight: 600;"><span class="sc-interp">On dd-trace?</span></strong> <span class="sc-interp">Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, then either feed its <code class="dc-cmd">file</code> exporter OTLP JSON straight to <code class="dc-cmd">analyze --input</code> for batch (auto-detected), or stream to the <code class="dc-cmd">watch</code> daemon over OTLP. See</span> <a data-dc-tpl="67" href="/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</p>
       </section>
 
       
@@ -318,7 +318,7 @@
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="125" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Live OTLP</span></div>
-                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="128" href="docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</div>
+                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="128" href="/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</div>
                 </div>
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -744,7 +744,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
       <section data-dc-tpl="206" style="padding-top: 54px;">
         <h2 data-dc-tpl="207" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Acknowledging known findings</span></h2>
         <p data-dc-tpl="208" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Drop a .perf-sentinel-acknowledgments.toml at your repo root to suppress findings the team has accepted: each gets a SHA-256 signature, and they are filtered from analyze / report / inspect / diff and don’t count toward the quality gate. Runtime acks against a live daemon are exposed via the ack CLI, the live HTML dashboard, the TUI, and the findings dashboard, whose Ack column opens the ack page of a PerfSentinelHub that relays to the daemon.</span></p>
-        <a data-dc-tpl="209" data-plain="" href="docs/ACK-WORKFLOW" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="210" data-ltext=""><span class="sc-interp">Acknowledgment workflow</span></span><span data-dc-tpl="211" data-arrow=""> →</span></a>
+        <a data-dc-tpl="209" data-plain="" href="/docs/ACK-WORKFLOW" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="210" data-ltext=""><span class="sc-interp">Acknowledgment workflow</span></span><span data-dc-tpl="211" data-arrow=""> →</span></a>
       </section>
 
       
@@ -814,7 +814,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
           
         </div>
       <div data-dc-tpl="225" style="margin: 30px 0px 0px; max-width: 760px;"><p data-dc-tpl="226" style="margin: 0px 0px 10px; font-size: 13.5px; color: var(--text-2); line-height: 1.6;"><span class="sc-interp">Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via <code class="dc-cmd">perf-sentinel query --daemon &lt;URL&gt; monitor</code>:</span></p><figure data-dc-tpl="227" class="ps-media"><button data-dc-tpl="228" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif"><span data-dc-tpl="229" class="ps-media-play">▶</span> <span class="sc-interp">Play the demo (GIF)</span></button></figure></div>
-      <div data-dc-tpl="230" style="margin: 30px 0px 0px; max-width: 760px;"><p data-dc-tpl="231" style="margin: 0px 0px 10px; font-size: 13.5px; color: var(--text-2); line-height: 1.6;"><span class="sc-interp">Two example Grafana dashboards ship in the repository. Neither ships in the Helm chart. You import them into the Grafana you already run. The overview reads the Prometheus <code class="dc-cmd">/metrics</code> counters, the findings one reads the query API through the Infinity plugin, and both carry a <code class="dc-cmd">Compatibility</code> badge that says when the daemon feeding them is older than their panels need. A collapsed <code class="dc-cmd">History (Hub)</code> row reads PerfSentinelHub instead, over the time picker’s range, where the daemon’s ring is bounded by volume and cannot look back:</span></p><figure data-dc-tpl="233" class="ps-media"><button data-dc-tpl="234" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png"><span data-dc-tpl="235" class="ps-media-play">▶</span> <span class="sc-interp">Load the overview dashboard (PNG)</span></button></figure><figure data-dc-tpl="233" class="ps-media"><button data-dc-tpl="234" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png"><span data-dc-tpl="235" class="ps-media-play">▶</span> <span class="sc-interp">Load the findings dashboard (PNG)</span></button></figure></div> <a data-dc-tpl="236" data-plain="" href="docs/INTEGRATION" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="237" data-ltext=""><span class="sc-interp">Full integration guide</span></span><span data-dc-tpl="238" data-arrow=""> →</span></a> </section>
+      <div data-dc-tpl="230" style="margin: 30px 0px 0px; max-width: 760px;"><p data-dc-tpl="231" style="margin: 0px 0px 10px; font-size: 13.5px; color: var(--text-2); line-height: 1.6;"><span class="sc-interp">Two example Grafana dashboards ship in the repository. Neither ships in the Helm chart. You import them into the Grafana you already run. The overview reads the Prometheus <code class="dc-cmd">/metrics</code> counters, the findings one reads the query API through the Infinity plugin, and both carry a <code class="dc-cmd">Compatibility</code> badge that says when the daemon feeding them is older than their panels need. A collapsed <code class="dc-cmd">History (Hub)</code> row reads PerfSentinelHub instead, over the time picker’s range, where the daemon’s ring is bounded by volume and cannot look back:</span></p><figure data-dc-tpl="233" class="ps-media"><button data-dc-tpl="234" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview.png"><span data-dc-tpl="235" class="ps-media-play">▶</span> <span class="sc-interp">Load the overview dashboard (PNG)</span></button></figure><figure data-dc-tpl="233" class="ps-media"><button data-dc-tpl="234" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/findings.png"><span data-dc-tpl="235" class="ps-media-play">▶</span> <span class="sc-interp">Load the findings dashboard (PNG)</span></button></figure></div> <a data-dc-tpl="236" data-plain="" href="/docs/INTEGRATION" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="237" data-ltext=""><span class="sc-interp">Full integration guide</span></span><span data-dc-tpl="238" data-arrow=""> →</span></a> </section>
 
       
       <section data-dc-tpl="239" style="padding-top: 54px;">
@@ -847,7 +847,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
             </div>
           
         </div>
-        <a data-dc-tpl="249" data-plain="" href="docs/LIMITATIONS" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="250" data-ltext=""><span class="sc-interp">Limitations &amp; threat model</span></span><span data-dc-tpl="251" data-arrow=""> →</span></a>
+        <a data-dc-tpl="249" data-plain="" href="/docs/LIMITATIONS" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="250" data-ltext=""><span class="sc-interp">Limitations &amp; threat model</span></span><span data-dc-tpl="251" data-arrow=""> →</span></a>
       </section>
 
       
@@ -855,7 +855,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
         <h2 data-dc-tpl="253" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Supply chain &amp; releases</span></h2>
         <p data-dc-tpl="254" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Release tags are signed, and binaries carry SLSA build provenance attested through Sigstore.</span></p>
         <p data-dc-tpl="255" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA build provenance (Build Level 2, Sigstore + Rekor) and embedded <code class="dc-cmd">cargo-auditable</code> data (<code class="dc-cmd">cargo audit bin</code>), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.</span></p>
-        <a data-dc-tpl="256" data-plain="" href="docs/SUPPLY-CHAIN" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="257" data-ltext=""><span class="sc-interp">Supply chain &amp; provenance</span></span><span data-dc-tpl="258" data-arrow=""> →</span></a>
+        <a data-dc-tpl="256" data-plain="" href="/docs/SUPPLY-CHAIN" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="257" data-ltext=""><span class="sc-interp">Supply chain &amp; provenance</span></span><span data-dc-tpl="258" data-arrow=""> →</span></a>
       </section>
 
       
@@ -864,87 +864,87 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
         <p data-dc-tpl="261" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Every topic above is covered in full in the reference. Jump straight to a page:</span></p>
         <div data-dc-tpl="262" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 22px;">
           
-            <a data-dc-tpl="264" data-plain="" href="docs/ARCHITECTURE" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/ARCHITECTURE" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Architecture</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Pipeline, modules and key types</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/INTEGRATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/INTEGRATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Integration</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Batch, sidecar, gateway, standalone</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/INSTRUMENTATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/INSTRUMENTATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Instrumentation</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Per-language OTLP setup</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/CI" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/CI" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">CI</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">GitHub Actions, GitLab, Jenkins recipes</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/CONFIGURATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/CONFIGURATION" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Configuration</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Full .perf-sentinel.toml reference</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/CLI" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/CLI" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">CLI reference</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Every subcommand and flag</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/METRICS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/METRICS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Metrics</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Prometheus metrics on /metrics</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/QUERY-API" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/QUERY-API" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Query API</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Daemon HTTP endpoints</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/SARIF" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/SARIF" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">SARIF</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Code scanning output format</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/SCHEMA" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/SCHEMA" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Schema</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Disclosure report JSON schema</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/HTML-REPORT" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/HTML-REPORT" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">HTML report</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">The offline dashboard</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/INSPECT" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/INSPECT" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Inspect (TUI)</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Interactive drill-down</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/REPORTING" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/REPORTING" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Reporting</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Periodic public disclosure</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/METHODOLOGY" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/METHODOLOGY" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Methodology</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Traces to energy and carbon</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/LIMITATIONS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/LIMITATIONS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Limitations</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Known trade-offs and boundaries</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/SECURITY-OVERVIEW" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/SECURITY-OVERVIEW" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Security overview</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">For a security review</span></div>
             </a>
           
-            <a data-dc-tpl="264" data-plain="" href="docs/SUPPLY-CHAIN" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <a data-dc-tpl="264" data-plain="" href="/docs/SUPPLY-CHAIN" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Supply chain</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Signing and provenance</span></div>
             </a>
@@ -1553,7 +1553,7 @@ class Component extends DCLogic {
         qsDdLabel: 'On dd-trace?',
         qsDdNote: 'Bridge it through the Collector `datadogreceiver`, then either feed its `file` exporter OTLP JSON straight to `analyze --input` for batch (auto-detected), or stream to the `watch` daemon over OTLP. See',
         qsDdLink: 'Coming from Datadog',
-        qsDdHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
+        qsDdHref: '/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry',
         inTitle: 'Installation',
         inIntro: 'Pick crates.io, a prebuilt binary, or the container image. Linux binaries target musl, so they are static and run on any distribution, including FROM scratch images.',
         inCode: '# from crates.io\ncargo install perf-sentinel --locked\n\n# or a prebuilt binary (Linux amd64/arm64, macOS arm64, Windows amd64)\nchmod +x perf-sentinel-linux-amd64\nsudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel\n\n# or via Docker\ndocker run --rm -p 4317:4317 -p 4318:4318 \\\n  ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0',
@@ -1603,7 +1603,7 @@ class Component extends DCLogic {
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
           { name: 'Trace files', desc: 'Native Perf Sentinel JSON, OTLP JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
-          { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector `datadogreceiver`, see', ddHref: 'docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry', ddLink: 'Coming from Datadog' },
+          { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector `datadogreceiver`, see', ddHref: '/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry', ddLink: 'Coming from Datadog' },
           { name: 'Grafana Tempo', desc: 'Pull traces directly from a Tempo backend with perf-sentinel tempo.' },
           { name: 'Jaeger query API', desc: 'Pull from a Jaeger or Victoria Traces backend with perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
@@ -1746,7 +1746,7 @@ class Component extends DCLogic {
         qsDdLabel: 'Sur dd-trace ?',
         qsDdNote: 'Faites le pont via le `datadogreceiver` du Collector, puis soit passez l’OTLP JSON écrit par son `file` exporter directement à `analyze --input` en batch (auto-détecté), soit alimentez le daemon `watch` en OTLP. Voir',
         qsDdLink: 'Vous venez de Datadog',
-        qsDdHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
+        qsDdHref: '/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry',
         inTitle: 'Installation',
         inIntro: 'Au choix : crates.io, un binaire pré-construit, ou l\u2019image conteneur. Les binaires Linux ciblent musl : statiques, ils tournent sur n\u2019importe quelle distribution, y compris les images FROM scratch.',
         inCode: '# depuis crates.io\ncargo install perf-sentinel --locked\n\n# ou un binaire pré-construit (Linux amd64/arm64, macOS arm64, Windows amd64)\nchmod +x perf-sentinel-linux-amd64\nsudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel\n\n# ou via Docker\ndocker run --rm -p 4317:4317 -p 4318:4318 \\\n  ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0',
@@ -1796,7 +1796,7 @@ class Component extends DCLogic {
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
           { name: 'Fichiers de traces', desc: 'JSON natif Perf Sentinel, JSON OTLP, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
-          { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector, voir', ddHref: 'docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry', ddLink: 'Vous venez de Datadog' },
+          { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector, voir', ddHref: '/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry', ddLink: 'Vous venez de Datadog' },
           { name: 'Grafana Tempo', desc: 'Récupère les traces directement depuis un backend Tempo avec perf-sentinel tempo.' },
           { name: 'API Jaeger query', desc: 'Récupère depuis un backend Jaeger ou Victoria Traces avec perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
@@ -1933,7 +1933,7 @@ class Component extends DCLogic {
     const theme = this.curTheme();
     const lang = this.curLang();
     const t = this.dict()[lang];
-    const refBase = lang === 'fr' ? 'docs/fr/' : 'docs/';
+    const refBase = lang === 'fr' ? '/docs/fr/' : '/docs/';
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     const navItems = ids.map((id, i) => ({ id, label: t.nav[i], active: this.state.active === id ? 'true' : 'false' }));
     const mode = this.curMode();
