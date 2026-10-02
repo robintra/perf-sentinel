@@ -4,11 +4,11 @@ Perf Sentinel's user-facing documentation. For deep design rationale aimed at co
 
 ## Getting started
 
-| Document                                 | Description                                                                       |
-|------------------------------------------|-----------------------------------------------------------------------------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                             |
-| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP         |
-| [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection    |
+| Document                                 | Description                                                                        |
+|------------------------------------------|------------------------------------------------------------------------------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                              |
+| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP |
+| [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection     |
 
 ## Deployment
 
@@ -21,7 +21,7 @@ Perf Sentinel's user-facing documentation. For deep design rationale aimed at co
 
 | Document                             | Description                                                                                                       |
 |--------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, broker energy, daemon)                                    |
+| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, broker energy, daemon)                     |
 | [CLI.md](CLI.md)                     | Subcommand reference (`analyze`, `watch`, `report`, `diff`, `query`, `ack`, `inspect`, `disclose`, `verify-hash`) |
 | [METRICS.md](METRICS.md)             | Prometheus metrics exposed by the daemon on `/metrics`                                                            |
 | [QUERY-API.md](QUERY-API.md)         | Daemon HTTP API (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                     |
@@ -40,13 +40,13 @@ Perf Sentinel's user-facing documentation. For deep design rationale aimed at co
 
 ## Operations
 
-| Document                         | Description                                                                                   |
-|----------------------------------|-----------------------------------------------------------------------------------------------|
-| [RUNBOOK.md](RUNBOOK.md)         | Incident runbook: symptom-driven troubleshooting for production deployments                   |
-| [ENERGY.md](ENERGY.md)           | Plain-language synthesis: how counts become kWh and gCO2, per configured option, with sources |
-| [METHODOLOGY.md](METHODOLOGY.md) | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`           |
+| Document                               | Description                                                                                   |
+|----------------------------------------|-----------------------------------------------------------------------------------------------|
+| [RUNBOOK.md](RUNBOOK.md)               | Incident runbook: symptom-driven troubleshooting for production deployments                   |
+| [ENERGY.md](ENERGY.md)                 | Plain-language synthesis: how counts become kWh and gCO2, per configured option, with sources |
+| [METHODOLOGY.md](METHODOLOGY.md)       | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`           |
 | [INSTANCE-TYPES.md](INSTANCE-TYPES.md) | Every `instance_type` carrying an embedded power profile, with its idle and max wattage       |
-| [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries                                  |
+| [LIMITATIONS.md](LIMITATIONS.md)       | Known trade-offs, upstream constraints, detection boundaries                                  |
 
 ## Security, supply chain and release
 
