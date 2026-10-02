@@ -278,7 +278,7 @@ Le tableau de bord rendu, servi depuis l'origine du Hub :
 - **OTLP live** : gRPC sur `:4317` et HTTP sur `:4318`, ingérés par le daemon `watch` depuis votre OTel Collector ou SDK. Voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md).
 - **Datadog / dd-trace** (sans SDK OpenTelemetry) : faites le pont du trafic dd-trace via un OTel Collector équipé du `datadogreceiver`. Il réexporte de l'OTLP vers le daemon `watch`, vers un dump de l'exporter `file` lisible par `analyze --input`, ou vers un backend Tempo ou Jaeger pour les chemins pull `tempo`/`jaeger-query` ci-dessous. Perf Sentinel lit le SQL depuis la ressource Datadog nativement, sans changement applicatif. Voir [docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry](docs/FR/INTEGRATION-FR.md#vous-venez-de-datadog-dd-trace-sans-opentelemetry).
 - **Grafana Tempo** : récupère les traces directement depuis un backend Tempo avec `perf-sentinel tempo`. Voir [docs/FR/INTEGRATION-FR.md#intégration-tempo](docs/FR/INTEGRATION-FR.md#intégration-tempo).
-- **API Jaeger query** : récupère depuis un backend Jaeger ou Victoria Traces avec `perf-sentinel jaeger-query`. Voir [docs/FR/INTEGRATION-FR.md#intégration-api-jaeger-query-jaeger-et-victoria-traces](docs/FR/INTEGRATION-FR.md#intégration-api-jaeger-query-jaeger-et-victoria-traces).
+- **API Jaeger query** : récupère depuis un backend Jaeger jusqu'à la 2.20 ou Victoria Traces avec `perf-sentinel jaeger-query`. Jaeger 2.21 a retiré le point d'accès de recherche v1 dont dépend la recherche par service. Voir [docs/FR/INTEGRATION-FR.md#intégration-api-jaeger-query-jaeger-et-victoria-traces](docs/FR/INTEGRATION-FR.md#intégration-api-jaeger-query-jaeger-et-victoria-traces).
 - **`pg_stat_statements`** : classe les hotspots PostgreSQL depuis la vue catalogue avec `perf-sentinel pg-stat`. Voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md).
 - **MySQL Performance Schema** : classe les hotspots MySQL depuis un export d'`events_statements_summary_by_digest` avec `perf-sentinel mysql-stat` (les colonnes timer sont converties de picosecondes en millisecondes). Exportez avec `mysqlsh --result-format=csv` ou tout export CSV/JSON client. `SELECT ... INTO OUTFILE` produit du TSV non pris en charge. Voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md).
 
@@ -623,6 +623,10 @@ Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image 
 ## Publication des versions
 
 Les publications suivent une procédure documentée. Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) est le palier de validation obligatoire avant tag : 36 scénarios de bout en bout sur un cluster Kubernetes local (k3d), couvrant neuf modes de déploiement plus les templates CI, les modes de défaillance et les limites de charge. Chaque scénario est livré avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md).
+
+## Assistance
+
+Perf Sentinel est maintenu par une seule personne, au mieux de ses disponibilités. Il n'existe ni offre d'assistance commerciale ni engagement de niveau de service. Les questions, les bugs et les demandes de fonctionnalité passent par les [issues GitHub](https://github.com/robintra/perf-sentinel/issues), qui proposent des modèles pour les bugs et les fonctionnalités. Les failles passent plutôt par le signalement privé, avec un accusé de réception sous 72 heures au mieux, voir [SECURITY.md](SECURITY.md). Seule la dernière version mineure reçoit les correctifs de sécurité. Le logiciel est fourni sans garantie et avec une responsabilité limitée (AGPL-3.0, articles 15 et 16).
 
 ## Licence
 

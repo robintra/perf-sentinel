@@ -278,7 +278,7 @@ The rendered dashboard, served from the Hub's own origin:
 - **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 - **Datadog / dd-trace** (no OpenTelemetry SDK): bridge dd-trace traffic through an OTel Collector running the `datadogreceiver`, which re-exports OTLP to the `watch` daemon, to a `file` exporter dump readable by `analyze --input`, or to a Tempo or Jaeger backend for the `tempo`/`jaeger-query` pull paths below. Perf Sentinel reads the SQL from the Datadog resource natively, no application change. See [docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry](docs/INTEGRATION.md#coming-from-datadog-dd-trace-no-opentelemetry).
 - **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
-- **Jaeger Query API**: pull from Jaeger upstream or Victoria Traces with `perf-sentinel jaeger-query`. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
+- **Jaeger Query API**: pull from Jaeger upstream up to 2.20 or Victoria Traces with `perf-sentinel jaeger-query`. Jaeger 2.21 removed the v1 search endpoint the service search relies on. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
 - **`pg_stat_statements`**: rank PostgreSQL hotspots from the catalog view with `perf-sentinel pg-stat`. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 - **MySQL Performance Schema**: rank MySQL hotspots from an `events_statements_summary_by_digest` export with `perf-sentinel mysql-stat` (timer columns convert from picoseconds to milliseconds). Export with `mysqlsh --result-format=csv` or any client CSV/JSON export. `SELECT ... INTO OUTFILE` produces unsupported TSV. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
@@ -623,6 +623,10 @@ Every GitHub Action is pinned to a 40-character commit SHA, the production image
 ## Releasing
 
 Releases follow a documented procedure. The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) is the mandatory pre-tag release gate: 36 end-to-end scenarios on a local Kubernetes (k3d) cluster, covering nine deployment modes plus CI templates, failure modes and load limits. Each scenario ships a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation. Step-by-step in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md).
+
+## Support
+
+Perf Sentinel is maintained by one person, on a best-effort basis. There is no commercial support offer and no service-level agreement. Questions, bugs and feature requests go to [GitHub issues](https://github.com/robintra/perf-sentinel/issues), which offer bug and feature templates. Vulnerabilities go through private reporting instead, acknowledged within 72 hours on a best-effort basis, see [SECURITY.md](SECURITY.md). Only the latest minor release receives security fixes. The software comes without warranty and with limited liability (AGPL-3.0, sections 15 and 16).
 
 ## License
 
