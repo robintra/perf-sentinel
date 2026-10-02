@@ -277,9 +277,9 @@ jobs:
     # Run inside the official Playwright image so chromium + the headless
     # shell + ffmpeg are pre-baked: no flaky CDN download (`playwright install`
     # regularly stalled after the 100% chromium fetch). The tag MUST match
-    # @playwright/test in package-lock.json (1.59.1).
+    # @playwright/test in package-lock.json (1.59.1). Bump the digest with it.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
     timeout-minutes: 25
     if: >-
       !cancelled()
