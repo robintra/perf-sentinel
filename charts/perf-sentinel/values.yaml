@@ -208,7 +208,8 @@ service:
 # listing, and since 0.20.0 [daemon] read_api_key opens that listing and
 # GET /api/incidents without the power to write. Every other read stays open.
 # Terminate TLS at the controller: the daemon speaks plaintext HTTP unless
-# you configure [daemon.tls], and the chart does not wire certificates here.
+# you set tls_cert_path and tls_key_path in [daemon], and the chart does not
+# wire certificates here.
 ingress:
   enabled: false
   # -- IngressClass to bind. Empty leaves the cluster default in charge.
