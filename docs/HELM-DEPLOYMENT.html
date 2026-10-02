@@ -156,26 +156,7 @@
 <p class="ps-p">After the pod is ready, point your OpenTelemetry Collector at <code class="ps-ic">perf-sentinel.observability.svc.cluster.local:4317</code> (gRPC) or <code class="ps-ic">:4318</code> (HTTP). A full end-to-end example composing Perf Sentinel with the upstream OTel Collector chart lives under <a href="https://github.com/robintra/perf-sentinel/tree/main/examples/helm/" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">examples/helm/</code></a>.</p>
 <h2 id="topology" class="ps-h2">Topology</h2>
 <p class="ps-p">The chart is sentinel-only. Users compose Perf Sentinel with the upstream <a href="https://github.com/open-telemetry/opentelemetry-helm-charts" target="_blank" rel="noopener" class="ps-ext">open-telemetry/opentelemetry-collector</a> chart instead of bundling a collector that would get out of sync with upstream releases.</p>
-<div class="ps-code"><div class="ps-code-lang">mermaid</div><pre><code>flowchart LR
-    subgraph apps [Application namespaces]
-        A[api-gateway]
-        B[order-svc]
-        C[payment-svc]
-        D[chat-svc]
-    end
-    subgraph obs [observability namespace]
-        OC[OTel Collector&lt;br/&gt;open-telemetry/opentelemetry-collector]
-        PS[perf-sentinel&lt;br/&gt;this chart]
-    end
-    subgraph mon [monitoring namespace]
-        T[Tempo]
-    end
-    A --&gt;|OTLP or Zipkin| OC
-    B --&gt;|OTLP or Zipkin| OC
-    C --&gt;|OTLP or Zipkin| OC
-    D --&gt;|OTLP or Zipkin| OC
-    OC --&gt;|OTLP gRPC 4317| T
-    OC --&gt;|OTLP gRPC 4317| PS</code></pre></div>
+<figure class="ps-fig"><img class="ps-diagram" data-diagram="light" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology.svg" alt="" loading="lazy"><img class="ps-diagram" data-diagram="dark" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology_dark.svg" alt="" loading="lazy"></figure>
 <h3 id="collector-sampling-and-what-reaches-the-daemon" class="ps-h3">Collector sampling and what reaches the daemon</h3>
 <p class="ps-p">Most production collectors sample. If the processor doing it sits between the applications and Perf Sentinel, the daemon analyzes a fraction of the traffic and <strong>has no way to know it</strong>. A sampled trace that was kept looks exactly like a complete one, and the report gives no hint that its numbers cover a tenth of the requests.</p>
 <p class="ps-p">What survives sampling and what does not:</p>
