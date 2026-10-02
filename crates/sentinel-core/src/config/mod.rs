@@ -257,8 +257,9 @@ pub struct GreenConfig {
     pub electricity_maps: Option<crate::score::electricity_maps::ElectricityMapsConfig>,
 }
 
-/// Daemon runtime config. Maps to `[daemon]` plus its `[daemon.tls]`,
-/// `[daemon.ack]`, `[daemon.cors]` and `[daemon.correlation]` sub-tables.
+/// Daemon runtime config. Maps to `[daemon]`, whose `tls_cert_path` and
+/// `tls_key_path` keys fill `tls`, plus sub-tables such as `[daemon.ack]`,
+/// `[daemon.cors]` and `[daemon.correlation]`.
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
     pub listen_addr: String,
