@@ -803,19 +803,19 @@ go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
 github.com/exaring/otelpgx</code></pre></div>
 <p class="ps-p"><strong>Instrumentation du serveur HTTP :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">go</div><pre><code>mux := http.NewServeMux()
-mux.HandleFunc("/api/orders", handleOrders)
-// Enveloppe le mux avec le middleware HTTP OTel
-handler := otelhttp.NewHandler(mux, "server",
-    otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-        return r.Method + " " + r.URL.Path
+<div class="ps-code"><div class="ps-code-lang">go</div><pre><code>mux := http.<span style="color:var(--code-sub)">NewServeMux</span>()
+mux.<span style="color:var(--code-sub)">HandleFunc</span>(<span style="color:var(--code-num)">"/api/orders"</span>, handleOrders)
+<span style="color:var(--term-comment)">// Enveloppe le mux avec le middleware HTTP OTel</span>
+handler := otelhttp.<span style="color:var(--code-sub)">NewHandler</span>(mux, <span style="color:var(--code-num)">"server"</span>,
+    otelhttp.<span style="color:var(--code-sub)">WithSpanNameFormatter</span>(<span style="color:var(--code-cmd);font-weight:600">func</span>(_ <span style="color:var(--code-cmd);font-weight:600">string</span>, r *http.<span style="color:var(--code-sub)">Request</span>) <span style="color:var(--code-cmd);font-weight:600">string</span> {
+        <span style="color:var(--code-cmd);font-weight:600">return</span> r.<span style="color:var(--code-sub)">Method</span> + <span style="color:var(--code-num)">" "</span> + r.<span style="color:var(--code-sub)">URL</span>.<span style="color:var(--code-sub)">Path</span>
     }),
 )
-http.ListenAndServe(":8080", handler)</code></pre></div>
+http.<span style="color:var(--code-sub)">ListenAndServe</span>(<span style="color:var(--code-num)">":8080"</span>, handler)</code></pre></div>
 <p class="ps-p"><strong>Instrumentation SQL avec pgx :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">go</div><pre><code>cfg, _ := pgxpool.ParseConfig(os.Getenv("DB_DSN"))
-cfg.ConnConfig.Tracer = otelpgx.NewTracer()
-pool, _ := pgxpool.NewWithConfig(ctx, cfg)</code></pre></div>
+<div class="ps-code"><div class="ps-code-lang">go</div><pre><code>cfg, _ := pgxpool.<span style="color:var(--code-sub)">ParseConfig</span>(os.<span style="color:var(--code-sub)">Getenv</span>(<span style="color:var(--code-num)">"DB_DSN"</span>))
+cfg.<span style="color:var(--code-sub)">ConnConfig</span>.<span style="color:var(--code-sub)">Tracer</span> = otelpgx.<span style="color:var(--code-sub)">NewTracer</span>()
+pool, _ := pgxpool.<span style="color:var(--code-sub)">NewWithConfig</span>(ctx, cfg)</code></pre></div>
 <p class="ps-p"><code class="ps-ic">otelpgx</code> émet <code class="ps-ic">db.statement</code> avec les paramètres positionnels PostgreSQL natifs (<code class="ps-ic">$1</code>, <code class="ps-ic">$2</code>). Perf Sentinel les normalise en <code class="ps-ic">$?</code> avec des <code class="ps-ic">params</code> vides, ce qui active le chemin de détection N+1 sanitizer-aware. Aucune configuration supplémentaire n'est nécessaire.</p>
 <p class="ps-p"><strong>Variables d'environnement (exemple Docker Compose) :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">environment</span>:
@@ -831,17 +831,17 @@ opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-instrumentation-django
 opentelemetry-instrumentation-psycopg</code></pre></div>
 <p class="ps-p"><strong>Initialisation (manage.py ou wsgi.py) :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">python</div><pre><code>from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.django import DjangoInstrumentor
-from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+<div class="ps-code"><div class="ps-code-lang">python</div><pre><code><span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.sdk.trace <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">TracerProvider</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.sdk.trace.export <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">BatchSpanProcessor</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.exporter.otlp.proto.grpc.trace_exporter <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">OTLPSpanExporter</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.instrumentation.django <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">DjangoInstrumentor</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.instrumentation.psycopg <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">PsycopgInstrumentor</span>
 
-provider = TracerProvider()
-provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+provider = <span style="color:var(--code-sub)">TracerProvider</span>()
+provider.add_span_processor(<span style="color:var(--code-sub)">BatchSpanProcessor</span>(<span style="color:var(--code-sub)">OTLPSpanExporter</span>()))
 
-DjangoInstrumentor().instrument()
-PsycopgInstrumentor().instrument()</code></pre></div>
+<span style="color:var(--code-sub)">DjangoInstrumentor</span>().instrument()
+<span style="color:var(--code-sub)">PsycopgInstrumentor</span>().instrument()</code></pre></div>
 <p class="ps-p"><code class="ps-ic">psycopg</code> émet <code class="ps-ic">db.statement</code> avec les placeholders Python DB-API <code class="ps-ic">%s</code>. Perf Sentinel reconnaît <code class="ps-ic">%s</code> comme placeholder de driver, donc le chemin de détection N+1 sanitizer-aware se déclenche sans configuration supplémentaire.</p>
 <p class="ps-p"><strong>Variables d'environnement :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">environment</span>:
@@ -857,17 +857,17 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-sqlalchemy
 opentelemetry-instrumentation-asyncpg</code></pre></div>
 <p class="ps-p"><strong>Initialisation (main.py) :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">python</div><pre><code>from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+<div class="ps-code"><div class="ps-code-lang">python</div><pre><code><span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.sdk.trace <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">TracerProvider</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.sdk.trace.export <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">BatchSpanProcessor</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.exporter.otlp.proto.grpc.trace_exporter <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">OTLPSpanExporter</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.instrumentation.fastapi <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">FastAPIInstrumentor</span>
+<span style="color:var(--code-cmd);font-weight:600">from</span> opentelemetry.instrumentation.sqlalchemy <span style="color:var(--code-cmd);font-weight:600">import</span> <span style="color:var(--code-sub)">SQLAlchemyInstrumentor</span>
 
-provider = TracerProvider()
-provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+provider = <span style="color:var(--code-sub)">TracerProvider</span>()
+provider.add_span_processor(<span style="color:var(--code-sub)">BatchSpanProcessor</span>(<span style="color:var(--code-sub)">OTLPSpanExporter</span>()))
 
-FastAPIInstrumentor.instrument_app(app)
-SQLAlchemyInstrumentor().instrument(engine=engine)</code></pre></div>
+<span style="color:var(--code-sub)">FastAPIInstrumentor</span>.instrument_app(app)
+<span style="color:var(--code-sub)">SQLAlchemyInstrumentor</span>().instrument(engine=engine)</code></pre></div>
 <p class="ps-p"><code class="ps-ic">asyncpg</code> émet <code class="ps-ic">db.statement</code> avec les paramètres positionnels PostgreSQL natifs (<code class="ps-ic">$1</code>, <code class="ps-ic">$2</code>). Perf Sentinel les normalise en <code class="ps-ic">$?</code> avec des <code class="ps-ic">params</code> vides. Le scope d'instrumentation <code class="ps-ic">sqlalchemy</code> figure dans la liste d'autorisation des scopes ORM, donc la détection N+1 sanitizer-aware se déclenche via le chemin ORM pour cette stack.</p>
 <p class="ps-p"><strong>Variables d'environnement :</strong></p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">environment</span>:
@@ -884,16 +884,16 @@ SQLAlchemyInstrumentor().instrument(engine=engine)</code></pre></div>
   <span style="color:var(--code-sub)">&quot;@opentelemetry/instrumentation-pg&quot;</span>: <span style="color:var(--code-num)">&quot;^0.44&quot;</span>
 }</code></pre></div>
 <p class="ps-p"><strong>Initialisation (tracing.ts, chargé via --require) :</strong></p>
-<div class="ps-code"><div class="ps-code-lang">typescript</div><pre><code>import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
-import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
+<div class="ps-code"><div class="ps-code-lang">typescript</div><pre><code><span style="color:var(--code-cmd);font-weight:600">import</span> { <span style="color:var(--code-sub)">NodeSDK</span> } <span style="color:var(--code-cmd);font-weight:600">from</span> <span style="color:var(--code-num)">'@opentelemetry/sdk-node'</span>;
+<span style="color:var(--code-cmd);font-weight:600">import</span> { <span style="color:var(--code-sub)">OTLPTraceExporter</span> } <span style="color:var(--code-cmd);font-weight:600">from</span> <span style="color:var(--code-num)">'@opentelemetry/exporter-trace-otlp-grpc'</span>;
+<span style="color:var(--code-cmd);font-weight:600">import</span> { <span style="color:var(--code-sub)">HttpInstrumentation</span> } <span style="color:var(--code-cmd);font-weight:600">from</span> <span style="color:var(--code-num)">'@opentelemetry/instrumentation-http'</span>;
+<span style="color:var(--code-cmd);font-weight:600">import</span> { <span style="color:var(--code-sub)">PgInstrumentation</span> } <span style="color:var(--code-cmd);font-weight:600">from</span> <span style="color:var(--code-num)">'@opentelemetry/instrumentation-pg'</span>;
 
-const sdk = new NodeSDK({
-  traceExporter: new OTLPTraceExporter(),
+<span style="color:var(--code-cmd);font-weight:600">const</span> sdk = <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">NodeSDK</span>({
+  traceExporter: <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">OTLPTraceExporter</span>(),
   instrumentations: [
-    new HttpInstrumentation(),
-    new PgInstrumentation({ enhancedDatabaseReporting: true }),
+    <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">HttpInstrumentation</span>(),
+    <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">PgInstrumentation</span>({ enhancedDatabaseReporting: <span style="color:var(--code-cmd);font-weight:600">true</span> }),
   ],
 });
 sdk.start();</code></pre></div>

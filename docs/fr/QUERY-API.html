@@ -173,63 +173,63 @@
 <span style="color:var(--code-sub)">oidc_groups_claim </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "groups"           # pour que le claim de groupe arrive jusqu'à nginx</span>
 <span style="color:var(--code-sub)">scope             </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> "openid email groups"</span></code></pre></div>
 <p class="ps-p"><code class="ps-ic">nginx.conf</code> (bloc server pertinent) :</p>
-<div class="ps-code"><div class="ps-code-lang">nginx</div><pre><code>upstream perf_sentinel { server 127.0.0.1:4318; }   # daemon, loopback-only
-upstream oauth2_proxy  { server 127.0.0.1:4180; }
+<div class="ps-code"><div class="ps-code-lang">nginx</div><pre><code><span style="color:var(--code-cmd);font-weight:600">upstream</span> perf_sentinel { <span style="color:var(--code-cmd);font-weight:600">server</span> <span style="color:var(--code-num)">127</span>.<span style="color:var(--code-num)">0</span>.<span style="color:var(--code-num)">0</span>.<span style="color:var(--code-num)">1</span>:<span style="color:var(--code-num)">4318</span>; }   <span style="color:var(--term-comment)"># daemon, loopback-only</span>
+<span style="color:var(--code-cmd);font-weight:600">upstream</span> oauth2_proxy  { <span style="color:var(--code-cmd);font-weight:600">server</span> <span style="color:var(--code-num)">127</span>.<span style="color:var(--code-num)">0</span>.<span style="color:var(--code-num)">0</span>.<span style="color:var(--code-num)">1</span>:<span style="color:var(--code-num)">4180</span>; }
 
-server {
-    listen 443 ssl;
-    server_name perf-sentinel.internal;
-    # ssl_certificate / ssl_certificate_key ...
+<span style="color:var(--code-cmd);font-weight:600">server</span> {
+    <span style="color:var(--code-cmd);font-weight:600">listen</span> <span style="color:var(--code-num)">443</span> ssl;
+    <span style="color:var(--code-cmd);font-weight:600">server_name</span> perf-sentinel.internal;
+    <span style="color:var(--term-comment)"># ssl_certificate / ssl_certificate_key ...</span>
 
-    # Routes de sign-in et de callback d'oauth2-proxy.
-    location /oauth2/ {
-        proxy_pass        http://oauth2_proxy;
-        proxy_set_header  Host                     $host;
-        proxy_set_header  X-Real-IP                $remote_addr;
-        proxy_set_header  X-Forwarded-Proto        $scheme;
-        proxy_set_header  X-Auth-Request-Redirect  $request_uri;
+    <span style="color:var(--term-comment)"># Routes de sign-in et de callback d'oauth2-proxy.</span>
+    <span style="color:var(--code-cmd);font-weight:600">location</span> /oauth2/ {
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass</span>        http://oauth2_proxy;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>  <span style="color:var(--code-sub)">Host</span>                     <span style="color:var(--code-sub)">$host</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>  <span style="color:var(--code-sub)">X-Real-IP</span>                <span style="color:var(--code-sub)">$remote_addr</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>  <span style="color:var(--code-sub)">X-Forwarded-Proto</span>        <span style="color:var(--code-sub)">$scheme</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>  <span style="color:var(--code-sub)">X-Auth-Request-Redirect</span>  <span style="color:var(--code-sub)">$request_uri</span>;
     }
 
-    # Authentification simple : toute session SSO valide.
-    location = /oauth2/auth {
-        internal;
-        proxy_pass               http://oauth2_proxy;
-        proxy_pass_request_body  off;
-        proxy_set_header         Content-Length "";
-        proxy_set_header         X-Original-URI $request_uri;
+    <span style="color:var(--term-comment)"># Authentification simple : toute session SSO valide.</span>
+    <span style="color:var(--code-cmd);font-weight:600">location</span> = /oauth2/auth {
+        <span style="color:var(--code-cmd);font-weight:600">internal</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass</span>               http://oauth2_proxy;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass_request_body</span>  off;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>         <span style="color:var(--code-sub)">Content-Length</span> <span style="color:var(--code-num)">""</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>         <span style="color:var(--code-sub)">X-Original-URI</span> <span style="color:var(--code-sub)">$request_uri</span>;
     }
 
-    # Authentification contrôlée par groupe : oauth2-proxy retourne 403
-    # quand l'appelant n'est pas dans le groupe, ce qu'auth_request
-    # propage en 403.
-    location = /oauth2/auth-admin {
-        internal;
-        proxy_pass               http://oauth2_proxy/oauth2/auth?allowed_groups=perf-sentinel-admins;
-        proxy_pass_request_body  off;
-        proxy_set_header         Content-Length "";
-        proxy_set_header         X-Original-URI $request_uri;
+    <span style="color:var(--term-comment)"># Authentification contrôlée par groupe : oauth2-proxy retourne 403</span>
+    <span style="color:var(--term-comment)"># quand l'appelant n'est pas dans le groupe, ce qu'auth_request</span>
+    <span style="color:var(--term-comment)"># propage en 403.</span>
+    <span style="color:var(--code-cmd);font-weight:600">location</span> = /oauth2/auth-admin {
+        <span style="color:var(--code-cmd);font-weight:600">internal</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass</span>               http://oauth2_proxy/oauth2/auth?allowed_groups=perf-sentinel-admins;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass_request_body</span>  off;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>         <span style="color:var(--code-sub)">Content-Length</span> <span style="color:var(--code-num)">""</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span>         <span style="color:var(--code-sub)">X-Original-URI</span> <span style="color:var(--code-sub)">$request_uri</span>;
     }
 
-    # Routes privilégiées : créer/révoquer un ack et l'export du rapport
-    # officiel. Une location regex l'emporte sur le préfixe /api/, donc
-    # elles ne retombent jamais sur la règle ouverte ci-dessous.
-    location ~ ^/api/(findings/[^/]+/ack|export/report)$ {
-        auth_request /oauth2/auth-admin;
-        error_page 401 = /oauth2/sign_in;
-        auth_request_set $auth_user $upstream_http_x_auth_request_user;
-        proxy_set_header X-User-Id $auth_user;   # écrase toute valeur fournie par le client
-        proxy_pass       http://perf_sentinel;
-        proxy_set_header Host $host;
+    <span style="color:var(--term-comment)"># Routes privilégiées : créer/révoquer un ack et l'export du rapport</span>
+    <span style="color:var(--term-comment)"># officiel. Une location regex l'emporte sur le préfixe /api/, donc</span>
+    <span style="color:var(--term-comment)"># elles ne retombent jamais sur la règle ouverte ci-dessous.</span>
+    <span style="color:var(--code-cmd);font-weight:600">location</span> ~ ^/api/(findings/[^/]+/ack|export/report)$ {
+        <span style="color:var(--code-cmd);font-weight:600">auth_request</span> /oauth2/auth-admin;
+        <span style="color:var(--code-cmd);font-weight:600">error_page</span> <span style="color:var(--code-num)">401</span> = /oauth2/sign_in;
+        <span style="color:var(--code-cmd);font-weight:600">auth_request_set</span> <span style="color:var(--code-sub)">$auth_user</span> <span style="color:var(--code-sub)">$upstream_http_x_auth_request_user</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span> <span style="color:var(--code-sub)">X-User-Id</span> <span style="color:var(--code-sub)">$auth_user</span>;   <span style="color:var(--term-comment)"># écrase toute valeur fournie par le client</span>
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass</span>       http://perf_sentinel;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span> <span style="color:var(--code-sub)">Host</span> <span style="color:var(--code-sub)">$host</span>;
     }
 
-    # Tout le reste sous /api/ : lecture pour tout utilisateur authentifié.
-    location /api/ {
-        auth_request /oauth2/auth;
-        error_page 401 = /oauth2/sign_in;
-        auth_request_set $auth_user $upstream_http_x_auth_request_user;
-        proxy_set_header X-User-Id $auth_user;
-        proxy_pass       http://perf_sentinel;
-        proxy_set_header Host $host;
+    <span style="color:var(--term-comment)"># Tout le reste sous /api/ : lecture pour tout utilisateur authentifié.</span>
+    <span style="color:var(--code-cmd);font-weight:600">location</span> /api/ {
+        <span style="color:var(--code-cmd);font-weight:600">auth_request</span> /oauth2/auth;
+        <span style="color:var(--code-cmd);font-weight:600">error_page</span> <span style="color:var(--code-num)">401</span> = /oauth2/sign_in;
+        <span style="color:var(--code-cmd);font-weight:600">auth_request_set</span> <span style="color:var(--code-sub)">$auth_user</span> <span style="color:var(--code-sub)">$upstream_http_x_auth_request_user</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span> <span style="color:var(--code-sub)">X-User-Id</span> <span style="color:var(--code-sub)">$auth_user</span>;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_pass</span>       http://perf_sentinel;
+        <span style="color:var(--code-cmd);font-weight:600">proxy_set_header</span> <span style="color:var(--code-sub)">Host</span> <span style="color:var(--code-sub)">$host</span>;
     }
 }</code></pre></div>
 <h3 id="pourquoi-cest-sûr" class="ps-h3">Pourquoi c'est sûr</h3>

@@ -72,8 +72,10 @@
   function hlDockerfile(code) { var KW = /^(from|run|cmd|label|expose|env|add|copy|entrypoint|volume|user|workdir|arg|onbuild|stopsignal|healthcheck|shell|maintainer)$/i; return code.split('\n').map(function (l) { if (l.trim().charAt(0) === '#') return C('--term-comment', esc(l)); var m = l.match(/^(\s*)([A-Za-z]+)([\s\S]*)$/); if (m && KW.test(m[2])) return esc(m[1]) + '<span style="color:var(--code-cmd);font-weight:600">' + esc(m[2]) + '</span>' + esc(m[3]); return esc(l); }).join('\n'); }
   function hlProps(code) { return code.split('\n').map(function (l) { var t = l.trim(); if (t.charAt(0) === '#' || t.charAt(0) === ';') return C('--term-comment', esc(l)); var eq = l.search(/[=:]/); if (eq >= 0) return C('--code-sub', esc(l.slice(0, eq))) + C('--term-dim', esc(l.slice(eq, eq + 1))) + C('--code-num', esc(l.slice(eq + 1))); return esc(l); }).join('\n'); }
   function hlXml(code) { var e = esc(code).replace(/"/g, '&quot;'); e = e.replace(/&lt;!--[\s\S]*?--&gt;/g, function (m) { return C('--term-comment', m); }); e = e.replace(/(&lt;\/?)([\w:.-]+)/g, function (m, b, n) { return b + C('--code-cmd', n); }); e = e.replace(/([\w:.-]+)(=)(&quot;[^&]*?&quot;)/g, function (m, a, q, v) { return C('--code-sub', a) + q + C('--code-num', v); }); return e; }
-  function hlCLike(code, KW) {
-    var re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])')|(#!?\[[^\]]*\])|(\b\d[\d_]*(?:\.[\d_]+)?(?:[iuf]\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(!?)/g;
+  var C_RE = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])')|(#!?\[[^\]]*\])|(\b\d[\d_]*(?:\.[\d_]+)?(?:[iuf]\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(!?)/g;
+  var JS_RE = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|(#!?\[[^\]]*\])|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_$][\w$]*)()/g;
+  function hlCLike(code, KW, re) {
+    re = re || C_RE;
     var out = '', last = 0;
     code.replace(re, function (m, comment, str, attr, num, ident, bang, offset) {
       out += esc(code.slice(last, offset));
@@ -94,18 +96,18 @@
     return out;
   }
   var RUBY_KW = { 'def':1,'end':1,'do':1,'class':1,'module':1,'require':1,'require_relative':1,'load':1,'gem':1,'if':1,'elsif':1,'else':1,'unless':1,'case':1,'when':1,'then':1,'while':1,'until':1,'for':1,'in':1,'begin':1,'rescue':1,'ensure':1,'retry':1,'raise':1,'return':1,'next':1,'break':1,'yield':1,'super':1,'self':1,'nil':1,'true':1,'false':1,'and':1,'or':1,'not':1,'lambda':1,'proc':1,'new':1,'attr_accessor':1,'attr_reader':1,'attr_writer':1 };
-  function hlRuby(code) {
-    var re = /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(:[A-Za-z_]\w*[?!]?)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*[?!]?)/g;
+  // Groups: comment, string, sigil (Ruby :sym, PHP $var, Python @decorator, nginx $var), number, identifier.
+  function hlTok(code, KW, re) {
     var out = '', last = 0;
-    code.replace(re, function (m, comment, str, sym, num, ident, offset) {
+    code.replace(re, function (m, comment, str, sigil, num, ident, offset) {
       out += esc(code.slice(last, offset));
       last = offset + m.length;
       if (comment) out += C('--term-comment', esc(comment));
       else if (str) out += C('--code-num', esc(str));
-      else if (sym) out += C('--code-sub', esc(sym));
+      else if (sigil) out += C('--code-sub', esc(sigil));
       else if (num) out += C('--code-num', esc(num));
       else if (ident) {
-        if (RUBY_KW[ident]) out += '<span style="color:var(--code-cmd);font-weight:600">' + esc(ident) + '</span>';
+        if (KW[ident]) out += '<span style="color:var(--code-cmd);font-weight:600">' + esc(ident) + '</span>';
         else if (/^[A-Z]/.test(ident)) out += C('--code-sub', esc(ident));
         else out += esc(ident);
       } else out += esc(m);
@@ -114,44 +116,38 @@
     out += esc(code.slice(last));
     return out;
   }
+  var RUBY_RE = /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(:[A-Za-z_]\w*[?!]?)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*[?!]?)/g;
+  var PHP_RE = /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\$[A-Za-z_]\w*)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*)/g;
+  var PY_RE = /(#[^\n]*)|("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(@[A-Za-z_][\w.]*)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*)/g;
+  var NGINX_RE = /(#[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\$\w+)|(\b\d+\b)|((?<![\w.\/-])[A-Za-z_][\w-]*(?![\w:.\/-]))/g;
   var GROOVY_KW = { 'abstract':1,'as':1,'assert':1,'boolean':1,'break':1,'byte':1,'case':1,'catch':1,'char':1,'class':1,'def':1,'default':1,'do':1,'double':1,'else':1,'enum':1,'extends':1,'false':1,'final':1,'finally':1,'float':1,'for':1,'if':1,'implements':1,'import':1,'in':1,'instanceof':1,'int':1,'interface':1,'long':1,'new':1,'null':1,'package':1,'private':1,'protected':1,'public':1,'return':1,'short':1,'static':1,'super':1,'switch':1,'synchronized':1,'this':1,'throw':1,'throws':1,'trait':1,'true':1,'try':1,'var':1,'void':1,'while':1 };
   var JAVA_KW = { 'abstract':1,'assert':1,'boolean':1,'break':1,'byte':1,'case':1,'catch':1,'char':1,'class':1,'const':1,'continue':1,'default':1,'do':1,'double':1,'else':1,'enum':1,'extends':1,'false':1,'final':1,'finally':1,'float':1,'for':1,'if':1,'implements':1,'import':1,'instanceof':1,'int':1,'interface':1,'long':1,'new':1,'null':1,'package':1,'permits':1,'private':1,'protected':1,'public':1,'record':1,'return':1,'sealed':1,'short':1,'static':1,'super':1,'switch':1,'synchronized':1,'this':1,'throw':1,'throws':1,'true':1,'try':1,'var':1,'void':1,'volatile':1,'while':1,'yield':1 };
   var PHP_KW = { 'abstract':1,'and':1,'array':1,'as':1,'break':1,'callable':1,'case':1,'catch':1,'class':1,'clone':1,'const':1,'continue':1,'declare':1,'default':1,'do':1,'echo':1,'else':1,'elseif':1,'empty':1,'enum':1,'extends':1,'final':1,'finally':1,'fn':1,'for':1,'foreach':1,'function':1,'global':1,'goto':1,'if':1,'implements':1,'include':1,'include_once':1,'instanceof':1,'insteadof':1,'interface':1,'isset':1,'list':1,'match':1,'namespace':1,'new':1,'or':1,'print':1,'private':1,'protected':1,'public':1,'readonly':1,'require':1,'require_once':1,'return':1,'static':1,'switch':1,'throw':1,'trait':1,'try':1,'unset':1,'use':1,'var':1,'while':1,'xor':1,'yield':1,'true':1,'false':1,'null':1,'self':1,'parent':1,'this':1 };
-  function hlPHP(code) {
-    var re = /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\$[A-Za-z_]\w*)|(\b\d[\d_]*(?:\.[\d_]+)?\b)|([A-Za-z_]\w*)/g;
-    var out = '', last = 0;
-    code.replace(re, function (m, comment, str, variable, num, ident, offset) {
-      out += esc(code.slice(last, offset));
-      last = offset + m.length;
-      if (comment) out += C('--term-comment', esc(comment));
-      else if (str) out += C('--code-num', esc(str));
-      else if (variable) out += C('--code-sub', esc(variable));
-      else if (num) out += C('--code-num', esc(num));
-      else if (ident) {
-        if (PHP_KW[ident]) out += '<span style="color:var(--code-cmd);font-weight:600">' + esc(ident) + '</span>';
-        else if (/^[A-Z]/.test(ident)) out += C('--code-sub', esc(ident));
-        else out += esc(ident);
-      } else out += esc(m);
-      return m;
-    });
-    out += esc(code.slice(last));
-    return out;
-  }
+  var GO_KW = { 'break':1,'case':1,'chan':1,'const':1,'continue':1,'default':1,'defer':1,'else':1,'fallthrough':1,'for':1,'func':1,'go':1,'goto':1,'if':1,'import':1,'interface':1,'map':1,'package':1,'range':1,'return':1,'select':1,'struct':1,'switch':1,'type':1,'var':1,'nil':1,'true':1,'false':1,'string':1,'int':1,'int64':1,'bool':1,'byte':1,'error':1 };
+  var TS_KW = { 'import':1,'from':1,'export':1,'default':1,'const':1,'let':1,'var':1,'new':1,'function':1,'return':1,'if':1,'else':1,'for':1,'of':1,'in':1,'while':1,'class':1,'extends':1,'implements':1,'interface':1,'type':1,'async':1,'await':1,'true':1,'false':1,'null':1,'undefined':1,'this':1,'typeof':1,'as':1,'try':1,'catch':1,'finally':1,'throw':1,'switch':1,'case':1,'break':1,'continue':1,'void':1,'public':1,'private':1,'protected':1,'readonly':1,'static':1 };
+  var PY_KW = { 'False':1,'None':1,'True':1,'and':1,'as':1,'assert':1,'async':1,'await':1,'break':1,'class':1,'continue':1,'def':1,'del':1,'elif':1,'else':1,'except':1,'finally':1,'for':1,'from':1,'global':1,'if':1,'import':1,'in':1,'is':1,'lambda':1,'nonlocal':1,'not':1,'or':1,'pass':1,'raise':1,'return':1,'try':1,'while':1,'with':1,'yield':1,'self':1 };
+  var NGINX_KW = { 'http':1,'events':1,'upstream':1,'server':1,'listen':1,'server_name':1,'location':1,'proxy_pass':1,'proxy_set_header':1,'proxy_pass_request_body':1,'internal':1,'auth_request':1,'auth_request_set':1,'error_page':1,'ssl_certificate':1,'ssl_certificate_key':1,'return':1,'rewrite':1,'root':1,'include':1,'add_header':1,'set':1,'if':1 };
+  var LOGQL_KW = { 'sum':1,'avg':1,'min':1,'max':1,'count':1,'topk':1,'bottomk':1,'by':1,'without':1,'rate':1,'count_over_time':1,'bytes_over_time':1,'sum_over_time':1,'json':1,'logfmt':1,'line_format':1,'label_format':1,'unwrap':1 };
   function highlight(lang, code) {
     lang = (lang || '').toLowerCase();
     if (lang === 'rust' || lang === 'rs') return hlCLike(code, RUST_KW);
     if (lang === 'csharp' || lang === 'cs' || lang === 'c#') return hlCLike(code, CS_KW);
     if (lang === 'groovy' || lang === 'gradle') return hlCLike(code, GROOVY_KW);
     if (lang === 'java') return hlCLike(code, JAVA_KW);
-    if (lang === 'ruby' || lang === 'rb') return hlRuby(code);
-    if (lang === 'php') return hlPHP(code);
+    if (lang === 'go' || lang === 'golang') return hlCLike(code, GO_KW, JS_RE);
+    if (lang === 'typescript' || lang === 'ts' || lang === 'javascript' || lang === 'js') return hlCLike(code, TS_KW, JS_RE);
+    if (lang === 'logql') return hlCLike(code, LOGQL_KW);
+    if (lang === 'ruby' || lang === 'rb') return hlTok(code, RUBY_KW, RUBY_RE);
+    if (lang === 'php') return hlTok(code, PHP_KW, PHP_RE);
+    if (lang === 'python' || lang === 'py') return hlTok(code, PY_KW, PY_RE);
+    if (lang === 'nginx') return hlTok(code, NGINX_KW, NGINX_RE);
     if (lang === 'diff') return hlDiff(code);
     if (lang === 'dockerfile' || lang === 'docker') return hlDockerfile(code);
     if (lang === 'properties' || lang === 'ini') return hlProps(code);
     if (lang === 'xml' || lang === 'html') return hlXml(code);
     if (lang === 'bash' || lang === 'sh' || lang === 'shell' || lang === 'console') return hlBash(code);
     if (lang === 'toml') return hlToml(code);
-    if (lang === 'json') return hlJson(code);
+    if (lang === 'json' || lang === 'jsonl') return hlJson(code);
     if (lang === 'yaml' || lang === 'yml') {
       return code.split('\n').map(function (l) {
         if (l.trim().charAt(0) === '#') return '<span style="color:var(--term-comment)">' + esc(l) + '</span>';
