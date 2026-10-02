@@ -546,17 +546,9 @@ WVrpkH89K3zaMAoGCCqGSM49BAMCA0gAMEUCIG+tlfC0Ghm/gLmhPlD3+TsQphYO
 
     #[tokio::test]
     async fn no_proxy_host_is_reached_directly() {
-        use tokio::io::AsyncReadExt;
         let (proxy_addr, proxy) = fake_proxy().await;
         let proxy_url = format!("http://{proxy_addr}");
-        let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = target.local_addr().unwrap().port();
-        let direct = tokio::spawn(async move {
-            let (mut socket, _) = target.accept().await.unwrap();
-            let mut first = [0u8; 1];
-            socket.read_exact(&mut first).await.unwrap();
-            first[0]
-        });
+        let (port, direct) = direct_target().await;
         let matcher = Matcher::builder().https(proxy_url).no("127.0.0.1").build();
         let client: HttpClient = build_client_from(matcher, &[]);
         let uri: Uri = format!("https://127.0.0.1:{port}/").parse().unwrap();
