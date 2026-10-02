@@ -122,6 +122,13 @@ Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un
 - Les instructions `CALL` normalisent leurs paramètres littéraux, et les expressions SQL comme `NOW()` et `INTERVAL '...'` sont gérées.
 - Les identifiants SQL Server `[...]` ne sont pas traités spécialement (`[` est un caractère normal). Les courants comme `[Order Details]` ou `[Col1]` restent intacts, tandis qu'un identifiant entre crochets purement numérique comme `[123]` voit ses chiffres remplacés par `?`. Traiter `[` comme un caractère normal garde les littéraux et sous-scripts de tableau PostgreSQL (`ARRAY['a', 'b']`, `arr[1]`) correctement masqués.
 
+**Ce qui reste tel quel dans un template.** Le template est ce que portent les rapports, l'API de requête, l'archive NDJSON et le Hub, donc tout ce que les normaliseurs laissent en place voyage avec lui :
+
+- Le texte entre guillemets doubles est gardé comme un identifiant. Dans le mode par défaut de MySQL (sans `ANSI_QUOTES`), `"..."` est un littéral de chaîne, donc une valeur écrite ainsi arrive dans le template sans masque.
+- Les commentaires SQL (`-- ...`, `/* ... */`) ne sont pas retirés, donc les mots qu'ils contiennent restent dans le template.
+- Le normaliseur de chemins HTTP masque les segments numériques (`{id}`) et les UUID (`{uuid}`) et retire la query string. Tout autre segment reste tel quel : une adresse e-mail, un nom d'utilisateur, un slug ou un jeton opaque dans le chemin arrive dans le template.
+- L'endpoint auquel un finding est rattaché (`source.endpoint`) vient de `http.route` quand l'instrumentation le pose. Sans lui, le chemin brut de la requête est gardé, privé de sa query string, de son fragment et de ses identifiants de connexion, et ses segments numériques ne sont pas masqués.
+
 Si vous rencontrez une requête mal normalisée, veuillez ouvrir une issue avec le SQL brut (anonymisé).
 
 **Complémentarité avec pg_stat_statements :** Perf Sentinel détecte les patterns par trace (N+1, appels redondants) que pg_stat_statements ne peut pas voir. Inversement, pg_stat_statements fournit des statistiques agrégées côté serveur (total d'appels, temps moyen) que Perf Sentinel ne suit pas. Utilisez les deux pour une visibilité complète.

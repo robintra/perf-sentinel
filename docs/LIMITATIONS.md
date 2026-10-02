@@ -121,6 +121,13 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 - `CALL` statements normalize literal params, SQL expressions like `NOW()` and `INTERVAL '...'` are handled.
 - SQL Server `[...]` identifiers are not special-cased (`[` is a normal character). Common ones like `[Order Details]` or `[Col1]` stay intact, while an all-numeric bracketed identifier such as `[123]` has its digits replaced with `?`. Treating `[` as a normal character keeps PostgreSQL array literals and subscripts (`ARRAY['a', 'b']`, `arr[1]`) correctly redacted.
 
+**What stays verbatim in a template.** The template is what reports, the query API, the NDJSON archive and the Hub carry, so anything the normalizers leave in place travels with it:
+
+- Text between double quotes is kept as an identifier. In MySQL's default mode (without `ANSI_QUOTES`), `"..."` is a string literal, so a value written that way reaches the template unmasked.
+- SQL comments (`-- ...`, `/* ... */`) are not stripped, so the words they contain stay in the template.
+- The HTTP path normalizer masks numeric segments (`{id}`) and UUIDs (`{uuid}`) and drops the query string. Any other segment stays as is: an email address, a username, a slug or an opaque token in the path reaches the template.
+- The endpoint a finding is attributed to (`source.endpoint`) comes from `http.route` when the instrumentation sets it. Without it, the raw request path is kept, minus its query string, fragment and credentials, and its numeric segments are not masked.
+
 If a query normalizes incorrectly, open an issue with the raw SQL anonymized.
 
 **Complementarity with pg_stat_statements.** Perf Sentinel sees per-trace patterns (N+1, redundant) that pg_stat_statements cannot. pg_stat_statements provides aggregate server-side stats (total calls, mean time) that Perf Sentinel does not track. Use both for full coverage.
