@@ -826,7 +826,7 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
               <span data-dc-tpl="245" style="flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-size: 13px; font-weight: 700;">✓</span>
               <div data-dc-tpl="246">
                 <div data-dc-tpl="247" style="font-size: 15.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Traitement sur place</span></div>
-                <div data-dc-tpl="248" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Les traces sont analysées localement. Aucun appel réseau sortant silencieux, aucune télémétrie d’usage embarquée. Le contenu brut des spans reste en mémoire uniquement (TTL 30s, LRU de 10k traces) et n’est jamais écrit sur disque. Tout ce qui est émis ne porte que le template normalisé, valeurs SQL et URL remplacées par des placeholders.</span></div>
+                <div data-dc-tpl="248" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Les traces sont analysées localement. Aucun appel réseau sortant silencieux, aucune télémétrie d’usage embarquée. Le contenu brut des spans reste en mémoire uniquement (TTL 30s, LRU de 10k traces), et le daemon ne l’écrit jamais sur disque. Ce qu’il émet porte le template normalisé, littéraux SQL et segments de chemin numériques ou UUID remplacés par des marqueurs, à quelques exceptions documentées près.</span></div>
               </div>
             </div>
           
@@ -834,7 +834,7 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
               <span data-dc-tpl="245" style="flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-size: 13px; font-weight: 700;">✓</span>
               <div data-dc-tpl="246">
                 <div data-dc-tpl="247" style="font-size: 15.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Localhost par défaut</span></div>
-                <div data-dc-tpl="248" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Le daemon écoute sur 127.0.0.1. TLS, CORS et la clé d’API d’acquittement sont tous opt-in.</span></div>
+                <div data-dc-tpl="248" style="margin-top: 4px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Le binaire écoute sur 127.0.0.1, le chart Helm sur 0.0.0.0 dans le pod. TLS, CORS et la clé d’API d’acquittement sont tous opt-in.</span></div>
               </div>
             </div>
           
@@ -853,8 +853,8 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
       
       <section data-dc-tpl="252" style="padding-top: 54px;">
         <h2 data-dc-tpl="253" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Chaîne d’appro. &amp; releases</span></h2>
-        <p data-dc-tpl="254" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l’image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les releases sont signées avec Sigstore et portent une provenance SLSA.</span></p>
-        <p data-dc-tpl="255" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA Build L3 (Sigstore + Rekor) et des données <code class="dc-cmd">cargo-auditable</code> embarquées (<code class="dc-cmd">cargo audit bin</code>), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.</span></p>
+        <p data-dc-tpl="254" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l’image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les tags de release sont signés, et les binaires portent une provenance SLSA attestée via Sigstore.</span></p>
+        <p data-dc-tpl="255" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA (Build niveau 2, Sigstore + Rekor) et des données <code class="dc-cmd">cargo-auditable</code> embarquées (<code class="dc-cmd">cargo audit bin</code>), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.</span></p>
         <a data-dc-tpl="256" data-plain="" href="docs/fr/SUPPLY-CHAIN" class="scp2" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="257" data-ltext=""><span class="sc-interp">Chaîne d’appro. &amp; provenance</span></span><span data-dc-tpl="258" data-arrow=""> →</span></a>
       </section>
 
@@ -937,6 +937,11 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
             <a data-dc-tpl="264" data-plain="" href="docs/fr/LIMITATIONS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Limites</span> →</div>
               <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Compromis connus et frontières</span></div>
+            </a>
+          
+            <a data-dc-tpl="264" data-plain="" href="docs/fr/SECURITY-OVERVIEW" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+              <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Vue d’ensemble sécurité</span> →</div>
+              <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Pour une revue de sécurité</span></div>
             </a>
           
             <a data-dc-tpl="264" data-plain="" href="docs/fr/SUPPLY-CHAIN" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -1658,8 +1663,8 @@ class Component extends DCLogic {
         akIntro: 'Drop a .perf-sentinel-acknowledgments.toml at your repo root to suppress findings the team has accepted: each gets a SHA-256 signature, and they are filtered from analyze / report / inspect / diff and don\u2019t count toward the quality gate. Runtime acks against a live daemon are exposed via the ack CLI, the live HTML dashboard, the TUI, and the findings dashboard, whose Ack column opens the ack page of a PerfSentinelHub that relays to the daemon.',
         akMore: 'Acknowledgment workflow',
         spTitle: 'Supply chain & releases',
-        spIntro: 'Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Releases are signed with Sigstore and carry SLSA build provenance.',
-        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA Build L3 provenance (Sigstore + Rekor) and embedded `cargo-auditable` data (`cargo audit bin`), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.',
+        spIntro: 'Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Release tags are signed, and binaries carry SLSA build provenance attested through Sigstore.',
+        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA build provenance (Build Level 2, Sigstore + Rekor) and embedded `cargo-auditable` data (`cargo audit bin`), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.',
         spMore: 'Supply chain & provenance',
         pfTitle: 'Performance', pfIntro: '`perf-sentinel bench` times the analysis pipeline only (normalize → correlate → detect → score), single-threaded, on synthetic datasets: the pure pipeline cost, not end-to-end throughput nor a daemon-under-load benchmark.',
         pfHead: ['Dataset (44,043 synthetic events)', 'Platform', 'Pipeline throughput', 'p50 / p99 per event'],
@@ -1702,8 +1707,8 @@ class Component extends DCLogic {
         ],
         pvTitle: 'Privacy & security', pvIntro: 'Perf Sentinel runs inside your network and makes no outbound call you did not configure.',
         pvPoints: [
-          { name: 'On-prem processing', desc: 'Traces are analyzed in place. No silent outbound calls, no usage telemetry baked in. Raw span content lives in memory only (30s TTL, 10k-trace LRU) and is never written to disk. Everything emitted carries the normalized template only, with SQL literals and URL values replaced by placeholders.' },
-          { name: 'Localhost by default', desc: 'The daemon listens on 127.0.0.1. TLS, CORS and the ack API key are all opt-in.' },
+          { name: 'On-prem processing', desc: 'Traces are analyzed in place. No silent outbound calls, no usage telemetry baked in. Raw span content lives in memory only (30s TTL, 10k-trace LRU), and the daemon never writes it to disk. What it emits carries the normalized template, with SQL literals and numeric or UUID path segments replaced by placeholders, and a few documented exceptions.' },
+          { name: 'Localhost by default', desc: 'The binary listens on 127.0.0.1, the Helm chart on 0.0.0.0 inside the pod. TLS, CORS and the ack API key are all opt-in.' },
           { name: 'Locked-down surface', desc: 'Read-only GET endpoints and the OTLP ingestion listeners can be restricted, and the no-auth threat model is documented. The endpoints trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost.' },
         ],
         pvMore: 'Limitations & threat model',
@@ -1724,6 +1729,7 @@ class Component extends DCLogic {
           ['REPORTING', 'Reporting', 'Periodic public disclosure'],
           ['METHODOLOGY', 'Methodology', 'Traces to energy and carbon'],
           ['LIMITATIONS', 'Limitations', 'Known trade-offs and boundaries'],
+          ['SECURITY-OVERVIEW', 'Security overview', 'For a security review'],
           ['SUPPLY-CHAIN', 'Supply chain', 'Signing and provenance'],
         ],
       },
@@ -1850,8 +1856,8 @@ class Component extends DCLogic {
         akIntro: 'Déposez un .perf-sentinel-acknowledgments.toml à la racine du dépôt pour supprimer les findings que l\u2019équipe a acceptés : chacun reçoit une signature SHA-256, et ils sont filtrés de analyze / report / inspect / diff et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI ack, le dashboard HTML live, le TUI, et le dashboard des findings, dont la colonne Ack ouvre la page d’acquittement d’un PerfSentinelHub qui relaie vers le daemon.',
         akMore: 'Flux d\u2019acquittement',
         spTitle: 'Chaîne d\u2019appro. & releases',
-        spIntro: 'Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l\u2019image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les releases sont signées avec Sigstore et portent une provenance SLSA.',
-        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA Build L3 (Sigstore + Rekor) et des données `cargo-auditable` embarquées (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.',
+        spIntro: 'Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l\u2019image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les tags de release sont signés, et les binaires portent une provenance SLSA attestée via Sigstore.',
+        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA (Build niveau 2, Sigstore + Rekor) et des données `cargo-auditable` embarquées (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.',
         spMore: 'Chaîne d\u2019appro. & provenance',
         pfTitle: 'Performance', pfIntro: '`perf-sentinel bench` ne chronomètre que le pipeline d\u2019analyse (normalize → correlate → detect → score), mono-thread, sur jeux de données synthétiques : le coût pur du pipeline, pas un débit de bout en bout ni un benchmark du daemon sous charge.',
         pfHead: ['Jeu de données (44 043 évènements synthétiques)', 'Plateforme', 'Débit pipeline', 'p50 / p99 par évènement'],
@@ -1894,8 +1900,8 @@ class Component extends DCLogic {
         ],
         pvTitle: 'Confidentialité & sécurité', pvIntro: 'Perf Sentinel tourne dans votre réseau et n’émet aucun appel sortant que vous n’avez pas configuré.',
         pvPoints: [
-          { name: 'Traitement sur place', desc: 'Les traces sont analysées localement. Aucun appel réseau sortant silencieux, aucune télémétrie d\u2019usage embarquée. Le contenu brut des spans reste en mémoire uniquement (TTL 30s, LRU de 10k traces) et n\u2019est jamais écrit sur disque. Tout ce qui est émis ne porte que le template normalisé, valeurs SQL et URL remplacées par des placeholders.' },
-          { name: 'Localhost par défaut', desc: 'Le daemon écoute sur 127.0.0.1. TLS, CORS et la clé d\u2019API d\u2019acquittement sont tous opt-in.' },
+          { name: 'Traitement sur place', desc: 'Les traces sont analysées localement. Aucun appel réseau sortant silencieux, aucune télémétrie d\u2019usage embarquée. Le contenu brut des spans reste en mémoire uniquement (TTL 30s, LRU de 10k traces), et le daemon ne l\u2019écrit jamais sur disque. Ce qu\u2019il émet porte le template normalisé, littéraux SQL et segments de chemin numériques ou UUID remplacés par des marqueurs, à quelques exceptions documentées près.' },
+          { name: 'Localhost par défaut', desc: 'Le binaire écoute sur 127.0.0.1, le chart Helm sur 0.0.0.0 dans le pod. TLS, CORS et la clé d\u2019API d\u2019acquittement sont tous opt-in.' },
           { name: 'Surface verrouillable', desc: 'Les endpoints GET en lecture seule et les listeners d\u2019ingestion OTLP peuvent être restreints, et le modèle de menace sans auth est documenté. Les endpoints font confiance à leurs émetteurs, gardez donc l’ingestion sur un réseau de confiance et placez un reverse proxy ou une network policy devant avant toute exposition au-delà de localhost.' },
         ],
         pvMore: 'Limites & modèle de menace',
@@ -1916,6 +1922,7 @@ class Component extends DCLogic {
           ['REPORTING', 'Divulgation', 'Divulgation publique périodique'],
           ['METHODOLOGY', 'Méthodologie', 'Des traces à l\u2019énergie et au carbone'],
           ['LIMITATIONS', 'Limites', 'Compromis connus et frontières'],
+          ['SECURITY-OVERVIEW', 'Vue d\u2019ensemble sécurité', 'Pour une revue de sécurité'],
           ['SUPPLY-CHAIN', 'Chaîne d\u2019appro.', 'Signature et provenance'],
         ],
       },
