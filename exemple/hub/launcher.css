@@ -2605,6 +2605,14 @@ body[data-screen="report"] .shell-footer {
     margin-right: 4px;
 }
 
+/* Same reason as .banner + .refresh: the recent screen stacks up to two
+   banners above the legend and neither carries a margin of its own. Scoped to
+   section children so .ack-stack keeps its own spacing. */
+section > .banner + .banner,
+.banner + .legend {
+    margin-top: 12px;
+}
+
 .run-list {
     display: flex;
     flex-direction: column;
