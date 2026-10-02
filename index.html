@@ -612,54 +612,54 @@
       <div data-dc-tpl="418" data-grid="cards3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 30px;">
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">DATA</span></div>
-              <span data-dc-tpl="423" data-sec-ico="data" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="database" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Queries normalized in memory</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">The engine replaces SQL values and URL identifiers with placeholders in memory, with documented exceptions. The Hub keeps these findings 180 days by default, in a SQLite database on your side.</span></p>
           </div>
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">FLOWS</span></div>
-              <span data-dc-tpl="423" data-sec-ico="flow" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="arrow-left-right" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">No telemetry</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">The engine only reaches what you configure, such as an energy measurement source. The Hub checks GitHub once a day for the latest version, and one setting turns it off.</span></p>
           </div>
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">ACCESS</span></div>
-              <span data-dc-tpl="423" data-sec-ico="lock" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="lock" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">What is open, and how to close it</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">The daemon listens on 127.0.0.1 by default, TLS optional. Its reads are not authenticated: a NetworkPolicy or your ingress filters them. The Hub requires a key per source and can put its UI behind your SSO.</span></p>
           </div>
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">CODE AND IMAGE</span></div>
-              <span data-dc-tpl="423" data-sec-ico="box" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="package" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Rust without <code class="dc-cmd">unsafe</code>, rootless images</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">The engine’s core forbids <code class="dc-cmd">unsafe</code> code at compile time. Both images run without root, FROM scratch for the engine and chiseled for the Hub, read-only in their Helm charts.</span></p>
           </div>
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">SUPPLY CHAIN</span></div>
-              <span data-dc-tpl="423" data-sec-ico="shield" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="shield-check" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Signed, traceable releases</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Signed release tags, build provenance attested through Sigstore and an SPDX SBOM with every version. Actions pinned by SHA, dependencies audited daily.</span></p>
           </div>
         
           <div data-dc-tpl="420" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
-            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 11px;">
+            <div data-dc-tpl="421" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--accent);">
               <div data-dc-tpl="422" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">REPORTING</span></div>
-              <span data-dc-tpl="423" data-sec-ico="flag" aria-hidden="true"></span>
+              <span data-dc-tpl="423" data-ico="flag" aria-hidden="true"></span>
             </div>
             <div data-dc-tpl="424" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Private reporting, published response times</span></div>
             <p data-dc-tpl="425" style="margin: 10px 0px 0px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">Vulnerabilities are reported privately through GitHub. Each repository publishes its response times and the versions that receive fixes.</span></p>
@@ -866,7 +866,7 @@
 [data-burger] i::before,[data-burger] i::after{content:'';position:absolute;left:0;width:17px;height:2px;background:var(--text-2);border-radius:2px}
 [data-burger] i::before{top:-5px}[data-burger] i::after{top:5px}
 [data-mobnav]{display:none}
-@media(max-width:560px){.gh-txt{display:none}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:980px){[data-nav]{gap:10px!important}}@media(max-width:1040px){[data-nav-sec]{display:none}}[data-sec-ico]{flex:0 0 auto;position:relative;width:30px;height:30px;border-radius:8px;background:var(--accent-soft)}[data-sec-ico]::after{content:"";position:absolute;inset:6px;background:var(--accent-strong);-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}[data-sec-ico="data"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5.5' rx='8' ry='3'/%3E%3Cpath d='M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13'/%3E%3Cpath d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/%3E%3C/svg%3E")}[data-sec-ico="flow"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h14'/%3E%3Cpath d='m15 4.5 3.5 3.5-3.5 3.5'/%3E%3Cpath d='M20 16H6'/%3E%3Cpath d='m9 12.5-3.5 3.5 3.5 3.5'/%3E%3C/svg%3E")}[data-sec-ico="lock"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4.5' y='10.5' width='15' height='10.5' rx='2'/%3E%3Cpath d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/%3E%3Cpath d='M12 15v2'/%3E%3C/svg%3E")}[data-sec-ico="box"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2.8 20.5 7.5v9L12 21.2 3.5 16.5v-9z'/%3E%3Cpath d='M3.5 7.5 12 12.2l8.5-4.7'/%3E%3Cpath d='M12 12.2v9'/%3E%3C/svg%3E")}[data-sec-ico="shield"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2.8 4.5 5.8v5.7c0 4.6 3.2 8.3 7.5 9.7 4.3-1.4 7.5-5.1 7.5-9.7V5.8z'/%3E%3Cpath d='m8.8 12 2.3 2.3 4.3-4.6'/%3E%3C/svg%3E")}[data-sec-ico="flag"]{--ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' view%42ox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 21.2V3.5'/%3E%3Cpath d='M5 4h11.5l-2.5 4.5 2.5 4.5H5'/%3E%3C/svg%3E")}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
+@media(max-width:560px){.gh-txt{display:none}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:980px){[data-nav]{gap:10px!important}}@media(max-width:1040px){[data-nav-sec]{display:none}}[data-ico="database"]{--ico:url(/assets/icons/database.svg)}[data-ico="arrow-left-right"]{--ico:url(/assets/icons/arrow-left-right.svg)}[data-ico="lock"]{--ico:url(/assets/icons/lock.svg)}[data-ico="shield-check"]{--ico:url(/assets/icons/shield-check.svg)}[data-ico="flag"]{--ico:url(/assets/icons/flag.svg)}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
 @media(max-width:920px){
 [data-burger]{display:inline-flex}
 [data-mobnav]{position:absolute;top:calc(100% - 4px);right:8px;min-width:212px;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 40px -20px rgba(6,31,44,.55);padding:8px;z-index:60}
@@ -1291,9 +1291,9 @@
       <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px">
         <sc-for list="{{ secPoints }}" as="s" hint-placeholder-count="6">
           <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:11px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--accent)">
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.04em">{{ s.tag }}</div>
-              <span data-sec-ico="{{ s.icon }}" aria-hidden="true"></span>
+              <span data-ico="{{ s.icon }}" aria-hidden="true"></span>
             </div>
             <div style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ s.title }}</div>
             <p style="margin:10px 0 0;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ s.desc }}</p>
@@ -1685,11 +1685,11 @@ class Component extends DCLogic {
         secTitle: 'What your security team will check, and where to find it',
         secIntro: 'Perf Sentinel and its Hub install on your infrastructure, with no SaaS. Here are the points a security review usually covers, with what is on by default and what is left to you.',
         secPoints: [
-          { icon: 'data', tag: 'DATA', title: 'Queries normalized in memory', desc: 'The engine replaces SQL values and URL identifiers with placeholders in memory, with documented exceptions. The Hub keeps these findings 180 days by default, in a SQLite database on your side.' },
-          { icon: 'flow', tag: 'FLOWS', title: 'No telemetry', desc: 'The engine only reaches what you configure, such as an energy measurement source. The Hub checks GitHub once a day for the latest version, and one setting turns it off.' },
+          { icon: 'database', tag: 'DATA', title: 'Queries normalized in memory', desc: 'The engine replaces SQL values and URL identifiers with placeholders in memory, with documented exceptions. The Hub keeps these findings 180 days by default, in a SQLite database on your side.' },
+          { icon: 'arrow-left-right', tag: 'FLOWS', title: 'No telemetry', desc: 'The engine only reaches what you configure, such as an energy measurement source. The Hub checks GitHub once a day for the latest version, and one setting turns it off.' },
           { icon: 'lock', tag: 'ACCESS', title: 'What is open, and how to close it', desc: 'The daemon listens on 127.0.0.1 by default, TLS optional. Its reads are not authenticated: a NetworkPolicy or your ingress filters them. The Hub requires a key per source and can put its UI behind your SSO.' },
-          { icon: 'box', tag: 'CODE AND IMAGE', title: 'Rust without `unsafe`, rootless images', desc: 'The engine’s core forbids `unsafe` code at compile time. Both images run without root, FROM scratch for the engine and chiseled for the Hub, read-only in their Helm charts.' },
-          { icon: 'shield', tag: 'SUPPLY CHAIN', title: 'Signed, traceable releases', desc: 'Signed release tags, build provenance attested through Sigstore and an SPDX SBOM with every version. Actions pinned by SHA, dependencies audited daily.' },
+          { icon: 'package', tag: 'CODE AND IMAGE', title: 'Rust without `unsafe`, rootless images', desc: 'The engine’s core forbids `unsafe` code at compile time. Both images run without root, FROM scratch for the engine and chiseled for the Hub, read-only in their Helm charts.' },
+          { icon: 'shield-check', tag: 'SUPPLY CHAIN', title: 'Signed, traceable releases', desc: 'Signed release tags, build provenance attested through Sigstore and an SPDX SBOM with every version. Actions pinned by SHA, dependencies audited daily.' },
           { icon: 'flag', tag: 'REPORTING', title: 'Private reporting, published response times', desc: 'Vulnerabilities are reported privately through GitHub. Each repository publishes its response times and the versions that receive fixes.' },
         ],
         secMore: 'The full security overview',
@@ -1866,11 +1866,11 @@ class Component extends DCLogic {
         secTitle: 'Ce que votre DSI vérifiera, et où le trouver',
         secIntro: 'Perf Sentinel et son Hub s’installent sur votre infrastructure, sans SaaS. Voici les points qu’une revue de sécurité examine en général, avec ce qui est actif par défaut et ce qui reste à votre charge.',
         secPoints: [
-          { icon: 'data', tag: 'DONNÉES', title: 'Requêtes normalisées en mémoire', desc: 'Le moteur remplace en mémoire les valeurs SQL et les identifiants d’URL par des marqueurs, avec des exceptions documentées. Le Hub garde ces findings 180 jours par défaut, dans une base SQLite chez vous.' },
-          { icon: 'flow', tag: 'FLUX', title: 'Aucune télémétrie', desc: 'Le moteur ne contacte que ce que vous configurez, comme une source de mesure d’énergie. Le Hub vérifie chaque jour la dernière version sur GitHub, et un réglage le désactive.' },
+          { icon: 'database', tag: 'DONNÉES', title: 'Requêtes normalisées en mémoire', desc: 'Le moteur remplace en mémoire les valeurs SQL et les identifiants d’URL par des marqueurs, avec des exceptions documentées. Le Hub garde ces findings 180 jours par défaut, dans une base SQLite chez vous.' },
+          { icon: 'arrow-left-right', tag: 'FLUX', title: 'Aucune télémétrie', desc: 'Le moteur ne contacte que ce que vous configurez, comme une source de mesure d’énergie. Le Hub vérifie chaque jour la dernière version sur GitHub, et un réglage le désactive.' },
           { icon: 'lock', tag: 'ACCÈS', title: 'Ce qui est ouvert, et comment le fermer', desc: 'Le daemon écoute sur 127.0.0.1 par défaut, TLS en option. Ses lectures ne sont pas authentifiées : une NetworkPolicy ou votre ingress les filtre. Le Hub exige une clé par source et peut placer son interface derrière votre SSO.' },
-          { icon: 'box', tag: 'CODE ET IMAGE', title: 'Rust sans `unsafe`, images sans root', desc: 'Le cœur du moteur interdit le code `unsafe` à la compilation. Les deux images tournent sans root, FROM scratch pour le moteur et chiselée pour le Hub, en lecture seule dans leurs charts Helm.' },
-          { icon: 'shield', tag: 'APPROVISIONNEMENT', title: 'Releases signées et traçables', desc: 'Tags de release signés, provenance de build attestée via Sigstore et SBOM SPDX à chaque version. Actions épinglées par SHA, dépendances auditées chaque jour.' },
+          { icon: 'package', tag: 'CODE ET IMAGE', title: 'Rust sans `unsafe`, images sans root', desc: 'Le cœur du moteur interdit le code `unsafe` à la compilation. Les deux images tournent sans root, FROM scratch pour le moteur et chiselée pour le Hub, en lecture seule dans leurs charts Helm.' },
+          { icon: 'shield-check', tag: 'APPROVISIONNEMENT', title: 'Releases signées et traçables', desc: 'Tags de release signés, provenance de build attestée via Sigstore et SBOM SPDX à chaque version. Actions épinglées par SHA, dépendances auditées chaque jour.' },
           { icon: 'flag', tag: 'SIGNALEMENT', title: 'Signalement privé, délais publiés', desc: 'Les failles se signalent en privé via GitHub. Chaque dépôt publie ses délais de réponse et les versions qui reçoivent les correctifs.' },
         ],
         secMore: 'Le dossier sécurité complet',
