@@ -37,28 +37,10 @@ Une fois le pod prêt, pointez votre OpenTelemetry Collector vers `perf-sentinel
 
 Le chart est sentinel-only. Les utilisateurs composent Perf Sentinel avec le chart upstream [open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts) plutôt que d'embarquer un collector qui dériverait des releases upstream.
 
-```mermaid
-flowchart LR
-    subgraph apps [Namespaces applicatifs]
-        A[api-gateway]
-        B[order-svc]
-        C[payment-svc]
-        D[chat-svc]
-    end
-    subgraph obs [namespace observability]
-        OC[OTel Collector<br/>open-telemetry/opentelemetry-collector]
-        PS[perf-sentinel<br/>ce chart]
-    end
-    subgraph mon [namespace monitoring]
-        T[Tempo]
-    end
-    A -->|OTLP ou Zipkin| OC
-    B -->|OTLP ou Zipkin| OC
-    C -->|OTLP ou Zipkin| OC
-    D -->|OTLP ou Zipkin| OC
-    OC -->|OTLP gRPC 4317| T
-    OC -->|OTLP gRPC 4317| PS
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology_dark.svg">
+  <img alt="Topologie du déploiement Helm" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/helm-topology.svg">
+</picture>
 
 ### Sampling du collector et ce qui atteint le daemon
 
