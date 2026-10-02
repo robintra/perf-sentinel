@@ -650,12 +650,12 @@ Stream '{"resourceSpans":[{"resource":{"attributes":[{"key":"host.arch",…}]}}]
 </ul>
 <h4 id="3-clients-http-sortants" class="ps-h4">3. Clients HTTP sortants</h4>
 <p class="ps-p">Un <code class="ps-ic">RestClient</code>, <code class="ps-ic">RestTemplate</code> ou <code class="ps-ic">WebClient</code> n'est tracé, et n'envoie <code class="ps-ic">traceparent</code>, que s'il porte l'<code class="ps-ic">ObservationRegistry</code>. Spring Boot le pose sur les builders qu'il auto-configure. Un client construit par une fabrique statique n'a ni span ni en-têtes de trace, donc ses appels sont invisibles pour les détecteurs N+1 et fan-out, et le service en aval démarre une nouvelle trace.</p>
-<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@Bean
-RestClient inventoryClient(RestClient.Builder builder) { // injecté, observé
-    return builder.baseUrl("http://inventory").build();
+<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@<span style="color:var(--code-sub)">Bean</span>
+<span style="color:var(--code-sub)">RestClient</span> inventoryClient(<span style="color:var(--code-sub)">RestClient</span>.<span style="color:var(--code-sub)">Builder</span> builder) { <span style="color:var(--term-comment)">// injecté, observé</span>
+    <span style="color:var(--code-cmd);font-weight:600">return</span> builder.baseUrl(<span style="color:var(--code-num)">"http://inventory"</span>).build();
 }
-// Non tracé : RestClient.builder().baseUrl("http://inventory").build()
-// Sauf si le registry est posé à la main : RestClient.builder().observationRegistry(registry)</code></pre></div>
+<span style="color:var(--term-comment)">// Non tracé : RestClient.builder().baseUrl("http://inventory").build()</span>
+<span style="color:var(--term-comment)">// Sauf si le registry est posé à la main : RestClient.builder().observationRegistry(registry)</span></code></pre></div>
 <p class="ps-p">Ces spans nomment la méthode et le statut dans les tags Micrometer <code class="ps-ic">method</code> et <code class="ps-ic">status</code> plutôt que dans les attributs OpenTelemetry, et Perf Sentinel lit les deux formes.</p>
 <h4 id="4-route-entrante" class="ps-h4">4. Route entrante</h4>
 <p class="ps-p">La convention serveur par défaut ne pose la route que sur les métriques. Le span porte le chemin brut, donc les findings sont regroupés par URL instanciée, un endpoint par id, et les <a href="/docs/fr/ACK-WORKFLOW#stabilité-de-signature-et-redémarrages-de-service">acquittements</a> perdent leur stabilité. Deux façons de poser <code class="ps-ic">http.route</code> sur le span :</p>
@@ -663,57 +663,57 @@ RestClient inventoryClient(RestClient.Builder builder) { // injecté, observé
 <li>Déclarer un bean <code class="ps-ic">OpenTelemetryServerRequestObservationConvention</code>. Le span suit alors les conventions HTTP d'OpenTelemetry, de même que les métriques HTTP serveur, renommées <code class="ps-ic">http.server.request.duration</code>.</li>
 <li>Étendre la convention par défaut et ajouter la route comme clé à haute cardinalité. Les clés à haute cardinalité ne vont que dans les traces, donc les métriques Prometheus gardent leurs noms et leurs tags.</li>
 </ul>
-<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@Bean
-ServerRequestObservationConvention routeConvention() {
-    return new DefaultServerRequestObservationConvention() {
-        @Override
-        public KeyValues getHighCardinalityKeyValues(ServerRequestObservationContext context) {
-            KeyValues keyValues = super.getHighCardinalityKeyValues(context);
-            String route = context.getPathPattern();
-            return route == null ? keyValues : keyValues.and("http.route", route);
+<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@<span style="color:var(--code-sub)">Bean</span>
+<span style="color:var(--code-sub)">ServerRequestObservationConvention</span> routeConvention() {
+    <span style="color:var(--code-cmd);font-weight:600">return</span> <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">DefaultServerRequestObservationConvention</span>() {
+        @<span style="color:var(--code-sub)">Override</span>
+        <span style="color:var(--code-cmd);font-weight:600">public</span> <span style="color:var(--code-sub)">KeyValues</span> getHighCardinalityKeyValues(<span style="color:var(--code-sub)">ServerRequestObservationContext</span> context) {
+            <span style="color:var(--code-sub)">KeyValues</span> keyValues = <span style="color:var(--code-cmd);font-weight:600">super</span>.getHighCardinalityKeyValues(context);
+            <span style="color:var(--code-sub)">String</span> route = context.getPathPattern();
+            <span style="color:var(--code-cmd);font-weight:600">return</span> route == <span style="color:var(--code-cmd);font-weight:600">null</span> ? keyValues : keyValues.and(<span style="color:var(--code-num)">"http.route"</span>, route);
         }
     };
 }</code></pre></div>
 <h4 id="5-threads-et-jobs" class="ps-h4">5. Threads et jobs</h4>
 <p class="ps-p">Une requête n'appartient à une trace que si une observation est courante sur son thread quand elle s'exécute.</p>
 <ul>
-<li><strong>Méthodes <code class="ps-ic">@Async</code>.</strong> Sur Spring Boot 4.1, définissez <code class="ps-ic">spring.task.execution.propagate-context=true</code> pour l'executor auto-configuré. Sur Spring Boot 4.0, ou pour un executor que vous construisez vous-même, enregistrez un <code class="ps-ic">ContextPropagatingTaskDecorator</code>. Capturer tous les contextes transmet aussi le contexte de sécurité de l'appelant à la tâche. Pour ne propager que l'observation :<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@Bean
-TaskDecorator observationOnlyTaskDecorator() {
-    return new ContextPropagatingTaskDecorator(ContextSnapshotFactory.builder()
-            .captureKeyPredicate(ObservationThreadLocalAccessor.KEY::equals)
+<li><strong>Méthodes <code class="ps-ic">@Async</code>.</strong> Sur Spring Boot 4.1, définissez <code class="ps-ic">spring.task.execution.propagate-context=true</code> pour l'executor auto-configuré. Sur Spring Boot 4.0, ou pour un executor que vous construisez vous-même, enregistrez un <code class="ps-ic">ContextPropagatingTaskDecorator</code>. Capturer tous les contextes transmet aussi le contexte de sécurité de l'appelant à la tâche. Pour ne propager que l'observation :<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@<span style="color:var(--code-sub)">Bean</span>
+<span style="color:var(--code-sub)">TaskDecorator</span> observationOnlyTaskDecorator() {
+    <span style="color:var(--code-cmd);font-weight:600">return</span> <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">ContextPropagatingTaskDecorator</span>(<span style="color:var(--code-sub)">ContextSnapshotFactory</span>.builder()
+            .captureKeyPredicate(<span style="color:var(--code-sub)">ObservationThreadLocalAccessor</span>.<span style="color:var(--code-sub)">KEY</span>::equals)
             .build());
 }</code></pre></div></li>
 <li><strong>Les méthodes <code class="ps-ic">@Scheduled</code></strong> reçoivent une observation automatiquement.</li>
 <li><strong>Les jobs Quartz</strong> n'en reçoivent aucune, et <code class="ps-ic">@Observed</code> sur une classe de job ne fait rien car Quartz instancie les jobs hors de Spring AOP. Enregistrez un <code class="ps-ic">JobListener</code> global par un <code class="ps-ic">SchedulerFactoryBeanCustomizer</code> : ouvrez un scope d'observation dans <code class="ps-ic">jobToBeExecuted</code> et fermez-le dans <code class="ps-ic">jobWasExecuted</code>, puisque les deux s'exécutent sur le thread du job.</li>
 </ul>
 <p class="ps-p">Le SQL exécuté hors de toute observation (démarrage, migrations, un check-in de cluster) devient une trace racine par requête. Cela coûte du volume et ajoute des requêtes sur lesquelles on ne peut pas agir. Un <code class="ps-ic">ObservationPredicate</code> peut écarter les observations <code class="ps-ic">jdbc.*</code> qui démarrent sans observation courante sur le thread. Regardez l'observation courante plutôt que le parent : avec <code class="ps-ic">jdbc.includes=query</code>, le parent d'une requête est l'observation de connexion, un no-op.</p>
-<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@Bean
-ObservationPredicate skipSqlOutsideAnyObservation(ObjectProvider&lt;ObservationRegistry&gt; registry) {
-    return (name, context) -&gt; !name.startsWith("jdbc.")
-            || registry.getObject().getCurrentObservation() != null;
+<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@<span style="color:var(--code-sub)">Bean</span>
+<span style="color:var(--code-sub)">ObservationPredicate</span> skipSqlOutsideAnyObservation(<span style="color:var(--code-sub)">ObjectProvider</span>&lt;<span style="color:var(--code-sub)">ObservationRegistry</span>&gt; registry) {
+    <span style="color:var(--code-cmd);font-weight:600">return</span> (name, context) -&gt; !name.startsWith(<span style="color:var(--code-num)">"jdbc."</span>)
+            || registry.getObject().getCurrentObservation() != <span style="color:var(--code-cmd);font-weight:600">null</span>;
 }</code></pre></div>
 <h4 id="6-localisation-du-code" class="ps-h4">6. Localisation du code</h4>
 <p class="ps-p">Le starter ne pose aucun attribut <code class="ps-ic">code.*</code> sur les spans HTTP ou SQL, donc les findings arrivent sans site d'appel, et le correctif suggéré Java ne repose que sur le scope <code class="ps-ic">org.springframework.boot</code> et la forme du SQL (voir <a href="/docs/fr/INSTRUMENTATION#attributs-de-span-requis">Attributs de span requis</a>). Perf Sentinel lit d'abord les noms stables <code class="ps-ic">code.function.name</code>, <code class="ps-ic">code.file.path</code> et <code class="ps-ic">code.line.number</code>, puis les noms legacy. En OTLP, un span d'I/O sans attribut <code class="ps-ic">code.*</code> prend la localisation de code de son plus proche ancêtre qui en a une, jusqu'à huit niveaux au-dessus dans le même service. Deux ajouts couvrent la plupart des spans d'I/O.</p>
 <p class="ps-p"><strong>Un span par appel de repository.</strong> Spring Data ne crée aucun span pour une méthode de repository. Un <code class="ps-ic">MethodInterceptor</code> ajouté à chaque proxy de repository peut ouvrir une observation portant <code class="ps-ic">code.function.name</code>, et le SQL émis par la méthode se range dessous. Ajoutez l'advice en position 0 pour que le span couvre aussi le flush quand le repository valide sa propre transaction.</p>
-<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@Bean
-static BeanPostProcessor repositoryObservation(ObjectProvider&lt;ObservationRegistry&gt; registry) {
-    return new BeanPostProcessor() {
-        @Override
-        public Object postProcessBeforeInitialization(Object bean, String name) {
-            if (bean instanceof RepositoryFactoryBeanSupport&lt;?, ?, ?&gt; factoryBean) {
+<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>@<span style="color:var(--code-sub)">Bean</span>
+<span style="color:var(--code-cmd);font-weight:600">static</span> <span style="color:var(--code-sub)">BeanPostProcessor</span> repositoryObservation(<span style="color:var(--code-sub)">ObjectProvider</span>&lt;<span style="color:var(--code-sub)">ObservationRegistry</span>&gt; registry) {
+    <span style="color:var(--code-cmd);font-weight:600">return</span> <span style="color:var(--code-cmd);font-weight:600">new</span> <span style="color:var(--code-sub)">BeanPostProcessor</span>() {
+        @<span style="color:var(--code-sub)">Override</span>
+        <span style="color:var(--code-cmd);font-weight:600">public</span> <span style="color:var(--code-sub)">Object</span> postProcessBeforeInitialization(<span style="color:var(--code-sub)">Object</span> bean, <span style="color:var(--code-sub)">String</span> name) {
+            <span style="color:var(--code-cmd);font-weight:600">if</span> (bean <span style="color:var(--code-cmd);font-weight:600">instanceof</span> <span style="color:var(--code-sub)">RepositoryFactoryBeanSupport</span>&lt;?, ?, ?&gt; factoryBean) {
                 factoryBean.addRepositoryFactoryCustomizer(factory -&gt; factory.addRepositoryProxyPostProcessor(
-                        (proxy, info) -&gt; proxy.addAdvice(0, (MethodInterceptor) invocation -&gt; {
-                            ObservationRegistry r = registry.getIfAvailable(() -&gt; ObservationRegistry.NOOP);
-                            if (r.getCurrentObservation() == null) {
-                                return invocation.proceed(); // aucune trace à laquelle se rattacher
+                        (proxy, info) -&gt; proxy.addAdvice(<span style="color:var(--code-num)">0</span>, (<span style="color:var(--code-sub)">MethodInterceptor</span>) invocation -&gt; {
+                            <span style="color:var(--code-sub)">ObservationRegistry</span> r = registry.getIfAvailable(() -&gt; <span style="color:var(--code-sub)">ObservationRegistry</span>.<span style="color:var(--code-sub)">NOOP</span>);
+                            <span style="color:var(--code-cmd);font-weight:600">if</span> (r.getCurrentObservation() == <span style="color:var(--code-cmd);font-weight:600">null</span>) {
+                                <span style="color:var(--code-cmd);font-weight:600">return</span> invocation.proceed(); <span style="color:var(--term-comment)">// aucune trace à laquelle se rattacher</span>
                             }
-                            String function = info.getRepositoryInterface().getName() + "." + invocation.getMethod().getName();
-                            return Observation.createNotStarted("repository.invocation", r)
-                                    .highCardinalityKeyValue("code.function.name", function)
+                            <span style="color:var(--code-sub)">String</span> function = info.getRepositoryInterface().getName() + <span style="color:var(--code-num)">"."</span> + invocation.getMethod().getName();
+                            <span style="color:var(--code-cmd);font-weight:600">return</span> <span style="color:var(--code-sub)">Observation</span>.createNotStarted(<span style="color:var(--code-num)">"repository.invocation"</span>, r)
+                                    .highCardinalityKeyValue(<span style="color:var(--code-num)">"code.function.name"</span>, function)
                                     .observeChecked(invocation::proceed);
                         })));
             }
-            return bean;
+            <span style="color:var(--code-cmd);font-weight:600">return</span> bean;
         }
     };
 }</code></pre></div>
@@ -721,15 +721,15 @@ static BeanPostProcessor repositoryObservation(ObjectProvider&lt;ObservationRegi
 <ul>
 <li><strong>S'arrêter aux frontières.</strong> Si un appel de repository apparaît en premier sur la pile, laissez le span tel quel : son ancêtre repository nomme déjà le code. Si le flush d'Hibernate (<code class="ps-ic">org.hibernate.engine.spi.ActionQueue.executeActions</code>) ou un commit (<code class="ps-ic">AbstractPlatformTransactionManager.processCommit</code>) apparaît en premier, la pile ne dit pas où l'entité a changé, donc ne posez rien.</li>
 <li><strong>Reconnaître les classes applicatives par leur emplacement de chargement, pas par leur package.</strong> Quand le service et ses bibliothèques partagées ont le même package racine, comparez le <code class="ps-ic">CodeSource</code> du <code class="ps-ic">ProtectionDomain</code> de chaque classe avec celui de la classe <code class="ps-ic">@SpringBootConfiguration</code>, ignorez les sous-classes générées (proxies <code class="ps-ic">$$</code>, proxies Hibernate) et mettez la réponse en cache par classe avec <code class="ps-ic">ClassValue</code>. Si l'emplacement de l'application est inconnu, ne traitez aucune classe comme du code applicatif : les classes du JDK n'ont pas non plus de <code class="ps-ic">CodeSource</code>.</li>
-<li><strong>Écrire le numéro de ligne comme un entier.</strong> Les valeurs de clé d'observation sont des chaînes, et Perf Sentinel ne lit <code class="ps-ic">code.line.number</code> que comme entier en OTLP. Posez les attributs sur le span de tracing lui-même, par le <code class="ps-ic">TracingObservationHandler.TracingContext</code> du contexte d'observation :<div class="ps-code"><div class="ps-code-lang">java</div><pre><code>TracingObservationHandler.TracingContext tracing = context.get(TracingObservationHandler.TracingContext.class);
-Span span = tracing == null ? null : tracing.getSpan();
-if (span == null || span.isNoop()) {
-    return context; // non tracé, ou non échantillonné : pas de parcours de pile
+<li><strong>Écrire le numéro de ligne comme un entier.</strong> Les valeurs de clé d'observation sont des chaînes, et Perf Sentinel ne lit <code class="ps-ic">code.line.number</code> que comme entier en OTLP. Posez les attributs sur le span de tracing lui-même, par le <code class="ps-ic">TracingObservationHandler.TracingContext</code> du contexte d'observation :<div class="ps-code"><div class="ps-code-lang">java</div><pre><code><span style="color:var(--code-sub)">TracingObservationHandler</span>.<span style="color:var(--code-sub)">TracingContext</span> tracing = context.get(<span style="color:var(--code-sub)">TracingObservationHandler</span>.<span style="color:var(--code-sub)">TracingContext</span>.<span style="color:var(--code-cmd);font-weight:600">class</span>);
+<span style="color:var(--code-sub)">Span</span> span = tracing == <span style="color:var(--code-cmd);font-weight:600">null</span> ? <span style="color:var(--code-cmd);font-weight:600">null</span> : tracing.getSpan();
+<span style="color:var(--code-cmd);font-weight:600">if</span> (span == <span style="color:var(--code-cmd);font-weight:600">null</span> || span.isNoop()) {
+    <span style="color:var(--code-cmd);font-weight:600">return</span> context; <span style="color:var(--term-comment)">// non tracé, ou non échantillonné : pas de parcours de pile</span>
 }
-// frame : la première frame applicative trouvée par StackWalker
-span.tag("code.function.name", frame.getClassName() + "." + frame.getMethodName());
-span.tag("code.file.path", frame.getFileName());
-span.tag("code.line.number", (long) frame.getLineNumber());</code></pre></div></li>
+<span style="color:var(--term-comment)">// frame : la première frame applicative trouvée par StackWalker</span>
+span.tag(<span style="color:var(--code-num)">"code.function.name"</span>, frame.getClassName() + <span style="color:var(--code-num)">"."</span> + frame.getMethodName());
+span.tag(<span style="color:var(--code-num)">"code.file.path"</span>, frame.getFileName());
+span.tag(<span style="color:var(--code-num)">"code.line.number"</span>, (<span style="color:var(--code-cmd);font-weight:600">long</span>) frame.getLineNumber());</code></pre></div></li>
 </ul>
 <p class="ps-p">Avec les deux en place, la plupart des findings SQL et HTTP d'un service sous starter portent une localisation de code, davantage qu'avec l'agent par défaut, qui ne nomme que les méthodes de repository. Deux limites demeurent. Un helper HTTP générique du service devient la localisation rapportée de chaque appel qui passe par lui, et un getter d'entité qui déclenche un chargement paresseux est rapporté à la place de son appelant. Le parcours de pile coûte quelques microsecondes par appel d'I/O tracé.</p>
 <h4 id="7-tests-dintégration" class="ps-h4">7. Tests d'intégration</h4>
