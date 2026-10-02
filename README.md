@@ -626,7 +626,7 @@ Releases follow a documented procedure. The companion repo [perf-sentinel-simula
 
 ## Support
 
-Perf Sentinel is maintained by one person, on a best-effort basis. There is no commercial support offer and no service-level agreement. Questions, bugs and feature requests go to [GitHub issues](https://github.com/robintra/perf-sentinel/issues), which offer bug and feature templates. Vulnerabilities go through private reporting instead, acknowledged within 72 hours on a best-effort basis, see [SECURITY.md](SECURITY.md). Only the latest minor release receives security fixes. The software comes without warranty and with limited liability (AGPL-3.0, sections 15 and 16).
+Support is best-effort, with no commercial offer and no service-level agreement. Questions, bugs and feature requests go to [GitHub issues](https://github.com/robintra/perf-sentinel/issues), which offer bug and feature templates. Vulnerabilities go through private reporting instead, acknowledged within 72 hours on a best-effort basis, see [SECURITY.md](SECURITY.md). Only the latest minor release receives security fixes. The software comes without warranty and with limited liability (AGPL-3.0, sections 15 and 16).
 
 ## License
 

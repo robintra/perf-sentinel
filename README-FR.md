@@ -626,7 +626,7 @@ Les publications suivent une procédure documentée. Le dépôt compagnon [perf-
 
 ## Assistance
 
-Perf Sentinel est maintenu par une seule personne, au mieux de ses disponibilités. Il n'existe ni offre d'assistance commerciale ni engagement de niveau de service. Les questions, les bugs et les demandes de fonctionnalité passent par les [issues GitHub](https://github.com/robintra/perf-sentinel/issues), qui proposent des modèles pour les bugs et les fonctionnalités. Les failles passent plutôt par le signalement privé, avec un accusé de réception sous 72 heures au mieux, voir [SECURITY.md](SECURITY.md). Seule la dernière version mineure reçoit les correctifs de sécurité. Le logiciel est fourni sans garantie et avec une responsabilité limitée (AGPL-3.0, articles 15 et 16).
+L'assistance est assurée au mieux, sans offre commerciale ni engagement de niveau de service. Les questions, les bugs et les demandes de fonctionnalité passent par les [issues GitHub](https://github.com/robintra/perf-sentinel/issues), qui proposent des modèles pour les bugs et les fonctionnalités. Les failles passent plutôt par le signalement privé, avec un accusé de réception sous 72 heures au mieux, voir [SECURITY.md](SECURITY.md). Seule la dernière version mineure reçoit les correctifs de sécurité. Le logiciel est fourni sans garantie et avec une responsabilité limitée (AGPL-3.0, articles 15 et 16).
 
 ## Licence
 
