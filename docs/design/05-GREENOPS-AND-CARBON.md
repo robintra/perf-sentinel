@@ -172,7 +172,7 @@ In Perf Sentinel:
 ### Energy constant
 
 ```rust
-pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0.1 uWh per I/O op
+pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0.1 mWh per I/O op
 ```
 
 This is a rough order-of-magnitude approximation, not a measured value. It accounts for a typical database query or HTTP round-trip on cloud infrastructure. The [Cloud Carbon Footprint project](https://www.cloudcarbonfootprint.org/docs/methodology/) uses a similar approach of estimating energy from resource usage rather than direct measurement.
@@ -311,7 +311,7 @@ geometric_mean(low, high) = sqrt(low × high) = sqrt(mid² × 0.5 × 2.0) = mid
 This is a **log-symmetric interval**: the mid is the geometric center, not the arithmetic center. The spread between `low` and `high` is a factor of 4 (high/low = 4), which is wider than a symmetric ±50% window (which would give high/low = 3).
 
 **Why 2× and not ±50%?** The I/O proxy model has order-of-magnitude uncertainty at each step:
-- `ENERGY_PER_IO_OP_KWH = 0.1 µWh/op` is an order-of-magnitude approximation.
+- `ENERGY_PER_IO_OP_KWH = 0.1 mWh/op` is an order-of-magnitude approximation.
 - Grid intensity values from CCF/Electricity Maps are annual averages, while real-time intensity varies 2-3× over a day.
 - PUE values are provider averages, while individual datacenters vary.
 - Embodied carbon assumes a conservative server-lifecycle figure that may be off by an order of magnitude for specific hardware.
@@ -399,7 +399,7 @@ When the dispatch selects the hourly path for a region, the region's `RegionBrea
 
 ## Scaphandre per-process energy integration
 
-The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 µWh per op). This is a two-order-of-magnitude approximation and it treats all services and all workload shapes identically. Perf Sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
+The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 mWh per op). This is a two-order-of-magnitude approximation and it treats all services and all workload shapes identically. Perf Sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
 
 **How it fits the architecture.** Scaphandre is an external, user-installed process. Perf Sentinel does NOT bundle or fork Scaphandre. It scrapes the Prometheus `/metrics` endpoint Scaphandre already exposes. The `score/scaphandre/` module owns:
 
@@ -645,7 +645,7 @@ The `green_summary.scoring_config` object exposes the runtime configuration of t
 
 ## Per-operation energy coefficients
 
-The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for every I/O operation. This treats a read-only `SELECT` hitting an index the same as a disk-heavy `INSERT` writing to WAL and data pages. The per-operation coefficient feature refines this by applying a multiplier based on the operation type.
+The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 mWh) for every I/O operation. This treats a read-only `SELECT` hitting an index the same as a disk-heavy `INSERT` writing to WAL and data pages. The per-operation coefficient feature refines this by applying a multiplier based on the operation type.
 
 **SQL verb multipliers.** The verb is extracted from the first word of the `target` field (the raw SQL statement), not from the `operation` field. This is necessary because OTLP-ingested spans store `db.system` (e.g., "postgresql") in `operation`, not the SQL verb. The first whitespace-delimited token reliably gives the SQL verb across all ingestion formats (native JSON, OTLP, Jaeger, Zipkin).
 

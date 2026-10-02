@@ -434,7 +434,7 @@ Réserves communes aux deux flags :
 
 Perf Sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :
 
-1. **Opérations I/O → énergie** : chaque opération I/O détectée (requête SQL, appel HTTP) est multipliée par une constante fixe `ENERGY_PER_IO_OP_KWH` de `0.0000001 kWh` (~0,1 µWh). Cette valeur n'est **pas mesurée** : c'est une approximation d'ordre de grandeur.
+1. **Opérations I/O → énergie** : chaque opération I/O détectée (requête SQL, appel HTTP) est multipliée par une constante fixe `ENERGY_PER_IO_OP_KWH` de `0.0000001 kWh` (~0,1 mWh). Cette valeur n'est **pas mesurée** : c'est une approximation d'ordre de grandeur.
 2. **Énergie → CO₂** : l'énergie est multipliée par une intensité carbone réseau par région (gCO₂eq/kWh) issue d'Electricity Maps et Cloud Carbon Footprint (moyennes annuelles 2023-2024), avec un PUE par fournisseur (AWS 1,15, GCP 1,09, Azure 1,17, Generic 1,2). Les trois PUE fournisseurs ne sont pas strictement comparables en périmètre. AWS publie une moyenne flotte mondiale pour l'année calendaire 2024, GCP une moyenne TTM (trailing-twelve-month) sur la flotte mondiale en 2024, et Azure une valeur FY25 (juillet 2024 à juin 2025) pour ses seuls centres de données détenus et exploités en propre (les sites loués et en colocation sont exclus). L'écart de fenêtre est d'environ 12 mois et l'écart de périmètre est de l'ordre de quelques pourcents de la flotte.
 3. **Carbone embarqué (`M` dans SCI v1.0)** : émissions de fabrication matérielle amorties à un défaut configurable de `0.001 gCO₂/request`. Indépendant de la région.
 
@@ -550,7 +550,7 @@ Depuis 0.8.7 le profil est recalibré (forme préservée, niveau normalisé sur 
 **Ce que ça signifie pour vos rapports :**
 
 - Les rapports avec `default_region = "eu-central-1"` (ou des spans portant `cloud.region = eu-central-1`) et le défaut `use_hourly_profiles = true` affichent des **chiffres CO₂ environ 21% plus bas** qu'en 0.8.6.
-- Si vos quality gates CI (`[thresholds] io_waste_ratio_max` etc.) sont calibrés sur les anciens chiffres horaires DE, recalibrez-les après la mise à niveau.
+- Aucune règle de `[thresholds]` ne lit un chiffre CO₂ : les règles comptent des findings, comparent le ratio de gaspillage I/O ou vérifient la part de spans analysables. Un quality gate CI n'est donc pas touché. Seul un seuil que vous avez fixé vous-même sur une valeur de CO₂ serait à recalibrer.
 
 Un test de régression (`de_flat_annual_numerical_regression`) épingle la valeur annuelle plate, et l'invariant ±5% profil-contre-annuel est désormais appliqué à toutes les régions sans exception.
 
@@ -601,7 +601,7 @@ Perf Sentinel embarque une intégration opt-in avec [Scaphandre](https://github.
 
 Sur les plateformes non prises en charge, la section `[green.scaphandre]` est parsée et le scraper est lancé, mais il échouera à trouver l'endpoint et retombera silencieusement sur le modèle proxy. Une seule ligne de log au niveau warn est émise au premier échec pour que les opérateurs remarquent la mauvaise configuration.
 
-**Ce que Scaphandre améliore.** L'intégration remplace le coefficient proxy fixe (0,1 µWh par op I/O) par une **valeur mesurée au niveau service** dérivée de la consommation réelle du processus mappé sur la fenêtre de scrape. Formule :
+**Ce que Scaphandre améliore.** L'intégration remplace le coefficient proxy fixe (0,1 mWh par op I/O) par une **valeur mesurée au niveau service** dérivée de la consommation réelle du processus mappé sur la fenêtre de scrape. Formule :
 
 ```
 energy_per_op_kwh = (process_power_watts × scrape_interval_secs) / ops_in_window / 3_600_000
@@ -889,7 +889,7 @@ Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les
 
 ## Constante énergétique gCO2eq (section legacy, conservée pour les références croisées)
 
-L'estimation carbone utilise une constante énergétique fixe (`0.1 uWh per I/O operation`) comme approximation grossière d'ordre de grandeur. Voir **Précision des estimations carbone** ci-dessus pour la méthodologie complète et l'avertissement.
+L'estimation carbone utilise une constante énergétique fixe (`0,1 mWh par opération I/O`) comme approximation grossière d'ordre de grandeur. Voir **Précision des estimations carbone** ci-dessus pour la méthodologie complète et l'avertissement.
 
 ## Ingestion pg_stat_statements
 

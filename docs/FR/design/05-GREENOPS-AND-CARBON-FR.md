@@ -172,7 +172,7 @@ Dans Perf Sentinel :
 ### Constante énergétique
 
 ```rust
-pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0,1 uWh par opération I/O
+pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0,1 mWh par opération I/O
 ```
 
 C'est une approximation grossière d'ordre de grandeur, pas une valeur mesurée. Elle tient compte d'une requête de base de données ou d'un aller-retour HTTP typique sur une infrastructure cloud. Le [projet Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/) utilise une approche similaire d'estimation de l'énergie à partir de l'utilisation des ressources plutôt que d'une mesure directe.
@@ -311,7 +311,7 @@ geometric_mean(low, high) = sqrt(low × high) = sqrt(mid² × 0.5 × 2.0) = mid
 C'est un **intervalle log-symétrique** : le mid est le centre géométrique, pas le centre arithmétique. L'écart entre `low` et `high` est un facteur 4 (high/low = 4), plus large qu'une fenêtre symétrique ±50% (qui donnerait high/low = 3).
 
 **Pourquoi 2× et pas ±50% ?** Le modèle proxy I/O a une incertitude d'ordre de grandeur à chaque étape :
-- `ENERGY_PER_IO_OP_KWH = 0.1 µWh/op` est une approximation d'ordre de grandeur.
+- `ENERGY_PER_IO_OP_KWH = 0.1 mWh/op` est une approximation d'ordre de grandeur.
 - Les valeurs d'intensité réseau de CCF/Electricity Maps sont des moyennes annuelles, alors que l'intensité en temps réel varie 2-3× sur une journée.
 - Les PUE sont des moyennes par fournisseur, alors que les datacenters individuels varient.
 - Le carbone embarqué suppose une valeur conservatrice de cycle de vie serveur qui peut être décalée d'un ordre de grandeur pour du matériel spécifique.
@@ -399,7 +399,7 @@ Quand l'aiguillage sélectionne le chemin horaire pour une région, la ligne `Re
 
 ## Intégration énergétique par processus Scaphandre
 
-Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 µWh par op). C'est une approximation à deux ordres de grandeur près, et elle traite tous les services et toutes les formes de charge de la même façon. Perf Sentinel offre une prise en charge opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
+Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 mWh par op). C'est une approximation à deux ordres de grandeur près, et elle traite tous les services et toutes les formes de charge de la même façon. Perf Sentinel offre une prise en charge opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
 
 **Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. Perf Sentinel NE bundle PAS et NE fork PAS Scaphandre : il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre/` possède :
 
@@ -645,7 +645,7 @@ L'objet `green_summary.scoring_config` expose la configuration runtime de l'int�
 
 ## Coefficients énergétiques par opération
 
-Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` gourmand en disque écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
+Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0,1 mWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` gourmand en disque écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
 
 **Multiplicateurs SQL.** Le verbe est extrait du premier mot du champ `target` (la requête SQL brute), pas du champ `operation`. C'est nécessaire car les spans ingérés via OTLP stockent `db.system` (ex. "postgresql") dans `operation`, pas le verbe SQL. Le premier token délimité par des espaces donne le verbe SQL de façon fiable dans tous les formats d'ingestion (JSON natif, OTLP, Jaeger, Zipkin).
 

@@ -425,7 +425,7 @@ Caveats shared by both flags:
 
 Perf Sentinel uses an **I/O → energy → CO₂ proxy model** to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:
 
-1. **I/O operations → energy**: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed `ENERGY_PER_IO_OP_KWH` constant of `0.0000001 kWh` (~0.1 µWh). This is **not measured**: it is an order-of-magnitude approximation.
+1. **I/O operations → energy**: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed `ENERGY_PER_IO_OP_KWH` constant of `0.0000001 kWh` (~0.1 mWh). This is **not measured**: it is an order-of-magnitude approximation.
 2. **Energy → CO₂**: energy is multiplied by a per-region grid carbon intensity (gCO₂eq/kWh) sourced from Electricity Maps and Cloud Carbon Footprint annual averages (2023-2024), with a per-provider PUE applied (AWS 1.15, GCP 1.09, Azure 1.17, Generic 1.2). The three provider PUEs are not strictly comparable in scope. AWS publishes a global fleet average for calendar year 2024, GCP a global fleet trailing-twelve-month average for 2024, and Azure an FY25 (July 2024 to June 2025) figure for its owned-and-controlled facilities only (leased and colocation are excluded). The cross-window gap is around 12 months and the scope difference is around a few percent of the fleet.
 3. **Embodied carbon (`M` in SCI v1.0)**: hardware manufacturing emissions amortized at a configurable default of `0.001 gCO₂/request`. Region-independent.
 
@@ -541,7 +541,7 @@ Since 0.8.7 the profile is rescaled (shape preserved, level normalized to the El
 **What this means for your reports:**
 
 - Reports with `default_region = "eu-central-1"` (or spans carrying `cloud.region = eu-central-1`) and the default `use_hourly_profiles = true` show **CO₂ numbers roughly 21% lower** than 0.8.6.
-- If you have CI quality gates (`[thresholds] io_waste_ratio_max` etc.) calibrated on the old DE hourly numbers, recalibrate after the upgrade.
+- No rule in `[thresholds]` reads a CO₂ figure: the rules count findings, compare the I/O waste ratio or check the share of analyzable spans. A CI quality gate is therefore not affected. Only a threshold you set yourself on a CO₂ value would need recalibrating.
 
 A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual value, and the profile-vs-annual ±5% invariant is now enforced for every region with no exception.
 
@@ -592,7 +592,7 @@ Perf Sentinel ships an opt-in integration with [Scaphandre](https://github.com/h
 
 On unsupported platforms, the `[green.scaphandre]` section is parsed and the scraper spawns, but it will fail to find the endpoint and silently fall back to the proxy model. A single warn-level log line is emitted at first failure so operators notice the misconfiguration.
 
-**What Scaphandre improves.** The integration replaces the fixed proxy coefficient (0.1 µWh per I/O op) with a **service-level measured value** derived from the actual power consumption of the mapped process over the scrape window. Formula:
+**What Scaphandre improves.** The integration replaces the fixed proxy coefficient (0.1 mWh per I/O op) with a **service-level measured value** derived from the actual power consumption of the mapped process over the scrape window. Formula:
 
 ```
 energy_per_op_kwh = (process_power_watts × scrape_interval_secs) / ops_in_window / 3_600_000
@@ -880,7 +880,7 @@ When the daemon runs with `api_enabled = true`, the query API exposes findings (
 
 ## gCO2eq energy constant (legacy section, kept for cross-references)
 
-The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. See **Carbon estimates accuracy** above for the complete methodology and disclaimer.
+The carbon estimation uses a fixed energy constant (`0.1 mWh per I/O operation`) as a rough order-of-magnitude approximation. See **Carbon estimates accuracy** above for the complete methodology and disclaimer.
 
 ## pg_stat_statements ingestion
 

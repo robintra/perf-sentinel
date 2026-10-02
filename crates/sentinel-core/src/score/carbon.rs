@@ -21,7 +21,7 @@ pub(crate) use super::carbon_profiles::HourlyProfileRef;
 
 /// Estimated energy consumed per I/O operation in kWh.
 ///
-/// This is a rough order-of-magnitude approximation (~0.1 µWh per I/O op).
+/// This is a rough order-of-magnitude approximation (~0.1 mWh per I/O op).
 /// It accounts for a typical database query or HTTP round-trip on cloud
 /// infrastructure, including CPU, memory, and network overhead.
 ///
