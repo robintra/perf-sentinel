@@ -150,48 +150,54 @@ async fn load_report(
     url: Option<&str>,
 ) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
     if let Some(path) = report_path {
-        let meta = std::fs::metadata(path).map_err(|e| {
-            eprintln!(
-                "Error: stat {}: {e}",
-                sanitise_for_terminal(&path.display().to_string())
-            );
-            EXIT_INPUT_ERROR
-        })?;
-        if meta.len() > MAX_LOCAL_REPORT_BYTES {
-            eprintln!(
-                "Error: report at {} is {} bytes, exceeds the {}-byte cap.",
-                sanitise_for_terminal(&path.display().to_string()),
-                meta.len(),
-                MAX_LOCAL_REPORT_BYTES
-            );
-            return Err(EXIT_INPUT_ERROR);
-        }
-        let bytes = std::fs::read(path).map_err(|e| {
-            eprintln!(
-                "Error: read {}: {e}",
-                sanitise_for_terminal(&path.display().to_string())
-            );
-            EXIT_INPUT_ERROR
-        })?;
-        let report = parse_report(&bytes).map_err(|e| {
-            eprintln!(
-                "Error: parse {}: {e}",
-                sanitise_for_terminal(&path.display().to_string())
-            );
-            EXIT_INPUT_ERROR
-        })?;
-        let display = path.display().to_string();
-        let fetched = FetchedPaths {
-            attestation: None,
-            bundle: None,
-        };
-        return Ok((report, display, fetched));
+        return load_local_report(path);
     }
     if let Some(url) = url {
         return fetch_from_url(url).await;
     }
     eprintln!("Error: one of --report or --url is required");
     Err(EXIT_INPUT_ERROR)
+}
+
+/// Read and parse a report from disk. Synchronous on purpose: a single small
+/// file, read before any network work, has nothing to gain from async I/O.
+fn load_local_report(path: &Path) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
+    let meta = std::fs::metadata(path).map_err(|e| {
+        eprintln!(
+            "Error: stat {}: {e}",
+            sanitise_for_terminal(&path.display().to_string())
+        );
+        EXIT_INPUT_ERROR
+    })?;
+    if meta.len() > MAX_LOCAL_REPORT_BYTES {
+        eprintln!(
+            "Error: report at {} is {} bytes, exceeds the {}-byte cap.",
+            sanitise_for_terminal(&path.display().to_string()),
+            meta.len(),
+            MAX_LOCAL_REPORT_BYTES
+        );
+        return Err(EXIT_INPUT_ERROR);
+    }
+    let bytes = std::fs::read(path).map_err(|e| {
+        eprintln!(
+            "Error: read {}: {e}",
+            sanitise_for_terminal(&path.display().to_string())
+        );
+        EXIT_INPUT_ERROR
+    })?;
+    let report = parse_report(&bytes).map_err(|e| {
+        eprintln!(
+            "Error: parse {}: {e}",
+            sanitise_for_terminal(&path.display().to_string())
+        );
+        EXIT_INPUT_ERROR
+    })?;
+    let display = path.display().to_string();
+    let fetched = FetchedPaths {
+        attestation: None,
+        bundle: None,
+    };
+    Ok((report, display, fetched))
 }
 
 fn parse_report(bytes: &[u8]) -> Result<PeriodicReport, serde_json::Error> {
