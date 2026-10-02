@@ -1134,10 +1134,11 @@
           <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
             <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.04em">{{ m.tag }}</div>
             <div style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ m.title }}</div>
-            <p style="margin:10px 0 18px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ m.desc }}</p>
+            <p style="margin:10px 0 16px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ m.desc }}</p>
+            <code style="display:block;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.55;color:var(--accent-strong);background:var(--accent-soft);border-radius:8px;padding:9px 11px;overflow-wrap:anywhere">$ {{ m.cmd }}</code>
           </div>
         </sc-for>
-      </div> <a data-plain href="guide#deploy" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesMore }}</span><span data-arrow> →</span></a> 
+      </div> <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;margin-top:24px"><a data-plain href="guide#deploy" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesMore }}</span><span data-arrow> →</span></a><a data-plain href="{{ refBase }}CI" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesCi }}</span><span data-arrow> →</span></a></div>
     </section>
 
     <!-- PERFORMANCE -->
@@ -1832,7 +1833,7 @@ class Component extends DCLogic {
         perfT1: 'A single ', perfWRust: 'Rust', perfT2: ' binary, measured',
         perfIntro: 'The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.',
         perfBadgePrefix: 'Version ',
-        perfMore: 'Full benchmarks in the docs', modesMore: 'Deployment in depth in the guide',
+        perfMore: 'Full benchmarks in the docs', modesMore: 'Deployment in depth in the guide', modesCi: 'GitHub Actions, GitLab CI and Jenkins templates',
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'per event, p50 to p99' },
@@ -2013,7 +2014,7 @@ class Component extends DCLogic {
         perfT1: 'Un mono-binaire ', perfWRust: 'Rust', perfT2: ', mesuré',
         perfIntro: 'Les chiffres ci-dessous chronomètrent le pipeline d\u2019analyse seul (mono-thread, sur jeux de données synthétiques) : ils isolent le coût du pipeline, pas un débit de bout en bout.',
         perfBadgePrefix: 'Version ',
-        perfMore: 'Benchmarks détaillés dans la doc', modesMore: 'Déploiement en détail dans le guide',
+        perfMore: 'Benchmarks détaillés dans la doc', modesMore: 'Déploiement en détail dans le guide', modesCi: 'Modèles GitHub Actions, GitLab CI et Jenkins',
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
           { icon: 'timer', value: '0.8–\u20601.9\u00a0µs', label: 'par évènement, p50 à p99' },
@@ -2119,7 +2120,7 @@ class Component extends DCLogic {
       carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResultA: t.carbonBuResultA, carbonBuResultB: t.carbonBuResultB, carbonBuResultC: t.carbonBuResultC, carbonBuResultD: t.carbonBuResultD,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
-      perfMore: t.perfMore, modesMore: t.modesMore,
+      perfMore: t.perfMore, modesMore: t.modesMore, modesCi: t.modesCi,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
       goMore: t.goMore, goEnergy: t.goEnergy, goEnergyHref: lang === 'fr' ? '/docs/fr/ENERGY' : '/docs/ENERGY', cmpMore: t.cmpMore, supplyMore: t.supplyMore,
