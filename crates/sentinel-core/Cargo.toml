@@ -21,13 +21,13 @@ workspace = true
 # Enable daemon mode: Scaphandre RAPL scraper, cloud SPECpower scraper,
 # and the `watch` command event loop. Without this feature, only batch
 # analysis (`analyze`, `explain`, `demo`, `bench`, `pg-stat`) is available.
-daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc", "tonic/gzip", "tonic/deflate"]
+daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:rustls", "dep:webpki-roots", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc", "tonic/gzip", "tonic/deflate"]
 # Enable `perf-sentinel tempo` subcommand for querying Grafana Tempo API.
-tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
+tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls", "dep:rustls", "dep:webpki-roots"]
 # Enable `perf-sentinel jaeger-query` subcommand for querying any
 # backend that speaks the Jaeger query API (Jaeger upstream and
 # Victoria Traces). Shares the HTTP dependency set with `tempo`.
-jaeger-query = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
+jaeger-query = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls", "dep:rustls", "dep:webpki-roots"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive", "rc"] }
@@ -76,11 +76,15 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.11.1", features = ["client", "http1", "server"], optional = true }
-hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }
+hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "client-proxy", "http1", "http2", "tokio", "server-auto"], optional = true }
 http-body-util = { version = "0.1.5", optional = true }
 bytes = { version = "1.12.1", optional = true }
 arc-swap = { version = "1.9.2", optional = true }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["http1", "webpki-tokio", "ring", "tls12"], optional = true }
+# The outbound client builds its own rustls config: the Mozilla roots plus
+# the PEM certificates of `SSL_CERT_FILE` (see `http_client`).
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "tls12", "std"], optional = true }
+webpki-roots = { version = "1.0.9", optional = true }
 tokio-rustls = { version = "0.26.5", optional = true, default-features = false, features = ["logging", "tls12", "ring"] }
 
 tokio-stream = { version = "0.1.19", optional = true }
@@ -98,6 +102,9 @@ subtle = { version = "2.6.1", optional = true }
 libc = { version = "0.2.189", optional = true }
 
 [dev-dependencies]
+# Signs a throwaway CA and server certificate at test time, so the TLS
+# round trip of `http_client` needs no private key in the repository.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
 proptest = "1.11.0"
 tower = { version = "0.5.3", features = ["util", "timeout"] }
 http-body-util = "0.1.5"

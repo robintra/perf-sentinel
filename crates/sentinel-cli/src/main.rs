@@ -1921,7 +1921,8 @@ async fn dispatch_command(command: Commands) {
                 verify_binary.as_deref(),
                 format,
                 &identity,
-            );
+            )
+            .await;
             std::process::exit(code);
         }
         Commands::HashBake {

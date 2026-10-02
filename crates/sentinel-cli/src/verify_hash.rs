@@ -24,10 +24,8 @@
 //! - `4` `NETWORK_ERROR` (only `--url` mode: fetch of report or sidecar
 //!   failed)
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 use sentinel_core::report::periodic::compute_content_hash;
 use sentinel_core::report::periodic::schema::{IntegrityLevel, PeriodicReport, SignatureMetadata};
@@ -36,10 +34,12 @@ use crate::limits::MAX_LOCAL_REPORT_BYTES;
 
 /// Hard cap on remote payloads pulled by `--url`. 10 MB is well above any
 /// realistic report file size and guards against pathological responses.
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 const MAX_REMOTE_BYTES: usize = 10 * 1024 * 1024;
 
 /// Per-request timeout for `--url` fetches.
-const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+const REMOTE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Exit code: every verification check returned Ok.
 pub const EXIT_TRUSTED: i32 = 0;
@@ -99,7 +99,7 @@ pub struct IdentityOptions {
 }
 
 /// Entry point invoked from `main.rs` dispatch.
-pub fn cmd_verify_hash(
+pub async fn cmd_verify_hash(
     report_path: Option<&Path>,
     url: Option<&str>,
     attestation_path: Option<&Path>,
@@ -108,7 +108,7 @@ pub fn cmd_verify_hash(
     format: VerifyHashFormat,
     identity: &IdentityOptions,
 ) -> i32 {
-    let (report, display_path, fetched_paths) = match load_report(report_path, url) {
+    let (report, display_path, fetched_paths) = match load_report(report_path, url).await {
         Ok(v) => v,
         Err(code) => return code,
     };
@@ -145,7 +145,7 @@ struct FetchedPaths {
     bundle: Option<PathBuf>,
 }
 
-fn load_report(
+async fn load_report(
     report_path: Option<&Path>,
     url: Option<&str>,
 ) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
@@ -188,7 +188,7 @@ fn load_report(
         return Ok((report, display, fetched));
     }
     if let Some(url) = url {
-        return fetch_from_url(url);
+        return fetch_from_url(url).await;
     }
     eprintln!("Error: one of --report or --url is required");
     Err(EXIT_INPUT_ERROR)
@@ -198,8 +198,9 @@ fn parse_report(bytes: &[u8]) -> Result<PeriodicReport, serde_json::Error> {
     serde_json::from_slice(bytes)
 }
 
-fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
+async fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
     let report = http_get(url)
+        .await
         .map_err(|e| {
             eprintln!("Error: fetch {url}: {e}");
             EXIT_NETWORK_ERROR
@@ -218,7 +219,7 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i
     };
     let pid = std::process::id();
     if let Some(a_url) = attestation_url {
-        match http_get(&a_url) {
+        match http_get(&a_url).await {
             Ok(data) => {
                 let path = std::env::temp_dir().join(format!(
                     "perf-sentinel-verify-attestation-{pid}.intoto.jsonl"
@@ -231,7 +232,7 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i
         }
     }
     if let Some(b_url) = bundle_url {
-        match http_get(&b_url) {
+        match http_get(&b_url).await {
             Ok(data) => {
                 let path =
                     std::env::temp_dir().join(format!("perf-sentinel-verify-bundle-{pid}.sig"));
@@ -263,38 +264,64 @@ fn write_temp_no_follow(path: &Path, data: &[u8]) -> std::io::Result<()> {
     f.write_all(data)
 }
 
-fn http_get(url: &str) -> Result<Vec<u8>, String> {
+/// Fetch an `https://` URL through the shared core client, so the report
+/// download follows the same proxy and trust rules as every other outbound
+/// call (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`).
+///
+/// The client follows no redirect: a 3xx comes back as an error, so a
+/// redirect cannot rebind the fetch to `http://internal` or
+/// `https://localhost:4317` and turn it into an SSRF probe. Operators who
+/// need redirect-following should re-resolve the canonical URL first.
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+async fn http_get(url: &str) -> Result<Vec<u8>, String> {
+    use sentinel_core::http_client::{self, FetchError, Uri};
+
     if !url.starts_with("https://") {
         return Err("only https:// URLs are accepted".to_string());
     }
-    // max_redirects(0): refuse cross-host redirects entirely. The
-    // scheme guard above only covers the initial request. Redirects
-    // could rebind to http://internal or https://localhost:4317 and
-    // turn this fetch into an SSRF probe. Operators who need
-    // redirect-following should re-resolve the canonical URL first.
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(REMOTE_TIMEOUT))
-        .max_redirects(0)
-        .build()
-        .into();
-    let response = agent.get(url).call().map_err(|e| format!("http: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("http status {}", response.status().as_u16()));
-    }
-    let mut response = response;
-    let mut reader = response.body_mut().as_reader();
-    let mut out = Vec::with_capacity(64 * 1024);
-    reader
-        .by_ref()
-        .take((MAX_REMOTE_BYTES + 1) as u64)
-        .read_to_end(&mut out)
-        .map_err(|e| format!("read body: {e}"))?;
-    if out.len() > MAX_REMOTE_BYTES {
-        return Err(format!(
+    let uri: Uri = url.parse().map_err(|e| format!("invalid url: {e}"))?;
+    let client = http_client::build_client();
+    // The inner timeout covers the response head, this one the whole
+    // transfer, so a body that trickles in cannot hold the command.
+    let fetch = http_client::fetch_get_limited(
+        &client,
+        &uri,
+        concat!("perf-sentinel/", env!("CARGO_PKG_VERSION")),
+        REMOTE_TIMEOUT,
+        None,
+        MAX_REMOTE_BYTES,
+    );
+    match tokio::time::timeout(REMOTE_TIMEOUT, fetch).await {
+        Ok(Ok(body)) => Ok(body.to_vec()),
+        Ok(Err(FetchError::HttpStatus(code))) => Err(format!("http status {code}")),
+        Ok(Err(FetchError::BodyTooLarge(_))) => Err(format!(
             "response exceeds {MAX_REMOTE_BYTES} byte cap, refusing to load"
-        ));
+        )),
+        Ok(Err(e)) => Err(error_chain(&e)),
+        Err(_) => Err("http: request timed out".to_string()),
     }
-    Ok(out)
+}
+
+/// `http: <error>: <cause>: ...`, so a proxy or TLS failure names its cause.
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+fn error_chain(e: &dyn std::error::Error) -> String {
+    use std::fmt::Write as _;
+    let mut out = format!("http: {e}");
+    let mut source = e.source();
+    while let Some(cause) = source {
+        let _ = write!(out, ": {cause}");
+        source = cause.source();
+    }
+    out
+}
+
+/// A build without the `daemon`, `tempo` or `jaeger-query` feature has no
+/// HTTP client, so `--url` cannot fetch anything.
+#[cfg(not(any(feature = "daemon", feature = "tempo", feature = "jaeger-query")))]
+fn http_get(_url: &str) -> std::future::Ready<Result<Vec<u8>, String>> {
+    std::future::ready(Err(
+        "this build has no HTTP client, use --report with a local file".to_string(),
+    ))
 }
 
 /// Conventional sidecar URL: same directory as the report, fixed
@@ -779,6 +806,7 @@ fn integrity_level_label(level: IntegrityLevel) -> &'static str {
 mod tests {
     use super::*;
     use core::assert_matches;
+
     use sentinel_core::report::periodic::schema::BinaryAttestationMetadata;
     use std::path::PathBuf;
 
