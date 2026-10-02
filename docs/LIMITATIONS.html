@@ -383,7 +383,7 @@
 <h2 id="carbon-estimates-accuracy" class="ps-h2">Carbon estimates accuracy</h2>
 <p class="ps-p">Perf Sentinel uses an <strong>I/O → energy → CO₂ proxy model</strong> to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:</p>
 <ol>
-<li><strong>I/O operations → energy</strong>: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed <code class="ps-ic">ENERGY_PER_IO_OP_KWH</code> constant of <code class="ps-ic">0.0000001 kWh</code> (~0.1 µWh). This is <strong>not measured</strong>: it is an order-of-magnitude approximation.</li>
+<li><strong>I/O operations → energy</strong>: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed <code class="ps-ic">ENERGY_PER_IO_OP_KWH</code> constant of <code class="ps-ic">0.0000001 kWh</code> (~0.1 mWh). This is <strong>not measured</strong>: it is an order-of-magnitude approximation.</li>
 <li><strong>Energy → CO₂</strong>: energy is multiplied by a per-region grid carbon intensity (gCO₂eq/kWh) sourced from Electricity Maps and Cloud Carbon Footprint annual averages (2023-2024), with a per-provider PUE applied (AWS 1.15, GCP 1.09, Azure 1.17, Generic 1.2). The three provider PUEs are not strictly comparable in scope. AWS publishes a global fleet average for calendar year 2024, GCP a global fleet trailing-twelve-month average for 2024, and Azure an FY25 (July 2024 to June 2025) figure for its owned-and-controlled facilities only (leased and colocation are excluded). The cross-window gap is around 12 months and the scope difference is around a few percent of the fleet.</li>
 <li><strong>Embodied carbon (<code class="ps-ic">M</code> in SCI v1.0)</strong>: hardware manufacturing emissions amortized at a configurable default of <code class="ps-ic">0.001 gCO₂/request</code>. Region-independent.</li>
 </ol>
@@ -461,7 +461,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 <p class="ps-p"><strong>What this means for your reports:</strong></p>
 <ul>
 <li>Reports with <code class="ps-ic">default_region = "eu-central-1"</code> (or spans carrying <code class="ps-ic">cloud.region = eu-central-1</code>) and the default <code class="ps-ic">use_hourly_profiles = true</code> show <strong>CO₂ numbers roughly 21% lower</strong> than 0.8.6.</li>
-<li>If you have CI quality gates (<code class="ps-ic">[thresholds] io_waste_ratio_max</code> etc.) calibrated on the old DE hourly numbers, recalibrate after the upgrade.</li>
+<li>No rule in <code class="ps-ic">[thresholds]</code> reads a CO₂ figure: the rules count findings, compare the I/O waste ratio or check the share of analyzable spans. A CI quality gate is therefore not affected. Only a threshold you set yourself on a CO₂ value would need recalibrating.</li>
 </ul>
 <p class="ps-p">A regression test (<code class="ps-ic">de_flat_annual_numerical_regression</code>) pins the flat-annual value, and the profile-vs-annual ±5% invariant is now enforced for every region with no exception.</p>
 <h3 id="what-software-only-attribution-covers" class="ps-h3">What software-only attribution covers</h3>
@@ -493,7 +493,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 </ul>
 <p class="ps-p"><strong>Why the Scaphandre branch does not cover ARM64.</strong> Scaphandre upstream has tracked ARM support in <a href="https://github.com/hubblo-org/scaphandre/issues/35" target="_blank" rel="noopener" class="ps-ext">issue #35</a> since 2020 with no implementation. RAPL is an Intel interface adopted by AMD from kernel 5.11. ARM CPUs have no equivalent that exposes per-package energy counters via <code class="ps-ic">/sys/class/powercap/</code>. The Scaphandre roadmap mentions an "estimation-based sensor" that would work on any architecture, but it remains unimplemented (last upstream activity on the topic: November 2023). On Graviton, Ampere, Apple Silicon and Raspberry Pi, the Scaphandre binary compiles for <code class="ps-ic">aarch64</code> but the RAPL sensor fails at startup. Perf Sentinel now ships two measured-energy sources that work on ARM: <a href="/docs/LIMITATIONS#kepler-precision-bounds">Kepler precision bounds</a> (per-pod measured energy via eBPF) and <a href="/docs/LIMITATIONS#redfish-bmc-precision-bounds">Redfish BMC precision bounds</a> (bare-metal wall-plug power). Both sit ahead of <code class="ps-ic">cloud_specpower</code> in the precedence chain so ARM workloads get a real signal before the stack falls back to the CCF Graviton/Cobalt coefficients (±40%) and then to the I/O proxy.</p>
 <p class="ps-p">On unsupported platforms, the <code class="ps-ic">[green.scaphandre]</code> section is parsed and the scraper spawns, but it will fail to find the endpoint and silently fall back to the proxy model. A single warn-level log line is emitted at first failure so operators notice the misconfiguration.</p>
-<p class="ps-p"><strong>What Scaphandre improves.</strong> The integration replaces the fixed proxy coefficient (0.1 µWh per I/O op) with a <strong>service-level measured value</strong> derived from the actual power consumption of the mapped process over the scrape window. Formula:</p>
+<p class="ps-p"><strong>What Scaphandre improves.</strong> The integration replaces the fixed proxy coefficient (0.1 mWh per I/O op) with a <strong>service-level measured value</strong> derived from the actual power consumption of the mapped process over the scrape window. Formula:</p>
 <div class="ps-code"><pre><code>energy_per_op_kwh = (process_power_watts × scrape_interval_secs) / ops_in_window / 3_600_000</code></pre></div>
 <p class="ps-p">This captures:</p>
 <ul>
@@ -709,7 +709,7 @@ energy_per_op_kwh = (watts / 1000) * (interval_secs / 3600) / ops_in_window</cod
 <li><strong>Search API.</strong> The search mode uses Tempo's <code class="ps-ic">GET /api/search</code> endpoint which may not be available on all Tempo deployments (requires the search feature to be enabled in Tempo).</li>
 </ul>
 <h2 id="gco2eq-energy-constant-legacy-section-kept-for-cross-references" class="ps-h2">gCO2eq energy constant (legacy section, kept for cross-references)</h2>
-<p class="ps-p">The carbon estimation uses a fixed energy constant (<code class="ps-ic">0.1 uWh per I/O operation</code>) as a rough order-of-magnitude approximation. See <strong>Carbon estimates accuracy</strong> above for the complete methodology and disclaimer.</p>
+<p class="ps-p">The carbon estimation uses a fixed energy constant (<code class="ps-ic">0.1 mWh per I/O operation</code>) as a rough order-of-magnitude approximation. See <strong>Carbon estimates accuracy</strong> above for the complete methodology and disclaimer.</p>
 <h2 id="pgstatstatements-ingestion" class="ps-h2">pg_stat_statements ingestion</h2>
 <ul>
 <li><strong>No trace correlation.</strong> <code class="ps-ic">pg_stat_statements</code> data has no <code class="ps-ic">trace_id</code> or <code class="ps-ic">span_id</code>. It cannot be used for per-trace anti-pattern detection (N+1, redundant). It provides complementary hotspot analysis and cross-referencing with trace-based findings.</li>
