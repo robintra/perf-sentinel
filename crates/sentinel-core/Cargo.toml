@@ -36,7 +36,9 @@ serde_path_to_error = "0.1.20"
 # serialized JSON, so a float must parse back to the exact same f64 on
 # verify-hash. The default serde_json parser can shift a value by 1 ULP,
 # breaking the hash of an untampered report. This feature makes parsing exact.
-serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+# `raw_value`: the Jaeger v3 search wraps each OTLP JSON document in
+# `{"result": ...}`, borrowed as raw bytes and handed to the OTLP JSON parser.
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 tracing = "0.1.44"
 thiserror = "2.0.20"
 toml = "1.1.6"

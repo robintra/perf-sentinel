@@ -390,22 +390,39 @@ pub async fn spawn_capture_server(
     tokio::sync::mpsc::Receiver<Vec<u8>>,
     tokio::task::JoinHandle<()>,
 ) {
+    spawn_sequence_server(vec![response]).await
+}
+
+/// [`spawn_capture_server`] for a client that makes several requests:
+/// serves `responses` in order, one per accepted connection, and sends
+/// each raw request on the channel. Every response must close its
+/// connection so the client opens a new one for the next request.
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+pub async fn spawn_sequence_server(
+    responses: Vec<Vec<u8>>,
+) -> (
+    String,
+    tokio::sync::mpsc::Receiver<Vec<u8>>,
+    tokio::task::JoinHandle<()>,
+) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let endpoint = format!("http://{addr}");
-    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(responses.len().max(1));
 
     let handle = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.expect("accept");
-        let mut buf = vec![0u8; 8192];
-        let n = socket.read(&mut buf).await.expect("read");
-        buf.truncate(n);
-        tx.send(buf).await.expect("send captured");
-        socket.write_all(&response).await.expect("write");
-        let _ = socket.shutdown().await;
+        for response in responses {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 8192];
+            let n = socket.read(&mut buf).await.expect("read");
+            buf.truncate(n);
+            tx.send(buf).await.expect("send captured");
+            socket.write_all(&response).await.expect("write");
+            let _ = socket.shutdown().await;
+        }
     });
     (endpoint, rx, handle)
 }

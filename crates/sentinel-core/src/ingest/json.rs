@@ -207,8 +207,9 @@ impl JsonIngest {
     /// omitted-`values` case (empty arrayValue/kvlistValue) is
     /// re-parsed through a normalized Value, so the common case pays
     /// nothing. `convert_otlp_request_counted` sanitizes each event, same
-    /// code path as the daemon listeners.
-    fn ingest_otlp(
+    /// code path as the daemon listeners. The Jaeger v3 search hands each
+    /// unwrapped `result` document to this same function.
+    pub(crate) fn ingest_otlp(
         raw: &[u8],
         grouping_attributes: Option<&[std::sync::Arc<str>]>,
     ) -> Result<(Vec<SpanEvent>, SpanConversionStats), JsonIngestError> {

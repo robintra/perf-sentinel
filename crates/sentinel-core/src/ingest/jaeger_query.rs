@@ -4,9 +4,13 @@
 //!
 //! Unlike Tempo's `/api/search` (returns trace IDs only, each trace
 //! fetched separately), Jaeger's `/api/traces` returns full traces in
-//! the search response, so one HTTP round trip covers the entire
-//! ingestion. The payload shape is shared with the file-mode `jaeger`
+//! the search response, so one search request covers the entire
+//! ingestion (two on Jaeger 2.21, see below). The payload shape is shared with the file-mode `jaeger`
 //! parser: `{"data": [{"traceID": ..., "spans": [...], "processes": {...}}]}`.
+//!
+//! Jaeger 2.21 removed that v1 search and kept the v1 per-trace read. A
+//! search the v1 endpoint answers with 404 is retried through
+//! `/api/v3/traces`, which returns OTLP JSON wrapped in `{"result": ...}`.
 //!
 //! # Security
 //!
@@ -24,6 +28,7 @@ use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
 use crate::ingest::auth_header::AuthHeader;
 use crate::ingest::jaeger::{JaegerExport, convert_jaeger_export};
+use crate::ingest::json::JsonIngest;
 use crate::ingest::lookback::{SearchWindow, WindowError};
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
 
@@ -112,6 +117,24 @@ const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 /// lands in the URL builder.
 const MAX_TRACE_ID_LEN: usize = 128;
 
+/// Cap on the body read back from a v3 search 404. Jaeger's error body is
+/// under a hundred bytes.
+const ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// What a 404 means on a given request.
+#[derive(Clone, Copy)]
+enum NotFound {
+    /// The v1 search: a 404 stays the HTTP error it is, and the search
+    /// reads it as a backend without that endpoint (Jaeger 2.21 and later).
+    Status,
+    /// A per-trace read: the ID is unknown to the backend.
+    Trace,
+    /// The v3 search: Jaeger answers a search that matches nothing with a
+    /// 404 and its own error body. A 404 without that body is a wrong
+    /// endpoint and stays an HTTP error.
+    NoTracesBody,
+}
+
 // ---------------------------------------------------------------
 // HTTP fetch helper
 // ---------------------------------------------------------------
@@ -130,7 +153,7 @@ async fn fetch_json(
     uri: hyper::Uri,
     max_bytes: usize,
     auth: Option<&AuthHeader>,
-    map_404: bool,
+    not_found: NotFound,
     overrun_remedy: &'static str,
 ) -> Result<bytes::Bytes, JaegerQueryError> {
     let run = async {
@@ -152,16 +175,8 @@ async fn fetch_json(
             .map_err(|e| JaegerQueryError::Transport(e.to_string()))?;
 
         let status = resp.status().as_u16();
-        if map_404 && status == 404 {
-            return Err(JaegerQueryError::TraceNotFound(
-                http_client::redact_endpoint(&uri),
-            ));
-        }
         if status != 200 {
-            return Err(JaegerQueryError::HttpStatus {
-                status,
-                url: http_client::redact_endpoint(&uri),
-            });
+            return Err(status_error(resp, &uri, status, not_found).await);
         }
 
         let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
@@ -192,6 +207,49 @@ async fn fetch_json(
     tokio::time::timeout(REQUEST_TIMEOUT, run)
         .await
         .map_err(|_| JaegerQueryError::Timeout)?
+}
+
+/// Map a non-200 answer to its error. A body is read back only for a 404
+/// on the v3 search.
+async fn status_error(
+    resp: hyper::Response<hyper::body::Incoming>,
+    uri: &hyper::Uri,
+    status: u16,
+    not_found: NotFound,
+) -> JaegerQueryError {
+    match (status, not_found) {
+        (404, NotFound::Trace) => {
+            JaegerQueryError::TraceNotFound(http_client::redact_endpoint(uri))
+        }
+        (404, NotFound::NoTracesBody) if is_jaeger_no_traces(resp).await => {
+            JaegerQueryError::NoTracesFound
+        }
+        _ => JaegerQueryError::HttpStatus {
+            status,
+            url: http_client::redact_endpoint(uri),
+        },
+    }
+}
+
+/// Whether a v3 search 404 carries Jaeger's own error body,
+/// `{"error":{"httpCode":404,...}}`, rather than coming from something that
+/// is not a Jaeger query API. The message text is not compared.
+async fn is_jaeger_no_traces(resp: hyper::Response<hyper::body::Incoming>) -> bool {
+    #[derive(serde::Deserialize)]
+    struct ErrorBody {
+        error: ErrorDetail,
+    }
+    #[derive(serde::Deserialize)]
+    struct ErrorDetail {
+        #[serde(rename = "httpCode")]
+        http_code: u16,
+    }
+
+    let limited = http_body_util::Limited::new(resp.into_body(), ERROR_BODY_BYTES);
+    let Ok(body) = http_body_util::BodyExt::collect(limited).await else {
+        return false;
+    };
+    serde_json::from_slice::<ErrorBody>(&body.to_bytes()).is_ok_and(|b| b.error.http_code == 404)
 }
 
 // ---------------------------------------------------------------
@@ -240,6 +298,9 @@ impl<'a> Backend<'a> {
 /// a per-ID `fetch_trace` fanout. The name is kept symmetric with
 /// `tempo::search_traces` even though the returned type differs.
 ///
+/// A 404 from that v1 search, as Jaeger 2.21 and later answer, triggers one
+/// retry of the same search through `/api/v3/traces`.
+///
 /// # Errors
 ///
 /// Returns `JaegerQueryError::InvalidWindow` before any request is issued
@@ -262,21 +323,52 @@ pub async fn search_and_fetch_traces(
     .await
 }
 
+/// One search, as both API versions ask it. Named fields because the two
+/// bounds are both `u64` and a positional swap would compile.
+struct Search<'a> {
+    service: &'a str,
+    start_ms: u64,
+    end_ms: u64,
+    limit: usize,
+}
+
 async fn search_and_fetch_traces_on(
     backend: &Backend<'_>,
     service: &str,
     window: SearchWindow,
     limit: usize,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    // Resolved once, so a v3 retry asks for the same window as the v1 request.
+    let (start_ms, end_ms) = window.resolve()?;
+    let search = Search {
+        service,
+        start_ms,
+        end_ms,
+        limit,
+    };
+    match search_v1(backend, &search).await {
+        // Jaeger 2.21 removed the v1 search and kept the v1 per-trace read.
+        Err(JaegerQueryError::HttpStatus { status: 404, .. }) => {
+            tracing::info!("Jaeger v1 search answered 404, retrying through the v3 API");
+            search_v3(backend, &search).await
+        }
+        other => other,
+    }
+}
+
+async fn search_v1(
+    backend: &Backend<'_>,
+    search: &Search<'_>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let endpoint = backend.endpoint;
-    let encoded_service = percent_encode_query_value(service);
+    let encoded_service = percent_encode_query_value(search.service);
     // Both window kinds send explicit bounds, in the microseconds this API
     // counts in. `lookback` is not sent: Victoria Traces reads it only on
     // its service-graph endpoint, never on this search, so a relative window
     // sent as `lookback` is dropped and the query runs from the epoch.
-    let (start_ms, end_ms) = window.resolve()?;
-    let start_us = start_ms.saturating_mul(1000);
-    let end_us = end_ms.saturating_mul(1000);
+    let start_us = search.start_ms.saturating_mul(1000);
+    let end_us = search.end_ms.saturating_mul(1000);
+    let limit = search.limit;
     let uri_str = format!(
         "{endpoint}/api/traces?service={encoded_service}&start={start_us}&end={end_us}&limit={limit}"
     );
@@ -289,7 +381,7 @@ async fn search_and_fetch_traces_on(
         uri,
         backend.max_bytes,
         backend.auth,
-        false,
+        NotFound::Status,
         crate::ingest::SEARCH_OVERRUN_REMEDY,
     )
     .await?;
@@ -310,6 +402,81 @@ async fn search_and_fetch_traces_on(
         events = events.len(),
         "Jaeger search returned traces"
     );
+    Ok(events)
+}
+
+/// The v3 search, for Jaeger 2.21 and later: RFC 3339 bounds, the trace cap
+/// as `search_depth`, OTLP JSON back.
+async fn search_v3(
+    backend: &Backend<'_>,
+    search: &Search<'_>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    let endpoint = backend.endpoint;
+    let encoded_service = percent_encode_query_value(search.service);
+    let min = crate::time::millis_to_iso8601(search.start_ms);
+    let max = crate::time::millis_to_iso8601(search.end_ms);
+    let limit = search.limit;
+    let uri_str = format!(
+        "{endpoint}/api/v3/traces?query.service_name={encoded_service}\
+         &query.start_time_min={min}&query.start_time_max={max}&query.search_depth={limit}"
+    );
+    let uri: hyper::Uri = uri_str
+        .parse()
+        .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
+
+    let body = fetch_json(
+        backend.client,
+        uri,
+        backend.max_bytes,
+        backend.auth,
+        NotFound::NoTracesBody,
+        crate::ingest::SEARCH_OVERRUN_REMEDY,
+    )
+    .await?;
+
+    let events = convert_v3_results(&body, backend.grouping_attributes)?;
+    let traces = events
+        .iter()
+        .map(|e| e.trace_id.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    tracing::info!(
+        traces,
+        events = events.len(),
+        "Jaeger v3 search returned traces"
+    );
+    Ok(events)
+}
+
+/// One message of the v3 search stream: an OTLP JSON document wrapped in
+/// `result`. Jaeger 2.21 merges every trace into one message, the loop below
+/// also reads several in a row, as a gateway streaming the search sends them.
+#[derive(serde::Deserialize)]
+struct V3Result<'a> {
+    #[serde(borrow)]
+    result: &'a serde_json::value::RawValue,
+}
+
+/// Unwrap every `result` and convert it through the OTLP JSON parser, the
+/// same one file input uses, protojson shape repairs included. An answer
+/// with no message carries no trace, like an empty v1 `data`.
+fn convert_v3_results(
+    body: &[u8],
+    grouping_attributes: Option<&[Arc<str>]>,
+) -> Result<Vec<SpanEvent>, JaegerQueryError> {
+    let mut events = Vec::new();
+    let mut messages = 0_usize;
+    for message in serde_json::Deserializer::from_slice(body).into_iter::<V3Result<'_>>() {
+        let message = message.map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
+        let (converted, _) =
+            JsonIngest::ingest_otlp(message.result.get().as_bytes(), grouping_attributes)
+                .map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
+        events.extend(converted);
+        messages += 1;
+    }
+    if messages == 0 {
+        return Err(JaegerQueryError::NoTracesFound);
+    }
     Ok(events)
 }
 
@@ -344,7 +511,7 @@ async fn fetch_trace_on(
         uri,
         backend.max_bytes,
         backend.auth,
-        true,
+        NotFound::Trace,
         crate::ingest::TRACE_OVERRUN_REMEDY,
     )
     .await?;
@@ -500,6 +667,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::{
         http_200_text, http_status, spawn_capture_server, spawn_one_shot_server,
+        spawn_sequence_server,
     };
     use core::assert_matches;
 
@@ -657,6 +825,138 @@ mod tests {
         .expect_err("malformed JSON must surface JsonParse");
         assert_matches!(err, JaegerQueryError::JsonParse(_));
         server.await.expect("server join");
+    }
+
+    // --- v3 search fallback (Jaeger 2.21 and later) ---
+    //
+    // Jaeger 2.21 removed the v1 search (`/api/traces?service=` answers 404)
+    // and kept the v1 per-trace read. The search then goes through
+    // `/api/v3/traces`, which answers OTLP JSON wrapped in `result`.
+
+    /// A v3 search message in the shape `jaegertracing/jaeger:2.21.0` sends:
+    /// OTLP JSON wrapped in `result`, span kind as an integer, empty `status`.
+    const SAMPLE_V3_RESULT: &str = r#"{"result":{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"order-svc"}}]},"scopeSpans":[{"scope":{"name":"probe"},"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b175","name":"SELECT","kind":3,"startTimeUnixNano":"1720621921123000000","endTimeUnixNano":"1720621921124200000","attributes":[{"key":"db.statement","value":{"stringValue":"SELECT 1"}},{"key":"db.system","value":{"stringValue":"postgresql"}}],"status":{}}]}]}]}}"#;
+
+    /// The body Jaeger 2.21 sends with the 404 of a v3 search that matches
+    /// nothing.
+    const V3_NO_TRACES: &str = r#"{"error":{"httpCode":404,"message":"No traces found"}}"#;
+
+    fn http_404_json(body: &str) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 404 Not Found\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\
+             \r\n\
+             {body}",
+            body.len()
+        )
+        .into_bytes()
+    }
+
+    /// Runs a search against a backend whose v1 search answers 404, as
+    /// Jaeger 2.21 does, then `v3_response`. Returns the outcome and the
+    /// request lines the backend saw. The server is not awaited forever: a
+    /// client that never sends the second request must fail the test, not
+    /// hang it.
+    async fn search_with_v1_gone(
+        v3_response: Vec<u8>,
+    ) -> (Result<Vec<SpanEvent>, JaegerQueryError>, Vec<String>) {
+        let (endpoint, mut requests, server) =
+            spawn_sequence_server(vec![http_status(404, "Not Found"), v3_response]).await;
+        let client = http_client::build_client();
+        let result = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            SearchWindow::Absolute {
+                start_ms: 1_787_838_000_000,
+                end_ms: 1_787_839_200_500,
+            },
+            10,
+            None,
+        )
+        .await;
+        if let Ok(joined) = tokio::time::timeout(Duration::from_secs(5), server).await {
+            joined.expect("server join");
+        }
+        let mut seen = Vec::new();
+        while let Ok(raw) = requests.try_recv() {
+            let text = String::from_utf8_lossy(&raw).into_owned();
+            seen.push(text.lines().next().unwrap_or_default().to_string());
+        }
+        (result, seen)
+    }
+
+    #[tokio::test]
+    async fn a_v1_search_404_falls_back_to_the_v3_search() {
+        let (result, seen) = search_with_v1_gone(http_200_json(SAMPLE_V3_RESULT)).await;
+        let events = result.expect("the v3 search must succeed");
+        assert_eq!(events.len(), 1);
+        assert_eq!(&*events[0].service, "order-svc");
+        assert_eq!(seen.len(), 2, "requests seen: {seen:?}");
+        assert!(seen[0].starts_with("GET /api/traces?"), "got: {seen:?}");
+        assert!(seen[1].starts_with("GET /api/v3/traces?"), "got: {seen:?}");
+    }
+
+    /// The v3 API takes RFC 3339 bounds and names the trace cap
+    /// `search_depth`. The same window as the v1 request, resolved once.
+    #[tokio::test]
+    async fn the_v3_search_sends_rfc3339_bounds_and_the_trace_cap() {
+        let (_, seen) = search_with_v1_gone(http_200_json(SAMPLE_V3_RESULT)).await;
+        let v3 = seen.get(1).expect("a v3 request");
+        assert!(v3.contains("query.service_name=order-svc&"), "got: {v3}");
+        assert!(
+            v3.contains("&query.start_time_min=2026-08-27T13:40:00.000Z&"),
+            "got: {v3}"
+        );
+        assert!(
+            v3.contains("&query.start_time_max=2026-08-27T14:00:00.500Z&"),
+            "got: {v3}"
+        );
+        assert!(v3.contains("&query.search_depth=10 HTTP/1.1"), "got: {v3}");
+    }
+
+    /// Jaeger 2.21 merges every trace into one `result`, but the v3 search is
+    /// a stream and a gateway may send several messages. Every one counts.
+    #[tokio::test]
+    async fn the_v3_search_reads_every_streamed_result() {
+        let second = SAMPLE_V3_RESULT
+            .replace(
+                "5b8efff798038103d269b633813fc60c",
+                "6c9f0000798038103d269b633813fc6d",
+            )
+            .replace("SELECT 1", "SELECT 2");
+        let body = format!("{SAMPLE_V3_RESULT}\n{second}");
+        let (result, _) = search_with_v1_gone(http_200_json(&body)).await;
+        let events = result.expect("the v3 search must succeed");
+        assert_eq!(events.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_v3_404_with_the_jaeger_error_body_surfaces_no_traces_found() {
+        let (result, _) = search_with_v1_gone(http_404_json(V3_NO_TRACES)).await;
+        assert_matches!(result, Err(JaegerQueryError::NoTracesFound));
+    }
+
+    /// An empty v3 answer carries no trace, like an empty v1 `data`.
+    #[tokio::test]
+    async fn an_empty_v3_answer_surfaces_no_traces_found() {
+        let (result, _) = search_with_v1_gone(http_200_json("")).await;
+        assert_matches!(result, Err(JaegerQueryError::NoTracesFound));
+    }
+
+    /// A backend with neither search answers 404 twice. Without Jaeger's
+    /// error body that is a wrong endpoint, not an empty result.
+    #[tokio::test]
+    async fn a_v3_404_without_the_jaeger_error_body_stays_an_http_error() {
+        let (result, _) = search_with_v1_gone(http_status(404, "Not Found")).await;
+        match result {
+            Err(JaegerQueryError::HttpStatus { status: 404, url }) => {
+                assert!(url.contains("/api/v3/traces"), "got: {url}");
+            }
+            other => panic!("expected HttpStatus 404 on the v3 URL, got {other:?}"),
+        }
     }
 
     #[tokio::test]
