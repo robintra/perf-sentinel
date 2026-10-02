@@ -50,7 +50,7 @@ The following components are in scope for security reports:
 - The `perf-sentinel` binary and all its subcommands.
 - The `perf-sentinel-core` library crate.
 - Network listeners: OTLP gRPC (port 4317), OTLP HTTP, `/metrics`, `/health`, and the query API endpoints (`/api/*`).
-- Opt-in outbound connections: the energy scrapers (Scaphandre, Kepler, Redfish, cloud energy AWS/GCP/Azure, Electricity Maps) and the pull-based ingesters (Tempo, Jaeger query API, pg_stat via Prometheus).
+- Opt-in outbound connections: the energy scrapers (Alumet, Scaphandre, Kepler, Redfish, cloud energy AWS/GCP/Azure, Electricity Maps), the pull-based ingesters (Tempo, Jaeger query API, pg_stat via Prometheus), the findings push to PerfSentinelHub (`[daemon.hub_export]`) and the `verify-hash --url` fetch.
 - Configuration file parsing (`.perf-sentinel.toml`).
 - SARIF, JSON, OpenMetrics, HTML dashboard and NDJSON archive output.
 - Docker images published to Docker Hub (`robintrassard/perf-sentinel`) and GHCR (`ghcr.io/robintra/perf-sentinel`).
@@ -70,18 +70,18 @@ The following scans run in CI:
 - **Clippy with pedantic lints** plus SARIF upload to GitHub Code Scanning: every CI run. Catches logic and API-design issues.
 - **CodeQL** (Rust dataflow and taint analysis): runs on push, pull requests and a weekly schedule, with results uploaded to GitHub Code Scanning. Adds cross-function taint tracking (path/SQL/regex injection, crypto misuse, log injection) that the Clippy and SonarCloud passes do not cover. See `.github/workflows/codeql.yml`.
 - **Trivy** (container image vulnerabilities): runs on every release tag before the image is pushed to GHCR or Docker Hub, and blocks the release on `HIGH` or `CRITICAL` findings. `ignore-unfixed` is enabled so unpatched upstream CVEs do not block the release. SARIF output is uploaded to GitHub Code Scanning.
-- **Gitleaks** (secret scan): runs on every push and pull request, scanning the full git history with the default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.) extended by a repo-local allowlist (`.gitleaks.toml`).
+- **Gitleaks** (secret scan): runs on every pull request opened from this repository and on every push that starts the CI workflow (a push that touches only prose does not), scanning the full git history with the default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.) extended by a repo-local allowlist (`.gitleaks.toml`).
 - **SonarCloud** (code quality and security hotspots): runs when a `SONAR_TOKEN` secret is available, skipped on Dependabot PRs that do not receive repo secrets.
 
 ## Security-relevant design choices
 
 The following choices are deliberate and documented:
 
-- **Default bind to `127.0.0.1`**: the daemon never listens on all interfaces by default.
+- **Default bind to `127.0.0.1`**: the daemon never listens on all interfaces by default. The Helm chart sets `0.0.0.0` inside the pod, where access control moves to the Service and the optional NetworkPolicy.
 - **Payload size limits**: JSON/OTLP payloads are bounded (`max_payload_size`, default 16 MiB).
 - **Memory-pressure admission control**: opt-in via `[daemon] memory_high_water_pct`. Under memory pressure the OTLP listeners shed load with retryable `503`/`UNAVAILABLE` responses, counted on `perf_sentinel_otlp_rejected_total{reason="memory_pressure"}`.
 - **No default outbound network**: scrapers are opt-in and only connect to explicitly configured endpoints.
-- **Credentials rejected at config load**: endpoint URLs containing `user:pass@` are rejected with a clear error. Secrets must come from environment variables.
+- **Credentials rejected at config load**: endpoint URLs containing `user:pass@` are rejected with a clear error. Secrets belong in environment variables, which take precedence over the config file. A key written in the config file is still accepted.
 - **Log redaction**: credentials are redacted in all scraper logs via `redact_endpoint`.
 - **TLS for OTLP listeners**: opt-in via `[daemon.tls]`. The recommended production pattern remains a reverse proxy (envoy, nginx) for broader TLS feature coverage.
 - **Disclosure report integrity**: `disclose` bakes a canonical SHA-256 `content_hash` into the published report, and `verify-hash` recomputes it and delegates signature and provenance checks to `cosign verify-blob` and `gh attestation verify`.
@@ -93,4 +93,4 @@ The following choices are deliberate and documented:
 - **HTML dashboard: deep-link hash allowlist**: keys accepted from the URL fragment are restricted to `search`, `ranking`, `severity`, `service`. A hostile hash like `#x&__proto__=y` cannot pollute internal state.
 - **HTML dashboard: self-contained output**: the generated file has no `<link rel="stylesheet">`, no `<script src="...">`, no web fonts, no images, no CDN. It loads offline from a `file://` URL with zero network requests, which makes it trivially auditable and removes any supply-chain vector through bundled resources.
 
-See `docs/LIMITATIONS.md` (EN) and `docs/FR/LIMITATIONS-FR.md` (FR) for the full threat model and operational caveats.
+See `docs/LIMITATIONS.md` (EN) and `docs/FR/LIMITATIONS-FR.md` (FR) for the full threat model and operational caveats, and `docs/SECURITY-OVERVIEW.md` for a consolidated view aimed at a security review.

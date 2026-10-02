@@ -9,7 +9,7 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 | Document                                       | Description                                                                                |
 |------------------------------------------------|--------------------------------------------------------------------------------------------|
 | [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        |
-| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP          |
+| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP |
 | [CI-FR.md](CI-FR.md)                           | Mode CI, recettes GitHub Actions / GitLab CI / Jenkins, détection de régression sur PR     |
 
 ## Déploiement
@@ -23,7 +23,7 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 
 | Document                                   | Description                                                                                                               |
 |--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| [CONFIGURATION-FR.md](CONFIGURATION-FR.md) | Référence complète `.perf-sentinel.toml` (seuils, détection, GreenOps, énergie broker, daemon)                                            |
+| [CONFIGURATION-FR.md](CONFIGURATION-FR.md) | Référence complète `.perf-sentinel.toml` (seuils, détection, GreenOps, énergie broker, daemon)                            |
 | [CLI-FR.md](CLI-FR.md)                     | Référence des sous-commandes (`analyze`, `watch`, `report`, `diff`, `query`, `ack`, `inspect`, `disclose`, `verify-hash`) |
 | [METRICS-FR.md](METRICS-FR.md)             | Métriques Prometheus exposées par le daemon sur `/metrics`                                                                |
 | [QUERY-API-FR.md](QUERY-API-FR.md)         | API HTTP du daemon (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                          |
@@ -42,29 +42,30 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 
 ## Exploitation
 
-| Document                               | Description                                                                                                           |
-|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| [RUNBOOK-FR.md](RUNBOOK-FR.md)         | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production                                   |
-| [ENERGY-FR.md](ENERGY-FR.md)           | Synthèse vulgarisée : comment les comptages deviennent des kWh et des gCO2, par option configurée, avec les sources |
-| [METHODOLOGY-FR.md](METHODOLOGY-FR.md) | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`                                   |
-| [INSTANCE-TYPES-FR.md](INSTANCE-TYPES-FR.md) | Tous les `instance_type` portant un profil de puissance embarqué, avec leurs watts repos et max              |
-| [LIMITATIONS-FR.md](LIMITATIONS-FR.md) | Compromis connus, contraintes amont, limites de la détection                                                          |
+| Document                                     | Description                                                                                                         |
+|----------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| [RUNBOOK-FR.md](RUNBOOK-FR.md)               | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production                                 |
+| [ENERGY-FR.md](ENERGY-FR.md)                 | Synthèse vulgarisée : comment les comptages deviennent des kWh et des gCO2, par option configurée, avec les sources |
+| [METHODOLOGY-FR.md](METHODOLOGY-FR.md)       | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`                                 |
+| [INSTANCE-TYPES-FR.md](INSTANCE-TYPES-FR.md) | Tous les `instance_type` portant un profil de puissance embarqué, avec leurs watts repos et max                     |
+| [LIMITATIONS-FR.md](LIMITATIONS-FR.md)       | Compromis connus, contraintes amont, limites de la détection                                                        |
 
-## Chaîne d'approvisionnement et release
+## Sécurité, chaîne d'approvisionnement et release
 
-| Document                                           | Description                                                                                 |
-|----------------------------------------------------|---------------------------------------------------------------------------------------------|
-| [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md)           | Épinglage des entrées de build, signature Sigstore, provenance SLSA, chaîne `verify-hash`   |
-| [RELEASE-PROCEDURE-FR.md](RELEASE-PROCEDURE-FR.md) | Procédure de release de bout en bout depuis la 0.7.0, gate lab de simulation, lockstep Helm |
+| Document                                           | Description                                                                                                                       |
+|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| [SECURITY-OVERVIEW-FR.md](SECURITY-OVERVIEW-FR.md) | Vue d'ensemble pour une revue de sécurité : flux réseau, contrôle d'accès, données stockées, durcissement, intégrité des releases |
+| [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md)           | Épinglage des entrées de build, signature Sigstore, provenance SLSA, chaîne `verify-hash`                                         |
+| [RELEASE-PROCEDURE-FR.md](RELEASE-PROCEDURE-FR.md) | Procédure de release de bout en bout depuis la 0.7.0, gate lab de simulation, lockstep Helm                                       |
 
 ## Sous-répertoires
 
-| Répertoire                         | Contenu                                                                            |
-|------------------------------------|------------------------------------------------------------------------------------|
-| [`design/`](design/00-INDEX-FR.md) | Documentation de conception approfondie (10 chapitres), destinée aux contributeurs |
-| [`FR/`](00-INDEX-FR.md)            | Miroir français de tous les documents                                              |
-| [`ci-templates/`](../ci-templates/) | Fichiers d'extraits CI référencés par `CI.md`                                     |
-| [`schemas/`](../schemas/)          | Schéma JSON et exemples pour le rapport de divulgation                             |
-| [`diagrams/`](../diagrams/)        | Diagrammes d'architecture                                                          |
-| [`examples/`](../examples/)        | Exemples de configurations et de sorties                                           |
-| [`img/`](../img/)                  | GIF et PNG de terminal générés (scripts VHS), plus les captures du dashboard Grafana sous `img/grafana/` |
+| Répertoire                          | Contenu                                                                                                  |
+|-------------------------------------|----------------------------------------------------------------------------------------------------------|
+| [`design/`](design/00-INDEX-FR.md)  | Documentation de conception approfondie (10 chapitres), destinée aux contributeurs                       |
+| [`FR/`](00-INDEX-FR.md)             | Miroir français de tous les documents                                                                    |
+| [`ci-templates/`](../ci-templates/) | Fichiers d'extraits CI référencés par `CI.md`                                                            |
+| [`schemas/`](../schemas/)           | Schéma JSON et exemples pour le rapport de divulgation                                                   |
+| [`diagrams/`](../diagrams/)         | Diagrammes d'architecture                                                                                |
+| [`examples/`](../examples/)         | Exemples de configurations et de sorties                                                                 |
+| [`img/`](../img/)                   | GIF et PNG de terminal générés (scripts VHS), plus les captures du dashboard Grafana sous `img/grafana/` |

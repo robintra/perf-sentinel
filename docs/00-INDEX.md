@@ -6,11 +6,11 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 ## Getting started
 
-| Document                                 | Description                                                                       |
-|------------------------------------------|-----------------------------------------------------------------------------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                             |
-| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP         |
-| [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection    |
+| Document                                 | Description                                                                        |
+|------------------------------------------|------------------------------------------------------------------------------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                              |
+| [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust, Ruby, PHP |
+| [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection     |
 
 ## Deployment
 
@@ -23,7 +23,7 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 | Document                             | Description                                                                                                       |
 |--------------------------------------|-------------------------------------------------------------------------------------------------------------------|
-| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, broker energy, daemon)                                    |
+| [CONFIGURATION.md](CONFIGURATION.md) | Full `.perf-sentinel.toml` reference (thresholds, detection, GreenOps, broker energy, daemon)                     |
 | [CLI.md](CLI.md)                     | Subcommand reference (`analyze`, `watch`, `report`, `diff`, `query`, `ack`, `inspect`, `disclose`, `verify-hash`) |
 | [METRICS.md](METRICS.md)             | Prometheus metrics exposed by the daemon on `/metrics`                                                            |
 | [QUERY-API.md](QUERY-API.md)         | Daemon HTTP API (`/api/findings`, `/api/correlations`, `/api/explain/{trace}`, `/api/status`)                     |
@@ -42,29 +42,30 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 ## Operations
 
-| Document                         | Description                                                                                   |
-|----------------------------------|-----------------------------------------------------------------------------------------------|
-| [RUNBOOK.md](RUNBOOK.md)         | Incident runbook: symptom-driven troubleshooting for production deployments                   |
-| [ENERGY.md](ENERGY.md)           | Plain-language synthesis: how counts become kWh and gCO2, per configured option, with sources |
-| [METHODOLOGY.md](METHODOLOGY.md) | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`           |
+| Document                               | Description                                                                                   |
+|----------------------------------------|-----------------------------------------------------------------------------------------------|
+| [RUNBOOK.md](RUNBOOK.md)               | Incident runbook: symptom-driven troubleshooting for production deployments                   |
+| [ENERGY.md](ENERGY.md)                 | Plain-language synthesis: how counts become kWh and gCO2, per configured option, with sources |
+| [METHODOLOGY.md](METHODOLOGY.md)       | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq`           |
 | [INSTANCE-TYPES.md](INSTANCE-TYPES.md) | Every `instance_type` carrying an embedded power profile, with its idle and max wattage       |
-| [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries                                  |
+| [LIMITATIONS.md](LIMITATIONS.md)       | Known trade-offs, upstream constraints, detection boundaries                                  |
 
-## Supply chain and release
+## Security, supply chain and release
 
-| Document                                     | Description                                                                         |
-|----------------------------------------------|-------------------------------------------------------------------------------------|
-| [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md)           | Build input pinning, Sigstore signing, SLSA provenance, `verify-hash` chain         |
-| [RELEASE-PROCEDURE.md](RELEASE-PROCEDURE.md) | End-to-end release procedure from 0.7.0 onwards, simulation-lab gate, Helm lockstep |
+| Document                                     | Description                                                                                        |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------|
+| [SECURITY-OVERVIEW.md](SECURITY-OVERVIEW.md) | Security review overview: network flows, access control, stored data, hardening, release integrity |
+| [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md)           | Build input pinning, Sigstore signing, SLSA provenance, `verify-hash` chain                        |
+| [RELEASE-PROCEDURE.md](RELEASE-PROCEDURE.md) | End-to-end release procedure from 0.7.0 onwards, simulation-lab gate, Helm lockstep                |
 
 ## Sub-directories
 
-| Directory                        | Contents                                                    |
-|----------------------------------|-------------------------------------------------------------|
-| [`design/`](design/00-INDEX.md)  | Deep design documentation (10 chapters), contributor-facing |
-| [`FR/`](FR/00-INDEX-FR.md)       | French mirror of all documents                              |
-| [`ci-templates/`](ci-templates/) | CI snippet files referenced by `CI.md`                      |
-| [`schemas/`](schemas/)           | JSON Schema and examples for the disclosure report          |
-| [`diagrams/`](diagrams/)         | Architecture diagrams                                       |
-| [`examples/`](examples/)         | Example configurations and outputs                          |
+| Directory                        | Contents                                                                                               |
+|----------------------------------|--------------------------------------------------------------------------------------------------------|
+| [`design/`](design/00-INDEX.md)  | Deep design documentation (10 chapters), contributor-facing                                            |
+| [`FR/`](FR/00-INDEX-FR.md)       | French mirror of all documents                                                                         |
+| [`ci-templates/`](ci-templates/) | CI snippet files referenced by `CI.md`                                                                 |
+| [`schemas/`](schemas/)           | JSON Schema and examples for the disclosure report                                                     |
+| [`diagrams/`](diagrams/)         | Architecture diagrams                                                                                  |
+| [`examples/`](examples/)         | Example configurations and outputs                                                                     |
 | [`img/`](img/)                   | Generated terminal GIFs and PNGs (VHS tapes), plus the Grafana dashboard captures under `img/grafana/` |

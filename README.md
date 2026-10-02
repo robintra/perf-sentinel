@@ -357,9 +357,9 @@ Live operator monitor over a running daemon, for DevOps / SRE, six Tab-cycled ta
 
 ### Data handling
 
-Perf Sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only. SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
+Perf Sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only. SQL literals become `?`, numeric and UUID path segments become `{id}` and `{uuid}`, the query string is dropped, and the values are reduced to a distinct-params *count*. Text in double quotes, SQL comments and other path segments stay as they are, see [docs/LIMITATIONS.md](docs/LIMITATIONS.md#sql-tokenizer).
 
-The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
+The daemon binds to `127.0.0.1` by default, and the Helm chart binds `0.0.0.0` inside the pod. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md), and a consolidated view for a security review in [docs/SECURITY-OVERVIEW.md](docs/SECURITY-OVERVIEW.md).
 
 ## Performance
 
@@ -618,7 +618,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ## Supply chain
 
-Every GitHub Action is pinned to a 40-character commit SHA, the production image is `FROM scratch`, `Cargo.lock` is committed and audited daily by `cargo audit`, and workflow `GITHUB_TOKEN` permissions default to `contents: read`. Dependabot opens weekly grouped PRs. Release binaries ship SLSA Build L3 provenance (Sigstore + Rekor) and embedded `cargo-auditable` dependency data (`cargo audit bin`), and every release ships an SPDX SBOM attested under the SPDX predicate. Full policy and verification commands: [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+Every GitHub Action is pinned to a 40-character commit SHA, the production image is `FROM scratch`, `Cargo.lock` is committed and audited daily by `cargo audit`, and workflow `GITHUB_TOKEN` permissions default to `contents: read`. Dependabot opens weekly grouped PRs. Release binaries ship SLSA build provenance (GitHub attestations, Sigstore + Rekor) and embedded `cargo-auditable` dependency data (`cargo audit bin`), and every release ships an SPDX SBOM attested under the SPDX predicate. Full policy and verification commands: [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
 ## Releasing
 
