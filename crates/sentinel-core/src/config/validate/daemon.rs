@@ -118,7 +118,7 @@ impl Config {
         if !self.daemon_is_loopback() {
             tracing::warn!(
                 "Daemon configured to listen on non-loopback address: {}. \
-                 OTLP ingest, /metrics and the read endpoints are never \
+                 OTLP ingest, /metrics and most read endpoints are never \
                  authenticated. Put a reverse proxy or a network policy in front.",
                 self.daemon.listen_addr
             );
