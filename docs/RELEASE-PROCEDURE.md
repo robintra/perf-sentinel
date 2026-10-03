@@ -200,10 +200,12 @@ After the gate passes:
 
 ```bash
 git checkout main
-git merge release/X.Y.Z --no-ff -m "Merge release/X.Y.Z"
+git merge --ff-only release/X.Y.Z
 git tag -s vX.Y.Z -m "vX.Y.Z"
 git push origin main vX.Y.Z
 ```
+
+`main` requires a linear history and signed commits, so the release lands as a fast-forward. If `main` moved since the branch was cut, rebase the branch on it locally first, which re-signs every commit. GitHub's rebase merge and its Update branch button drop the signatures.
 
 The tag push triggers `.github/workflows/release.yml`. Its first job re-runs `scripts/check-tag-version.sh` as a sanity gate, then the build matrix produces binaries. The publish job pushes to crates.io strictly (no soft fallback on rate-limit), and the docker job scans the image with Trivy (hard exit on HIGH or CRITICAL) before pushing the multi-arch manifest to GHCR and Docker Hub.
 

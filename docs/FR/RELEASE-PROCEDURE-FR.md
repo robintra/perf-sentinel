@@ -204,10 +204,12 @@ Après que le gate passe :
 
 ```bash
 git checkout main
-git merge release/X.Y.Z --no-ff -m "Merge release/X.Y.Z"
+git merge --ff-only release/X.Y.Z
 git tag -s vX.Y.Z -m "vX.Y.Z"
 git push origin main vX.Y.Z
 ```
+
+`main` exige un historique linéaire et des commits signés, donc la release arrive en avance rapide. Si `main` a bougé depuis la création de la branche, rebasez d'abord la branche dessus en local, ce qui re-signe chaque commit. La fusion par rebase de GitHub et son bouton Update branch retirent les signatures.
 
 Le push du tag déclenche `.github/workflows/release.yml`. Son premier job relance `scripts/check-tag-version.sh` comme gate de vérification, puis la matrice de build produit les binaires. Le job de publication pousse vers crates.io strictement (pas de repli souple en cas de rate-limit), et le job docker scanne l'image avec Trivy (échec bloquant sur HIGH ou CRITICAL) avant de pousser le manifest multi-arch sur GHCR et Docker Hub.
 
