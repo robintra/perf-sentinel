@@ -248,7 +248,7 @@
 <li>CodeQL, SonarCloud, Trivy, OSV-Scanner, Gitleaks, TruffleHog et OpenSSF Scorecard tournent en CI.</li>
 </ul>
 <p class="ps-p">L'image poussée sur GHCR n'est pas signée dans le registre : vérifiez les artefacts de release comme le décrit la <a href="https://github.com/robintra/PerfSentinelHub/blob/main/RELEASING.md" target="_blank" rel="noopener" class="ps-ext">procédure de release du Hub</a>.</p>
-<p class="ps-p">Le dépôt du moteur n'a aujourd'hui aucun ensemble de règles et n'exige pas de commits signés sur sa branche principale. Le dépôt du Hub les exige par son ensemble de règles <code class="ps-ic">Protect default branch</code>, que le rôle Administrateur peut contourner. Les tags de release sont signés sur les deux.</p>
+<p class="ps-p">Les deux dépôts exigent des commits signés sur leur branche principale, le moteur par sa protection de branche et le Hub par son ensemble de règles <code class="ps-ic">Protect default branch</code>. Sur les deux, le rôle Administrateur peut contourner la règle. Sur le moteur, les commits fusionnés avant le 3 octobre 2026 ont été réécrits par la fusion par rebase de GitHub et ne portent pas de signature. Les tags de release sont signés sur les deux.</p>
 <h2 id="signaler-une-vulnérabilité" class="ps-h2">Signaler une vulnérabilité</h2>
 <p class="ps-p">Les deux projets reçoivent les signalements par le signalement privé de vulnérabilités de GitHub.</p>
 <ul>

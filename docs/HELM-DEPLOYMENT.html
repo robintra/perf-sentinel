@@ -415,6 +415,18 @@
       - matchLabels:
           app.kubernetes.io/name: otel-collector</code></pre></div>
 <p class="ps-p">The two selector lists are OR-ed: an ingress source matching any entry in either list is allowed. Leave a list empty to skip that match dimension.</p>
+<p class="ps-p">The lists directly under <code class="ps-ic">ingress</code> open both ports. Port 4318 also serves <code class="ps-ic">/metrics</code>, <code class="ps-ic">/health</code> and the query API, which returns your SQL templates and accepts ack writes, so a collector that only sends OTLP gRPC is better placed under <code class="ps-ic">otlpGrpc</code>, which opens 4317 alone. <code class="ps-ic">http</code> opens 4318 alone, for Prometheus, PerfSentinelHub or Grafana. Each takes the same two lists, and the three sets add up.</p>
+<div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">networkPolicy</span>:
+<span style="color:var(--code-sub)">  enabled</span>: true
+<span style="color:var(--code-sub)">  ingress</span>:
+<span style="color:var(--code-sub)">    otlpGrpc</span>:
+<span style="color:var(--code-sub)">      fromPodSelectors</span>:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector
+<span style="color:var(--code-sub)">    http</span>:
+<span style="color:var(--code-sub)">      fromNamespaceSelectors</span>:
+        - matchLabels:
+            kubernetes.io/metadata.name: monitoring</code></pre></div>
 <h3 id="ingress" class="ps-h3">Ingress</h3>
 <p class="ps-p">The chart can render an <code class="ps-ic">Ingress</code> in front of the Service. It is off by default, and that default is a security decision rather than a packaging one: Perf Sentinel has no embedded IAM, so publishing it puts an unauthenticated API on the network. Anyone who reaches the host can POST OTLP traces, read <code class="ps-ic">/api/findings</code> (your SQL templates and endpoint names) and call the ack write endpoints. The chart's threat model is a non-exposed cluster network bounded by the Service and the optional NetworkPolicy.</p>
 <p class="ps-p">Two postures are supported. <strong>Internal-only</strong> is the simpler one: the Ingress uses a controller that is itself unreachable from outside your network, and the NetworkPolicy allows that controller's pods. The boundary becomes the controller's own exposure, so verify that assumption rather than inherit it, since a shared controller often carries a public listener alongside the internal one. <strong>Authenticated</strong> is required as soon as the host resolves beyond that: put an SSO proxy in front, either as the Ingress backend or as a controller auth annotation, per <a href="/docs/HELM-DEPLOYMENT#daemon-ack-runtime-store">the SSO proxy and shared-key options</a>. Only the SSO path yields a per-person audit <code class="ps-ic">by</code> on acknowledgments. The shared key gates ack writes and <code class="ps-ic">GET /api/acks</code>, and leaves the findings reads open.</p>

@@ -415,6 +415,18 @@
       - matchLabels:
           app.kubernetes.io/name: otel-collector</code></pre></div>
 <p class="ps-p">Les deux listes de sélecteurs sont combinées en OU : une source d'ingress qui correspond à n'importe quelle entrée de l'une ou l'autre liste est autorisée. Laissez une liste vide pour ignorer cette dimension de correspondance.</p>
+<p class="ps-p">Les listes placées directement sous <code class="ps-ic">ingress</code> ouvrent les deux ports. Le port 4318 sert aussi <code class="ps-ic">/metrics</code>, <code class="ps-ic">/health</code> et l'API de requêtage, qui renvoie vos templates SQL et accepte l'écriture des acks. Un collecteur qui n'envoie que de l'OTLP gRPC a donc sa place sous <code class="ps-ic">otlpGrpc</code>, qui n'ouvre que le 4317. <code class="ps-ic">http</code> n'ouvre que le 4318, pour Prometheus, PerfSentinelHub ou Grafana. Chacun prend les deux mêmes listes, et les trois ensembles s'additionnent.</p>
+<div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">networkPolicy</span>:
+<span style="color:var(--code-sub)">  enabled</span>: true
+<span style="color:var(--code-sub)">  ingress</span>:
+<span style="color:var(--code-sub)">    otlpGrpc</span>:
+<span style="color:var(--code-sub)">      fromPodSelectors</span>:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector
+<span style="color:var(--code-sub)">    http</span>:
+<span style="color:var(--code-sub)">      fromNamespaceSelectors</span>:
+        - matchLabels:
+            kubernetes.io/metadata.name: monitoring</code></pre></div>
 <h3 id="ingress" class="ps-h3">Ingress</h3>
 <p class="ps-p">Le chart peut rendre un <code class="ps-ic">Ingress</code> devant le Service. Il est désactivé par défaut, et ce défaut est une décision de sécurité plutôt que d'empaquetage : Perf Sentinel n'embarque pas d'IAM, donc le publier met une API non authentifiée sur le réseau. Quiconque atteint l'hôte peut envoyer des traces OTLP en POST, lire <code class="ps-ic">/api/findings</code> (vos templates SQL et vos noms d'endpoints) et appeler les endpoints d'écriture d'ack. Le modèle de menace du chart est un réseau de cluster non exposé, borné par le Service et la NetworkPolicy optionnelle.</p>
 <p class="ps-p">Deux postures sont prises en charge. <strong>Interne uniquement</strong> est la plus simple : l'Ingress utilise un contrôleur lui-même injoignable depuis l'extérieur de votre réseau, et la NetworkPolicy autorise les pods de ce contrôleur. La frontière devient l'exposition du contrôleur lui-même, donc vérifiez cette hypothèse au lieu d'en hériter, car un contrôleur partagé porte souvent un écouteur public à côté de l'interne. <strong>Authentifiée</strong> est requise dès que l'hôte se résout au-delà : placez un proxy SSO en frontal, soit comme backend de l'Ingress, soit comme annotation d'auth du contrôleur, selon <a href="/docs/fr/HELM-DEPLOYMENT#store-dacks-runtime-du-daemon">les options proxy SSO et clé partagée</a>. Seul le chemin SSO donne un <code class="ps-ic">by</code> d'audit par personne sur les acquittements. La clé partagée protège les écritures d'ack et <code class="ps-ic">GET /api/acks</code>, et laisse les lectures de findings ouvertes.</p>

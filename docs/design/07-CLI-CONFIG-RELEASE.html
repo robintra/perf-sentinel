@@ -290,7 +290,7 @@
 <p class="ps-p">The non-loopback <code class="ps-ic">listen_addr</code> check emits a warning but does not reject:</p>
 <div class="ps-code"><div class="ps-code-lang">rust</div><pre><code>tracing::<span style="color:var(--code-flag)">warn!</span>(
     "<span style="color:var(--code-sub)">Daemon</span> configured to listen on non-loopback address: {}. \
-     <span style="color:var(--code-sub)">OTLP</span> ingest, /metrics and the read endpoints are never \
+     <span style="color:var(--code-sub)">OTLP</span> ingest, /metrics and most read endpoints are never \
      authenticated. <span style="color:var(--code-sub)">Put</span> a reverse proxy or a network policy <span style="color:var(--code-cmd);font-weight:600">in</span> front.",
     <span style="color:var(--code-cmd);font-weight:600">self</span>.listen_addr
 );</code></pre></div>
