@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <clipPath id="clip-0">
+      <circle style="stroke: rgb(0, 0, 0); paint-order: stroke; stroke-width: 0px; fill: rgb(49, 62, 89);" transform="matrix(1, 0, 0, 1.000003, -777.135235, -378.391162)" cx="1056.22" cy="461.634" r="77.443"/>
+    </clipPath>
+    <symbol id="s_frank" viewBox="0 0 350 350" width="350" height="350">
+      <path d="M 279.498 104.56 L 332.425 49.891 L 279.498 49.891 L 279.498 104.56 Z" fill="#D62D69"/>
+      <path d="M 175 106.663 L 255.546 49.891 L 316.586 49.891 L 316.586 66.14 L 175 212.944 L 30.131 212.944 L 175 106.663 Z" fill="#5A6396"/>
+      <path d="M 0 0 L 175 0 L 175 175.097 L 0 0 Z" fill="#404A84"/>
+      <path d="M 175 175.097 L 350 175.097 L 350 350 L 175 175.097 Z" fill="#404A84"/>
+      <path d="M 350 175.097 L 175 0 L 175 175.097 L 350 175.097 Z" fill="#D1EBFF"/>
+      <path d="M 175 212.944 C 175 211.799 175 104.56 175 104.56 L 316.584 104.56 L 175 212.944 Z" fill="#A8CFF0"/>
+      <path d="M 316.584 104.56 L 316.584 66.14 L 279.498 104.56 L 316.584 104.56 Z" fill="#EFF1FE"/>
+    </symbol>
+  </defs>
+  <g>
+    <circle style="stroke: rgb(0, 0, 0); paint-order: stroke; stroke-width: 0px; fill: rgb(49, 62, 89); pointer-events: none;" transform="matrix(1, 0, 0, 1.000003, -856.218933, -261.635803)" cx="1056.22" cy="461.634" r="199.999"/>
+    <use width="350" height="350" transform="matrix(2.582537, 0, 0, 2.582537, -520.745605, -14.981748)" style="clip-path: url(#clip-0);" xlink:href="#s_frank"/>
+  </g>
+</svg>
