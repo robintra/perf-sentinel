@@ -836,6 +836,7 @@
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
+  @media(max-width:600px){[data-term]>div{white-space:pre;width:max-content}}
   /* Small screens: the comparison stacks by capability, each value under its column name */
   @media(max-width:600px){[data-cmp-head]{display:none!important}[data-cmp-row]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:start!important;gap:8px 16px;padding:14px 16px 16px}[data-cmp-row]>div{padding:0!important}[data-cmp-row]>div:first-child{grid-column:1/-1}[data-cmp-row]>[data-label]{display:grid;grid-row:2/span 2;grid-template-rows:subgrid;row-gap:2px}[data-cmp-row]>[data-label]::before{content:attr(data-label);font-size:12px;font-weight:600;color:var(--text-2)}[data-cmp-row]>[data-label]:last-child::before{color:var(--accent-strong)}}
   /* Small screens: no iframe (the script never sets its src), the finding card plus a button that opens the demo */
@@ -1339,7 +1340,7 @@
             <p style="margin:14px 0 0;font-size:16px;color:#A9D8C6;line-height:1.6">{{ ctaText }}</p>
           </div>
           <div>
-            <div data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
+            <div data-term="" data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
               <div><span style="color:#26CD94">$</span> {{ installCommand }}</div>
               <div><span style="color:#26CD94">$</span> perf-sentinel demo <span style="color:#7FB6A2"># {{ demoCmt1 }}</span></div>
               <div><span style="color:#26CD94">$</span> perf-sentinel demo --tui <span style="color:#7FB6A2"># {{ demoCmt2 }}</span></div>
