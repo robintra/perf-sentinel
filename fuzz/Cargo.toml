@@ -5,6 +5,9 @@
 #   cargo install cargo-fuzz
 #   cargo +nightly fuzz run json_ingest
 #   cargo +nightly fuzz run normalize_sql
+#
+# CI: .github/workflows/fuzz.yml (weekly, and on pull requests touching
+# ingest/, normalize/ or fuzz/).
 
 [package]
 name = "perf-sentinel-fuzz"

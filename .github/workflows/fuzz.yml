@@ -1,0 +1,74 @@
+name: Fuzz
+
+# Runs the cargo-fuzz targets in fuzz/ for a bounded time: weekly on main for
+# depth, and briefly on pull requests that touch a fuzzed surface so a
+# regression shows before merge. A crash fails the job and uploads the
+# reproducer. The corpus is carried between runs in the Actions cache.
+on:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Fuzzing time per target, in seconds'
+        required: false
+        default: '1200'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'fuzz/**'
+      - 'crates/sentinel-core/src/ingest/**'
+      - 'crates/sentinel-core/src/normalize/**'
+      - '.github/workflows/fuzz.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [json_ingest, normalize_sql]
+    env:
+      # cargo-fuzz needs a nightly for -Zsanitizer. Dated so a broken nightly
+      # cannot redden the job, bump it by hand.
+      NIGHTLY: nightly-2026-10-01
+      TARGET: ${{ matrix.target }}
+      FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || inputs.seconds || '1200' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned nightly and cargo-fuzz
+        run: |
+          rustup toolchain install "$NIGHTLY" --profile minimal
+          cargo "+$NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+
+      # One cache entry per run, restored from the newest one, so the corpus
+      # grows from run to run. A crashing run saves nothing.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Fuzz
+        working-directory: fuzz
+        run: cargo "+$NIGHTLY" fuzz run "$TARGET" -- -max_total_time="$FUZZ_SECONDS"
+
+      - name: Upload the crash reproducer
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
