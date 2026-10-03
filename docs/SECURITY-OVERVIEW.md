@@ -106,7 +106,7 @@ Details: [Hub authentication](https://github.com/robintra/PerfSentinelHub/blob/m
 - The core library carries `#![forbid(unsafe_code)]`. The CLI holds four `unsafe` blocks, all `libc` calls (`killpg` to stop a captured process group, `getrusage` for `bench`).
 - On musl, the allocator is `mimalloc`, and the TLS stack (`ring`) includes C and assembly.
 - Clippy runs in pedantic mode with warnings as errors, and CodeQL analyzes the Rust code.
-- The SQL normalizer and the JSON ingest have fuzzing targets in `fuzz/`, run by hand, not in CI.
+- The SQL normalizer and the JSON ingest have fuzzing targets in `fuzz/`. CI runs them for 20 minutes each every week, and for 2 minutes on pull requests that touch them.
 
 **Engine limits.**
 - Payloads are capped at 16 MiB, compressed and decompressed (`max_payload_size`).
