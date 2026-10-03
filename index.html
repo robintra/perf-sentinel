@@ -1326,10 +1326,12 @@
           <h2 style="margin:0;font-size:clamp(26px,3.2vw,34px);font-weight:700;letter-spacing:-.018em;color:#E0F4ED">{{ ctaTitle }}</h2>
           <p style="margin:14px 0 26px;font-size:16px;color:#A9D8C6;line-height:1.6">{{ ctaText }}</p>
           <div data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
+            <div><span style="color:#26CD94">$</span> {{ installCommand }}</div>
             <div><span style="color:#26CD94">$</span> perf-sentinel demo <span style="color:#7FB6A2"># {{ demoCmt1 }}</span></div>
             <div><span style="color:#26CD94">$</span> perf-sentinel demo --tui <span style="color:#7FB6A2"># {{ demoCmt2 }}</span></div>
             <div><span style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
           </div>
+          <a data-plain data-tech-only="" href="{{ ctaGuideHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:#E0F4ED" style-hover="gap:11px"><span data-ltext>{{ ctaGuide }}</span><span data-arrow> →</span></a>
           <div data-nontech-only="" style="display:flex;gap:12px;flex-wrap:wrap">
             <a data-plain href="{{ ctaHowHref }}" style="font-size:15px;font-weight:600;color:#0B523A;background:#E0F4ED;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(.96)">{{ ctaHow }}</a>
             <a data-plain href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:#E0F4ED;background:transparent;border:1px solid rgba(224,244,237,.3);border-radius:9px;padding:13px 22px" style-hover="border-color:rgba(224,244,237,.6)">{{ ctaCarbon }}</a>
@@ -1911,6 +1913,7 @@ class Component extends DCLogic {
         ctaTitle: 'Put the sentinel in your pipeline',
         ctaText: 'Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.',
         demoCmt1: 'terminal report', demoCmt2: 'interactive TUI', demoCmt3: 'HTML dashboard',
+        ctaGuide: 'Other install methods and quickstart in the guide',
         ftTagline: 'Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.',
         ftColProduct: 'Product', ftColDocs: 'Documentation', ftColProject: 'Project',
         ftDocQuickstart: 'Quickstart', ftDocCli: 'CLI reference', ftDocConfig: 'Configuration', ftDocMethod: 'GreenOps methodology',
@@ -2092,6 +2095,7 @@ class Component extends DCLogic {
         ctaTitle: 'Posez la sentinelle dans votre pipeline',
         ctaText: 'Démo intégrée sans rien installer côté apps, puis quality gate sur traces capturées ou daemon OTLP à côté de votre tracing.',
         demoCmt1: 'rapport terminal', demoCmt2: 'TUI interactif', demoCmt3: 'dashboard HTML',
+        ctaGuide: 'Autres méthodes d’installation et démarrage rapide dans le guide',
         ftTagline: "Détecteur d'anti-patterns d'I/O au niveau protocole, auto-hébergeable et carbon-aware.",
         ftColProduct: 'Produit', ftColDocs: 'Documentation', ftColProject: 'Projet',
         ftDocQuickstart: 'Démarrage rapide', ftDocCli: 'Référence CLI', ftDocConfig: 'Configuration', ftDocMethod: 'Méthodologie GreenOps',
@@ -2170,6 +2174,7 @@ class Component extends DCLogic {
       goMore: t.goMore, goEnergy: t.goEnergy, goEnergyHref: lang === 'fr' ? '/docs/fr/ENERGY' : '/docs/ENERGY', cmpMore: t.cmpMore, supplyMore: t.supplyMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
+      ctaGuide: t.ctaGuide, ctaGuideHref: lang === 'fr' ? '/fr/guide#install' : '/guide#install',
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
       ftDocQuickstart: t.ftDocQuickstart, ftDocCli: t.ftDocCli, ftDocConfig: t.ftDocConfig, ftDocMethod: t.ftDocMethod,
       ftProjLicense: t.ftProjLicense, ftBadgeNote: t.ftBadgeNote, ftBottomLeft: t.ftBottomLeft, ftBottomRight: t.ftBottomRight,
