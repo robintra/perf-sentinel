@@ -6,7 +6,8 @@ use crate::report::metrics::MetricsState;
 ///
 /// Two facts a consumer cannot recover from the payload: the findings
 /// are capped at `[daemon] max_export_findings`, and the green figures
-/// are the event loop's latest per-batch [`GreenSummary`], not an
+/// are the event loop's latest per-batch
+/// [`GreenSummary`](crate::report::GreenSummary), not an
 /// aggregate over the findings listed beside them. On a busy daemon both
 /// describe a fraction of the store, so the carbon totals otherwise read
 /// as the daemon's lifetime. The cap also feeds `quality_gate`, whose
