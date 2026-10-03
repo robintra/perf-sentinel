@@ -684,8 +684,8 @@ Pour ajouter un nouveau framework :
 
 1. Étendre l'enum privé `Framework` dans `detect/suggestions/mod.rs`.
 2. Choisir un langage et ajouter une entrée `(Framework, &[hint])` au slice de règles de ce langage. Placer les frameworks plus spécifiques avant les moins spécifiques.
-3. Ajouter des entrées à la static `FIXES` pour chaque paire `(FindingType, Framework)` à mapper.
-4. Ajouter des tests unitaires sous le module `tests` du même fichier.
+3. Ajouter des entrées à la static `FIXES` de `detect/suggestions/fixes.rs` pour chaque paire `(FindingType, Framework)` à mapper.
+4. Ajouter des tests unitaires dans `detect/suggestions/tests.rs`.
 
 Pour ajouter un nouveau langage :
 
