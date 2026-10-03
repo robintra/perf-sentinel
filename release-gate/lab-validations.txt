@@ -428,3 +428,43 @@ v0.25.2	17bf44f	2026-09-25	PASS
 # Not run: validate-findings. No lab stack asserts a Java suggested fix, and
 # the daemon legs above cover the receiver.
 v0.25.3	86e0143	2026-09-28	PASS
+#
+# v0.25.5, 2026-10-03. Targeted pass, not verify-all-scenarios. Daemon image
+# perf-sentinel:0.25.5-8cececac built from the release branch, /api/status
+# answering 0.25.5, local CLI 0.25.5. 0.25.4 shipped without a lab row, so
+# this pass is also the first lab run of its code.namespace changes
+# (endpoint-resolution, hibernate-alias-suggestion,
+# ruby-activerecord-suggestion).
+# validate-findings 12/12 on the final image.
+# Four scenarios now assert the 0.25.5 changes, each failing only its new
+# checks against the published 0.25.4 binary or image: micrometer-http-client
+# runs jaeger-query on Jaeger 2.20 (v1 search) and 2.21 (v3 fallback, unknown
+# service, wrong /api path); sql-backtick-redaction masks double-quoted values
+# on MySQL and MariaDB and keeps PostgreSQL identifiers;
+# ack-store-fsgroup-root reads the new non-loopback advisory wording; the new
+# outbound-proxy-private-ca tunnels verify-hash and query through a CONNECT
+# proxy to a private-CA origin, with ALL_PROXY, NO_PROXY, SOCKS refusal,
+# redirect refusal, the 10 MiB cap and the daemon TLS listener.
+# 31 scenarios pass on 0.25.5, covering the moved code (OTLP receivers, config
+# validation, metric reason labels, export warnings, the clap tree) and the
+# tempo, jaeger-query, pg-stat and mysql-stat CLIs: the four above,
+# otlp-compression-matrix, non-sql-datastore-drop, archive-window-drops,
+# appsec-hardening, config-fragments, export-snapshot-scope,
+# ack-lifecycle-warning, datadog-bridge, diff-mutated-findings, disclose,
+# verify-hash-roundtrip, verify-hash-fail-closed, intent-validator,
+# mysql-stat, ruby-activerecord-suggestion, hibernate-alias-suggestion,
+# endpoint-resolution, query-monitor-api, ci-shift-left,
+# output-formats-coverage, calibrate-mode, daemon-otlp-direct,
+# grafana-dashboard, pg-stat, batch-tempo-scrape, batch-victoria-scrape,
+# multiformat-input.
+# Lab defects found and fixed on the way, none in the product: the lab
+# findings dashboard lacked the 0.25.4 Code column; the multiformat-input
+# collector overlay it leaves installed dropped the Victoria Traces exporter,
+# so Victoria went silent after it; batch-victoria-scrape read other
+# scenarios' traffic in its excluded window and in its indexing wait.
+# grafana-dashboard, multiformat-input and batch-victoria-scrape were rerun
+# after the fixes, batch-victoria-scrape right after multiformat-input.
+# Not run: the hub-*, limit-*, failure-mode-*, chart-*, template-* and
+# ci-e2e-* families. The release touches none of the Hub, the chart templates,
+# the resilience paths or the CI templates.
+v0.25.5	2cfc61f	2026-10-03	PASS
