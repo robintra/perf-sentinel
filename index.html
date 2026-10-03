@@ -959,8 +959,10 @@
         <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
         <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
         <div style="display:flex;gap:14px;margin-top:30px;flex-wrap:wrap">
-          <a data-plain href="{{ ctaHowHref }}" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
-          <a data-plain href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
+          <a data-plain data-tech-only="" href="#start" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaStart }}</a>
+          <a data-plain data-tech-only="" href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaCarbon }}</a>
+          <a data-plain data-nontech-only="" href="{{ ctaHowHref }}" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
+          <a data-plain data-nontech-only="" href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
         </div>
       </div>
 
@@ -1323,7 +1325,7 @@
     </section>
 
     <!-- CTA -->
-    <section data-screen-label="CTA" style="padding:64px 0 72px">
+    <section id="start" data-screen-label="CTA" style="padding:64px 0 72px">
       <div style="position:relative;overflow:hidden;border-radius:20px;border:1px solid var(--border);background:#0B523A;padding:clamp(34px,5vw,56px)">
         <div data-grid="cta" style="position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:28px 56px;align-items:center">
           <div>
@@ -1754,7 +1756,7 @@ class Component extends DCLogic {
         eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
         heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
-        ctaHow: 'How it works', ctaCarbon: 'The carbon side',
+        ctaHow: 'How it works', ctaCarbon: 'The carbon side', ctaStart: 'Get started',
         navLicense: 'License', navDocs: 'Guide', navRef: 'Reference',
         navSecurity: 'Security',
         secEyebrow: '// for your security team',
@@ -1936,7 +1938,7 @@ class Component extends DCLogic {
         eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
         heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
-        ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
+        ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone', ctaStart: 'Démarrer',
         navLicense: 'Licence', navDocs: 'Guide', navRef: 'Référence',
         navSecurity: 'Sécurité',
         secEyebrow: '// pour votre DSI',
@@ -2144,7 +2146,7 @@ class Component extends DCLogic {
       eyebrowHero: t.eyebrowHero, eyebrowHeroGreen: t.eyebrowHeroGreen,
       heroTitle: t.heroTitle,
       heroSub: t.heroSub,
-      ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
+      ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon, ctaStart: t.ctaStart,
       ctaHowHref: t.ctaHowHref || '#modes', ctaCarbonHref: t.ctaCarbonHref || '#greenops',
       navSecurity: t.navSecurity, secEyebrow: t.secEyebrow, secTitle: t.secTitle, secIntro: t.secIntro, secPoints: t.secPoints, secMore: t.secMore, secMoreHref: lang === 'fr' ? '/docs/fr/SECURITY-OVERVIEW' : '/docs/SECURITY-OVERVIEW',
       navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitleA: t.licTitleA, licTitleB: t.licTitleB, licIntro: t.licIntro,
