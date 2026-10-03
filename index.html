@@ -745,6 +745,9 @@
   html{scroll-behavior:smooth}
   body{margin:0}
   section{scroll-margin-top:84px}
+  [data-ps-root] :is(a,button,summary,[tabindex],input):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  [data-skip]{position:absolute;left:12px;top:-60px;z-index:60;padding:10px 16px;border-radius:8px;background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border)}
+  [data-skip]:focus{top:12px}
   [data-ps-root][data-persona="tech"] [data-band~="tech"],[data-ps-root][data-persona="rse"] [data-band~="rse"],[data-ps-root][data-persona="exec"] [data-band~="biz"],[data-ps-root][data-persona="legal"] [data-band~="biz"],[data-ps-root][data-persona="proc"] [data-band~="biz"]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding:56px 0!important;margin-top:40px}
   [data-ps-root]{
     --bg:#F1F6F3; --surface:#FFFFFF;--embed-bg:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1; --band:#E3EDE7;
@@ -819,7 +822,7 @@
   [data-embed-tab][data-active="true"]{color:var(--on-accent);background:#0b523a;border-color:#0b523a}
   #ps-embed-open{margin-left:auto;background:transparent}
   [data-demo-finding] summary{list-style:none}[data-demo-finding] summary::-webkit-details-marker{display:none}
-  [data-demo-finding] summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:12px}
+  [data-demo-finding] summary:focus-visible{border-radius:12px}
   [data-df-pill]{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--coral);background:color-mix(in srgb,var(--coral) 12%,transparent);border-radius:6px;padding:3px 8px}
   [data-df-calls]{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text);white-space:nowrap}
   [data-df-toggle]{color:var(--accent-strong);font-weight:600;white-space:nowrap}
@@ -909,6 +912,7 @@
 
 <div data-ps-root="" data-theme="{{ theme }}" data-persona="{{ personaId }}">
 <div style="min-height:100vh;background-color:var(--bg);color:var(--text)">
+  <a data-plain data-skip href="#main">{{ skipLink }}</a>
 
   <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px;position:relative">
@@ -945,7 +949,7 @@
   </header>
 
   <a id="top"></a>
-  <main style="max-width:1120px;margin:0 auto;padding:0 28px">
+  <main id="main" style="max-width:1120px;margin:0 auto;padding:0 28px">
 
     <!-- HERO -->
     <section data-screen-label="Hero" style="position:relative;padding:78px 0 64px">
@@ -1763,6 +1767,7 @@ class Component extends DCLogic {
     return {
       en: {
         nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
+        skipLink: 'Skip to content',
         eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
         heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
@@ -1946,6 +1951,7 @@ class Component extends DCLogic {
       },
       fr: {
         nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
+        skipLink: 'Aller au contenu',
         eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
         heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
@@ -2154,6 +2160,7 @@ class Component extends DCLogic {
 
       ...this.personaUI(lang, persona),
 
+      skipLink: t.skipLink,
       navDetection: t.nav[0], navExecution: t.nav[1], navGreenops: t.nav[2], navComparison: t.nav[3],
       eyebrowHero: t.eyebrowHero, eyebrowHeroGreen: t.eyebrowHeroGreen,
       heroTitle: t.heroTitle,
