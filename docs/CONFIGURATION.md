@@ -1063,14 +1063,16 @@ The overrides apply on every run, batch commands and a run without any config fi
 
 Four more variables shape every outbound HTTPS call, from the daemon (energy scrapers, Electricity Maps, the Hub export) and from the CLI (`tempo`, `jaeger-query`, `pg-stat` and `mysql-stat` with `--prometheus`, `report` with a Prometheus source, `query`, `ack`, `verify-hash --url`):
 
-| Variable                     | Effect                                                                                                                                                              |
-|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `HTTPS_PROXY`, `https_proxy` | Proxy for `https://` destinations, reached over an HTTP `CONNECT` tunnel. Credentials in its URL (`http://user:pass@proxy:3128`) become a Basic proxy authorization |
-| `ALL_PROXY`, `all_proxy`     | Proxy used when `HTTPS_PROXY` is unset                                                                                                                              |
-| `NO_PROXY`, `no_proxy`       | Hosts, domains and networks reached directly, with curl's rules (`localhost,.svc,10.0.0.0/8`)                                                                       |
-| `SSL_CERT_FILE`              | PEM bundle whose certificates are trusted next to the bundled Mozilla roots, typically the root CA of a TLS-inspecting proxy or of an internal PKI                  |
+| Variable                     | Effect                                                                                                                                                                                         |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HTTPS_PROXY`, `https_proxy` | Proxy for `https://` destinations, reached over an HTTP `CONNECT` tunnel. Credentials in its URL (`http://user:pass@proxy:3128`) become a Basic proxy authorization                            |
+| `ALL_PROXY`, `all_proxy`     | Proxy used when `HTTPS_PROXY` is unset, empty or not a usable URL                                                                                                                              |
+| `NO_PROXY`, `no_proxy`       | Destinations reached directly: host names, domains with their subdomains, IP addresses, CIDR ranges, or `*` (`localhost,.svc,10.0.0.0/8`). Loopback is reached directly only when it is listed |
+| `SSL_CERT_FILE`              | PEM bundle whose certificates are trusted next to the bundled Mozilla roots, typically the root CA of a TLS-inspecting proxy or of an internal PKI                                             |
 
-`http://` destinations always connect directly, and `HTTP_PROXY` is ignored: those calls reach internal services, and a cluster-wide proxy must not divert them. The proxy itself is reached over plain HTTP, and TLS runs end to end between Perf Sentinel and the destination, inside the tunnel. Only `http://` proxy URLs are used: a `socks5://` or `https://` proxy URL logs a warning and the call connects directly. The proxy variables are ignored when `REQUEST_METHOD` is set, the CGI guard of the underlying library. An `SSL_CERT_FILE` that cannot be read, or holds no certificate, logs a warning and leaves the bundled roots alone.
+`http://` destinations always connect directly, and `HTTP_PROXY` is ignored: those calls reach internal services, and a cluster-wide proxy must not divert them. The proxy itself is reached over plain HTTP, and TLS runs end to end between Perf Sentinel and the destination, inside the tunnel. Only an `http://` proxy URL, or one without a scheme, is used: a SOCKS or `https://` proxy URL logs one warning per process and the call connects directly. The uppercase spelling of each variable is read first. The proxy variables are ignored when `REQUEST_METHOD` is set, the CGI guard of the underlying library. An `SSL_CERT_FILE` that cannot be read, or holds no certificate, logs a warning and leaves the bundled roots alone.
+
+A daemon or a CI job that already inherits `HTTPS_PROXY`, from a platform-wide setting or an injecting webhook, sends its `https://` calls through that proxy. An `https://` destination the proxy cannot reach, such as an in-cluster PerfSentinelHub, a Redfish BMC or a daemon queried over `https://localhost`, belongs in `NO_PROXY`.
 
 With the Helm chart, set them through `extraEnv` and mount the bundle from a ConfigMap or a Secret:
 
