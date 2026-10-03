@@ -20,7 +20,7 @@ git checkout main && git pull
 git checkout -b release/X.Y.Z
 ```
 
-The branch is preserved post-merge for traceability of which commits constitute the release. Do not squash on merge. Naming convention: the **branch** is `release/X.Y.Z` (no leading `v`), the **tag** that ships later is `vX.Y.Z` (leading `v`). `scripts/check-tag-version.sh` accepts both forms as input.
+The release lands on `main` as a fast-forward, so the `vX.Y.Z` tag delimits it: `git log vPREV..vX.Y.Z` lists its commits. Delete the branch once it is merged (step 6). Do not squash on merge. Naming convention: the **branch** is `release/X.Y.Z` (no leading `v`), the **tag** that ships later is `vX.Y.Z` (leading `v`). `scripts/check-tag-version.sh` accepts both forms as input.
 
 ### 2. Code, tests, version bumps
 
@@ -97,7 +97,7 @@ scripts/check-helm-tag-version.sh chart-vA.B.C
 
 ### 4. Validate in the simulation lab
 
-Push the release branch for preservation:
+Push the release branch:
 
 ```bash
 git push -u origin release/X.Y.Z
@@ -206,6 +206,13 @@ git push origin main vX.Y.Z
 ```
 
 `main` requires a linear history and signed commits, so the release lands as a fast-forward. If `main` moved since the branch was cut, rebase the branch on it locally first, which re-signs every commit. GitHub's rebase merge and its Update branch button drop the signatures.
+
+Once `main` is pushed, the branch points at the same commit and the tag delimits the release, so delete it:
+
+```bash
+git push origin --delete release/X.Y.Z
+git branch -d release/X.Y.Z
+```
 
 The tag push triggers `.github/workflows/release.yml`. Its first job re-runs `scripts/check-tag-version.sh` as a sanity gate, then the build matrix produces binaries. The publish job pushes to crates.io strictly (no soft fallback on rate-limit), and the docker job scans the image with Trivy (hard exit on HIGH or CRITICAL) before pushing the multi-arch manifest to GHCR and Docker Hub.
 
