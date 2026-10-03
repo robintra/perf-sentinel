@@ -3,7 +3,7 @@
   html{scroll-behavior:smooth}
   body{margin:0}
   section{scroll-margin-top:84px}
-  [data-band]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding:56px 0!important;margin-top:40px}
+  [data-ps-root][data-persona="tech"] [data-band~="tech"],[data-ps-root][data-persona="rse"] [data-band~="rse"],[data-ps-root][data-persona="exec"] [data-band~="biz"],[data-ps-root][data-persona="legal"] [data-band~="biz"],[data-ps-root][data-persona="proc"] [data-band~="biz"]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding:56px 0!important;margin-top:40px}
   [data-ps-root]{
     --bg:#F1F6F3; --surface:#FFFFFF;--embed-bg:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1; --band:#E3EDE7;
     --text:#3A4A43; --text-2:#5C6F66;
@@ -38,6 +38,9 @@
   @media (max-width:880px){
     [data-grid="cards3"]{grid-template-columns:1fr !important}
   }
+  @media (max-width:1100px){
+    [data-grid="cta"]{grid-template-columns:minmax(0,1fr) !important}
+  }
   @media (max-width:720px){
     [data-grid="cards2"]{grid-template-columns:1fr !important}
     [data-grid="ftcols"]{grid-template-columns:1fr 1fr !important}
@@ -63,7 +66,7 @@
   [data-matrix] [data-mc]{display:flex;align-items:center;justify-content:center;padding-left:6px;padding-right:6px;text-align:center}
   [data-matrix] [data-hit]{font-size:20px;font-weight:700}[data-matrix] [data-hit="yes"]{color:var(--coral)}[data-matrix] [data-hit="no"]{color:var(--text-2);opacity:.6}
   [data-matrix] [data-mrow]:last-child > [data-mr]{border-bottom:0}
-  @media(max-width:720px){[data-matrix] [data-mh]{padding:10px 12px;font-size:10.5px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:2px;padding-right:2px}}
+  @media(max-width:720px){[data-matrix]{grid-template-columns:minmax(0,1fr) repeat(3,minmax(max-content,clamp(50px,11vw,120px)))!important}[data-matrix] [data-mh]{padding:10px 12px;font-size:12px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:4px;padding-right:4px}}
   @media(max-width:560px){[data-matrix] [data-mr]{padding:14px 12px}}
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
   [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="rust"]{--ico:url(/assets/rust.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
@@ -90,6 +93,12 @@
   [data-df-h]{font-size:11.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
+  [data-embed-m]{display:none}
+  @media(max-width:600px){[data-term]>div{white-space:pre;width:max-content}}
+  /* Small screens: the comparison stacks by capability, each value under its column name */
+  @media(max-width:600px){[data-cmp-head]{display:none!important}[data-cmp-row]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:start!important;gap:8px 16px;padding:14px 16px 16px}[data-cmp-row]>div{padding:0!important}[data-cmp-row]>div:first-child{grid-column:1/-1}[data-cmp-row]>[data-label]{display:grid;grid-row:2/span 2;grid-template-rows:subgrid;row-gap:2px}[data-cmp-row]>[data-label]::before{content:attr(data-label);font-size:12px;font-weight:600;color:var(--text-2)}[data-cmp-row]>[data-label]:last-child::before{color:var(--accent-strong)}}
+  /* Small screens: no iframe (the script never sets its src), the finding card plus a button that opens the demo */
+  @media(max-width:600px){#ps-embed-frame{display:none!important}[data-embed-card]{background:var(--surface)!important;box-shadow:none!important}[data-embed-bar]{border-bottom:0!important}#ps-embed-open{flex:1 1 100%;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;margin-top:4px;font-size:15px;color:var(--on-accent);background:#0b523a;border-color:#0b523a;border-radius:9px;padding:11px 16px}#ps-embed-open:hover{filter:brightness(1.05)}[data-embed-full]{display:none}[data-embed-m]{display:inline}}
 @media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}.ps-th-lbl{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:8px!important;margin-left:0!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="Perf Sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="Perf Sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent-strong)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}
   @keyframes psSpinIn{from{transform:rotate(-120deg) scale(.3);opacity:0}to{transform:none;opacity:1}}
   @keyframes psFade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
