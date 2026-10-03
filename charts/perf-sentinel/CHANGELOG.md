@@ -10,6 +10,35 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.25.5]
+
+### Fixed
+
+- **`appVersion` moves to `0.25.5`.** The daemon's API and its metrics do
+  not change. On MySQL and MariaDB the daemon now masks a double-quoted
+  value like a single-quoted one, so a finding whose SQL held one gets a new
+  template and signature, its acknowledgment stops matching, PerfSentinelHub
+  files it as a new finding, and findings on such queries can appear or
+  disappear. The non-loopback listen warning every pod logs changes wording.
+  The `perf-sentinel` CLI in the image falls back to the v3 search when
+  `jaeger-query --service` meets Jaeger 2.21 or later.
+
+### Added
+
+- The daemon reads `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` for its
+  `https://` calls (PerfSentinelHub export, Electricity Maps, Redfish, the
+  energy scrapers and the cloud energy Prometheus source) and trusts the PEM
+  certificates of `SSL_CERT_FILE` next to its bundled roots. Set them
+  through the existing `extraEnv`, `extraVolumes` and `extraVolumeMounts`,
+  as `docs/CONFIGURATION.md` shows. A pod that already carries
+  `HTTPS_PROXY`, from `extraEnv`, `extraEnvFrom` or an injecting webhook,
+  now sends those calls through the proxy, so an in-cluster `https://`
+  endpoint belongs in `NO_PROXY`. `http://` calls stay direct.
+
+No `values.yaml` key is added or removed, and no template logic changes. The
+ingress comment in `values.yaml` and a comment in `configmap-fragments.yaml`
+change wording, and neither renders into a manifest.
+
 ## [0.25.4]
 
 ### Fixed
