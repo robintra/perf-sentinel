@@ -29,7 +29,7 @@
       <div data-dc-tpl="21" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
         <button data-dc-tpl="22" class="ps-lang-btn" aria-label="Changer de langue" title="Changer de langue"><span data-dc-tpl="23" class="ps-lang-ico"><svg data-dc-tpl="24" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle data-dc-tpl="25" cx="12" cy="12" r="9"></circle><path data-dc-tpl="26" d="M3 12h18"></path><path data-dc-tpl="27" d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span data-dc-tpl="28" class="ps-lang-win"><span data-dc-tpl="29" class="ps-lang-track"><span data-dc-tpl="30" class="ps-lang-cell ps-lang-cur"><span class="sc-interp">FR</span></span><span data-dc-tpl="31" class="ps-lang-cell ps-lang-next"><span class="sc-interp">EN</span></span></span></span></button>
         <button data-dc-tpl="32" class="ps-th-btn" aria-label="Changer de thème (actuel : Système)" title="Changer de thème (actuel : Système)"><span class="ps-th-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></span><span class="ps-th-lbl">Système</span></button>
-        <a data-dc-tpl="33" data-plain="" href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" class="scp1" style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: rgb(255, 255, 255); background: rgb(36, 41, 47); border: 1px solid rgba(240, 246, 252, 0.18); border-radius: 8px; padding: 8px 15px;">
+        <a data-dc-tpl="33" data-plain="" href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" class="scp1" style="display: flex; align-items: center; gap: 8px; height: 34px; box-sizing: border-box; font-size: 13px; font-weight: 600; color: rgb(255, 255, 255); background: rgb(36, 41, 47); border: 1px solid rgba(240, 246, 252, 0.18); border-radius: 8px; padding: 0px 12px;">
           <svg data-dc-tpl="34" viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path data-dc-tpl="35" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span data-dc-tpl="36" class="gh-txt">GitHub</span></a>
         <label data-dc-tpl="37" for="ps-navtoggle" data-burger="" aria-label="Menu"><i data-dc-tpl="38"></i></label>
       </div>
@@ -1030,7 +1030,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
   @keyframes psFade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
   .ps-th-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:104px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500;line-height:1;cursor:pointer;transition:border-color .25s ease,color .25s ease}
   .ps-th-btn:hover{border-color:var(--accent);color:var(--text)}
-  .ps-th-btn .ps-th-ico{display:flex;color:var(--accent);animation:psSpinIn .44s cubic-bezier(.34,1.5,.5,1)}
+  .ps-th-btn .ps-th-ico{display:flex;color:var(--accent);animation:psSpinIn .44s cubic-bezier(.2,.8,.2,1)}@media(prefers-reduced-motion:reduce){.ps-th-btn .ps-th-ico{animation:none}}
   .ps-th-btn .ps-th-lbl{animation:psFade .3s ease}
   @media(max-width:920px){.ps-th-btn{width:34px;padding:0}}
   .ps-lang-btn{display:inline-flex;align-items:center;gap:6px;height:34px;box-sizing:border-box;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);text-decoration:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;line-height:1;transition:border-color .25s ease}
@@ -1080,7 +1080,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" class="ps-lang-btn" aria-label="{{ langAria }}" title="{{ langAria }}"><span class="ps-lang-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z"></path></svg></span><span class="ps-lang-win"><span class="ps-lang-track"><span class="ps-lang-cell ps-lang-cur">{{ langActive }}</span><span class="ps-lang-cell ps-lang-next">{{ langTarget }}</span></span></span></button>
         <button onClick="{{ toggleTheme }}" class="ps-th-btn" aria-label="{{ themeAria }}" title="{{ themeAria }}">{{ themeIcon }}{{ themeLabel }}</button>
-        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
+        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" style="display:flex;align-items:center;gap:8px;height:34px;box-sizing:border-box;font-size:13px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:0 12px" style-hover="background:#30363D">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span class="gh-txt">GitHub</span></a>
         <label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>
       </div>
@@ -1482,15 +1482,6 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
-    // One-time redirect honoring a previous explicit language choice.
-    // Guard: only when the stored choice differs from this page's
-    // language, so the page pair can never bounce. navigator.language
-    // is deliberately not consulted: an explicitly opened URL (and the
-    // prerender build, which runs with an empty localStorage) wins.
-    try {
-      const v = localStorage.getItem('ps-lang');
-      if ((v === 'fr' || v === 'en') && v !== this.baseLang()) { location.replace(this.langUrl(v)); return; }
-    } catch (e) {}
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     let ticking = false;
     this._compute = () => {
