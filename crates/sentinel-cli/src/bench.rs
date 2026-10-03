@@ -215,3 +215,49 @@ fn current_rss_bytes() -> Option<usize> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bench_percentiles_follow_nearest_rank_indices() {
+        let durations_ns: Vec<u64> = (1..=100).map(|n| n * 1_000).collect();
+        let (p50_us, p99_us) = compute_latency_percentiles(&durations_ns, 1);
+
+        assert!((p50_us - 50.0).abs() < f64::EPSILON);
+        assert!((p99_us - 99.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_single_sample() {
+        // n = 1: both percentiles collapse to the only value.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[7_000], 1);
+        assert!((p50_us - 7.0).abs() < f64::EPSILON);
+        assert!((p99_us - 7.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_two_samples() {
+        // n = 2: ceil(2*0.50)=1 → p50_idx = 0, ceil(2*0.99)=2 → p99_idx = 1.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[1_000, 3_000], 1);
+        assert!((p50_us - 1.0).abs() < f64::EPSILON);
+        assert!((p99_us - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_sample_size_just_past_hundred() {
+        // n = 101: ceil(101*0.99)=100 → p99_idx = 99 → value 100µs.
+        let durations_ns: Vec<u64> = (1..=101).map(|n| n * 1_000).collect();
+        let (_, p99_us) = compute_latency_percentiles(&durations_ns, 1);
+        assert!((p99_us - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_return_zeros_on_empty_slice() {
+        // Guards against indexing panic when no samples were recorded.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[], 1);
+        assert!((p50_us - 0.0).abs() < f64::EPSILON);
+        assert!((p99_us - 0.0).abs() < f64::EPSILON);
+    }
+}

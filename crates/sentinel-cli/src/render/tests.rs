@@ -165,6 +165,7 @@ fn sort_applies_the_permutation_not_its_inverse() {
 }
 
 use super::*;
+use crate::render;
 use core::assert_matches;
 use sentinel_core::detect::Confidence;
 use sentinel_core::detect::suggestions::SuggestedFix;
@@ -173,6 +174,7 @@ use sentinel_core::diff::DiffReport;
 use sentinel_core::event::CodeLocation;
 use sentinel_core::event::GroupingAttribute;
 use sentinel_core::report::interpret::InterpretationLevel;
+use sentinel_core::report::{Analysis, GreenSummary, QualityGate, QualityRule, TopOffender};
 
 /// A gate breach must win over a concurrent write failure so a
 /// regression is never masked as the tolerable `EXIT_TOOLING_ERROR`.
@@ -1102,4 +1104,231 @@ fn local_iso_converts_to_local_time_and_falls_back_to_the_input() {
     );
     assert_eq!(fmt_local_iso("short", LOCAL_TIME_FORMAT), "short");
     assert_eq!(fmt_local_iso("bad\x1b[31m", LOCAL_TIME_FORMAT), "bad?[31m");
+}
+
+fn make_report(
+    findings: Vec<Finding>,
+    top_offenders: Vec<TopOffender>,
+    gate_passed: bool,
+    rules: Vec<QualityRule>,
+) -> Report {
+    let event_count = if findings.is_empty() { 4 } else { 10 };
+    // `Analysis` is `#[non_exhaustive]`, so a sibling crate fills it
+    // field by field rather than with a struct literal.
+    let mut analysis = Analysis::default();
+    analysis.duration_ms = 1;
+    analysis.events_processed = event_count;
+    analysis.traces_analyzed = 1;
+    Report {
+        analysis,
+        findings,
+        green_summary: GreenSummary {
+            total_io_ops: event_count,
+            top_offenders,
+            ..GreenSummary::disabled(0)
+        },
+        quality_gate: QualityGate {
+            passed: gate_passed,
+            rules,
+        },
+        per_endpoint_io_ops: vec![],
+        correlations: vec![],
+        embedded_traces: vec![],
+        warnings: vec![],
+        warning_details: vec![],
+        acknowledged_findings: vec![],
+        binary_version: String::new(),
+        detection_config: None,
+        disclosure_waste: None,
+    }
+}
+
+fn make_finding(finding_type: FindingType, severity: Severity) -> Finding {
+    Finding {
+        finding_type,
+        severity,
+        trace_id: "trace-1".to_string(),
+        service: "order-svc".to_string(),
+        grouping: Vec::new(),
+        source_endpoint: "POST /api/orders/42/submit".to_string(),
+        pattern: Pattern {
+            template: "SELECT * FROM t WHERE id = ?".to_string(),
+            occurrences: 6,
+            window_ms: 200,
+            distinct_params: 6,
+            ..Default::default()
+        },
+        suggestion: "batch".to_string(),
+        first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+        last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
+        green_impact: Some(GreenImpact {
+            estimated_extra_io_ops: 5,
+            io_intensity_score: 6.0,
+            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(6.0),
+        }),
+        confidence: Confidence::default(),
+        classification_method: None,
+        code_location: None,
+        instrumentation_scopes: Vec::new(),
+        suggested_fix: None,
+        signature: String::new(),
+    }
+}
+
+#[test]
+fn report_no_findings() {
+    let report = make_report(vec![], vec![], true, vec![]);
+    // Should not panic and should print "No performance anti-patterns detected."
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_critical_severity() {
+    let report = make_report(
+        vec![make_finding(FindingType::NPlusOneSql, Severity::Critical)],
+        vec![],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_info_severity() {
+    let report = make_report(
+        vec![make_finding(FindingType::RedundantSql, Severity::Info)],
+        vec![],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_redundant_http_type() {
+    let report = make_report(
+        vec![make_finding(FindingType::RedundantHttp, Severity::Warning)],
+        vec![],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_slow_sql_type() {
+    let report = make_report(
+        vec![make_finding(FindingType::SlowSql, Severity::Warning)],
+        vec![],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_slow_http_type() {
+    let report = make_report(
+        vec![make_finding(FindingType::SlowHttp, Severity::Critical)],
+        vec![],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_quality_gate_failed() {
+    let report = make_report(
+        vec![make_finding(FindingType::NPlusOneSql, Severity::Critical)],
+        vec![],
+        false,
+        vec![QualityRule {
+            rule: "n_plus_one_sql_critical_max".to_string(),
+            threshold: 0.0,
+            actual: 1.0,
+            passed: false,
+        }],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_with_top_offenders() {
+    let report = make_report(
+        vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)],
+        vec![TopOffender {
+            endpoint: "POST /api/orders/{id}/submit".to_string(),
+            service: "order-svc".to_string(),
+            io_intensity_score: 8.2,
+            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+            co2_grams: None,
+        }],
+        true,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", false);
+}
+
+#[test]
+fn report_with_ansi_colors() {
+    // Test the TTY=true branch (force_color=true)
+    let report = make_report(
+        vec![
+            make_finding(FindingType::NPlusOneSql, Severity::Critical),
+            make_finding(FindingType::NPlusOneHttp, Severity::Warning),
+            make_finding(FindingType::RedundantSql, Severity::Info),
+            make_finding(FindingType::RedundantHttp, Severity::Info),
+        ],
+        vec![TopOffender {
+            endpoint: "POST /api/orders/{id}/submit".to_string(),
+            service: "order-svc".to_string(),
+            io_intensity_score: 8.2,
+            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+            co2_grams: None,
+        }],
+        false,
+        vec![],
+    );
+    render::format_colored_report(&report, "report", true);
+}
+
+#[test]
+fn report_with_co2_data() {
+    let mut analysis = Analysis::default();
+    analysis.duration_ms = 1;
+    analysis.events_processed = 10;
+    analysis.traces_analyzed = 1;
+    let report = Report {
+        analysis,
+        findings: vec![],
+        green_summary: GreenSummary {
+            total_io_ops: 10,
+            avoidable_io_ops: 5,
+            io_waste_ratio: 0.5,
+            io_waste_ratio_band: sentinel_core::InterpretationLevel::for_waste_ratio(0.5),
+            top_offenders: vec![TopOffender {
+                endpoint: "POST /api/orders/{id}/submit".to_string(),
+                service: "order-svc".to_string(),
+                io_intensity_score: 8.2,
+                io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+                co2_grams: Some(0.001),
+            }],
+            ..GreenSummary::disabled(0)
+        },
+        quality_gate: QualityGate {
+            passed: true,
+            rules: vec![],
+        },
+        per_endpoint_io_ops: vec![],
+        correlations: vec![],
+        embedded_traces: vec![],
+        warnings: vec![],
+        warning_details: vec![],
+        acknowledged_findings: vec![],
+        binary_version: String::new(),
+        detection_config: None,
+        disclosure_waste: None,
+    };
+    render::format_colored_report(&report, "report", false);
 }

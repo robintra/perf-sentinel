@@ -398,3 +398,38 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
         }
     }
 }
+
+#[cfg(all(test, feature = "daemon"))]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn pg_stat_auth_header_env_var_takes_precedence_over_flag() {
+        // When the env lookup returns a header, it wins over the
+        // --auth-header flag value, matching the Electricity Maps precedence.
+        let resolved = resolve_pg_stat_auth_header_with_env(
+            Some("Authorization: Bearer from-flag".to_string()),
+            || Some("Authorization: Bearer from-env".to_string()),
+        );
+        assert_eq!(
+            resolved.as_deref(),
+            Some("Authorization: Bearer from-env"),
+            "env var must take precedence over the CLI flag value"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn pg_stat_auth_header_falls_back_to_flag_when_env_unset() {
+        let resolved = resolve_pg_stat_auth_header_with_env(
+            Some("Authorization: Bearer from-flag".to_string()),
+            || None,
+        );
+        assert_eq!(
+            resolved.as_deref(),
+            Some("Authorization: Bearer from-flag"),
+            "flag value is used when the env var is unset"
+        );
+    }
+}
