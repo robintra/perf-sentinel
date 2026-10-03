@@ -835,6 +835,9 @@
   [data-df-h]{font-size:11.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
+  [data-embed-m]{display:none}
+  /* Small screens: no iframe (the script never sets its src), the finding card plus a button that opens the demo */
+  @media(max-width:600px){#ps-embed-frame{display:none!important}[data-embed-card]{background:var(--surface)!important;box-shadow:none!important}[data-embed-bar]{border-bottom:0!important}#ps-embed-open{flex:1 1 100%;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;margin-top:4px;font-size:15px;color:var(--on-accent);background:#0b523a;border-color:#0b523a;border-radius:9px;padding:11px 16px}#ps-embed-open:hover{filter:brightness(1.05)}[data-embed-full]{display:none}[data-embed-m]{display:inline}}
 @media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}.ps-th-lbl{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:8px!important;margin-left:0!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="Perf Sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="Perf Sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent-strong)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}
   @keyframes psSpinIn{from{transform:rotate(-120deg) scale(.3);opacity:0}to{transform:none;opacity:1}}
   @keyframes psFade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
@@ -985,15 +988,15 @@
             </div>
           </div>
         </details>
-        <div style="background:var(--embed-bg);border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 24px 50px -28px rgba(6,31,44,.5)">
-          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)">
+        <div data-embed-card="" style="background:var(--embed-bg);border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 24px 50px -28px rgba(6,31,44,.5)">
+          <div data-embed-bar="" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)">
             <span data-embed-lead="">{{ embedLead }}</span>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button type="button" data-embed-tab="html" data-active="true">HTML</button>
               <button type="button" data-embed-tab="tui" data-active="false">TUI</button>
               <button type="button" data-embed-tab="hub" data-active="false">HUB</button>
             </div>
-            <a data-plain id="ps-embed-open" href="exemple/dashboard" target="_blank" rel="noopener">{{ embedOpen }}<span data-arrow> ↗</span></a>
+            <a data-plain id="ps-embed-open" href="exemple/dashboard" target="_blank" rel="noopener"><span data-embed-full="">{{ embedOpen }}</span><span data-embed-m="">{{ embedOpenMobile }}</span><span data-arrow> ↗</span></a>
           </div>
           <iframe id="ps-embed-frame" loading="lazy" title="Perf Sentinel HTML report" style="display:block;width:100%;height:545px;border:0;background:var(--embed-bg)"></iframe>
         </div>
@@ -1786,7 +1789,7 @@ class Component extends DCLogic {
         termFail: '  quality gate: N+1 SQL over threshold (exit 1)',
         exampleLabel: 'example',
         embedLead: 'Live demo:',
-        embedOpen: 'Open in a new tab',
+        embedOpen: 'Open in a new tab', embedOpenMobile: 'Open the live demo',
         embedCaption: 'HTML report or TUI, whichever you prefer. The Hub is optional but recommended.',
         dfCalls: '12 calls → 1', dfLineA: '11 avoidable calls, fixable at ', dfLineB: '. One finding from the demo below, Findings tab.', dfMore: 'Show details', dfLess: 'Hide details',
         dfBarsA: '12 × ', dfBarsB: ' · 110 ms · 1 needed, 11 avoidable', dfWhatT: 'What happens', dfWhat: 'For a single cart, the service calls the catalog one product at a time.', dfCostT: 'What it costs', dfCost: '11 avoidable calls per request, and the endpoint lands in the critical I/O intensity band.', dfFixT: 'Where to fix', dfFixA: 'batch endpoint ', dfFixB: ', 12 calls → 1',
@@ -1969,7 +1972,7 @@ class Component extends DCLogic {
         termFail: '  quality gate : N+1 SQL au-dessus du seuil (exit 1)',
         exampleLabel: 'exemple',
         embedLead: 'Démo interactive\u00a0:',
-        embedOpen: 'Ouvrir dans un onglet',
+        embedOpen: 'Ouvrir dans un onglet', embedOpenMobile: 'Ouvrir la démo interactive',
         embedCaption: 'Rapport HTML ou TUI, selon vos préférences. Hub optionnel mais recommandé.',
         dfCalls: '12 appels → 1', dfLineA: '11 appels évitables, corrigeable à ', dfLineB: '. Un finding de la démo ci-dessous, onglet Findings.', dfMore: 'Voir le détail', dfLess: 'Masquer le détail',
         dfBarsA: '12 × ', dfBarsB: ' · 110 ms · 1 utile, 11 évitables', dfWhatT: 'Ce qui se passe', dfWhat: 'Pour un seul panier, le service appelle le catalogue produit par produit.', dfCostT: 'Ce que ça coûte', dfCost: '11 appels évitables par requête, et l’endpoint passe en bande critique d’intensité I/O.', dfFixT: 'Où corriger', dfFixA: 'endpoint batch ', dfFixB: ', 12 appels → 1',
@@ -2158,7 +2161,7 @@ class Component extends DCLogic {
       installCommand: install,
       copyLabel: this.state.copied ? t.copied : t.copy,
       termOut: t.termOut, termFail: t.termFail,
-      exampleLabel: t.exampleLabel, embedLead: t.embedLead, embedOpen: t.embedOpen, embedCaption: t.embedCaption, dfCalls: t.dfCalls, dfLineA: t.dfLineA, dfLineB: t.dfLineB, dfMore: t.dfMore, dfLess: t.dfLess, dfBarsA: t.dfBarsA, dfBarsB: t.dfBarsB, dfWhatT: t.dfWhatT, dfWhat: t.dfWhat, dfCostT: t.dfCostT, dfCost: t.dfCost, dfFixT: t.dfFixT, dfFixA: t.dfFixA, dfFixB: t.dfFixB,
+      exampleLabel: t.exampleLabel, embedLead: t.embedLead, embedOpen: t.embedOpen, embedOpenMobile: t.embedOpenMobile, embedCaption: t.embedCaption, dfCalls: t.dfCalls, dfLineA: t.dfLineA, dfLineB: t.dfLineB, dfMore: t.dfMore, dfLess: t.dfLess, dfBarsA: t.dfBarsA, dfBarsB: t.dfBarsB, dfWhatT: t.dfWhatT, dfWhat: t.dfWhat, dfCostT: t.dfCostT, dfCost: t.dfCost, dfFixT: t.dfFixT, dfFixA: t.dfFixA, dfFixB: t.dfFixB,
       copyInstall: () => {
         try { navigator.clipboard && navigator.clipboard.writeText(install); } catch (e) {}
         this.setState({ copied: true });
@@ -2208,12 +2211,15 @@ class Component extends DCLogic {
   // the same way the dashboard does; the TUI is a terminal cast with its colours
   // baked in, so it stays out of the sync below.
   var TABS={html:dashUrl,tui:function(){return '/exemple/tui';},hub:hubUrl};
+  // Below 600px the iframe stays empty and hidden, the open link carries the demo.
+  var small=window.matchMedia?window.matchMedia('(max-width:600px)'):null;
+  if(small&&small.addEventListener)small.addEventListener('change',function(){apply(active);});
   function urlFor(which){return (TABS[which]||TABS.html)();}
   function apply(which){
     var f=document.getElementById('ps-embed-frame');if(!f)return false;
     active=which;
     var u=urlFor(which);
-    if(f.getAttribute('src')!==u)f.setAttribute('src',u);
+    if(!(small&&small.matches)&&f.getAttribute('src')!==u)f.setAttribute('src',u);
     var o=document.getElementById('ps-embed-open');if(o)o.setAttribute('href',u);
     var a=document.querySelectorAll('[data-embed-tab]');for(var i=0;i<a.length;i++)a[i].setAttribute('data-active',a[i].getAttribute('data-embed-tab')===which?'true':'false');
     return true;
