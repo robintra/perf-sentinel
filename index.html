@@ -980,10 +980,14 @@
         
         
         
-        <a href="#greenops" style-hover="color:var(--text)">{{ navGreenops }}</a>
-        <a href="#comparatif" style-hover="color:var(--text)">{{ navComparison }}</a>
-        <a href="#license" data-hide-rse="" style-hover="color:var(--text)">{{ navLicense }}</a>
-        <a href="#security" data-nav-sec="" style-hover="color:var(--text)">{{ navSecurity }}</a>
+        <a href="#detection" data-tech-only="" style-hover="color:var(--text)">{{ navDetection }}</a>
+        <a href="#stack" data-tech-only="" style-hover="color:var(--text)">{{ navStack }}</a>
+        <a href="#modes" data-tech-only="" style-hover="color:var(--text)">{{ navModes }}</a>
+        <a href="#perf" data-tech-only="" data-nav-sec="" style-hover="color:var(--text)">{{ navPerf }}</a>
+        <a href="#greenops" data-nontech-only="" style-hover="color:var(--text)">{{ navGreenops }}</a>
+        <a href="#comparatif" data-nontech-only="" style-hover="color:var(--text)">{{ navComparison }}</a>
+        <a href="#license" data-nontech-only="" data-hide-rse="" style-hover="color:var(--text)">{{ navLicense }}</a>
+        <a href="#security" data-nontech-only="" data-nav-sec="" style-hover="color:var(--text)">{{ navSecurity }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
         <a data-plain href="guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navDocs }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
         <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
@@ -996,10 +1000,14 @@
         <label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>
       </div>
       <nav data-mobnav="" aria-label="Menu">
-        <a href="#greenops">{{ navGreenops }}</a>
-        <a href="#comparatif">{{ navComparison }}</a>
-        <a href="#license" data-hide-rse="">{{ navLicense }}</a>
-        <a href="#security">{{ navSecurity }}</a>
+        <a href="#detection" data-tech-only="">{{ navDetection }}</a>
+        <a href="#stack" data-tech-only="">{{ navStack }}</a>
+        <a href="#modes" data-tech-only="">{{ navModes }}</a>
+        <a href="#perf" data-tech-only="">{{ navPerf }}</a>
+        <a href="#greenops" data-nontech-only="">{{ navGreenops }}</a>
+        <a href="#comparatif" data-nontech-only="">{{ navComparison }}</a>
+        <a href="#license" data-nontech-only="" data-hide-rse="">{{ navLicense }}</a>
+        <a href="#security" data-nontech-only="">{{ navSecurity }}</a>
         <a data-plain href="guide">{{ navDocs }} <span style="font-size:11px;opacity:.7">→</span></a>
         <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">→</span></a>
       </nav>
@@ -1870,7 +1878,7 @@ class Component extends DCLogic {
         heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
         ctaHow: 'How it works', ctaCarbon: 'The carbon side', ctaStart: 'Get started',
         navLicense: 'License', navDocs: 'Guide', navRef: 'Reference',
-        navSecurity: 'Security',
+        navSecurity: 'Security', navDetection: 'Detection', navStack: 'Stack', navModes: 'Deploy', navPerf: 'Performance',
         secEyebrow: '// for your security team',
         secTitle: 'What your security team will check, and where to find it',
         secIntro: 'Perf Sentinel and its Hub install on your infrastructure, with no SaaS. Here are the points a security review usually covers, with what is on by default and what is left to you.',
@@ -2055,7 +2063,7 @@ class Component extends DCLogic {
         heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
         ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone', ctaStart: 'Démarrer',
         navLicense: 'Licence', navDocs: 'Guide', navRef: 'Référence',
-        navSecurity: 'Sécurité',
+        navSecurity: 'Sécurité', navDetection: 'Détection', navStack: 'Technologies', navModes: 'Déploiement', navPerf: 'Performance',
         secEyebrow: '// pour votre DSI',
         secTitle: 'Ce que votre DSI vérifiera, et où le trouver',
         secIntro: 'Perf Sentinel et son Hub s’installent sur votre infrastructure, sans SaaS. Voici les points qu’une revue de sécurité examine en général, avec ce qui est actif par défaut et ce qui reste à votre charge.',
@@ -2266,7 +2274,7 @@ class Component extends DCLogic {
       heroSub: t.heroSub,
       ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon, ctaStart: t.ctaStart,
       ctaHowHref: t.ctaHowHref || '#modes', ctaCarbonHref: t.ctaCarbonHref || '#greenops',
-      navSecurity: t.navSecurity, secEyebrow: t.secEyebrow, secTitle: t.secTitle, secIntro: t.secIntro, secPoints: t.secPoints, secMore: t.secMore, secMoreHref: lang === 'fr' ? '/docs/fr/SECURITY-OVERVIEW' : '/docs/SECURITY-OVERVIEW',
+      navSecurity: t.navSecurity, navDetection: t.navDetection, navStack: t.navStack, navModes: t.navModes, navPerf: t.navPerf, secEyebrow: t.secEyebrow, secTitle: t.secTitle, secIntro: t.secIntro, secPoints: t.secPoints, secMore: t.secMore, secMoreHref: lang === 'fr' ? '/docs/fr/SECURITY-OVERVIEW' : '/docs/SECURITY-OVERVIEW',
       navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitleA: t.licTitleA, licTitleB: t.licTitleB, licIntro: t.licIntro,
       licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
       licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
