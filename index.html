@@ -875,12 +875,17 @@
 /* First visit: spotlight the persona bar, then a short hint once a profile is picked */
 [data-spot-back]{position:fixed;inset:0;z-index:90;background:color-mix(in srgb,#000 60%,transparent)}
 [data-persona-bar][data-spot="true"]{z-index:91;background:var(--bg);border-radius:14px;box-shadow:0 0 0 10px var(--bg),0 0 0 11px var(--accent)}
-[data-pbubble]{position:absolute;top:calc(100% + 16px);left:0;z-index:60;max-width:min(360px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;color:var(--text);box-shadow:0 12px 30px rgba(0,0,0,.25);animation:psBubbleIn .2s ease-out}
+[data-pbubble]{position:absolute;top:calc(100% + 16px);right:0;z-index:60;max-width:min(360px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45;color:var(--text);box-shadow:0 12px 30px rgba(0,0,0,.25);animation:psBubbleIn .2s ease-out}
 [data-pbubble]::before{content:"";position:absolute;top:-8px;left:30px;width:14px;height:14px;background:inherit;border:inherit;border-right:0;border-bottom:0;transform:rotate(45deg);border-radius:2px 0 0 0}
 [data-pbubble] small{display:block;margin-top:4px;font-size:12.5px;color:var(--text-2)}
 [data-pbubble][data-tip]{display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);background:#0b523a;border-color:#0b523a;color:#fff;font-weight:500;padding:10px 12px 10px 14px}
 [data-pbubble][data-tip] button{flex:none;background:none;border:0;color:#fff;opacity:.85;font-size:17px;line-height:1;cursor:pointer;padding:0 0 0 4px}
 @keyframes psBubbleIn{from{opacity:0;transform:translateY(-4px)}}
+[data-pbubble][data-tip] > span::before{content:"↑\00a0";content:"↑\00a0"/""}
+@media(min-width:1180px){[data-pbubble][data-tip]{max-width:320px}}
+/* The bubbles sit above the bar, nib on the first tab: beside the bar the longest eyebrow leaves no room */
+[data-pbubble]{top:auto;bottom:calc(100% + 12px);right:auto;left:0;padding-top:9px;padding-bottom:9px;animation-name:psBubbleUp}[data-pbubble]::before{top:auto;bottom:-8px;right:auto;left:100px;border:inherit;border-left:0;border-top:0;border-radius:0 0 2px 0}[data-pbubble][data-tip] > span::before{content:"↓\00a0";content:"↓\00a0"/""}
+@keyframes psBubbleUp{from{opacity:0;transform:translateY(4px)}}
 @media(prefers-reduced-motion:reduce){[data-pbubble]{animation:none}}
 @media(max-width:620px){[data-persona-hint]{display:none}[data-persona-bar]{gap:5px;margin-bottom:24px}[data-persona-bar] [data-ptab]{font-size:12.5px;padding:6px 10px}[data-hero-eyebrow]{font-size:11.5px!important;letter-spacing:.02em!important}}
 /* Mobile hamburger nav (pure CSS, no JS): label toggles a hidden checkbox, panel shows on :checked */
@@ -1618,8 +1623,8 @@ class Component extends DCLogic {
   shareUrl(id) { try { const u = new URL(location.href); u.searchParams.set('profile', id); history.replaceState(null, '', u); } catch (e) {} }
   personaUI(lang, persona) {
     const L = ({
-      fr: { prompt: 'Vous êtes\u00a0:', hint: 'le contenu s’adapte, la page reste la même', spotTitle: 'Choisissez votre profil', spotSkip: 'Cliquez ailleurs pour garder le profil par défaut.', dflt: '(par défaut)', tip: '↑ Vous pouvez changer de profil ici à tout moment', tipClose: 'Fermer', tech: 'Dev · Archi · DevOps', rse: 'RSE', exec: 'Direction', legal: 'Juridique', proc: 'Achats' },
-      en: { prompt: 'You are:', hint: 'content adapts, same page', spotTitle: 'Pick your profile', spotSkip: 'Click anywhere else to keep the default profile.', dflt: '(default)', tip: '↑ You can switch profiles here at any time', tipClose: 'Close', tech: 'Dev · Arch · DevOps', rse: 'Sustainability', exec: 'Leadership', legal: 'Legal', proc: 'Procurement' },
+      fr: { prompt: 'Vous êtes\u00a0:', hint: 'le contenu s’adapte, la page reste la même', spotTitle: 'Choisissez votre profil', spotSkip: 'Cliquez ailleurs pour garder le profil par défaut.', dflt: '(par défaut)', tip: 'Vous pouvez changer de profil ici à tout moment', tipClose: 'Fermer', tech: 'Dev · Archi · DevOps', rse: 'RSE', exec: 'Direction', legal: 'Juridique', proc: 'Achats' },
+      en: { prompt: 'You are:', hint: 'content adapts, same page', spotTitle: 'Pick your profile', spotSkip: 'Click anywhere else to keep the default profile.', dflt: '(default)', tip: 'You can switch profiles here at any time', tipClose: 'Close', tech: 'Dev · Arch · DevOps', rse: 'Sustainability', exec: 'Leadership', legal: 'Legal', proc: 'Procurement' },
     })[lang] || {};
     const order = ['tech', 'rse', 'exec', 'legal', 'proc'];
     const set = (id) => () => { this.shareUrl(id); if (this.state.spot) return this.endSpot(id); this.persist('ps-persona', id); this.setState({ persona: id }); };
