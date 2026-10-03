@@ -312,15 +312,29 @@ podDisruptionBudget:
 # in the chart, so a generic egress block would either be too permissive to
 # protect anything or strict enough to break the install.
 # NetworkPolicies are additive, so write your own egress policy alongside.
+#
+# Port 4317 serves OTLP gRPC only. Port 4318 serves OTLP HTTP and also
+# /metrics, /health and the query API (findings with their SQL templates, ack
+# writes, report export). Allow-list a gRPC-only collector under `otlpGrpc` so
+# it cannot reach that API, and Prometheus, the Hub or Grafana under `http`.
 networkPolicy:
   enabled: false
   ingress:
+    # Peers allowed on both ports.
     # -- Array of namespaceSelector blocks, applied as an OR list.
     # Example: `[ { matchLabels: { kubernetes.io/metadata.name: observability } } ]`.
     fromNamespaceSelectors: []
     # -- Array of podSelector blocks, applied as an OR list.
     # Example: `[ { matchLabels: { app.kubernetes.io/name: otel-collector } } ]`.
     fromPodSelectors: []
+    # Peers allowed on the OTLP gRPC port only.
+    otlpGrpc:
+      fromNamespaceSelectors: []
+      fromPodSelectors: []
+    # Peers allowed on the HTTP port only: OTLP HTTP, /metrics and the API.
+    http:
+      fromNamespaceSelectors: []
+      fromPodSelectors: []
 
 # The daemon config, rendered into a ConfigMap and mounted
 # read-only at /etc/perf-sentinel/.perf-sentinel.toml. Edits roll the pods

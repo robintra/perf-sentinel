@@ -40,6 +40,8 @@ annotations:
       description: "appVersion 0.25.5. The daemon's API and its metrics do not change. On MySQL and MariaDB a double-quoted value is now masked, so those findings change signature and their acknowledgments stop matching. The perf-sentinel CLI in the image falls back to the v3 search on Jaeger 2.21 and later."
     - kind: added
       description: "The daemon routes its https:// calls through HTTPS_PROXY, ALL_PROXY and NO_PROXY and trusts the certificates of SSL_CERT_FILE, set through extraEnv and extraVolumes. A pod that already carries HTTPS_PROXY now uses it, so an in-cluster https:// endpoint belongs in NO_PROXY."
+    - kind: added
+      description: "networkPolicy.ingress.otlpGrpc and networkPolicy.ingress.http open port 4317 or port 4318 alone, so a gRPC-only collector no longer reaches the query API served on 4318. The lists directly under networkPolicy.ingress still open both ports. The policy stays off by default."
   artifacthub.io/images: |
     - name: perf-sentinel
       image: ghcr.io/robintra/perf-sentinel:0.25.5

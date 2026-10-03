@@ -1,4 +1,16 @@
 {{- if .Values.networkPolicy.enabled -}}
+{{- $in := .Values.networkPolicy.ingress }}
+{{- $grpc := .Values.service.ports.otlpGrpc.port }}
+{{- $http := .Values.service.ports.otlpHttp.port }}
+{{- /* One rule per peer list: both ports, gRPC only, HTTP only. */}}
+{{- $rules := list
+      (dict "peers" $in "ports" (list $grpc $http))
+      (dict "peers" (default (dict) $in.otlpGrpc) "ports" (list $grpc))
+      (dict "peers" (default (dict) $in.http) "ports" (list $http)) }}
+{{- $any := false }}
+{{- range $rules }}
+{{- if or .peers.fromNamespaceSelectors .peers.fromPodSelectors }}{{ $any = true }}{{ end }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,26 +28,30 @@ spec:
       {{- include "perf-sentinel.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
-  {{- if or .Values.networkPolicy.ingress.fromNamespaceSelectors .Values.networkPolicy.ingress.fromPodSelectors }}
+  {{- if $any }}
   ingress:
+    {{- range $rules }}
+    {{- if or .peers.fromNamespaceSelectors .peers.fromPodSelectors }}
     - from:
-        {{- range .Values.networkPolicy.ingress.fromNamespaceSelectors }}
+        {{- range .peers.fromNamespaceSelectors }}
         - namespaceSelector:
             {{- toYaml . | nindent 12 }}
         {{- end }}
-        {{- range .Values.networkPolicy.ingress.fromPodSelectors }}
+        {{- range .peers.fromPodSelectors }}
         - podSelector:
             {{- toYaml . | nindent 12 }}
         {{- end }}
       ports:
+        {{- range .ports }}
         - protocol: TCP
-          port: {{ .Values.service.ports.otlpGrpc.port }}
-        - protocol: TCP
-          port: {{ .Values.service.ports.otlpHttp.port }}
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+    {{- end }}
   {{- else }}
   # No ingress selectors supplied: deny all ingress (fail-closed). Add
-  # entries under .Values.networkPolicy.ingress.fromNamespaceSelectors or
-  # .fromPodSelectors to allow-list specific peers.
+  # entries under .Values.networkPolicy.ingress (both ports), .otlpGrpc or
+  # .http to allow-list specific peers.
   ingress: []
   {{- end }}
 {{- end }}

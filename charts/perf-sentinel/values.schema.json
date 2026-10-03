@@ -415,6 +415,30 @@
             },
             "fromPodSelectors": {
               "type": "array"
+            },
+            "otlpGrpc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fromNamespaceSelectors": {
+                  "type": "array"
+                },
+                "fromPodSelectors": {
+                  "type": "array"
+                }
+              }
+            },
+            "http": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fromNamespaceSelectors": {
+                  "type": "array"
+                },
+                "fromPodSelectors": {
+                  "type": "array"
+                }
+              }
             }
           }
         }

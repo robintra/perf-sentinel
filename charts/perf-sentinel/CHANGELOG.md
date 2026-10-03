@@ -34,10 +34,17 @@ the chart version, to know which daemon image ships.
   `HTTPS_PROXY`, from `extraEnv`, `extraEnvFrom` or an injecting webhook,
   now sends those calls through the proxy, so an in-cluster `https://`
   endpoint belongs in `NO_PROXY`. `http://` calls stay direct.
+- `networkPolicy.ingress.otlpGrpc` and `networkPolicy.ingress.http` take
+  the same `fromNamespaceSelectors` and `fromPodSelectors` lists and open
+  port 4317 or port 4318 alone. Port 4318 also serves `/metrics`, `/health`
+  and the query API, so a collector that only sends OTLP gRPC no longer has
+  to be allowed on it. The lists directly under `networkPolicy.ingress`
+  still open both ports, and a release that only sets them renders the same
+  policy as before. The policy stays off by default.
 
-No `values.yaml` key is added or removed, and no template logic changes. The
-ingress comment in `values.yaml` and a comment in `configmap-fragments.yaml`
-change wording, and neither renders into a manifest.
+The ingress comment in `values.yaml` and a comment in
+`configmap-fragments.yaml` change wording, and neither renders into a
+manifest.
 
 ## [0.25.4]
 

@@ -25,7 +25,7 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 | `service.type`                            | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.                                                                                                                     |
 | `ingress.enabled`                         | `false`                           | Publishes an API with no embedded IAM. Put an SSO proxy or controller auth in front before enabling.                                                                                 |
 | `serviceMonitor.enabled`                  | `false`                           | Flip on when the Prometheus Operator is installed.                                                                                                                                   |
-| `networkPolicy.enabled`                   | `false`                           | Fail-closed when enabled without selectors.                                                                                                                                          |
+| `networkPolicy.enabled`                   | `false`                           | Fail-closed when enabled without selectors. `ingress.otlpGrpc` and `ingress.http` open one port each.                                                                                |
 | `[daemon] environment`                    | `"staging"` (via `config.toml`)   | Stamps every finding with a confidence tag consumed by downstream tooling (perf-lint, planned).                                                                                      |
 
 ## Install from a local checkout
