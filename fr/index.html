@@ -1405,6 +1405,8 @@ class Component extends DCLogic {
     } catch (e) {}
     // First visit: spotlight the persona bar once. Skipped for deep links and
     // automated browsers (the prerender build runs with an empty localStorage).
+    // A shared link (?profile=) counts as a choice: keep it, no spotlight.
+    const q = this.urlPersona(); if (q) this.persist('ps-persona', q);
     try { if (!localStorage.getItem('ps-persona') && !location.hash && !navigator.webdriver) this.setState({ spot: true }); } catch (e) {}
     this._onKey = (e) => { if (e.key === 'Escape' && this.state.spot) this.endSpot('tech'); };
     document.addEventListener('keydown', this._onKey);
@@ -1467,13 +1469,16 @@ class Component extends DCLogic {
   // Counterpart page in the other language, hash preserved.
   langUrl(next) {
     const p = location.pathname.replace(/^\/fr(\/|$)/, '/');
-    return (next === 'fr' ? '/fr' + (p === '/' ? '/' : p) : p) + location.hash;
+    return (next === 'fr' ? '/fr' + (p === '/' ? '/' : p) : p) + location.search + location.hash;
   }
   persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
-  // persona: saved choice → technical default (= the original page)
+  // persona: shared link (?profile=) → saved choice → technical default (= the original page)
+  isPersona(v) { return ['tech','rse','exec','legal','proc'].indexOf(v) !== -1; }
+  urlPersona() { try { const v = new URLSearchParams(location.search).get('profile'); return this.isPersona(v) ? v : null; } catch (e) { return null; } }
   basePersona() {
-    try { const v = localStorage.getItem('ps-persona'); if (['tech','rse','exec','legal','proc'].indexOf(v) !== -1) return v; } catch (e) {}
+    const q = this.urlPersona(); if (q) return q;
+    try { const v = localStorage.getItem('ps-persona'); if (this.isPersona(v)) return v; } catch (e) {}
     return 'tech';
   }
   curPersona() { return this.state.persona ?? this.basePersona(); }
@@ -1591,13 +1596,15 @@ class Component extends DCLogic {
     this._tipTimer = setTimeout(hide, 5000);
     window.addEventListener('scroll', hide, { once: true, passive: true });
   }
+  // Mirrors the picked profile in the address bar, so a copied link opens it.
+  shareUrl(id) { try { const u = new URL(location.href); u.searchParams.set('profile', id); history.replaceState(null, '', u); } catch (e) {} }
   personaUI(lang, persona) {
     const L = ({
       fr: { prompt: 'Vous êtes\u00a0:', hint: 'le contenu s’adapte, la page reste la même', spotTitle: 'Choisissez votre profil', spotSkip: 'Cliquez ailleurs pour garder le profil par défaut.', dflt: '(par défaut)', tip: '↑ Vous pouvez changer de profil ici à tout moment', tipClose: 'Fermer', tech: 'Dev · Archi · DevOps', rse: 'RSE', exec: 'Direction', legal: 'Juridique', proc: 'Achats' },
       en: { prompt: 'You are:', hint: 'content adapts, same page', spotTitle: 'Pick your profile', spotSkip: 'Click anywhere else to keep the default profile.', dflt: '(default)', tip: '↑ You can switch profiles here at any time', tipClose: 'Close', tech: 'Dev · Arch · DevOps', rse: 'Sustainability', exec: 'Leadership', legal: 'Legal', proc: 'Procurement' },
     })[lang] || {};
     const order = ['tech', 'rse', 'exec', 'legal', 'proc'];
-    const set = (id) => () => { if (this.state.spot) return this.endSpot(id); this.persist('ps-persona', id); this.setState({ persona: id }); };
+    const set = (id) => () => { this.shareUrl(id); if (this.state.spot) return this.endSpot(id); this.persist('ps-persona', id); this.setState({ persona: id }); };
     const o = {
       personaPrompt: L.prompt, personaHint: L.hint,
       spotOn: this.state.spot ? 'true' : 'false', spotTitle: this.state.spot ? L.spotTitle : '', spotSkip: L.spotSkip,
