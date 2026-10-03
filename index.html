@@ -836,6 +836,8 @@
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
+  /* Small screens: the comparison stacks by capability, each value under its column name */
+  @media(max-width:600px){[data-cmp-head]{display:none!important}[data-cmp-row]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:start!important;gap:8px 16px;padding:14px 16px 16px}[data-cmp-row]>div{padding:0!important}[data-cmp-row]>div:first-child{grid-column:1/-1}[data-cmp-row]>[data-label]{display:grid;grid-row:2/span 2;grid-template-rows:subgrid;row-gap:2px}[data-cmp-row]>[data-label]::before{content:attr(data-label);font-size:12px;font-weight:600;color:var(--text-2)}[data-cmp-row]>[data-label]:last-child::before{color:var(--accent-strong)}}
   /* Small screens: no iframe (the script never sets its src), the finding card plus a button that opens the demo */
   @media(max-width:600px){#ps-embed-frame{display:none!important}[data-embed-card]{background:var(--surface)!important;box-shadow:none!important}[data-embed-bar]{border-bottom:0!important}#ps-embed-open{flex:1 1 100%;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;margin-top:4px;font-size:15px;color:var(--on-accent);background:#0b523a;border-color:#0b523a;border-radius:9px;padding:11px 16px}#ps-embed-open:hover{filter:brightness(1.05)}[data-embed-full]{display:none}[data-embed-m]{display:inline}}
 @media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}.ps-th-lbl{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:8px!important;margin-left:0!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="Perf Sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="Perf Sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent-strong)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}
@@ -1252,16 +1254,16 @@
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ cmpEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ cmpT1 }}<span style="color:var(--accent)">{{ cmpWCarbon }}</span></h2>
       <div style="margin-top:30px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface)">
-        <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-2)">
+        <div data-cmp-head="" style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-2)">
           <div style="padding:15px 22px">{{ cmpHCap }}</div>
           <div style="padding:15px 18px">{{ cmpHApm }}</div>
           <div style="padding:15px 18px;color:var(--accent-strong)">Perf Sentinel</div>
         </div>
         <sc-for list="{{ compare }}" as="c" hint-placeholder-count="5">
-          <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid var(--border);align-items:center">
+          <div data-cmp-row="" style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid var(--border);align-items:center">
             <div style="padding:16px 22px;font-size:15px;font-weight:500;color:var(--text)">{{ c.cap }}</div>
-            <div style="padding:16px 18px;font-size:14px;color:var(--text-2)">{{ c.apm }}</div>
-            <div style="padding:16px 18px;font-size:14px;color:var(--text);font-weight:500">{{ c.ps }}</div>
+            <div data-label="{{ cmpHApm }}" style="padding:16px 18px;font-size:14px;color:var(--text-2)">{{ c.apm }}</div>
+            <div data-label="Perf Sentinel" style="padding:16px 18px;font-size:14px;color:var(--text);font-weight:500">{{ c.ps }}</div>
           </div>
         </sc-for>
       </div>
