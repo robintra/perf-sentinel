@@ -4,6 +4,7 @@ use super::ack_modal::{
     EXPIRES_MAX, ModalAction, REASON_MAX, UNACK_FOCUS_CYCLE, handle_modal_key, step_focus,
     submit_ack_modal,
 };
+use super::draw::draw_detail_panel;
 use super::*;
 #[cfg(feature = "daemon")]
 use chrono::Utc;
