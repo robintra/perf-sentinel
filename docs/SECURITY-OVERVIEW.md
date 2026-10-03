@@ -164,7 +164,7 @@ cargo audit bin perf-sentinel-linux-amd64
 
 The image pushed to GHCR is not signed in the registry: verify the release artefacts as described in [Hub releasing](https://github.com/robintra/PerfSentinelHub/blob/main/RELEASING.md).
 
-The engine repository has no ruleset today and does not require signed commits on its main branch. The Hub repository requires them through its `Protect default branch` ruleset, which the Administrator role can bypass. Release tags are signed on both.
+Both repositories require signed commits on their main branch, the engine through branch protection and the Hub through its `Protect default branch` ruleset. On both, the Administrator role can bypass the rule. On the engine, commits merged before 3 October 2026 were rewritten by GitHub's rebase merge and carry no signature. Release tags are signed on both.
 
 ## Reporting a vulnerability
 

@@ -164,7 +164,7 @@ cargo audit bin perf-sentinel-linux-amd64
 
 L'image poussée sur GHCR n'est pas signée dans le registre : vérifiez les artefacts de release comme le décrit la [procédure de release du Hub](https://github.com/robintra/PerfSentinelHub/blob/main/RELEASING.md).
 
-Le dépôt du moteur n'a aujourd'hui aucun ensemble de règles et n'exige pas de commits signés sur sa branche principale. Le dépôt du Hub les exige par son ensemble de règles `Protect default branch`, que le rôle Administrateur peut contourner. Les tags de release sont signés sur les deux.
+Les deux dépôts exigent des commits signés sur leur branche principale, le moteur par sa protection de branche et le Hub par son ensemble de règles `Protect default branch`. Sur les deux, le rôle Administrateur peut contourner la règle. Sur le moteur, les commits fusionnés avant le 3 octobre 2026 ont été réécrits par la fusion par rebase de GitHub et ne portent pas de signature. Les tags de release sont signés sur les deux.
 
 ## Signaler une vulnérabilité
 
