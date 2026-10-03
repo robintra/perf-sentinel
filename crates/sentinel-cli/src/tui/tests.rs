@@ -1,4 +1,12 @@
+#[cfg(feature = "daemon")]
+use super::ack_modal::{
+    ACK_FOCUS_CYCLE, AckFormField, AckModalMode, AckSubmitOp, AckSubmitPayload, BY_MAX,
+    EXPIRES_MAX, ModalAction, REASON_MAX, UNACK_FOCUS_CYCLE, handle_modal_key, step_focus,
+    submit_ack_modal,
+};
 use super::*;
+#[cfg(feature = "daemon")]
+use chrono::Utc;
 use core::assert_matches;
 use sentinel_core::detect::{Confidence, GreenImpact, Pattern};
 use sentinel_core::event::GroupingAttribute;

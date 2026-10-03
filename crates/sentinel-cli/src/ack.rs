@@ -888,7 +888,7 @@ fn format_relative(delta: chrono::Duration) -> String {
 /// terminal control sequences. Consumers that render the `Display`
 /// output to a terminal MUST pipe it through
 /// [`sentinel_core::text_safety::sanitize_for_terminal`] first. The
-/// modal footer at `tui::render_modal_footer` does this. Any future
+/// modal footer at `tui::ack_modal::render_modal_footer` does this. Any future
 /// `tracing::error!` or stdout writer reusing this error must do the
 /// same. The bidi/control filter on the modal input bounds what the
 /// `Validation` payload can contain (the parser echoes user input),
