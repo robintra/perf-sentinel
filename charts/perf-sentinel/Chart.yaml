@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.4
-appVersion: "0.25.4"
+version: 0.25.5
+appVersion: "0.25.5"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -42,7 +42,7 @@ annotations:
       description: "The example findings dashboard under `examples/` moves to version 13 and names each finding's call site in a new `Code` column. It does not ship in the chart, re-import it where it is provisioned. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.4
+      image: ghcr.io/robintra/perf-sentinel:0.25.5
       platforms:
         - linux/amd64
         - linux/arm64
