@@ -192,7 +192,7 @@
 <li>The core library carries <code class="ps-ic">#![forbid(unsafe_code)]</code>. The CLI holds four <code class="ps-ic">unsafe</code> blocks, all <code class="ps-ic">libc</code> calls (<code class="ps-ic">killpg</code> to stop a captured process group, <code class="ps-ic">getrusage</code> for <code class="ps-ic">bench</code>).</li>
 <li>On musl, the allocator is <code class="ps-ic">mimalloc</code>, and the TLS stack (<code class="ps-ic">ring</code>) includes C and assembly.</li>
 <li>Clippy runs in pedantic mode with warnings as errors, and CodeQL analyzes the Rust code.</li>
-<li>The SQL normalizer and the JSON ingest have fuzzing targets in <code class="ps-ic">fuzz/</code>, run by hand, not in CI.</li>
+<li>The SQL normalizer and the JSON ingest have fuzzing targets in <code class="ps-ic">fuzz/</code>. CI runs them for 20 minutes each every week, and for 2 minutes on pull requests that touch them.</li>
 </ul>
 <p class="ps-p"><strong>Engine limits.</strong></p>
 <ul>
