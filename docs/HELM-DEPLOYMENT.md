@@ -766,6 +766,27 @@ networkPolicy:
 The two selector lists are OR-ed: an ingress source matching any entry in
 either list is allowed. Leave a list empty to skip that match dimension.
 
+The lists directly under `ingress` open both ports. Port 4318 also serves
+`/metrics`, `/health` and the query API, which returns your SQL templates and
+accepts ack writes, so a collector that only sends OTLP gRPC is better placed
+under `otlpGrpc`, which opens 4317 alone. `http` opens 4318 alone, for
+Prometheus, PerfSentinelHub or Grafana. Each takes the same two lists, and the
+three sets add up.
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    otlpGrpc:
+      fromPodSelectors:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector
+    http:
+      fromNamespaceSelectors:
+        - matchLabels:
+            kubernetes.io/metadata.name: monitoring
+```
+
 ### Ingress
 
 The chart can render an `Ingress` in front of the Service. It is off by

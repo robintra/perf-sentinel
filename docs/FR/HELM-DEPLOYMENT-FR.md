@@ -544,6 +544,27 @@ Les deux listes de sélecteurs sont combinées en OU : une source d'ingress qui
 correspond à n'importe quelle entrée de l'une ou l'autre liste est autorisée.
 Laissez une liste vide pour ignorer cette dimension de correspondance.
 
+Les listes placées directement sous `ingress` ouvrent les deux ports. Le port
+4318 sert aussi `/metrics`, `/health` et l'API de requêtage, qui renvoie vos
+templates SQL et accepte l'écriture des acks. Un collecteur qui n'envoie que de
+l'OTLP gRPC a donc sa place sous `otlpGrpc`, qui n'ouvre que le 4317. `http`
+n'ouvre que le 4318, pour Prometheus, PerfSentinelHub ou Grafana. Chacun prend
+les deux mêmes listes, et les trois ensembles s'additionnent.
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    otlpGrpc:
+      fromPodSelectors:
+        - matchLabels:
+            app.kubernetes.io/name: otel-collector
+    http:
+      fromNamespaceSelectors:
+        - matchLabels:
+            kubernetes.io/metadata.name: monitoring
+```
+
 ### Ingress
 
 Le chart peut rendre un `Ingress` devant le Service. Il est désactivé par
