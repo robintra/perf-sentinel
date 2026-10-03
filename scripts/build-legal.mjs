@@ -46,7 +46,7 @@ function header(lang, otherHref) {
     `<div style="margin-left:auto;display:flex;align-items:center;gap:10px">` +
     langCtl(otherHref, lang) +
     `<button id="themeBtn" class="ps-th-btn" aria-label="Theme"><span class="ps-th-ico">${ICON_SYSTEM}</span><span class="ps-th-lbl">${lang === 'fr' ? 'Système' : 'System'}</span></button>` +
-    `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px">${GH}<span class="gh-txt">GitHub</span></a>` +
+    `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" style="display:flex;align-items:center;gap:8px;height:34px;box-sizing:border-box;font-size:13px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:0 12px">${GH}<span class="gh-txt">GitHub</span></a>` +
     `</div></div></header>`;
 }
 
