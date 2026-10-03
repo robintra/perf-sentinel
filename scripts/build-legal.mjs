@@ -152,7 +152,8 @@ const notFound = (lang) => {
 };
 // Centers the block in whatever height the viewport leaves between header and footer.
 const nfCss = `<style>.legal-main{display:flex;align-items:center;justify-content:center;padding:48px 28px}</style>`;
-const frRedirect = `<script>(function(){var l=null;try{l=localStorage.getItem('ps-lang')}catch(e){}if(l!=='fr'&&l!=='en')l=(navigator.language||'').toLowerCase().indexOf('fr')===0?'fr':'en';if(l==='fr')location.replace('/fr/404');})();</script>`;
+// A missing /fr/ or /docs/fr/ URL keeps its language, other missing URLs follow the stored choice.
+const frRedirect = `<script>(function(){var p=location.pathname,l=p.indexOf('/fr/')===0||p.indexOf('/docs/fr/')===0?'fr':null;if(!l)try{l=localStorage.getItem('ps-lang')}catch(e){}if(l!=='fr'&&l!=='en')l=(navigator.language||'').toLowerCase().indexOf('fr')===0?'fr':'en';if(l==='fr')location.replace('/fr/404');})();</script>`;
 
 writeFileSync(join(SITE, '404.html'), page('en', '/fr/404', NF.en.title, NF.en.desc, notFound('en'), { robots: 'noindex,follow', head: nfCss + frRedirect }));
 writeFileSync(join(SITE, 'fr', '404.html'), page('fr', '/404', NF.fr.title, NF.fr.desc, notFound('fr'), { robots: 'noindex,follow', head: nfCss }));

@@ -1417,14 +1417,11 @@ class Component extends DCLogic {
   state = { mode: null, sysFlip: false, lang: null, persona: null, spot: false, tip: false, copied: false, rustVersion: null, dotnetVersion: null };
 
   componentDidMount() {
-    // One-time redirect honoring a previous explicit language choice.
-    // Guard: only when the stored choice differs from this page's
-    // language, so the page pair can never bounce. navigator.language
-    // is deliberately not consulted: an explicitly opened URL (and the
-    // prerender build, which runs with an empty localStorage) wins.
+    // A stored French choice only moves the bare site root to /fr/. Any other
+    // URL, /fr/ included, is an explicit choice and is never redirected.
+    // navigator.language is deliberately not consulted.
     try {
-      const v = localStorage.getItem('ps-lang');
-      if ((v === 'fr' || v === 'en') && v !== this.baseLang()) { location.replace(this.langUrl(v)); return; }
+      if (this.rootLangRedirect(location.pathname, localStorage.getItem('ps-lang'))) { location.replace(this.langUrl('fr')); return; }
     } catch (e) {}
     // First visit: spotlight the persona bar once. Skipped for deep links and
     // automated browsers (the prerender build runs with an empty localStorage).
@@ -1494,6 +1491,7 @@ class Component extends DCLogic {
     const p = location.pathname.replace(/^\/fr(\/|$)/, '/');
     return (next === 'fr' ? '/fr' + (p === '/' ? '/' : p) : p) + location.search + location.hash;
   }
+  rootLangRedirect(path, stored) { return stored === 'fr' && (path === '/' || path === '/index.html'); }
   persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
   // persona: shared link (?profile=) → saved choice → technical default (= the original page)

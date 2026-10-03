@@ -1482,15 +1482,6 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
-    // One-time redirect honoring a previous explicit language choice.
-    // Guard: only when the stored choice differs from this page's
-    // language, so the page pair can never bounce. navigator.language
-    // is deliberately not consulted: an explicitly opened URL (and the
-    // prerender build, which runs with an empty localStorage) wins.
-    try {
-      const v = localStorage.getItem('ps-lang');
-      if ((v === 'fr' || v === 'en') && v !== this.baseLang()) { location.replace(this.langUrl(v)); return; }
-    } catch (e) {}
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     let ticking = false;
     this._compute = () => {
