@@ -296,7 +296,7 @@ pub struct MetricsState {
     /// Cached child for `otlp_rejected_total{reason="parse_error"}`.
     pub otlp_rejected_parse_error: IntCounter,
     /// Cached child for `otlp_rejected_total{reason="channel_full"}`.
-    /// Read directly by `daemon::query_api::collect_warning_details` to
+    /// Read directly by `daemon::query_api::advisor::collect_warning_details` to
     /// surface an `ingestion_drops` warning in the report payload when
     /// the counter is positive.
     pub otlp_rejected_channel_full: IntCounter,
