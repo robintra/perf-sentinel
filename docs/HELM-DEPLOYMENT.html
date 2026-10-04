@@ -326,7 +326,9 @@
 <span style="color:var(--code-sub)">  fragments</span>:
 <span style="color:var(--code-sub)">    33-green-kepler.toml</span>: |
       [green.kepler]
-      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+<span style="color:var(--term-comment)">      # One arbitrary node per scrape on a multi-node cluster, see</span>
+<span style="color:var(--term-comment)">      # examples/helm/values-green-kepler.yaml.</span>
+      endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"
       metric_kind = "container"
 
       [green.kepler.service_mappings]
