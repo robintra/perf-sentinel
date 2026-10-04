@@ -165,7 +165,6 @@ fn sort_applies_the_permutation_not_its_inverse() {
 }
 
 use super::*;
-use crate::render;
 use core::assert_matches;
 use sentinel_core::detect::Confidence;
 use sentinel_core::detect::suggestions::SuggestedFix;
@@ -1183,7 +1182,7 @@ fn make_finding(finding_type: FindingType, severity: Severity) -> Finding {
         green_impact: Some(GreenImpact {
             estimated_extra_io_ops: 5,
             io_intensity_score: 6.0,
-            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(6.0),
+            io_intensity_band: InterpretationLevel::for_iis(6.0),
         }),
         confidence: Confidence::default(),
         classification_method: None,
@@ -1198,7 +1197,7 @@ fn make_finding(finding_type: FindingType, severity: Severity) -> Finding {
 fn report_no_findings() {
     let report = make_report(vec![], vec![], true, vec![]);
     // Should not panic and should print "No performance anti-patterns detected."
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1209,7 +1208,7 @@ fn report_critical_severity() {
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1220,7 +1219,7 @@ fn report_info_severity() {
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1231,7 +1230,7 @@ fn report_redundant_http_type() {
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1242,7 +1241,7 @@ fn report_slow_sql_type() {
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1253,7 +1252,7 @@ fn report_slow_http_type() {
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1269,7 +1268,7 @@ fn report_quality_gate_failed() {
             passed: false,
         }],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1280,13 +1279,13 @@ fn report_with_top_offenders() {
             endpoint: "POST /api/orders/{id}/submit".to_string(),
             service: "order-svc".to_string(),
             io_intensity_score: 8.2,
-            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+            io_intensity_band: InterpretationLevel::for_iis(8.2),
             co2_grams: None,
         }],
         true,
         vec![],
     );
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
 
 #[test]
@@ -1303,13 +1302,13 @@ fn report_with_ansi_colors() {
             endpoint: "POST /api/orders/{id}/submit".to_string(),
             service: "order-svc".to_string(),
             io_intensity_score: 8.2,
-            io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+            io_intensity_band: InterpretationLevel::for_iis(8.2),
             co2_grams: None,
         }],
         false,
         vec![],
     );
-    render::format_colored_report(&report, "report", true);
+    format_colored_report(&report, "report", true);
 }
 
 #[test]
@@ -1325,12 +1324,12 @@ fn report_with_co2_data() {
             total_io_ops: 10,
             avoidable_io_ops: 5,
             io_waste_ratio: 0.5,
-            io_waste_ratio_band: sentinel_core::InterpretationLevel::for_waste_ratio(0.5),
+            io_waste_ratio_band: InterpretationLevel::for_waste_ratio(0.5),
             top_offenders: vec![TopOffender {
                 endpoint: "POST /api/orders/{id}/submit".to_string(),
                 service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
-                io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
+                io_intensity_band: InterpretationLevel::for_iis(8.2),
                 co2_grams: Some(0.001),
             }],
             ..GreenSummary::disabled(0)
@@ -1349,5 +1348,5 @@ fn report_with_co2_data() {
         detection_config: None,
         disclosure_waste: None,
     };
-    render::format_colored_report(&report, "report", false);
+    format_colored_report(&report, "report", false);
 }
