@@ -847,15 +847,6 @@ fn aggregator_surfaces_both_waste_tiers() {
 fn aggregator_sums_messaging_waste_and_splits_provenance() {
     let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
     let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
-    let msg_block = |energy: f64, model: &str| crate::report::DisclosureMsgWaste {
-        energy_kwh: energy,
-        model: model.to_string(),
-        operational_waste_kwh: energy * 0.5,
-        operational_waste_gco2: Some(energy * 50.0),
-        canonical_waste_kwh: energy * 0.8,
-        canonical_waste_gco2: Some(energy * 80.0),
-        energy_gco2: Some(energy * 100.0),
-    };
     let tier = crate::report::AvoidableTier {
         n_plus_one_threshold: 2,
         avoidable_io_ops: 10,
@@ -867,14 +858,14 @@ fn aggregator_sums_messaging_waste_and_splits_provenance() {
         canonical: tier.clone(),
         operational: tier.clone(),
         database: None,
-        messaging: Some(msg_block(2.0, "broker_specpower")),
+        messaging: Some(waste_block(2.0, "broker_specpower")),
     });
     let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
     r2.disclosure_waste = Some(crate::report::DisclosureWaste {
         canonical: tier.clone(),
         operational: tier,
         database: None,
-        messaging: Some(msg_block(1.0, "estimated")),
+        messaging: Some(waste_block(1.0, "estimated")),
     });
 
     let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
@@ -919,15 +910,6 @@ fn aggregator_sums_messaging_waste_and_splits_provenance() {
 fn aggregator_sums_database_waste_across_windows() {
     let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
     let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
-    let db_block = |energy: f64, model: &str| crate::report::DisclosureDbWaste {
-        energy_kwh: energy,
-        model: model.to_string(),
-        operational_waste_kwh: energy * 0.5,
-        operational_waste_gco2: Some(energy * 50.0),
-        canonical_waste_kwh: energy * 0.8,
-        canonical_waste_gco2: Some(energy * 80.0),
-        energy_gco2: Some(energy * 100.0),
-    };
     let tier = crate::report::AvoidableTier {
         n_plus_one_threshold: 2,
         avoidable_io_ops: 10,
@@ -938,14 +920,14 @@ fn aggregator_sums_database_waste_across_windows() {
     r1.disclosure_waste = Some(crate::report::DisclosureWaste {
         canonical: tier.clone(),
         operational: tier.clone(),
-        database: Some(db_block(1.0, "alumet_rapl")),
+        database: Some(waste_block(1.0, "alumet_rapl")),
         messaging: None,
     });
     let mut r2 = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
     r2.disclosure_waste = Some(crate::report::DisclosureWaste {
         canonical: tier.clone(),
         operational: tier.clone(),
-        database: Some(db_block(0.5, "estimated")),
+        database: Some(waste_block(0.5, "estimated")),
         messaging: None,
     });
     // Out-of-spec provenance tag: the whole block is dropped, none
@@ -955,7 +937,7 @@ fn aggregator_sums_database_waste_across_windows() {
     r3.disclosure_waste = Some(crate::report::DisclosureWaste {
         canonical: tier.clone(),
         operational: tier,
-        database: Some(db_block(9.0, "bad tag!")),
+        database: Some(waste_block(9.0, "bad tag!")),
         messaging: None,
     });
 
@@ -1813,4 +1795,17 @@ fn aggregator_caps_distinct_binary_versions() {
 
     let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
     assert_eq!(out.aggregate.binary_versions.len(), MAX_BINARY_VERSIONS);
+}
+
+/// A database or broker waste block whose figures scale with `energy`.
+fn waste_block(energy: f64, model: &str) -> crate::report::DisclosureDbWaste {
+    crate::report::DisclosureDbWaste {
+        energy_kwh: energy,
+        model: model.to_string(),
+        operational_waste_kwh: energy * 0.5,
+        operational_waste_gco2: Some(energy * 50.0),
+        canonical_waste_kwh: energy * 0.8,
+        canonical_waste_gco2: Some(energy * 80.0),
+        energy_gco2: Some(energy * 100.0),
+    }
 }

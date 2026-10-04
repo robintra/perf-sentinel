@@ -459,14 +459,7 @@ fn consumer_destination_never_outranks_a_route_below_it() {
         make_child("t1", "svc-a", "sql-routed", "route", "SELECT 2", "/api/x"),
         0,
     );
-    let parents: SourceEndpointParentGroups = HashMap::from([(
-        Arc::clone(&svc),
-        HashMap::from([
-            ("consumer".to_string(), None),
-            ("http-out".to_string(), Some("consumer".to_string())),
-            ("route".to_string(), Some("http-out".to_string())),
-        ]),
-    )]);
+    let parents = consumer_http_route_parents(Arc::clone(&svc));
     let roots = HashMap::from([(
         Arc::clone(&svc),
         HashMap::from([("route".to_string(), "/api/x".to_string())]),
@@ -553,14 +546,7 @@ fn unretained_consumer_destination_never_outranks_a_nearer_route() {
         svc(),
         HashMap::from([("route".to_string(), "/api/x".to_string())]),
     )]);
-    let parents: SourceEndpointParentGroups = HashMap::from([(
-        svc(),
-        HashMap::from([
-            ("consumer".to_string(), None),
-            ("http-out".to_string(), Some("consumer".to_string())),
-            ("route".to_string(), Some("http-out".to_string())),
-        ]),
-    )]);
+    let parents = consumer_http_route_parents(svc());
     let consumers: SourceEndpointGroups = HashMap::from([(
         svc(),
         HashMap::from([("consumer".to_string(), "rabbitmq crm.orders".to_string())]),
@@ -1930,4 +1916,17 @@ fn early_root_storm_is_bounded_by_trace_and_per_trace_caps() {
     }));
     assert!(w.drain_all().is_empty(), "context-only drain stays empty");
     assert_eq!(w.active_traces(), 0);
+}
+
+/// Parent chain `route -> http-out -> consumer` of one service: a route
+/// reached through an outbound HTTP span under a consumer.
+fn consumer_http_route_parents(service: Arc<str>) -> SourceEndpointParentGroups {
+    HashMap::from([(
+        service,
+        HashMap::from([
+            ("consumer".to_string(), None),
+            ("http-out".to_string(), Some("consumer".to_string())),
+            ("route".to_string(), Some("http-out".to_string())),
+        ]),
+    )])
 }
