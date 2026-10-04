@@ -386,7 +386,7 @@ metric_kind = "container"
 
 #### `[green.alumet]` (optionnel, opt-in)
 
-Intégration opt-in avec [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2) pour l'énergie mesurée. Alumet est un framework de mesure modulaire : un plugin source (`rapl`, `nvidia-nvml`, ...) produit des relevés, des plugins de transformation optionnels les attribuent aux charges de travail, et un plugin de sortie les expose. Perf Sentinel scrape la sortie `prometheus-exporter`. Une fois configuré, le daemon `watch` publie un coefficient mesuré par opération étiqueté `alumet_rapl`, qui **surclasse toutes les autres sources mesurées**, Scaphandre compris.
+Intégration opt-in avec [Alumet](https://github.com/alumet-dev/alumet) (INRIA/LIG, EUPL-1.2) pour l'énergie mesurée. Alumet est un framework de mesure modulaire : un plugin source produit des relevés, des plugins de transformation optionnels les attribuent aux charges de travail, et un plugin de sortie les expose. Perf Sentinel scrape la sortie `prometheus-exporter` et ne prend en charge que des séries issues de la source `rapl` (voir plus bas). Une fois configuré, le daemon `watch` publie un coefficient mesuré par opération étiqueté `alumet_rapl`, qui **surclasse toutes les autres sources mesurées**, Scaphandre compris.
 
 | Champ                  | Type     | Défaut    | Description                                                                                                                                                                                |
 |------------------------|----------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -403,6 +403,8 @@ Intégration opt-in avec [Alumet](https://github.com/alumet-dev/alumet) (INRIA/L
 ```bash
 curl -s http://localhost:9091/metrics | grep -i energy
 ```
+
+**`metric_name` doit désigner une série RAPL en joules.** Le scraper lit chaque valeur comme les joules consommés pendant un `energy_interval_secs` et l'étiquette `alumet_rapl`. Pointez-le vers `rapl_consumed_energy` lui-même, ou vers une formule `energy-attribution` alimentée par `rapl`, comme dans l'exemple plus bas. Les autres sources d'énergie d'Alumet ne sont pas prises en charge. Les séries d'énergie de `nvidia-nvml`, `amd-gpu` et `grace-hopper` sont en millijoules et la jauge `input_power` de `nvidia-jetson` est une puissance en milliwatts, elles arriveraient donc dans la mauvaise unité, 1000 fois trop haut pour des millijoules. `energy-estimation-tdp` publie des joules, mais c'est une estimation tirée du TDP du processeur, pas une mesure. Scrapée ici, chacune de ces séries serait publiée comme du RAPL mesuré sous `alumet_rapl`. Au démarrage, le scraper journalise un avertissement quand `metric_name` ressemble à l'une de ces séries ou se termine par une autre unité que le joule.
 
 **Plusieurs lignes par service sont sommées.** Le `label_key` d'Alumet est couramment partagé : un pod porte une ligne par domaine RAPL (`package` + `dram`), et `label_key = "domain"` sur un hôte bi-socket porte une ligne `domain="package"` par socket. Toutes les lignes partageant une valeur de label sont sommées, ce qui est la lecture physiquement correcte puisque l'énergie est additive (les lignes NaN ou négatives sont ignorées). Deux conséquences à configurer. Choisissez `label_key` de sorte que les lignes partageant une valeur soient bien celles que vous voulez additionner. Et assurez-vous que ces lignes ne se recouvrent pas : les domaines RAPL s'emboîtent (`psys` contient `package`, `package` contient `pp0`/`pp1`), donc une formule qui émet un domaine parent et son enfant pour un même label compte deux fois la part partagée. `package` plus `dram` se somme correctement, `psys` plus `package` non.
 
@@ -421,6 +423,7 @@ poll_interval = "1s"          # <- energy_interval_secs de perf-sentinel doit va
 [plugins.energy-attribution.formulas.attributed_energy_cpu]
 expr = "cpu_energy * cpu_usage / 100.0"
 ref = "cpu_energy"
+retention_time = "10s"        # requis, au moins deux fois le poll_interval d'entrée le plus lent (k8s : 5s par défaut)
 
 [plugins.energy-attribution.formulas.attributed_energy_cpu.per_resource]
 cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine", domain = "package_total" }
@@ -456,7 +459,7 @@ energy_interval_secs = 1.0
 
 **Le scraper seul ne met pas `alumet_rapl` dans le rapport.** Déclarer `[green.alumet]` démarre le scraper (visible sur `/api/energy`), mais le coefficient mesuré n'atteint `green_summary` que quand le scoring green résout une région pour les spans (`[green] default_region`, `[green.service_regions]`, ou un attribut de span `cloud.region`). Sans cela, `per_service_energy_model` continue d'afficher le tag proxy, ce qui se lit facilement comme une intégration Alumet cassée.
 
-**Alumet est pré-1.0** (v0.9.5 au moment de l'écriture). Les noms de métriques et la configuration des plugins peuvent changer d'une version à l'autre. Si un scrape cesse de correspondre après une montée de version d'Alumet, le daemon avertit avec `no samples matched the configured metric` après trois ticks consécutifs.
+**Alumet est pré-1.0** (v0.9.5 au moment de l'écriture). Les noms de métriques et la configuration des plugins peuvent changer d'une version à l'autre. Si un scrape cesse de correspondre après une montée de version d'Alumet, le daemon avertit avec `no samples matched the configured metric` après trois ticks consécutifs. La branche de développement d'Alumet, après la v0.9.5, ajoute l'unité à chaque nom de métrique qui en a une : `attributed_energy_cpu_alumet` s'y lit `attributed_energy_cpu_alumet_joules`. En passant à une version qui porte ce changement, mettez `metric_name` à jour en conséquence.
 
 ##### `[green.alumet.database]` (optionnel)
 

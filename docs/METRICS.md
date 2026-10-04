@@ -393,8 +393,10 @@ are permanently zero or invalid. For both, the check is
 `per_service_energy_model` on the report showing the service on a
 proxy tag instead of `alumet_rapl`.
 
-No metric can catch a wrong `energy_interval_secs`: scrapes
-succeed, samples match, and only the magnitude is wrong. See
+No metric can catch a wrong `energy_interval_secs`, or a
+`metric_name` series in a unit other than joules: scrapes succeed,
+samples match, and only the magnitude is wrong. For the unit, the
+startup warning on non-RAPL series names is the only net. See
 [docs/LIMITATIONS.md](LIMITATIONS.md#alumet-precision-bounds).
 
 ## Redfish scrape counters (since 0.7.4)

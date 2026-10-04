@@ -459,6 +459,9 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # off your own endpoint, the exporter names them after a prefix/suffix and
 # an attribution formula you choose:
 #   curl -s http://localhost:9091/metrics | grep -i energy
+# `metric_name` must be a RAPL series in joules: rapl_consumed_energy or an
+# energy-attribution formula fed by rapl. GPU, Jetson and TDP-estimate series
+# are not supported, the scraper warns at start on their names.
 #
 # `energy_interval_secs` MUST match the poll_interval of the Alumet source
 # feeding the metric. A mismatch rescales energy and carbon silently. Why,

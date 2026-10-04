@@ -415,8 +415,10 @@ nuls ou invalides. Dans les deux cas, la vérification est
 un tag proxy au lieu d'`alumet_rapl`.
 
 Aucune métrique ne peut détecter un `energy_interval_secs`
-faux : les scrapes réussissent, les échantillons correspondent, seule
-l'échelle est fausse. Voir
+faux, ni une série `metric_name` dans une autre unité que le joule :
+les scrapes réussissent, les échantillons correspondent, seule
+l'échelle est fausse. Pour l'unité, le seul filet est l'avertissement
+de démarrage sur les noms de séries non RAPL. Voir
 [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-alumet).
 
 ## Compteurs de scrape Redfish (depuis 0.7.4)

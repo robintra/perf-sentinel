@@ -52,6 +52,9 @@ config:
       # formula you choose, so this line is a plausible name, not yours.
       #   kubectl -n observability exec deploy/alumet -- \
       #     curl -s localhost:9091/metrics | grep -i energy
+      # It must be a RAPL series in joules: rapl_consumed_energy or an
+      # energy-attribution formula fed by rapl. GPU, Jetson and TDP-estimate
+      # series are not supported, the scraper warns at start on their names.
       metric_name = "attributed_energy_cpu_alumet"   # no default, required
       label_key = "name"   # no default, required
       # /!\ Must equal the poll_interval of the Alumet source feeding the
