@@ -40,33 +40,57 @@ pub struct PromSample {
 /// skipped.
 #[must_use]
 pub fn parse_metric_samples(body: &str, metric_name: &str, label_key: &str) -> Vec<PromSample> {
+    parse_metric_samples_where(body, metric_name, label_key, None)
+}
+
+/// [`parse_metric_samples`] with an optional `(label, value)` filter.
+///
+/// A row is dropped only when it carries the filter label with another
+/// value. A row without that label passes through. Kepler uses it to
+/// keep one RAPL zone, since its per-zone series overlap.
+#[must_use]
+pub fn parse_metric_samples_where(
+    body: &str,
+    metric_name: &str,
+    label_key: &str,
+    filter: Option<(&str, &str)>,
+) -> Vec<PromSample> {
     let mut out = Vec::new();
     for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let Some((labels_str, value)) = split_sample_line(line.trim(), metric_name) else {
+            continue;
+        };
+        if let Some((key, want)) = filter
+            && extract_label(labels_str, key).is_some_and(|v| v != want)
+        {
             continue;
         }
-        let Some(rest) = line.strip_prefix(metric_name) else {
-            continue;
-        };
-        let (labels_str, value_str) = match rest.as_bytes().first() {
-            Some(b'{') => match find_label_block_end(rest) {
-                Some(end) => (&rest[1..end], rest[end + 1..].trim_start()),
-                None => continue,
-            },
-            Some(b' ') => ("", rest.trim_start()),
-            _ => continue,
-        };
-        let value_token = value_str.split_whitespace().next().unwrap_or("");
-        let Ok(value) = value_token.parse::<f64>() else {
-            continue;
-        };
         let Some(label_value) = extract_label(labels_str, label_key) else {
             continue;
         };
         out.push(PromSample { label_value, value });
     }
     out
+}
+
+/// Split one exposition line of `metric_name` into its labels block and
+/// its value. `None` for comments, blank lines, other metrics and
+/// malformed lines.
+fn split_sample_line<'a>(line: &'a str, metric_name: &str) -> Option<(&'a str, f64)> {
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let rest = line.strip_prefix(metric_name)?;
+    let (labels_str, value_str) = match rest.as_bytes().first() {
+        Some(b'{') => {
+            let end = find_label_block_end(rest)?;
+            (&rest[1..end], rest[end + 1..].trim_start())
+        }
+        Some(b' ') => ("", rest.trim_start()),
+        _ => return None,
+    };
+    let value = value_str.split_whitespace().next()?.parse::<f64>().ok()?;
+    Some((labels_str, value))
 }
 
 /// Sum samples per `label_value`, with per-row validation.
@@ -76,7 +100,9 @@ pub fn parse_metric_samples(body: &str, metric_name: &str, label_key: &str) -> V
 /// container name repeated across pods for Kepler, one row per RAPL
 /// domain or per socket for Alumet). A last-write-wins read would keep
 /// whichever row the exposition emitted last and silently understate
-/// the figure. Per-row validation happens HERE, not only on the sum.
+/// the figure. Kepler's per-zone rows overlap, so they never reach this
+/// sum: [`parse_metric_samples_where`] keeps one zone before it.
+/// Per-row validation happens HERE, not only on the sum.
 /// The Prometheus text format allows NaN, and one NaN row must not
 /// poison every row sharing its label. A negative row must not subtract
 /// from an otherwise valid sum. Rejected rows still create the entry,
@@ -250,7 +276,7 @@ pub(crate) fn unescape_prometheus_value(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{PromSample, parse_metric_samples};
+    use super::{PromSample, parse_metric_samples, parse_metric_samples_where};
 
     #[test]
     fn parse_empty_body() {
@@ -363,6 +389,41 @@ mod tests {
         let body = "rapl_consumed_energy_alumet_joules{domain=\"package\"} 7.0\n";
         let out = parse_metric_samples(body, "rapl_consumed_energy_alumet", "domain");
         assert!(out.is_empty());
+    }
+
+    const ZONED: &str = "kepler_container_cpu_joules_total{container_name=\"order\",zone=\"package\"} 100\n\
+                         kepler_container_cpu_joules_total{container_name=\"order\",zone=\"core\"} 60\n\
+                         kepler_container_cpu_joules_total{container_name=\"order\"} 7\n";
+
+    #[test]
+    fn filter_drops_rows_whose_label_differs() {
+        let out = parse_metric_samples_where(
+            ZONED,
+            "kepler_container_cpu_joules_total",
+            "container_name",
+            Some(("zone", "package")),
+        );
+        let values: Vec<f64> = out.iter().map(|s| s.value).collect();
+        assert_eq!(values, vec![100.0, 7.0]);
+    }
+
+    #[test]
+    fn filter_passes_rows_without_the_label() {
+        let out = parse_metric_samples_where(
+            ZONED,
+            "kepler_container_cpu_joules_total",
+            "container_name",
+            Some(("zone", "psys")),
+        );
+        let values: Vec<f64> = out.iter().map(|s| s.value).collect();
+        assert_eq!(values, vec![7.0], "only the unlabelled row survives");
+    }
+
+    #[test]
+    fn no_filter_keeps_every_row() {
+        let out =
+            parse_metric_samples(ZONED, "kepler_container_cpu_joules_total", "container_name");
+        assert_eq!(out.len(), 3);
     }
 
     #[test]

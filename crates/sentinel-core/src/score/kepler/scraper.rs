@@ -16,7 +16,7 @@ use super::apply::process_scrape;
 use super::config::KeplerConfig;
 use super::state::{KeplerState, monotonic_ms};
 use crate::score::alumet::scraper::WarnOnceStreak;
-use crate::score::prom_parser::parse_metric_samples;
+use crate::score::prom_parser::{PromSample, parse_metric_samples_where};
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely misconfigured endpoint" warning. Same
@@ -76,6 +76,17 @@ fn fetch_error_reason(err: &FetchError) -> KeplerScrapeReason {
         FetchError::BodyRead(_) | FetchError::BodyTooLarge(_) => KeplerScrapeReason::BodyReadError,
         FetchError::RequestBuild(_) => KeplerScrapeReason::RequestError,
     }
+}
+
+/// Extract the configured metric's samples from one `/metrics` body,
+/// keeping only the configured zone (Kepler's zones overlap).
+pub(super) fn parse_samples(body: &str, cfg: &KeplerConfig) -> Vec<PromSample> {
+    parse_metric_samples_where(
+        body,
+        cfg.metric_kind.metric_name(),
+        cfg.metric_kind.label_key(),
+        Some(("zone", cfg.zone.as_str())),
+    )
 }
 
 /// Spawn the periodic Kepler scraper task.
@@ -154,12 +165,12 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
     // (otherwise the never-succeeded case would leave it frozen at 0).
     let mut last_success_ms: u64 = monotonic_ms();
     let metric_name = cfg.metric_kind.metric_name();
-    let label_key = cfg.metric_kind.label_key();
 
     tracing::info!(
         endpoint = %redacted,
         scrape_interval_secs = cfg.scrape_interval.as_secs(),
         metric = metric_name,
+        zone = %cfg.zone,
         service_count = cfg.service_mappings.len(),
         "Kepler scraper started"
     );
@@ -182,7 +193,7 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
             Ok(body) => {
                 failure_streak_warned = false;
                 consecutive_failures = 0;
-                let samples = parse_metric_samples(&body, metric_name, label_key);
+                let samples = parse_samples(&body, &cfg);
                 // Mirror Scaphandre: timestamp after the fetch resolves
                 // so `last_update_ms` reflects when the data landed.
                 let now = monotonic_ms();
@@ -198,7 +209,8 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
                     cfg.service_mappings.len(),
                     &redacted,
                     metric_name,
-                    label_key,
+                    cfg.metric_kind.label_key(),
+                    &cfg.zone,
                     &mut no_samples_streak,
                     &mut no_match_streak,
                 );
@@ -296,6 +308,7 @@ pub(super) fn track_zero_sample_streak(
     redacted: &str,
     metric_name: &str,
     label_key: &str,
+    zone: &str,
     no_samples: &mut WarnOnceStreak,
     no_match: &mut WarnOnceStreak,
 ) {
@@ -305,12 +318,15 @@ pub(super) fn track_zero_sample_streak(
                 endpoint = %redacted,
                 metric = metric_name,
                 label = label_key,
+                zone = zone,
                 "Kepler endpoint replied HTTP 200 but no samples matched \
                  the configured metric across the last {ZERO_SAMPLE_WARN_THRESHOLD} ticks. \
                  Most common cause: the cluster runs a Kepler exporter \
                  older than v0.10 (legacy metric names without the \
-                 '_cpu_' infix). Other cause: metric_kind mismatched \
-                 with the deployment topology.",
+                 '_cpu_' infix). Other causes: metric_kind mismatched \
+                 with the deployment topology, or no series carries the \
+                 configured zone (hwmon hosts name zones after their \
+                 sensors, set [green.kepler] zone to one of them).",
             );
         }
     } else {

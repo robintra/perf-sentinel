@@ -347,18 +347,20 @@ matching Kepler-v2 series. The classic case is a v0.7.4-to-v0.7.5
 upgrade where the cluster still runs Kepler < 0.10 with the legacy
 metric names. Alerts driven only by the gauge will not catch this
 scenario. After three consecutive HTTP-200 ticks with zero matching
-samples, the daemon emits a `tracing::warn!` line containing `metric`
-and `label` fields. Alert on the log instead, or pair the gauge with
+samples, the daemon emits a `tracing::warn!` line containing `metric`,
+`label` and `zone` fields. Alert on the log instead, or pair the gauge with
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
 the daemon-side `kepler_ebpf` `co2.model` tag presence. Two distinct
 warn messages exist, one per cause, each with its own warn-once
 streak: `no samples matched the configured metric` (legacy Kepler
-names or a `metric_kind` mismatched with the topology) and `none of
-the configured service_mappings label values were present` (mistyped
-mapping values, or every mapped workload absent from the exposition).
-Log-matching alert rules must cover both. Cumulative counters sharing
-a label value (one container name repeated across pods) are summed
-before the delta is computed.
+names, a `metric_kind` mismatched with the topology, or a `zone` that
+no series carries, as on hwmon hosts where zones are named after the
+sensors) and `none of the configured service_mappings label values
+were present` (mistyped mapping values, or every mapped workload
+absent from the exposition). Log-matching alert rules must cover both.
+Cumulative counters sharing a label value (one container name repeated
+across pods) are summed before the delta is computed. Rows carrying a
+`zone` other than the configured one stay out of that sum.
 
 ## Alumet scrape counters (since 0.9.12)
 

@@ -361,6 +361,7 @@ Intégration opt-in avec [Kepler](https://github.com/sustainable-computing-io/ke
 | `endpoint`             | chaîne | *(aucun)*     | URL complète de l'endpoint Prometheus `/metrics` de Kepler. Obligatoire quand la section est présente.                                                                          |
 | `scrape_interval_secs` | entier | `5`           | Fréquence de scrape en secondes. Plage valide : 1-3600.                                                                                                                         |
 | `metric_kind`          | chaîne | `"container"` | Compteur Kepler v2 à lire : `"container"` (`kepler_container_cpu_joules_total`, clé `container_name`) ou `"process"` (`kepler_process_cpu_joules_total`, clé `comm`).           |
+| `zone`                 | chaîne | `"package"`   | Valeur du label `zone` à lire. Kepler expose une série par zone et les zones se recouvrent, une seule compte donc. Les lignes sans label `zone` sont gardées.                   |
 | `service_mappings`     | table  | `{}`          | Associe les noms de service Perf Sentinel à la valeur du label Kepler identifiant la même charge (nom de conteneur pour `container`, nom de commande processus pour `process`). |
 | `auth_header`          | chaîne | *(aucun)*     | En-tête `"Name: Value"` optionnel. Préférer la variable d'environnement `PERF_SENTINEL_KEPLER_AUTH_HEADER`.                                                                     |
 
@@ -377,7 +378,7 @@ metric_kind = "container"
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre, seul `watch` lance le scraper.
 
-**Les compteurs partageant une valeur de label sont sommés.** Un même nom de conteneur répété entre pods (ou un même `comm` partagé par plusieurs processus) produit plusieurs séries cumulatives sous une même valeur de mapping. Leurs compteurs sont sommés avant le calcul du delta par fenêtre, le coefficient les couvre donc ensemble.
+**Les compteurs partageant une valeur de label sont sommés, les zones non.** Un même nom de conteneur répété entre pods (ou un même `comm` partagé par plusieurs processus) produit plusieurs séries cumulatives sous une même valeur de mapping. Leurs compteurs sont sommés avant le calcul du delta par fenêtre, le coefficient les couvre donc ensemble. Kepler expose aussi une série par zone, et les zones se recouvrent : `package` contient déjà `core` et `uncore`. Seules les lignes dont le label `zone` vaut `zone` sont lues, comme le conseille la [documentation des métriques de Kepler](https://github.com/sustainable-computing-io/kepler/blob/v0.12.0/docs/user/metrics.md#energy-zones). Les lignes sans label `zone` sont gardées. Là où Kepler lit hwmon, les zones portent le nom des capteurs : réglez `zone` sur l'une des valeurs exposées, sinon l'avertissement de zéro échantillon se déclenche.
 
 **Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler est surtout utile sur ARM64, où Scaphandre est indisponible. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-kepler) pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
 

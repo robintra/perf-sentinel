@@ -362,19 +362,23 @@ montée v0.7.4 vers v0.7.5 où le cluster fait encore tourner un
 Kepler < 0.10 avec les anciens noms de métriques. Les alertes pilotées
 par la seule jauge ne détecteront pas ce scénario. Après trois ticks
 HTTP 200 consécutifs sans échantillon correspondant, le daemon émet
-une ligne `tracing::warn!` portant les champs `metric` et `label`.
+une ligne `tracing::warn!` portant les champs `metric`, `label` et
+`zone`.
 Alertez plutôt sur le log, ou croisez la jauge avec
 `rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` et la
 présence du tag `co2.model` `kepler_ebpf` côté daemon. Deux messages
 de warn distincts existent, un par cause, chacun avec sa propre
 séquence warn-once : `no samples matched the configured metric` (anciens
-noms Kepler ou `metric_kind` en désaccord avec la topologie) et
+noms Kepler, `metric_kind` en désaccord avec la topologie, ou `zone`
+qu'aucune série ne porte, comme sur les hôtes hwmon où les zones
+portent le nom des capteurs) et
 `none of the configured service_mappings label values were present`
 (valeurs de mapping mal saisies, ou toutes les charges mappées
 absentes de l'exposition). Les règles d'alerte par motif de log
 doivent couvrir les deux. Les compteurs cumulatifs partageant une
 valeur de label (un même nom de conteneur répété entre pods) sont
-sommés avant le calcul du delta.
+sommés avant le calcul du delta. Les lignes portant une `zone`
+autre que celle configurée restent hors de cette somme.
 
 ## Compteurs de scrape Alumet (depuis 0.9.12)
 

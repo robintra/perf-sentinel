@@ -294,8 +294,8 @@ impl Config {
     /// Same shape as [`Self::validate_scaphandre`]: rejects empty
     /// endpoints, non-`http(s)` schemes, embedded credentials, control
     /// chars, invalid ports, `scrape_interval_secs` outside [1, 3600],
-    /// and `service_mappings` keys/values outside [1, 256] chars or with
-    /// control chars.
+    /// a blank `zone`, and `service_mappings` keys/values outside
+    /// [1, 256] chars or with control chars.
     pub(in crate::config) fn validate_kepler(cfg: &KeplerConfig) -> Result<(), String> {
         if cfg.endpoint.is_empty() {
             return Err(
@@ -315,11 +315,26 @@ impl Config {
                 "[green.kepler] scrape_interval_secs must be in [1, 3600], got {secs}"
             ));
         }
+        Self::validate_kepler_zone(&cfg.zone)?;
         Self::validate_kepler_service_mappings(cfg)?;
         #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
                 .map_err(|msg| format!("[green.kepler] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// The zone is matched verbatim against the `zone` label. No fixed
+    /// set applies: hwmon zones are named after the host's sensors.
+    fn validate_kepler_zone(zone: &str) -> Result<(), String> {
+        if has_control_char(zone) {
+            return Err("[green.kepler] zone contains control characters".to_string());
+        }
+        if zone.trim().is_empty() {
+            return Err(format!(
+                "[green.kepler] zone '{zone}' is blank; remove the field for the default 'package'"
+            ));
         }
         Ok(())
     }

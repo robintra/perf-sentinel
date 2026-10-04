@@ -54,6 +54,10 @@ config:
       # Keep "container" on Kubernetes: comm is truncated and shared across pods
       # running the same runtime.
       metric_kind = "container"   # default "container", or "process"
+      # Kepler emits one series per RAPL zone and the zones overlap (package
+      # already contains core), so only rows carrying this zone label are read.
+      # On hwmon hosts, set it to one of the sensor zones.
+      zone = "package"   # default "package"
       # Credentials belong in PERF_SENTINEL_KEPLER_AUTH_HEADER, which wins over
       # this optional field.
       # auth_header = "Authorization: Bearer TOKEN"   # default unset

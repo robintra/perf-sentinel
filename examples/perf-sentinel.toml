@@ -501,6 +501,7 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required
 # scrape_interval_secs = 5              # default 5
 # metric_kind = "container"             # default "container", or "process" (Kepler v2 series)
+# zone = "package"                      # default "package", one zone only: Kepler's zones overlap
 # service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }   # default empty
 # auth_header = "Authorization: Bearer TOKEN"    # default unset, prefer PERF_SENTINEL_KEPLER_AUTH_HEADER
 

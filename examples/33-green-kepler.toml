@@ -14,6 +14,10 @@ endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
 scrape_interval_secs = 5   # default 5, bounds 1..3600
 # "container" reads container_name. "process" reads the 15-byte Linux comm.
 metric_kind = "container"   # default "container", or "process"
+# Kepler emits one series per RAPL zone and the zones overlap (package already
+# contains core), so only rows carrying this zone label are read. Rows without
+# a zone label are kept. On hwmon hosts, set it to one of the sensor zones.
+zone = "package"   # default "package"
 # Credentials belong in PERF_SENTINEL_KEPLER_AUTH_HEADER, which wins over
 # this optional field.
 # auth_header = "Authorization: Bearer TOKEN"   # default unset

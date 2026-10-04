@@ -3306,6 +3306,7 @@ fn minimal_kepler_config() -> KeplerConfig {
         endpoint: "http://kepler:9102/metrics".to_string(),
         scrape_interval: Duration::from_secs(5),
         metric_kind: KeplerMetricKind::Container,
+        zone: "package".to_string(),
         service_mappings: HashMap::new(),
         auth_header: None,
     }
@@ -3315,6 +3316,45 @@ fn minimal_kepler_config() -> KeplerConfig {
 fn validate_kepler_accepts_minimal_config() {
     let cfg = minimal_kepler_config();
     assert!(Config::validate_kepler(&cfg).is_ok());
+}
+
+#[test]
+fn convert_kepler_section_defaults_zone_to_package() {
+    let raw = KeplerSection {
+        endpoint: Some("http://kepler:9102/metrics".to_string()),
+        ..Default::default()
+    };
+    let cfg = convert_kepler_section_with_env(&raw, || None).expect("endpoint set");
+    assert_eq!(cfg.zone, "package");
+}
+
+#[test]
+fn load_from_str_reads_kepler_zone_with_spaces() {
+    let toml = r#"
+[green.kepler]
+endpoint = "http://kepler:9102/metrics"
+zone = "CPU Power"
+"#;
+    let config = load_from_str(toml).expect("only blank and control characters are rejected");
+    assert_eq!(config.green.kepler.expect("kepler set").zone, "CPU Power");
+}
+
+#[test]
+fn validate_kepler_rejects_blank_zone() {
+    for blank in ["", "   "] {
+        let mut cfg = minimal_kepler_config();
+        cfg.zone = blank.to_string();
+        let err = Config::validate_kepler(&cfg).expect_err("blank zone must error");
+        assert!(err.contains("zone"), "{err}");
+    }
+}
+
+#[test]
+fn validate_kepler_rejects_control_char_in_zone() {
+    let mut cfg = minimal_kepler_config();
+    cfg.zone = "package\u{1b}[31m".to_string();
+    let err = Config::validate_kepler(&cfg).expect_err("control char must error");
+    assert!(err.contains("control characters"));
 }
 
 #[test]

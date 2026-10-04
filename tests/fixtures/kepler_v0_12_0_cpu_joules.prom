@@ -1,0 +1,11 @@
+# Kepler v0.12.0 /metrics excerpt (quay.io image sha256:7681d8b4, cpu.preferredMeters ["fake"], captured 2026-10-04): real labels, synthetic joules.
+# HELP kepler_container_cpu_joules_total Energy consumption of cpu at container level in joules
+# TYPE kepler_container_cpu_joules_total counter
+kepler_container_cpu_joules_total{container_id="d2d53a87b579025fffc30a14dc9c79ce3a49f5740866b9e0b155a6c7d1d12b4c",container_name="payment-service-c6f7f47-7tjq4",node_name="390aa0aff5d1",pod_id="",runtime="kubernetes",state="running",zone="core"} 2.5e-05
+kepler_container_cpu_joules_total{container_id="d2d53a87b579025fffc30a14dc9c79ce3a49f5740866b9e0b155a6c7d1d12b4c",container_name="payment-service-c6f7f47-7tjq4",node_name="390aa0aff5d1",pod_id="",runtime="kubernetes",state="running",zone="dram"} 2.4e-05
+kepler_container_cpu_joules_total{container_id="d2d53a87b579025fffc30a14dc9c79ce3a49f5740866b9e0b155a6c7d1d12b4c",container_name="payment-service-c6f7f47-7tjq4",node_name="390aa0aff5d1",pod_id="",runtime="kubernetes",state="running",zone="package"} 2.4e-05
+# HELP kepler_process_cpu_joules_total Energy consumption of cpu at process level in joules
+# TYPE kepler_process_cpu_joules_total counter
+kepler_process_cpu_joules_total{comm="sh",container_id="",exe="/bin/busybox",node_name="390aa0aff5d1",pid="8020",state="running",type="regular",vm_id="",zone="core"} 0.000168
+kepler_process_cpu_joules_total{comm="sh",container_id="",exe="/bin/busybox",node_name="390aa0aff5d1",pid="8020",state="running",type="regular",vm_id="",zone="dram"} 0.000165
+kepler_process_cpu_joules_total{comm="sh",container_id="",exe="/bin/busybox",node_name="390aa0aff5d1",pid="8020",state="running",type="regular",vm_id="",zone="package"} 0.000172

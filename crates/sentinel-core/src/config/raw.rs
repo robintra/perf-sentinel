@@ -128,13 +128,15 @@ pub(super) struct ScaphandreSection {
 ///
 /// Converted to a `KeplerConfig` during `RawConfig → Config` only when
 /// `endpoint` is set. The optional `metric_kind` string accepts
-/// `"container"` (default) or `"process"`.
+/// `"container"` (default) or `"process"`. The optional `zone` defaults
+/// to `"package"`.
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct KeplerSection {
     pub(super) endpoint: Option<String>,
     pub(super) scrape_interval_secs: Option<u64>,
     pub(super) metric_kind: Option<String>,
+    pub(super) zone: Option<String>,
     pub(super) service_mappings: HashMap<String, String>,
     pub(super) auth_header: Option<String>,
 }
@@ -950,6 +952,7 @@ pub(super) fn convert_kepler_section_with_env(
         endpoint: endpoint.clone(),
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
         metric_kind,
+        zone: raw.zone.clone().unwrap_or_else(|| "package".to_string()),
         service_mappings: raw.service_mappings.clone(),
         auth_header,
     })

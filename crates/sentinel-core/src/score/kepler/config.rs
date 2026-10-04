@@ -74,6 +74,11 @@ pub struct KeplerConfig {
     pub scrape_interval: Duration,
     /// Which Kepler metric to read.
     pub metric_kind: KeplerMetricKind,
+    /// Value of the `zone` label to keep. Default `package`. Kepler
+    /// emits one series per zone and the zones overlap (`package`
+    /// contains `core` and `uncore`), so summing them overstates
+    /// energy. Rows without a `zone` label are kept.
+    pub zone: String,
     /// Maps perf-sentinel service names (from span `service.name`) to
     /// the Kepler label value identifying the same workload (container
     /// name for `Container`, process command name for `Process`). A
@@ -95,6 +100,7 @@ impl std::fmt::Debug for KeplerConfig {
             .field("endpoint", &self.endpoint)
             .field("scrape_interval", &self.scrape_interval)
             .field("metric_kind", &self.metric_kind)
+            .field("zone", &self.zone)
             .field("service_mappings", &self.service_mappings)
             .field(
                 "auth_header",
@@ -115,6 +121,7 @@ mod tests {
             endpoint: "http://kepler:9102/metrics".to_string(),
             scrape_interval: Duration::from_secs(5),
             metric_kind: KeplerMetricKind::Container,
+            zone: "package".to_string(),
             service_mappings: mappings,
             auth_header: Some("Authorization: Bearer super-secret-do-not-log".to_string()),
         }

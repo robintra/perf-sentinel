@@ -11,11 +11,12 @@ use std::time::Duration;
 use super::apply::{apply_scrape, compute_energy_per_op_kwh, joules_deltas, process_scrape};
 use super::config::{KeplerConfig, KeplerMetricKind};
 use super::scraper::{
-    ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper, track_zero_sample_streak,
+    ScraperError, fetch_metrics_once, parse_samples, scraper_error_reason, spawn_scraper,
+    track_zero_sample_streak,
 };
 use super::state::KeplerState;
 use crate::score::alumet::scraper::WarnOnceStreak;
-use crate::score::prom_parser::PromSample;
+use crate::score::prom_parser::{PromSample, sum_by_label};
 
 // --- counter-delta tests ----------------------------------------------
 
@@ -215,9 +216,48 @@ fn sample_config() -> KeplerConfig {
         endpoint: "http://kepler:9102/metrics".to_string(),
         scrape_interval: Duration::from_secs(5),
         metric_kind: KeplerMetricKind::Container,
+        zone: "package".to_string(),
         service_mappings: mappings,
         auth_header: None,
     }
+}
+
+#[test]
+fn overlapping_rapl_zones_are_not_summed() {
+    // Kepler 0.10+ emits one cumulative series per RAPL zone, and
+    // `package` already contains `core`. Only the configured zone counts.
+    let body = "kepler_container_cpu_joules_total{container_name=\"order\",zone=\"package\"} 100\n\
+                kepler_container_cpu_joules_total{container_name=\"order\",zone=\"core\"} 60\n\
+                kepler_container_cpu_joules_total{container_name=\"order\",zone=\"dram\"} 20\n";
+    let samples = parse_samples(body, &sample_config());
+    let by_label = sum_by_label(&samples);
+    assert!(
+        (by_label["order"] - 100.0).abs() < f64::EPSILON,
+        "{by_label:?}"
+    );
+}
+
+fn kepler_v0_12_0_capture() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/kepler_v0_12_0_cpu_joules.prom");
+    std::fs::read_to_string(path).expect("read the Kepler v0.12.0 capture")
+}
+
+#[test]
+fn real_capture_keeps_one_zone_per_workload() {
+    // The capture carries package, core and dram rows for each workload.
+    let body = kepler_v0_12_0_capture();
+    let mut cfg = sample_config();
+    let containers = parse_samples(&body, &cfg);
+    assert_eq!(containers.len(), 1, "{containers:?}");
+    assert_eq!(containers[0].label_value, "payment-service-c6f7f47-7tjq4");
+    assert!((containers[0].value - 2.4e-05).abs() < 1e-12);
+
+    cfg.metric_kind = KeplerMetricKind::Process;
+    let processes = parse_samples(&body, &cfg);
+    assert_eq!(processes.len(), 1, "{processes:?}");
+    assert_eq!(processes[0].label_value, "sh");
+    assert!((processes[0].value - 0.000_172).abs() < 1e-12);
 }
 
 #[test]
@@ -397,6 +437,7 @@ fn kepler_tick(
         "http://redacted/metrics",
         "kepler_container_cpu_joules_total",
         "container_name",
+        "package",
         a,
         b,
     );
@@ -483,6 +524,7 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
         endpoint,
         scrape_interval: Duration::from_millis(50),
         metric_kind: KeplerMetricKind::Container,
+        zone: "package".to_string(),
         service_mappings: mappings,
         auth_header: None,
     };
@@ -513,6 +555,7 @@ async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
         endpoint: format!("http://{addr}/metrics"),
         scrape_interval: Duration::from_millis(50),
         metric_kind: KeplerMetricKind::Container,
+        zone: "package".to_string(),
         service_mappings: mappings,
         auth_header: None,
     };
