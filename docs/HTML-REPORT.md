@@ -198,6 +198,29 @@ Every KPI card is clickable and jumps to the matching tab, pre-filtered
 when it makes sense (the promoted-severity card opens Findings
 filtered on that severity).
 
+### Carbon tab Energy card
+
+The `Energy` card, next to `Total CO2`, shows the energy the analyzed
+traffic used (the `E` of `E x I`) and names its source underneath:
+
+- `modeled from I/O counts` when no energy backend covered a service,
+  followed by `· calibrated` when the scoring tag carries `+cal`. On a
+  daemon with Electricity Maps configured, no tag carries `+cal`, so the
+  card cannot show calibration there.
+- `source <backends>` when every service was fully measured.
+- `source <backends> on N of M services · rest modeled from I/O counts`
+  when measured and modeled services mix.
+
+A service counts as covered once any of its operations was measured by
+its backend (Scaphandre, Kepler, Alumet, Redfish, or the SPECpower table
+for declared cloud instances). The card never shows the window
+`energy_model` tag as the source: on a daemon with Electricity Maps
+configured, that tag names the intensity source, not the energy one.
+The card is greyed out with `not computed` when no span resolved to a
+region. `analyze`, `inspect` and `query monitor` print the same label.
+Below 920 pixels wide the Carbon grid drops to two columns, and the
+last card spans both when the card count is odd.
+
 ## Live mode
 
 ```bash

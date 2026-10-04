@@ -717,6 +717,9 @@
     .ps-hero-left { border-right: 0; border-bottom: 1px solid var(--border); }
     .ps-hero-rules { grid-template-columns: 1fr; }
     .ps-metrics { grid-template-columns: repeat(2, 1fr); }
+    /* An odd card count leaves a hole on the last Carbon row: the last
+       card spans it. */
+    #green-metrics > .ps-metric:last-child:nth-child(odd) { grid-column: 1 / -1; }
     .ps-overview-cols, .ps-diff-cols, .ps-triage { grid-template-columns: 1fr; }
     .ps-meta-grid { grid-template-columns: repeat(2, 1fr); }
     /* Too narrow for three tracks: stack them and let the search span the
@@ -1647,8 +1650,13 @@
     ]},
     total_co2: { t: "Total CO2", u: METHO_URL + "#uncertainty-bracket", s: [
       ["What it measures", "Everything the analyzed traffic emitted, by the SCI v1.0 numerator: operational `(E x I)` plus embodied `M` plus network transport `T`, summed over traces and scored per region when spans carry `cloud.region`."],
-      ["How the bracket works", "low is half the mid value, high is double: a log-symmetric bracket that says the estimate is trusted to a factor of two, not to a percent. The model tag says how the energy figure was obtained, measured by an energy backend or modeled from I/O counts."],
+      ["How the bracket works", "low is half the mid value, high is double: a log-symmetric bracket that says the estimate is trusted to a factor of two, not to a percent. The Energy card says how the energy figure was obtained, by an energy backend or from I/O counts."],
       ["Limits", "A directional estimate for comparing runs and finding waste, not a wattmeter reading, and the project says so in its methodology."]
+    ]},
+    energy: { t: "Energy", u: METHO_URL + "#energy-per-operation", s: [
+      ["What it measures", "The energy the analyzed traffic used, the `E` of `E x I`, summed over analyzed traces."],
+      ["How it is computed", "Per service, by an energy backend when one is configured for it: Scaphandre, Kepler or Alumet (RAPL), Redfish (BMC), or the embedded SPECpower table for declared cloud instances. Otherwise by the per-operation I/O model. A service counts as covered once any of its operations is, and the card names the backends that covered at least one service."],
+      ["Limits", "The I/O model is directional, trusted to a factor of two, not a wattmeter reading. RAPL backends see CPU and memory only, not disks, network or the rest of the machine."]
     ]},
     operational_co2: { t: "Operational CO2", u: METHO_URL + "#energy-per-operation", s: [
       ["What it measures", "The carbon of actually running the workload: energy used times the grid carbon intensity of the resolved region."],
@@ -1687,7 +1695,7 @@
     ]},
     green_tab: { t: "GreenOps methodology", u: METHO_URL + "#pipeline-at-a-glance", s: [
       ["The pipeline in one breath", "Count the I/O operations each endpoint performs, turn them into energy (measured by a backend when configured, a per-operation model otherwise), multiply by the grid carbon intensity of each region, then assemble the SCI v1.0 terms: operational plus embodied plus transport."],
-      ["Measured vs modeled", "Every figure carries a model tag naming its source: RAPL, BMC, SPECpower, or the I/O proxy with its factor-of-two bracket. Measured and modeled figures are never silently mixed."],
+      ["Measured vs modeled", "The Energy card names the energy source: a backend (RAPL, BMC, SPECpower) for the services it covered, the I/O model with its factor-of-two bracket for the rest, and on how many services each applies when they mix. The database and broker waste cards name their own model, the regions table its intensity source."],
       ["What it is for", "A directional waste counter to compare runs and target fixes, published with its uncertainty, not a wattmeter and not a regulatory instrument. The methodology page details every constant and its academic source."]
     ]}
   };
@@ -1809,7 +1817,7 @@
     correlations: "A recurring co-occurrence between two findings from different services, computed by the daemon over its rolling window (opt-in via `[daemon.correlation]`). A pair is reported once it repeats at least `min_co_occurrences` times within `lag_threshold_ms` of each other. `conf` is the share of the source finding's occurrences followed by the target, `lag` the median delay between the two, and the trace count how many times the pair co-occurred.",
     pgstat: "Server-side statistics from the PostgreSQL `pg_stat_statements` extension: cumulative per-template figures (calls, total and mean time) measured by the database itself, unlike findings, which come from traces. Loaded with `--pg-stat <file>` or `--pg-stat-prometheus <url>`, top entries per ranking. A SQL span in Explain whose template matches a row links to this tab.",
     mysqlstat: "Server-side statistics from the MySQL Performance Schema (`events_statements_summary_by_digest`): cumulative per-digest figures measured by the database itself. Loaded with `--mysql-stat <file>`, with the same ranking switcher as pg_stat.",
-    green: "GreenOps scoring on the SCI v1.0 methodology: carbon is `(E x I) + M + T`, energy times grid intensity, plus embodied hardware, plus network transport, summed over the analyzed traffic. The model tag says whether the energy was measured (RAPL, BMC, SPECpower) or modeled from I/O counts. Each card carries its own help."
+    green: "GreenOps scoring on the SCI v1.0 methodology: carbon is `(E x I) + M + T`, energy times grid intensity, plus embodied hardware, plus network transport, summed over the analyzed traffic. The Energy card says whether the energy came from a backend (RAPL, BMC, SPECpower) or from I/O counts. Each card carries its own help."
   };
   function updateTopbarTitle(key) {
     var meta = ROUTE_META[key] || { title: key, eyebrow: "" };
@@ -3690,6 +3698,45 @@
     host.appendChild(text);
     host.style.display = "";
   }
+  // Source of green_summary.energy_kwh, the same rules and strings as
+  // GreenSummary::energy_source_label in report/mod.rs. A service is
+  // covered once its measured ratio is above zero. energy_model is never
+  // the source: on Electricity Maps daemons it holds an intensity tag.
+  var ENERGY_TAG_RE = /^[A-Za-z0-9_+-]{1,64}$/;
+  function energyDisplayTag(tag) {
+    if (typeof tag !== "string") return null;
+    var t = tag.endsWith("+cal") ? tag.slice(0, -4) : tag;
+    return ENERGY_TAG_RE.test(t) ? t : null;
+  }
+  function energySourceLabel(gs) {
+    var ratios = gs.per_service_measured_ratio || {};
+    var models = gs.per_service_energy_model || {};
+    var services = Object.keys(ratios);
+    var covered = services.filter(function (s) { return ratios[s] > 0; });
+    if (covered.length === 0) {
+      var calibrated = [gs.energy_model].concat(Object.values(models)).some(function (m) {
+        return typeof m === "string" && m.endsWith("+cal");
+      });
+      return "modeled from I/O counts" + (calibrated ? " · calibrated" : "");
+    }
+    var tags = [];
+    covered.forEach(function (s) {
+      var t = energyDisplayTag(models[s]);
+      if (t && tags.indexOf(t) === -1) tags.push(t);
+    });
+    var src = "source " + (tags.length > 0 ? tags.sort().join(", ") : "unknown");
+    if (services.every(function (s) { return ratios[s] >= 1; })) return src;
+    return src + " on " + covered.length + " of " + services.length + " services · rest modeled from I/O counts";
+  }
+  // Plain text sub, not a code chip: the chip highlighter paints
+  // underscored identifiers in the warning color.
+  function buildEnergyCard(gs) {
+    var help = "Energy used by the analyzed traffic, the `E` of `E x I`. The sub names its source: an energy backend for the services it covered, per-operation I/O counts otherwise.";
+    if (!(gs.energy_kwh > 0)) {
+      return greenCard("Energy", "-", "not computed · no span resolved to a region", "muted", help, "energy");
+    }
+    return greenCard("Energy", formatKwh(gs.energy_kwh), energySourceLabel(gs), null, help, "energy");
+  }
   function renderGreenPanel() {
     if (!hasGreen) {
       document.getElementById("green-metrics").appendChild(greenCard(
@@ -3713,6 +3760,7 @@
       "The SCI v1.0 numerator summed over analyzed traces: operational `(E x I)` + embodied `M` + network transport `T`. The low/high bracket is log-symmetric (half, double): a directional estimate, not a wattmeter reading.",
       "total_co2"
     ));
+    metrics.appendChild(buildEnergyCard(greenSummary));
     metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I", null,
       "Carbon from actually running the workload: energy used times the grid carbon intensity of the resolved region. The only term a code fix can reduce.", "operational_co2"));
     metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term", null,

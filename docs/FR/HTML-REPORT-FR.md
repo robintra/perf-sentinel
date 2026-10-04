@@ -211,6 +211,30 @@ Chaque carte KPI est cliquable et mène à l'onglet correspondant,
 préfiltré quand c'est pertinent (la carte de sévérité dominante ouvre
 Findings filtré sur cette sévérité).
 
+### Carte Energy de l'onglet Carbon
+
+La carte `Energy`, à côté de `Total CO2`, affiche l'énergie consommée
+par le trafic analysé (le `E` de `E x I`) et nomme sa source en dessous :
+
+- `modeled from I/O counts` quand aucun backend d'énergie n'a couvert de
+  service, suivi de `· calibrated` quand le tag de scoring porte `+cal`.
+  Sur un daemon où Electricity Maps est configuré, aucun tag ne porte
+  `+cal`, la carte ne peut donc pas y signaler la calibration.
+- `source <backends>` quand chaque service a été entièrement mesuré.
+- `source <backends> on N of M services · rest modeled from I/O counts`
+  quand services mesurés et modélisés se mélangent.
+
+Un service compte comme couvert dès qu'une de ses opérations a été
+mesurée par son backend (Scaphandre, Kepler, Alumet, Redfish, ou la
+table SPECpower pour les instances cloud déclarées). La carte n'affiche
+jamais le tag `energy_model` de la fenêtre comme source : sur un daemon
+où Electricity Maps est configuré, ce tag nomme la source d'intensité,
+pas celle de l'énergie. La carte est grisée avec `not computed` quand
+aucun span n'a été rattaché à une région. `analyze`, `inspect` et
+`query monitor` affichent le même libellé. Sous 920 pixels de large, la
+grille Carbon passe à deux colonnes, et la dernière carte occupe les
+deux quand le nombre de cartes est impair.
+
 ## Mode live
 
 ```bash

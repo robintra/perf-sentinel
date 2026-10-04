@@ -1278,7 +1278,7 @@
     },
     {
       "title": "Energy scrape outcome",
-      "description": "Scrape attempts per second per configured measured-energy backend, by outcome, gated on `perf_sentinel_energy_backend_configured`. cloud_energy has no outcome counters and is on the freshness panel only.\n\nIt shows what the freshness gauge hides: a backend never scraped yet has no success series, one failing every other tick has a failed series beside it. Reasons: `perf_sentinel_<backend>_scrape_failed_total{reason}`.\n\nAn HTTP 200 with no matching sample still counts as a success while carbon attribution has fallen back to the built-in estimate. Only the daemon's warn log and the report's energy model tag show it.",
+      "description": "Scrape attempts per second per configured measured-energy backend, by outcome, gated on `perf_sentinel_energy_backend_configured`. cloud_energy has no outcome counters and is on the freshness panel only.\n\nIt shows what the freshness gauge hides: a backend never scraped yet has no success series, one failing every other tick has a failed series beside it. Reasons: `perf_sentinel_<backend>_scrape_failed_total{reason}`.\n\nAn HTTP 200 with no matching sample still counts as a success while carbon attribution has fallen back to the built-in estimate. Only the daemon's warn log and the energy source line of `query monitor` and the HTML report show it, where the affected services count as modelled from I/O counts.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -1741,7 +1741,7 @@
     },
     {
       "title": "Energy per scoring window (kWh)",
-      "description": "Electricity attributed to the analysed workload for the most recent scoring window. Depending on configuration it is measured (an agent reading real power) or modelled from operation counts, the report's model tag says which.\n\nPer-service and per-region detail is kept off /metrics and lives in the query monitor.",
+      "description": "Electricity attributed to the analysed workload for the most recent scoring window. Depending on configuration it is measured (an agent reading real power) or modelled from operation counts, the energy source line of `query monitor` and the HTML report says which.\n\nPer-service and per-region detail is kept off /metrics and lives in the query monitor.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,

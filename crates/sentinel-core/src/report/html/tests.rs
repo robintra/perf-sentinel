@@ -1018,6 +1018,34 @@ fn template_carries_scoring_config_bandeau_and_helpers() {
     }
 }
 
+/// The Carbon tab's Energy card. Its source wording mirrors
+/// `GreenSummary::energy_source_label`, and the Playwright suite drives it.
+#[test]
+fn template_carries_the_energy_card_and_its_help() {
+    for needle in [
+        "function buildEnergyCard",
+        "function energySourceLabel",
+        "/^[A-Za-z0-9_+-]{1,64}$/",
+        "metrics.appendChild(buildEnergyCard(greenSummary));",
+        "energy: { t: \"Energy\"",
+        "\"modeled from I/O counts\"",
+        "\" \u{b7} calibrated\"",
+        "services \u{b7} rest modeled from I/O counts\"",
+        "\"not computed \u{b7} no span resolved to a region\"",
+        "#green-metrics > .ps-metric:last-child:nth-child(odd) { grid-column: 1 / -1; }",
+    ] {
+        assert!(TEMPLATE.contains(needle), "template missing `{needle}`");
+    }
+    // Help texts only claim what the tab displays.
+    for stale in [
+        "Every figure carries a model tag",
+        "The model tag says whether the energy was measured",
+        "The model tag says how the energy figure was obtained",
+    ] {
+        assert!(!TEMPLATE.contains(stale), "stale help text `{stale}`");
+    }
+}
+
 #[test]
 fn template_carries_estimated_column_and_helper() {
     // Locks in the 0.5.10 dashboard surface for the
