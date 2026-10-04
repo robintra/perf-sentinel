@@ -85,7 +85,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_standard_dell_idrac_shape() {
+    fn parses_standard_power_control_shape() {
         let body = r#"{
             "PowerControl": [
                 {"PowerConsumedWatts": 287.5, "Name": "System Power Control"}

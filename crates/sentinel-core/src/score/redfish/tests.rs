@@ -225,33 +225,42 @@ fn scraper_error_reason_maps_fetch_errors() {
     );
 }
 
-// --- parser tests (cross-vendor fixtures) ----------------------------
+// --- parser tests (wire shapes) ---------------------------------------
 
 #[test]
-fn parses_dell_idrac_response() {
-    let body = r#"{
-        "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/Power",
+fn parses_dmtf_mockup_power_response() {
+    // Trimmed from dmtf/redfish-mockup-server v1.2.9 public-rackmount1
+    // mockup at GET /redfish/v1/Chassis/1U/Power. Its PowerControl entry
+    // states no PhysicalContext, so entry 0 is read.
+    let body = r##"{
+        "@odata.type": "#Power.v1_7_2.Power",
         "Id": "Power",
         "Name": "Power",
         "PowerControl": [
             {
-                "@odata.id": "/redfish/v1/Chassis/System.Embedded.1/Power#/PowerControl/0",
+                "@odata.id": "/redfish/v1/Chassis/1U/Power#/PowerControl/0",
                 "MemberId": "0",
-                "Name": "System Power Control",
-                "PowerConsumedWatts": 287.0,
-                "PowerCapacityWatts": 750.0
+                "Name": "System Input Power",
+                "PowerConsumedWatts": 344,
+                "PowerCapacityWatts": 800,
+                "PowerMetrics": {
+                    "IntervalInMin": 30,
+                    "AverageConsumedWatts": 319
+                }
             }
-        ]
-    }"#;
+        ],
+        "@odata.id": "/redfish/v1/Chassis/1U/Power"
+    }"##;
     assert_eq!(
         parse_redfish_power(body, RedfishSchema::LegacyPower),
-        ParseOutcome::Ok(287.0)
+        ParseOutcome::Ok(344.0)
     );
 }
 
 #[test]
-fn parses_hpe_ilo_response() {
-    // HPE iLO uses the same Redfish standard path for PowerConsumedWatts.
+fn ignores_oem_block_in_power_response() {
+    // Synthetic shape, not a vendor capture: an `Oem` block next to the
+    // standard `PowerControl` array does not change the reading.
     let body = r#"{
         "@odata.id": "/redfish/v1/Chassis/1/Power/",
         "Id": "Power",
@@ -265,7 +274,7 @@ fn parses_hpe_ilo_response() {
             }
         ],
         "Oem": {
-            "Hpe": {
+            "Contoso": {
                 "PowerRegulationEnabled": false
             }
         }
@@ -277,7 +286,9 @@ fn parses_hpe_ilo_response() {
 }
 
 #[test]
-fn parses_openbmc_reference_response() {
+fn parses_bmcweb_style_power_response() {
+    // Synthetic shape after OpenBMC bmcweb's power.hpp, which names the
+    // entry "Chassis Power Control" with MemberId "0". Not a capture.
     let body = r#"{
         "@odata.id": "/redfish/v1/Chassis/chassis/Power",
         "Id": "Power",
@@ -298,8 +309,8 @@ fn parses_openbmc_reference_response() {
 }
 
 #[test]
-fn rejects_dell_response_in_transition_state() {
-    // Some Dell iDRACs return null while the BMC reinitializes.
+fn rejects_null_power_reading() {
+    // The DMTF Power schema types PowerConsumedWatts as number or null.
     let body = r#"{
         "PowerControl": [
             {
@@ -325,8 +336,8 @@ fn rejects_empty_power_control_array() {
 
 // No OEM custom-path test: arbitrary JSON pointers are not
 // configurable. An OEM that exposes wattage under a non-standard path
-// is expected to either surface a Redfish-compliant `/Power` or
-// `/EnvironmentMetrics` on its own URL, or be fronted by a reverse
+// is expected to either surface a Redfish-compliant `/Power`,
+// `/EnvironmentMetrics` or `Sensor` on its own URL, or be fronted by a reverse
 // proxy that reshapes the payload. See docs/LIMITATIONS.md for the
 // rationale.
 
