@@ -131,6 +131,9 @@ pub(super) struct CarbonComputeOutputs {
     pub multi_region_active: bool,
     pub per_service: BTreeMap<String, ServiceCarbonAccumulator>,
     pub window_model: &'static str,
+    /// Whether calibration factors rescaled the proxy energy of any
+    /// span, whatever the window tag says.
+    pub calibrated: bool,
     /// I/O ops whose region was resolved (`total_io_ops` minus the
     /// unknown-region bucket). Denominator of the avoidable-CO₂ ratio,
     /// surfaced so the disclosure path can rescale avoidable at a
@@ -173,6 +176,7 @@ pub(super) fn compute_carbon_report(
             multi_region_active: state.multi_region_active,
             per_service: BTreeMap::new(),
             window_model: "",
+            calibrated: false,
             accounted_io_ops: 0,
             sql_energy_kwh: 0.0,
             sql_gco2: 0.0,
@@ -207,6 +211,7 @@ pub(super) fn compute_carbon_report(
         multi_region_active: state.multi_region_active,
         per_service: state.per_service,
         window_model: model,
+        calibrated: flags.any_calibrated(),
         accounted_io_ops: total_io_ops.saturating_sub(state.unknown_ops),
         sql_energy_kwh: state.sql_energy_kwh,
         sql_gco2: state.sql_gco2,

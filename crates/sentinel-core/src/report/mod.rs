@@ -375,6 +375,13 @@ pub struct GreenSummary {
     /// baselines.
     #[serde(default)]
     pub energy_model: String,
+    /// Whether operator calibration factors rescaled the I/O-modeled
+    /// energy of any span in the window. Carried apart from the `+cal`
+    /// suffix, which `energy_model` drops as soon as a measured or
+    /// real-time source is active. Omitted when false, absent on older
+    /// reports.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub energy_calibrated: bool,
     /// Operational carbon per service in kgCO2eq. Excludes the embodied
     /// term (which stays in `co2.total` only) and the transport term.
     /// Built at scoring time using the runtime-resolved
@@ -583,6 +590,7 @@ impl GreenSummary {
             scoring_config: None,
             energy_kwh: 0.0,
             energy_model: String::new(),
+            energy_calibrated: false,
             per_service_carbon_kgco2eq: BTreeMap::new(),
             per_service_energy_kwh: BTreeMap::new(),
             per_service_region: BTreeMap::new(),
@@ -612,12 +620,16 @@ impl GreenSummary {
             .filter(|(_, r)| **r > 0.0)
             .map(|(svc, _)| svc)
             .collect();
-        if covered.is_empty() {
-            let calibrated = std::iter::once(&self.energy_model)
+        // Calibration rescales the I/O model, so it qualifies the modeled
+        // part of the label. The flag survives a measured window tag, the
+        // `+cal` suffix covers reports written before it existed.
+        let calibrated = self.energy_calibrated
+            || std::iter::once(&self.energy_model)
                 .chain(self.per_service_energy_model.values())
                 .any(|m| m.ends_with(CO2_MODEL_CAL_SUFFIX));
-            let suffix = if calibrated { " \u{b7} calibrated" } else { "" };
-            return Some(format!("modeled from I/O counts{suffix}"));
+        let calibrated = if calibrated { " \u{b7} calibrated" } else { "" };
+        if covered.is_empty() {
+            return Some(format!("modeled from I/O counts{calibrated}"));
         }
         let tags: BTreeSet<&str> = covered
             .iter()
@@ -633,7 +645,7 @@ impl GreenSummary {
             return Some(format!("source {tags}"));
         }
         Some(format!(
-            "source {tags} on {} of {} services \u{b7} rest modeled from I/O counts",
+            "source {tags} on {} of {} services \u{b7} rest modeled from I/O counts{calibrated}",
             covered.len(),
             ratios.len()
         ))
@@ -832,6 +844,7 @@ mod tests {
         let summary = GreenSummary {
             energy_kwh: 0.0026,
             energy_model: "scaphandre_rapl+cal".to_string(),
+            energy_calibrated: true,
             per_service_carbon_kgco2eq: per_service_carbon.clone(),
             per_service_energy_kwh: per_service_energy.clone(),
             per_service_region: per_service_region.clone(),
@@ -844,6 +857,7 @@ mod tests {
 
         assert!((parsed.energy_kwh - 0.0026).abs() < 1e-12);
         assert_eq!(parsed.energy_model, "scaphandre_rapl+cal");
+        assert!(parsed.energy_calibrated);
         assert_eq!(parsed.per_service_carbon_kgco2eq, per_service_carbon);
         assert_eq!(parsed.per_service_energy_kwh, per_service_energy);
         assert_eq!(parsed.per_service_region, per_service_region);
@@ -876,6 +890,7 @@ mod tests {
         assert!(parsed.per_service_region.is_empty());
         assert!(parsed.per_service_energy_model.is_empty());
         assert!(parsed.per_service_measured_ratio.is_empty());
+        assert!(!parsed.energy_calibrated);
     }
 
     /// `energy_kwh` 1.0 with the given window tag and `(service, tag, ratio)` rows.
@@ -929,6 +944,38 @@ mod tests {
                 Some("modeled from I/O counts \u{b7} calibrated")
             );
         }
+    }
+
+    #[test]
+    fn energy_source_label_flags_calibration_behind_a_measured_tag() {
+        // A measured window tag drops `+cal` from every tag, only the
+        // flag says the modeled rest was calibrated.
+        let mut mixed = energy_summary(
+            "scaphandre_rapl",
+            &[("a", "scaphandre_rapl", 1.0), ("b", "scaphandre_rapl", 0.0)],
+        );
+        mixed.energy_calibrated = true;
+        assert_eq!(
+            mixed.energy_source_label().as_deref(),
+            Some(
+                "source scaphandre_rapl on 1 of 2 services \u{b7} rest modeled from I/O counts \u{b7} calibrated"
+            )
+        );
+        let mut emaps = energy_summary(
+            "electricity_maps_api",
+            &[("a", "electricity_maps_api", 0.0)],
+        );
+        emaps.energy_calibrated = true;
+        assert_eq!(
+            emaps.energy_source_label().as_deref(),
+            Some("modeled from I/O counts \u{b7} calibrated")
+        );
+        let mut full = energy_summary("redfish_bmc", &[("a", "redfish_bmc", 1.0)]);
+        full.energy_calibrated = true;
+        assert_eq!(
+            full.energy_source_label().as_deref(),
+            Some("source redfish_bmc")
+        );
     }
 
     #[test]

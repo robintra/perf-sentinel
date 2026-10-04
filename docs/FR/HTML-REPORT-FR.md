@@ -217,12 +217,16 @@ La carte `Energy`, à côté de `Total CO2`, affiche l'énergie consommée
 par le trafic analysé (le `E` de `E x I`) et nomme sa source en dessous :
 
 - `modeled from I/O counts` quand aucun backend d'énergie n'a couvert de
-  service, suivi de `· calibrated` quand le tag de scoring porte `+cal`.
-  Sur un daemon où Electricity Maps est configuré, aucun tag ne porte
-  `+cal`, la carte ne peut donc pas y signaler la calibration.
+  service.
 - `source <backends>` quand chaque service a été entièrement mesuré.
 - `source <backends> on N of M services · rest modeled from I/O counts`
   quand services mesurés et modélisés se mélangent.
+
+La part modélisée est suivie de `· calibrated` quand des facteurs de
+calibration fournis par l'opérateur l'ont recalée. La carte lit
+`green_summary.energy_calibrated`, qui tient même quand un backend mesuré
+ou Electricity Maps fixe le tag de la fenêtre et retire son suffixe
+`+cal`.
 
 Un service compte comme couvert dès qu'une de ses opérations a été
 mesurée par son backend (Scaphandre, Kepler, Alumet, Redfish, ou la

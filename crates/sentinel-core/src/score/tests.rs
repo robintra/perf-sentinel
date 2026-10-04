@@ -3453,6 +3453,64 @@ fn calibration_not_applied_when_scaphandre_overrides() {
 }
 
 #[test]
+fn energy_calibrated_survives_a_measured_window_tag() {
+    // order-svc is measured, cart-svc runs on a calibrated proxy: the
+    // window tag drops `+cal`, the flag keeps it for the modeled rest.
+    let measured = make_trace_with_region("t-measured", "eu-west-3", 4);
+    let mut cart_events = Vec::new();
+    for i in 1..=4 {
+        let mut event = make_sql_event(
+            "t-cart",
+            &format!("cart-{i}"),
+            &format!("SELECT * FROM cart WHERE id = {i}"),
+            &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+        );
+        event.service = Arc::from("cart-svc");
+        event.cloud_region = Some(Arc::from("eu-west-3"));
+        cart_events.push(event);
+    }
+    let modeled = make_trace(cart_events);
+    let mut snapshot = HashMap::new();
+    snapshot.insert(
+        "order-svc".to_string(),
+        carbon::EnergyEntry::scaphandre(5e-7),
+    );
+    let ctx = CarbonContext {
+        default_region: None,
+        use_hourly_profiles: false,
+        per_operation_coefficients: false,
+        energy_snapshot: Some(snapshot),
+        calibration: Some(calibration_with_one_service("cart-svc", 1.5)),
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[measured, modeled], vec![], Some(&ctx));
+    assert_eq!(summary.energy_model, CO2_MODEL_SCAPHANDRE);
+    assert!(summary.energy_calibrated);
+}
+
+#[test]
+fn energy_calibrated_stays_false_without_a_calibrated_span() {
+    // The only calibrated service is measured, so no proxy span used
+    // the factor.
+    let trace = make_trace_with_region("t1", "eu-west-3", 4);
+    let mut snapshot = HashMap::new();
+    snapshot.insert(
+        "order-svc".to_string(),
+        carbon::EnergyEntry::scaphandre(5e-7),
+    );
+    let ctx = CarbonContext {
+        default_region: None,
+        use_hourly_profiles: false,
+        per_operation_coefficients: false,
+        energy_snapshot: Some(snapshot),
+        calibration: Some(calibration_with_one_service("order-svc", 1.5)),
+        ..CarbonContext::default()
+    };
+    let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+    assert!(!summary.energy_calibrated);
+}
+
+#[test]
 fn db_waste_gco2_covers_every_intensity_fallback() {
     use std::collections::HashMap;
 

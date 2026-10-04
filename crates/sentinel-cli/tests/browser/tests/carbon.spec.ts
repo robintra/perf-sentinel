@@ -6,7 +6,13 @@ import { test, expect, Page } from "@playwright/test";
 
 type Row = [service: string, tag: string, ratio: number];
 
-async function loadCarbon(page: Page, energyKwh: number, windowTag: string, rows: Row[]) {
+async function loadCarbon(
+  page: Page,
+  energyKwh: number,
+  windowTag: string,
+  rows: Row[],
+  calibrated = false,
+) {
   await page.route("**/dashboard.html", async (route) => {
     const response = await route.fetch();
     const body = await response.text();
@@ -17,6 +23,7 @@ async function loadCarbon(page: Page, energyKwh: number, windowTag: string, rows
         const gs = payload.report.green_summary;
         gs.energy_kwh = energyKwh;
         gs.energy_model = windowTag;
+        gs.energy_calibrated = calibrated;
         gs.per_service_energy_model = Object.fromEntries(rows.map(([s, t]) => [s, t]));
         gs.per_service_measured_ratio = Object.fromEntries(rows.map(([s, , r]) => [s, r]));
         return open + JSON.stringify(payload) + close;
@@ -78,6 +85,29 @@ test("4. full coverage names the backend once, without +cal", async ({ page }) =
 
 test("5. a calibrated proxy says so", async ({ page }) => {
   await loadCarbon(page, 0.5, "io_proxy_v3+cal", [["a", "io_proxy_v3+cal", 0]]);
+  await expectEnergySub(page, "modeled from I/O counts · calibrated");
+});
+
+test("5b. calibration behind a measured window tag still shows", async ({ page }) => {
+  // The window tag drops +cal there, only energy_calibrated carries it.
+  await loadCarbon(
+    page,
+    0.5,
+    "scaphandre_rapl",
+    [
+      ["a", "scaphandre_rapl", 1],
+      ["b", "scaphandre_rapl", 0],
+    ],
+    true,
+  );
+  await expectEnergySub(
+    page,
+    "source scaphandre_rapl on 1 of 2 services · rest modeled from I/O counts · calibrated",
+  );
+});
+
+test("5c. calibration behind an Electricity Maps tag still shows", async ({ page }) => {
+  await loadCarbon(page, 0.5, "electricity_maps_api", [["a", "electricity_maps_api", 0]], true);
   await expectEnergySub(page, "modeled from I/O counts · calibrated");
 });
 

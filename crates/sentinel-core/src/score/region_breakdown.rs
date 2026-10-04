@@ -67,6 +67,15 @@ pub(super) struct ReportFlags {
     any_realtime: bool,
 }
 
+impl ReportFlags {
+    /// Whether any span used a calibrated proxy energy. Read apart from
+    /// [`select_co2_model_tag`], which drops `+cal` behind a measured or
+    /// real-time tag.
+    pub(super) const fn any_calibrated(self) -> bool {
+        self.any_calibrated
+    }
+}
+
 /// Fold the per-region accumulators into a breakdown vector, collect
 /// the cross-region flags needed for model-tag selection, and compute
 /// the total operational CO₂. Regions whose name is not in the

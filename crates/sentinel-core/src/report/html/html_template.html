@@ -3713,12 +3713,14 @@
     var models = gs.per_service_energy_model || {};
     var services = Object.keys(ratios);
     var covered = services.filter(function (s) { return ratios[s] > 0; });
-    if (covered.length === 0) {
-      var calibrated = [gs.energy_model].concat(Object.values(models)).some(function (m) {
+    // energy_calibrated survives a measured window tag, the +cal suffix
+    // covers reports written before it.
+    var calibrated = gs.energy_calibrated === true ||
+      [gs.energy_model].concat(Object.values(models)).some(function (m) {
         return typeof m === "string" && m.endsWith("+cal");
       });
-      return "modeled from I/O counts" + (calibrated ? " · calibrated" : "");
-    }
+    var cal = calibrated ? " · calibrated" : "";
+    if (covered.length === 0) return "modeled from I/O counts" + cal;
     var tags = [];
     covered.forEach(function (s) {
       var t = energyDisplayTag(models[s]);
@@ -3726,7 +3728,7 @@
     });
     var src = "source " + (tags.length > 0 ? tags.sort().join(", ") : "unknown");
     if (services.every(function (s) { return ratios[s] >= 1; })) return src;
-    return src + " on " + covered.length + " of " + services.length + " services · rest modeled from I/O counts";
+    return src + " on " + covered.length + " of " + services.length + " services · rest modeled from I/O counts" + cal;
   }
   // Plain text sub, not a code chip: the chip highlighter paints
   // underscored identifiers in the warning color.
