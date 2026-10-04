@@ -252,6 +252,13 @@ fn real_capture_keeps_one_zone_per_workload() {
     assert_eq!(containers.len(), 1, "{containers:?}");
     assert_eq!(containers[0].label_value, "payment-service-c6f7f47-7tjq4");
     assert!((containers[0].value - 2.4e-05).abs() < 1e-12);
+    // `package` and `dram` share 2.4e-05 on the container rows, so the
+    // `core` row (2.5e-05) is what proves the zone picks the row.
+    cfg.zone = "core".to_string();
+    let core = parse_samples(&body, &cfg);
+    assert_eq!(core.len(), 1, "{core:?}");
+    assert!((core[0].value - 2.5e-05).abs() < 1e-12);
+    cfg.zone = "package".to_string();
 
     cfg.metric_kind = KeplerMetricKind::Process;
     let processes = parse_samples(&body, &cfg);
