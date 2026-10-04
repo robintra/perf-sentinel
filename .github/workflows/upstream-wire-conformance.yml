@@ -447,15 +447,16 @@ jobs:
           echo "::notice::First chassis odata id: ${first_chassis}"
 
       - name: Wire assertion - legacy Power path conforms to parser contract
-        # Assert that the JSON pointer the parser uses for the
-        # `legacy_power` schema (canonical
-        # `/PowerControl/0/PowerConsumedWatts`, defined in
-        # crates/sentinel-core/src/score/redfish/config.rs) resolves to
+        # Assert that the reading the parser takes for the
+        # `legacy_power` schema (`PowerConsumedWatts` of the
+        # `PowerControl` entry whose `PhysicalContext` is `Chassis`,
+        # else of entry 0, see
+        # crates/sentinel-core/src/score/redfish/parser.rs) resolves to
         # a finite positive number on the upstream-canonical mockup. If
-        # DMTF changes the legacy mockup schema (drops PowerControl
-        # array at this index, renames PowerConsumedWatts), this step
-        # fails. The `environment_metrics` schema is asserted in a
-        # sibling step below.
+        # DMTF changes the legacy mockup schema (drops the PowerControl
+        # array, renames PowerConsumedWatts), this step fails. The
+        # `environment_metrics` schema is asserted in a sibling step
+        # below.
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
           curl -fsS "http://localhost:8000${chassis}/Power" -o /tmp/power.json
@@ -463,13 +464,14 @@ jobs:
           head -40 /tmp/power.json
           echo "---"
 
-          # jq -e exits non-zero on null/false. The query reaches the
-          # exact path the parser reads (parser.rs:23).
-          if jq -e '.PowerControl[0].PowerConsumedWatts | numbers | select(. > 0)' /tmp/power.json >/dev/null; then
-            value=$(jq -r '.PowerControl[0].PowerConsumedWatts' /tmp/power.json)
-            echo "::notice::PowerControl[0].PowerConsumedWatts = ${value}, matches parser contract"
+          # jq -e exits non-zero on null/false. The query picks the
+          # same entry as the parser (chassis_power_control in parser.rs).
+          reading='.PowerControl | (map(select(.PhysicalContext == "Chassis")) + .) | .[0].PowerConsumedWatts'
+          if jq -e "${reading} | numbers | select(. > 0)" /tmp/power.json >/dev/null; then
+            value=$(jq -r "${reading}" /tmp/power.json)
+            echo "::notice::PowerControl PowerConsumedWatts = ${value}, matches parser contract"
           else
-            echo "::error::Default JSON pointer /PowerControl/0/PowerConsumedWatts does not resolve to a positive finite number on the DMTF mockup. Parser contract violated."
+            echo "::error::PowerConsumedWatts of the chassis PowerControl entry (or entry 0) does not resolve to a positive finite number on the DMTF mockup. Parser contract violated."
             jq . /tmp/power.json
             exit 1
           fi

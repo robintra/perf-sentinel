@@ -1,11 +1,13 @@
 //! JSON parser for Redfish power responses (legacy `/Power`, modern
 //! `EnvironmentMetrics` and a chassis power `Sensor`).
 //!
-//! Resolves the canonical JSON pointer for the configured schema (see
+//! Resolves the chassis reading for the configured schema (see
 //! [`RedfishSchema`]) and validates that the value is a
 //! finite, strictly positive number. Vendor responses with `null`, `0`,
 //! negative or `NaN` wattage are rejected as transitional states. The
 //! caller keeps the previous coefficient in that case.
+
+use serde_json::Value;
 
 use super::config::RedfishSchema;
 
@@ -23,19 +25,15 @@ pub enum ParseOutcome {
     InvalidValue,
 }
 
-/// Parse a Redfish power JSON body and resolve the wattage reading
-/// using the canonical JSON pointer for `schema`. See
-/// [`RedfishSchema::json_pointer`] for the pointer dispatch table.
+/// Parse a Redfish power JSON body and resolve the chassis wattage for
+/// `schema`. See [`RedfishSchema`] for what each schema reads.
 #[must_use]
 pub fn parse_redfish_power(body: &str, schema: RedfishSchema) -> ParseOutcome {
-    let value: serde_json::Value = match serde_json::from_str(body) {
+    let value: Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(_) => return ParseOutcome::InvalidJson,
     };
-    if schema == RedfishSchema::Sensor && !is_chassis_power_sensor(&value) {
-        return ParseOutcome::PathMissing;
-    }
-    let Some(node) = value.pointer(schema.json_pointer()) else {
+    let Some(node) = locate_reading(&value, schema) else {
         return ParseOutcome::PathMissing;
     };
     let Some(watts) = node.as_f64() else {
@@ -47,12 +45,38 @@ pub fn parse_redfish_power(body: &str, schema: RedfishSchema) -> ParseOutcome {
     ParseOutcome::Ok(watts)
 }
 
+/// Resolve the wattage node for `schema`, or `None` when the body
+/// carries no chassis reading.
+fn locate_reading(value: &Value, schema: RedfishSchema) -> Option<&Value> {
+    match schema {
+        RedfishSchema::LegacyPower => chassis_power_control(value).map_or_else(
+            || value.pointer(schema.json_pointer()),
+            |entry| entry.get("PowerConsumedWatts"),
+        ),
+        RedfishSchema::Sensor if !is_chassis_power_sensor(value) => None,
+        RedfishSchema::EnvironmentMetrics | RedfishSchema::Sensor => {
+            value.pointer(schema.json_pointer())
+        }
+    }
+}
+
+/// The `PowerControl` entry whose `PhysicalContext` is `Chassis`. DMTF
+/// does not require entry 0 to cover the whole chassis, so the
+/// canonical pointer to entry 0 is only the fallback.
+fn chassis_power_control(value: &Value) -> Option<&Value> {
+    value
+        .get("PowerControl")?
+        .as_array()?
+        .iter()
+        .find(|entry| entry.get("PhysicalContext").and_then(Value::as_str) == Some("Chassis"))
+}
+
 /// A `Sensor` resource is read as the chassis wattage only when it
 /// reads in watts (DMTF requires `W` for `ReadingType` `Power`) and,
 /// when it states a `PhysicalContext`, names the whole chassis. Power
 /// supply and CPU power sensors read in watts too.
-fn is_chassis_power_sensor(value: &serde_json::Value) -> bool {
-    let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str);
+fn is_chassis_power_sensor(value: &Value) -> bool {
+    let text = |key: &str| value.get(key).and_then(Value::as_str);
     text("ReadingUnits") == Some("W") && text("PhysicalContext").is_none_or(|c| c == "Chassis")
 }
 
@@ -132,6 +156,52 @@ mod tests {
         assert_eq!(
             parse_redfish_power(body, RedfishSchema::LegacyPower),
             ParseOutcome::Ok(300.0)
+        );
+    }
+
+    #[test]
+    fn legacy_power_prefers_chassis_power_control() {
+        // DMTF does not require PowerControl[0] to cover the whole
+        // chassis: here it is a CPU subsystem and [1] the chassis.
+        let body = r#"{
+            "PowerControl": [
+                {"MemberId": "0", "PhysicalContext": "CPU", "PowerConsumedWatts": 120},
+                {"MemberId": "1", "PhysicalContext": "Chassis", "PowerConsumedWatts": 410}
+            ]
+        }"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::LegacyPower),
+            ParseOutcome::Ok(410.0)
+        );
+    }
+
+    #[test]
+    fn legacy_power_without_chassis_context_keeps_first_entry() {
+        let body = r#"{
+            "PowerControl": [
+                {"MemberId": "0", "PowerConsumedWatts": 287.5},
+                {"MemberId": "1", "PhysicalContext": "CPU", "PowerConsumedWatts": 120}
+            ]
+        }"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::LegacyPower),
+            ParseOutcome::Ok(287.5)
+        );
+    }
+
+    #[test]
+    fn legacy_power_chassis_entry_with_null_reading_is_invalid() {
+        // A transitional null on the chassis entry must not fall back
+        // to a subsystem reading.
+        let body = r#"{
+            "PowerControl": [
+                {"PhysicalContext": "CPU", "PowerConsumedWatts": 120},
+                {"PhysicalContext": "Chassis", "PowerConsumedWatts": null}
+            ]
+        }"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::LegacyPower),
+            ParseOutcome::InvalidValue
         );
     }
 

@@ -3,9 +3,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// JSON pointer for the legacy `/Power` resource. Resolves to a finite
-/// positive `f64` on Dell iDRAC, HPE iLO, Lenovo XCC and the `OpenBMC`
-/// reference, all of which still surface this path as of 2026.
+/// JSON pointer for the legacy `/Power` resource. The parser reads it
+/// when no `PowerControl` entry has `PhysicalContext` `Chassis`.
 const LEGACY_POWER_JSON_POINTER: &str = "/PowerControl/0/PowerConsumedWatts";
 
 /// JSON pointer for the modern `EnvironmentMetrics` resource (Redfish
@@ -25,9 +24,11 @@ const SENSOR_JSON_POINTER: &str = "/Reading";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RedfishSchema {
-    /// `/Chassis/{id}/Power` with `PowerControl[0].PowerConsumedWatts`.
-    /// Deprecated by DMTF Release 2020.4 but still mandatory in BMC
-    /// firmware as of 2026, the default for existing deployments.
+    /// `/Chassis/{id}/Power` with `PowerConsumedWatts` of the
+    /// `PowerControl` entry whose `PhysicalContext` is `Chassis`, else
+    /// of entry 0. Deprecated by DMTF Release 2020.4 and optional for
+    /// implementations: many BMCs still serve it, upstream `OpenBMC`'s
+    /// default build does not.
     LegacyPower,
     /// `/Chassis/{id}/EnvironmentMetrics` with `PowerWatts.Reading`.
     /// Modern replacement, present alongside `/Power` during the
