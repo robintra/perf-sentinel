@@ -80,8 +80,10 @@ pub struct AggregateInputs {
     /// archive file emits at most one `tracing::warn!` when its first
     /// fallback window is folded.
     pub fallback_windows: u64,
-    /// `true` if at least one folded window carried a `+cal` suffix on
-    /// its `energy_model`. Surfaced via `CalibrationInputs.calibration_applied`.
+    /// `true` if at least one folded window applied calibration: its
+    /// `energy_calibrated` flag, or a `+cal` suffix on its `energy_model`
+    /// for archives written before the flag. Surfaced via
+    /// `CalibrationInputs.calibration_applied`.
     pub calibration_applied: bool,
     /// Archive integrity: windows whose chain verified, windows written
     /// before chaining existed, and detected breaks. Published so a
@@ -676,7 +678,10 @@ impl Builder {
         self.observed_days.insert(ts.date_naive());
         self.fold_disclosure_waste(&report, &m);
         self.fold_binary_version(&report.binary_version);
-        self.fold_window_energy_model(&report.green_summary.energy_model);
+        self.fold_window_energy_model(
+            &report.green_summary.energy_model,
+            report.green_summary.energy_calibrated,
+        );
         self.fold_carbon_methodology(report.green_summary.co2.as_ref());
         self.fold_transport_coefficient(
             report.green_summary.co2.as_ref(),
@@ -877,7 +882,10 @@ impl Builder {
         }
     }
 
-    fn fold_window_energy_model(&mut self, model: &str) {
+    /// `calibrated` is the window's `energy_calibrated` flag: a measured
+    /// or real-time window tag drops `+cal`, the flag does not.
+    fn fold_window_energy_model(&mut self, model: &str, calibrated: bool) {
+        self.calibration_applied |= calibrated;
         if model.is_empty() || model.len() > MAX_ENERGY_MODEL_LEN {
             return;
         }

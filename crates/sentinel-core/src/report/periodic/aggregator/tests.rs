@@ -1530,6 +1530,28 @@ fn aggregator_detects_calibration_when_cal_suffix_present() {
 }
 
 #[test]
+fn aggregator_sets_calibration_from_the_flag_behind_a_measured_tag() {
+    // A real-time or measured window tag drops `+cal`, so only
+    // `energy_calibrated` says the modeled services were calibrated.
+    let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+    for window_tag in ["electricity_maps_api", "scaphandre_rapl"] {
+        let mut r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            window_tag,
+        );
+        r.green_summary.energy_calibrated = true;
+        let (_dir, path) = write_archive(&[(ts, r)]);
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.calibration_applied, "{window_tag}");
+        assert!(out.energy_source_models.contains(window_tag));
+    }
+}
+
+#[test]
 fn aggregator_does_not_set_calibration_when_no_cal_suffix() {
     let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
     let r = make_runtime_report(
