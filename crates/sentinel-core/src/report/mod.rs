@@ -638,6 +638,27 @@ impl GreenSummary {
             ratios.len()
         ))
     }
+
+    /// Energy source of one service for display: its tag, through the
+    /// same gate as [`Self::energy_source_label`], once any of its
+    /// operations is measured (`unknown` when the tag fails the gate),
+    /// `None` when it is modeled from I/O counts.
+    #[must_use]
+    pub fn service_energy_source(&self, service: &str) -> Option<&str> {
+        let covered = self
+            .per_service_measured_ratio
+            .get(service)
+            .is_some_and(|r| *r > 0.0);
+        if !covered {
+            return None;
+        }
+        Some(
+            self.per_service_energy_model
+                .get(service)
+                .and_then(|tag| display_tag(tag))
+                .unwrap_or("unknown"),
+        )
+    }
 }
 
 /// A per-service energy tag without its `+cal` suffix, or `None` when it
@@ -940,6 +961,26 @@ mod tests {
             gs.energy_source_label().as_deref(),
             Some("source kepler_ebpf, scaphandre_rapl")
         );
+    }
+
+    #[test]
+    fn service_energy_source_gates_like_the_label() {
+        let long = "a".repeat(65);
+        let gs = energy_summary(
+            "x",
+            &[
+                ("measured", "scaphandre_rapl", 0.5),
+                ("modeled", "electricity_maps_api", 0.0),
+                ("hostile", &long, 1.0),
+            ],
+        );
+        assert_eq!(
+            gs.service_energy_source("measured"),
+            Some("scaphandre_rapl")
+        );
+        assert_eq!(gs.service_energy_source("modeled"), None);
+        assert_eq!(gs.service_energy_source("hostile"), Some("unknown"));
+        assert_eq!(gs.service_energy_source("absent"), None);
     }
 
     #[test]

@@ -1116,10 +1116,9 @@ fn window_energy_line(gs: &GreenSummary, dim: Style) -> Line<'static> {
 fn service_energy_row(gs: &GreenSummary, svc: &str, kwh: f64) -> Line<'static> {
     let region = gs.per_service_region.get(svc).map_or("-", String::as_str);
     let ratio = gs.per_service_measured_ratio.get(svc).copied();
-    let source = match gs.per_service_energy_model.get(svc) {
-        Some(tag) if ratio.is_some_and(|r| r > 0.0) => truncate_cell(tag, 16),
-        _ => "I/O counts".to_string(),
-    };
+    let source = gs
+        .service_energy_source(svc)
+        .map_or_else(|| "I/O counts".to_string(), |tag| truncate_cell(tag, 16));
     // "-" when the daemon did not report a ratio for the service:
     // a fabricated 0% would read as "measured, nothing matched".
     let meas = ratio.map_or_else(|| "-".to_string(), |r| format!("{:.0}%", r * 100.0));
