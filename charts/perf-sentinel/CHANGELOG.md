@@ -10,6 +10,55 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.26.0]
+
+### Fixed
+
+- **`appVersion` moves to `0.26.0`.** Kepler-derived energy and carbon
+  drop. The daemon summed every zone Kepler exports for a container or a
+  process, and the zones overlap, so it now reads one, set by the new
+  `[green.kepler] zone` key, `package` by default, which also leaves DRAM
+  out unless `zone` names it. For every service Kepler feeds,
+  `perf_sentinel_energy_kwh`, `perf_sentinel_carbon_gco2`, `/api/energy`,
+  `query monitor` and the periodic disclosures are not comparable across
+  the upgrade. The `Kepler scraper started` log line names the zone. Where
+  Kepler reads hwmon, zones are named after the sensors, so `zone` has to
+  name one of them, otherwise the zero-sample warning fires and those
+  services fall back to the next configured backend or the I/O proxy.
+  `PerfSentinelEnergyScraperStale` stays silent then, since each scrape
+  still answers. The `perf-sentinel` CLI in the image names the energy
+  source in `query monitor` and `query inspect` where it printed the
+  window's model tag. Findings, signatures, the daemon's API routes and its
+  metric names do not change.
+- With `schema = "legacy_power"`, `[green.redfish]` reads the
+  `PowerControl` entry whose `PhysicalContext` is `Chassis` and keeps entry
+  0 only when no entry says so. A BMC that listed a CPU or memory subsystem
+  first reported that subsystem's watts as the chassis power.
+
+### Added
+
+- `[green.redfish]` takes `schema = "sensor"` for a chassis power `Sensor`
+  resource, on firmware that serves neither `/Power` nor a `PowerWatts`
+  reading. `examples/helm/values-green-redfish.yaml` shows it commented
+  out. A 0.25.5 daemon rejects `schema = "sensor"` and `[green.kepler]
+  zone` at load, so drop them from `config.toml` or `fragments` before
+  rolling back.
+- At start the daemon warns once when `[green.alumet] metric_name` names a
+  GPU, Grace, Jetson or TDP-estimate series, or a unit other than joules.
+  The scraper still reads it.
+
+### Changed
+
+- `examples/helm/values-green-kepler.yaml` points at upstream's Service,
+  `kepler.kepler.svc.cluster.local:28282`, where it read `kube-system` on
+  port 9102, and sets `zone = "package"`. A ClusterIP Service reaches one
+  arbitrary node per scrape. Neither the example nor the overview dashboard
+  under `examples/`, whose two energy panel descriptions now point at the
+  energy source line of `query monitor` and the HTML report, ships in the
+  chart.
+
+No `values.yaml` key is added or removed, and no template changes.
+
 ## [0.25.5]
 
 ### Fixed

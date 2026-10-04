@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.25.5
-appVersion: "0.25.5"
+version: 0.26.0
+appVersion: "0.26.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,14 +37,14 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: fixed
-      description: "appVersion 0.25.5. The daemon's API and its metrics do not change. On MySQL and MariaDB a double-quoted value is now masked, so those findings change signature and their acknowledgments stop matching. The perf-sentinel CLI in the image falls back to the v3 search on Jaeger 2.21 and later."
+      description: "appVersion 0.26.0. Kepler-derived energy and carbon drop: the daemon summed overlapping Kepler zones and now reads one, set by the new `[green.kepler] zone` key, `package` by default, which also leaves DRAM out. Energy and carbon gauges, `/api/energy` and periodic disclosures are not comparable across the upgrade for services Kepler feeds. On hwmon hosts `zone` has to name a sensor zone. The perf-sentinel CLI in the image names the energy source in `query monitor` and `query inspect`. Findings, signatures, API routes and metric names do not change."
+    - kind: fixed
+      description: "With `schema = \"legacy_power\"`, `[green.redfish]` reads the `PowerControl` entry whose `PhysicalContext` is `Chassis`, where it read entry 0, which a BMC may give to a CPU or memory subsystem."
     - kind: added
-      description: "The daemon routes its https:// calls through HTTPS_PROXY, ALL_PROXY and NO_PROXY and trusts the certificates of SSL_CERT_FILE, set through extraEnv and extraVolumes. A pod that already carries HTTPS_PROXY now uses it, so an in-cluster https:// endpoint belongs in NO_PROXY."
-    - kind: added
-      description: "networkPolicy.ingress.otlpGrpc and networkPolicy.ingress.http open port 4317 or port 4318 alone, so a gRPC-only collector no longer reaches the query API served on 4318. The lists directly under networkPolicy.ingress still open both ports. The policy stays off by default."
+      description: "`[green.redfish]` takes `schema = \"sensor\"` for a chassis power `Sensor` resource, on firmware that serves neither `/Power` nor `PowerWatts`. A 0.25.5 daemon rejects it and `[green.kepler] zone` at load, so drop both before rolling back. At start the daemon warns when `[green.alumet] metric_name` names a non-RAPL series. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.25.5
+      image: ghcr.io/robintra/perf-sentinel:0.26.0
       platforms:
         - linux/amd64
         - linux/arm64
