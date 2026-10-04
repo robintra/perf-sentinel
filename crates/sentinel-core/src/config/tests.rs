@@ -3350,6 +3350,20 @@ fn validate_kepler_rejects_blank_zone() {
 }
 
 #[test]
+fn validate_kepler_rejects_padded_or_oversized_zone() {
+    for bad in [
+        " package".to_string(),
+        "package ".to_string(),
+        "z".repeat(257),
+    ] {
+        let mut cfg = minimal_kepler_config();
+        cfg.zone = bad;
+        let err = Config::validate_kepler(&cfg).expect_err("padded or oversized zone must error");
+        assert!(err.contains("zone"), "{err}");
+    }
+}
+
+#[test]
 fn validate_kepler_rejects_control_char_in_zone() {
     let mut cfg = minimal_kepler_config();
     cfg.zone = "package\u{1b}[31m".to_string();

@@ -327,6 +327,8 @@ impl Config {
 
     /// The zone is matched verbatim against the `zone` label. No fixed
     /// set applies: hwmon zones are named after the host's sensors.
+    /// Surrounding whitespace could never match a label, so it is
+    /// rejected rather than left to fail silently.
     fn validate_kepler_zone(zone: &str) -> Result<(), String> {
         if has_control_char(zone) {
             return Err("[green.kepler] zone contains control characters".to_string());
@@ -335,6 +337,14 @@ impl Config {
             return Err(format!(
                 "[green.kepler] zone '{zone}' is blank; remove the field for the default 'package'"
             ));
+        }
+        if zone.trim() != zone {
+            return Err(format!(
+                "[green.kepler] zone '{zone}' has surrounding whitespace, which no label carries"
+            ));
+        }
+        if zone.chars().count() > 256 {
+            return Err("[green.kepler] zone is longer than 256 characters".to_string());
         }
         Ok(())
     }
