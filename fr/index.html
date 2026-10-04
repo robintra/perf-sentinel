@@ -793,7 +793,10 @@
         <span data-dc-tpl="675"><span class="sc-interp">Logo &amp; bannière, </span><a data-dc-tpl="676" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener">Gwendoline Meignen</a></span>
       </div>
     </div>
-  </footer></div></div></div></div><!--seo-prerender-end--><x-dc>
+  </footer>
+  <nav aria-label="Sections de la page"><a href="#top" data-plain="" data-s="cur" aria-current="location"><i aria-hidden="true"></i><span>Accueil</span></a><a href="#why" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Pourquoi</span></a><a href="#carbone" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Carbone</span></a><a href="#detection" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Détection</span></a><a href="#stack" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Technologies</span></a><a href="#modes" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Déploiement</span></a><a href="#perf" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Performance</span></a><a href="#hub" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Hub</span></a><a href="#greenops" data-plain="" data-s="next"><i aria-hidden="true"></i><span>GreenOps</span></a><a href="#comparatif" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Comparatif</span></a><a href="#license" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Licence</span></a><a href="#security" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Sécurité</span></a><a href="#start" data-plain="" data-s="next"><i aria-hidden="true"></i><span>Démarrer</span></a></nav>
+
+</div></div></div></div><!--seo-prerender-end--><x-dc>
 <helmet>
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
@@ -973,6 +976,22 @@
 }
 /* Light mode: darken green text (#0ba671 / var(--accent)) to var(--accent-strong) #0b523a for contrast; dark mode keeps the bright green */
 [data-ps-root]:not([data-theme="dark"]) [style*="color:var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color: var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color:#0ba671"],[data-ps-root]:not([data-theme="dark"]) [style*="color: #0ba671"]{color:var(--accent-strong)!important}
+  #ps-dots{position:fixed;left:26px;top:50%;transform:translateY(-50%);z-index:40;display:flex;flex-direction:column;gap:4px}
+  #ps-dots a{position:relative;display:flex;align-items:center;height:22px;color:var(--text-2);text-decoration:none}
+  #ps-dots i{flex:none;width:7px;height:7px;margin:0 7.5px;border-radius:999px;background:var(--text-2);opacity:.35;transition:height .25s cubic-bezier(.2,.8,.2,1),opacity .2s,background-color .2s}
+  #ps-dots a:hover i{opacity:.8}
+  #ps-dots a[data-s="cur"] i{height:20px;opacity:1;background:var(--accent)}
+  #ps-dots span{position:absolute;left:28px;white-space:nowrap;font-size:12.5px;font-weight:600;line-height:1;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;opacity:0;transform:translateX(-4px);pointer-events:none;transition:opacity .15s,transform .15s,color .2s}
+  #ps-dots a:hover span,#ps-dots a:focus-visible span{opacity:1;transform:none}
+  @media(min-width:1440px){
+    #ps-dots span{position:static;margin-left:6px;padding:0;background:none;border:0;font-weight:500;color:var(--text-2);opacity:.75;transform:none;pointer-events:auto}
+    #ps-dots a[data-s="past"] span{opacity:.4}
+    #ps-dots a[data-s="cur"] span{opacity:1;color:var(--accent-strong);font-weight:700}
+    #ps-dots a:hover span{opacity:1;color:var(--text)}
+  }
+  @media(max-width:1279px),(max-height:559px){#ps-dots{display:none}}
+  @media(prefers-reduced-motion:reduce){#ps-dots i,#ps-dots span{transition:none}}
+  @media print{#ps-dots{display:none}}
 </style>
 </helmet>
 
@@ -1525,13 +1544,14 @@
       </div>
     </div>
   </footer>
+  {{ dotNav }}
 
 </div>
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;defaultMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;clair&quot;,&quot;sombre&quot;],&quot;default&quot;:&quot;clair&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultLang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;fr&quot;],&quot;default&quot;:&quot;fr&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;installCommand&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;cargo install perf-sentinel --locked&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
-  state = { mode: null, sysFlip: false, lang: null, persona: null, spot: false, tip: false, copied: false, rustVersion: null, dotnetVersion: null };
+  state = { mode: null, sysFlip: false, lang: null, persona: null, spot: false, tip: false, copied: false, rustVersion: null, dotnetVersion: null, dots: null, dotCur: null };
 
   componentDidMount() {
     // A stored French choice only moves the bare site root to /fr/. Any other
@@ -1571,12 +1591,36 @@ class Component extends DCLogic {
       this._onSys = () => { if (this.curMode() === 'system') this.setState({ sysFlip: !this.state.sysFlip }); };
       this._mql.addEventListener('change', this._onSys);
     } catch (e) {}
+    // Side rail: the sections this persona shows, and the one being read.
+    this._onDots = () => { cancelAnimationFrame(this._dotsRaf); this._dotsRaf = requestAnimationFrame(() => this.syncDots()); };
+    window.addEventListener('scroll', this._onDots, { passive: true });
+    window.addEventListener('resize', this._onDots);
+    this._onDots();
+  }
+
+  componentDidUpdate() { if (this._onDots) this._onDots(); }
+
+  syncDots() {
+    const root = document.querySelector('#dc-root [data-ps-root]');
+    if (!root) return;
+    const el = (id) => id === 'top' ? root.querySelector('section[data-screen-label="Hero"]') : root.querySelector('#' + id);
+    const ids = ['top', 'why', 'carbone', 'detection', 'stack', 'modes', 'perf', 'hub', 'greenops', 'comparatif', 'license', 'security', 'start'];
+    const vis = ids.filter(id => { const e = el(id); return e && e.getClientRects().length > 0; });
+    const line = window.innerHeight * 0.4;
+    let cur = vis[0] || null;
+    for (const id of vis) if (el(id).getBoundingClientRect().top <= line) cur = id;
+    // The last section is too short to reach the line: the page bottom selects it.
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = vis[vis.length - 1] || cur;
+    if (vis.join() !== (this.state.dots || []).join() || cur !== this.state.dotCur) this.setState({ dots: vis, dotCur: cur });
   }
 
   componentWillUnmount() {
     try { if (this._mql && this._onSys) this._mql.removeEventListener('change', this._onSys); } catch (e) {}
     document.removeEventListener('keydown', this._onKey);
     clearTimeout(this._tipTimer);
+    window.removeEventListener('scroll', this._onDots);
+    window.removeEventListener('resize', this._onDots);
+    cancelAnimationFrame(this._dotsRaf);
   }
 
   // theme mode: saved choice (system|light|dark) → system; the rendered
@@ -1881,6 +1925,7 @@ class Component extends DCLogic {
       en: {
         nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
         skipLink: 'Skip to content',
+        dots: { aria: 'Page sections', top: 'Home', why: 'Why', carbone: 'Carbon', detection: 'Detection', stack: 'Stack', modes: 'Deploy', perf: 'Performance', hub: 'Hub', greenops: 'GreenOps', comparatif: 'Comparison', license: 'License', security: 'Security', start: 'Get started' },
         eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
         heroSub: 'Perf Sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
@@ -2066,6 +2111,7 @@ class Component extends DCLogic {
       fr: {
         nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
         skipLink: 'Aller au contenu',
+        dots: { aria: 'Sections de la page', top: 'Accueil', why: 'Pourquoi', carbone: 'Carbone', detection: 'Détection', stack: 'Technologies', modes: 'Déploiement', perf: 'Performance', hub: 'Hub', greenops: 'GreenOps', comparatif: 'Comparatif', license: 'Licence', security: 'Sécurité', start: 'Démarrer' },
         eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-⁠les en énergie et carbone.',
         heroSub: 'Perf Sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
@@ -2251,6 +2297,15 @@ class Component extends DCLogic {
     };
   }
 
+  dotNav(L) {
+    const ids = this.state.dots;
+    if (!ids || !L) return null;
+    const ci = ids.indexOf(this.state.dotCur);
+    return React.createElement('nav', { id: 'ps-dots', 'aria-label': L.aria }, ids.map((id, i) => React.createElement('a', {
+      key: id, href: '#' + id, 'data-plain': '', 'data-s': i < ci ? 'past' : i === ci ? 'cur' : 'next', 'aria-current': i === ci ? 'location' : undefined,
+    }, React.createElement('i', { 'aria-hidden': 'true' }), React.createElement('span', null, L[id]))));
+  }
+
   renderVals() {
     const theme = this.curTheme();
     const lang = this.curLang();
@@ -2276,6 +2331,7 @@ class Component extends DCLogic {
       ...this.personaUI(lang, persona),
 
       skipLink: t.skipLink,
+      dotNav: this.dotNav(t.dots),
       navDetection: t.nav[0], navExecution: t.nav[1], navGreenops: t.nav[2], navComparison: t.nav[3],
       eyebrowHero: t.eyebrowHero, eyebrowHeroGreen: t.eyebrowHeroGreen,
       heroTitle: t.heroTitle,
