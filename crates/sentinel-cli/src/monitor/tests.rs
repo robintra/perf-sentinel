@@ -268,11 +268,45 @@ fn energy_renders_service_and_region_tables() {
     assert!(text.contains("order-svc"), "got: {text}");
     assert!(text.contains("scaphandre_rapl"), "got: {text}");
     assert!(text.contains("eu-west-3"), "got: {text}");
-    assert!(text.contains("io_proxy_v3"), "got: {text}");
+    // An unmeasured service reads its real source, not the window tag.
+    assert!(text.contains("I/O counts"), "got: {text}");
+    assert!(!text.contains("io_proxy_v3"), "got: {text}");
+    assert!(
+        text.contains(
+            "Window energy: 1.600000 kWh   source scaphandre_rapl on 1 of 2 services \u{b7} rest modeled from I/O counts"
+        ),
+        "got: {text}"
+    );
     // Per-region: cold vs hot intensity source.
     assert!(text.contains("By region"), "got: {text}");
     assert!(text.contains("RealTime (hot)"), "got: {text}");
     assert!(text.contains("Annual (cold)"), "got: {text}");
+}
+
+#[test]
+fn energy_never_names_the_intensity_tag_as_source() {
+    let mut snapshot = snapshot_with_energy_mix();
+    let gs = &mut snapshot.green_summary;
+    gs.energy_model = "electricity_maps_api".to_string();
+    for tag in gs.per_service_energy_model.values_mut() {
+        *tag = "electricity_maps_api".to_string();
+    }
+    for ratio in gs.per_service_measured_ratio.values_mut() {
+        *ratio = 0.0;
+    }
+    let text = line_text(&build_energy_lines(Some(&snapshot)));
+    assert!(
+        text.contains("Window energy: 1.600000 kWh   modeled from I/O counts"),
+        "got: {text}"
+    );
+    assert!(!text.contains("electricity_maps_api"), "got: {text}");
+
+    snapshot.green_summary.energy_kwh = 0.0;
+    let text = line_text(&build_energy_lines(Some(&snapshot)));
+    assert!(
+        text.contains("Window energy: not computed (no span resolved to a region)"),
+        "got: {text}"
+    );
 }
 
 #[test]

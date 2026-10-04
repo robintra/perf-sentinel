@@ -1265,17 +1265,14 @@ impl App {
                 gs.avoidable_io_ops, gs.total_io_ops
             )),
         ]));
-        if gs.energy_kwh > 0.0 {
+        // Named by its energy source, never the window tag: on an
+        // Electricity Maps daemon (`query inspect`) that tag is an
+        // intensity source. The label only keeps `[A-Za-z0-9_+-]` tags.
+        if let Some(src) = gs.energy_source_label() {
             lines.push(Line::from(vec![
                 Span::styled("Energy: ".to_string(), dim),
                 Span::raw(format!("{:.6} kWh", gs.energy_kwh)),
-                // `energy_model` is free text on the daemon snapshot path
-                // (`query inspect`), so sanitize like the other daemon-sourced
-                // strings below.
-                Span::styled(
-                    format!("  ({})", sanitize_for_terminal(&gs.energy_model)),
-                    dim,
-                ),
+                Span::styled(format!("  ({src})"), dim),
             ]));
         }
         push_carbon_lines(&mut lines, gs, summary.analysis.traces_analyzed, dim);

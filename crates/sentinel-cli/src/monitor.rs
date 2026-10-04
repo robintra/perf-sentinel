@@ -1094,6 +1094,51 @@ fn waste_line(
     ])
 }
 
+/// `Window energy:` named by its energy source. The window tag is never
+/// shown: on an Electricity Maps daemon it is an intensity tag.
+fn window_energy_line(gs: &GreenSummary, dim: Style) -> Line<'static> {
+    let Some(src) = gs.energy_source_label() else {
+        return Line::from(Span::styled(
+            "Window energy: not computed (no span resolved to a region)",
+            dim,
+        ));
+    };
+    Line::from(vec![
+        Span::styled("Window energy: ", dim),
+        Span::raw(format!("{} kWh", fmt_tiny(gs.energy_kwh))),
+        Span::styled(format!("   {src}"), dim),
+    ])
+}
+
+/// One `By service` row. The source is the service's measured tag once
+/// any of its operations is measured, `I/O counts` otherwise (its own
+/// tag is then the window tag, not an energy source).
+fn service_energy_row(gs: &GreenSummary, svc: &str, kwh: f64) -> Line<'static> {
+    let region = gs.per_service_region.get(svc).map_or("-", String::as_str);
+    let ratio = gs.per_service_measured_ratio.get(svc).copied();
+    let source = match gs.per_service_energy_model.get(svc) {
+        Some(tag) if ratio.is_some_and(|r| r > 0.0) => truncate_cell(tag, 16),
+        _ => "I/O counts".to_string(),
+    };
+    // "-" when the daemon did not report a ratio for the service:
+    // a fabricated 0% would read as "measured, nothing matched".
+    let meas = ratio.map_or_else(|| "-".to_string(), |r| format!("{:.0}%", r * 100.0));
+    let co2 = gs
+        .per_service_carbon_kgco2eq
+        .get(svc)
+        .copied()
+        .unwrap_or(0.0);
+    Line::from(Span::raw(format!(
+        "  {:<22} {:<14} {:<16} {:>6}  {:>12}  {:.9}",
+        truncate_cell(svc, 22),
+        truncate_cell(region, 14),
+        source,
+        meas,
+        fmt_tiny(kwh),
+        co2,
+    )))
+}
+
 /// Body of the Energy tab: the effective energy/carbon mix, all from the
 /// live `green_summary` (no extra aggregation). Two tables: per service
 /// (effective source, measured share, energy, region) and per region
@@ -1125,14 +1170,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         return lines;
     }
 
-    lines.push(Line::from(vec![
-        Span::styled("Window energy: ", dim),
-        Span::raw(format!("{} kWh", fmt_tiny(gs.energy_kwh))),
-        Span::styled(
-            format!("   model: {}", truncate_cell(&gs.energy_model, 32)),
-            dim,
-        ),
-    ]));
+    lines.push(window_energy_line(gs, dim));
     if let Some(db) = &gs.database_waste {
         lines.push(waste_line(
             "Database waste: ",
@@ -1168,31 +1206,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         )));
         // BTreeMap iterates sorted by service, deterministic output.
         for (svc, kwh) in &gs.per_service_energy_kwh {
-            let region = gs.per_service_region.get(svc).map_or("-", String::as_str);
-            let model = gs
-                .per_service_energy_model
-                .get(svc)
-                .map_or("-", String::as_str);
-            // "-" when the daemon did not report a ratio for the service:
-            // a fabricated 0% would read as "measured, nothing matched".
-            let meas = gs
-                .per_service_measured_ratio
-                .get(svc)
-                .map_or_else(|| "-".to_string(), |r| format!("{:.0}%", r * 100.0));
-            let co2 = gs
-                .per_service_carbon_kgco2eq
-                .get(svc)
-                .copied()
-                .unwrap_or(0.0);
-            lines.push(Line::from(Span::raw(format!(
-                "  {:<22} {:<14} {:<16} {:>6}  {:>12}  {:.9}",
-                truncate_cell(svc, 22),
-                truncate_cell(region, 14),
-                truncate_cell(model, 16),
-                meas,
-                fmt_tiny(*kwh),
-                co2,
-            ))));
+            lines.push(service_energy_row(gs, svc, *kwh));
         }
         lines.push(Line::from(""));
     }

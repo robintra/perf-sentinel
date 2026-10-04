@@ -279,7 +279,11 @@ bounded-label rule keeps it off Prometheus `/metrics`.
 - **Energy** shows the effective energy/carbon mix straight from the
   live `green_summary`: per service (effective source, measured share,
   energy, region) and per region (grid intensity, cold embedded vs hot
-  real-time source).
+  real-time source). The window line names the energy source, for
+  example
+  `source scaphandre_rapl on 2 of 5 services · rest modeled from I/O counts`.
+  A service none of whose operations was measured reads `I/O counts`
+  as its source.
 
   ![Energy tab: per-service and per-region energy/carbon mix with cold intensity sources](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
 

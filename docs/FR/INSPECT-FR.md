@@ -292,7 +292,11 @@ cardinalité, donc la règle des labels bornés les garde hors du
 - **Energy** montre le mix énergie/carbone effectif directement depuis
   le `green_summary` live : par service (source effective, part mesurée,
   énergie, région) et par région (intensité de grille, source froide
-  embarquée vs chaude temps réel).
+  embarquée vs chaude temps réel). La ligne de fenêtre nomme la source
+  d'énergie, par exemple
+  `source scaphandre_rapl on 2 of 5 services · rest modeled from I/O counts`.
+  Un service dont aucune opération n'a été mesurée affiche `I/O counts`
+  comme source.
 
   ![Onglet Energy : mix énergie/carbone par service et par région avec des sources d'intensité froides](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
 

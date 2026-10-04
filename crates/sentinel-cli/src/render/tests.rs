@@ -1056,6 +1056,25 @@ fn green_summary_prints_sql_share_and_database_waste() {
 }
 
 #[test]
+fn energy_line_names_the_energy_source() {
+    use sentinel_core::report::GreenSummary;
+    let mut gs = GreenSummary::disabled(10);
+    assert_eq!(
+        format_energy_line(&gs, "<d>", "</d>"),
+        "  <d>Energy:            not computed (no span resolved to a region)</d>"
+    );
+    gs.energy_kwh = 0.5;
+    gs.energy_model = "electricity_maps_api".to_string();
+    gs.per_service_energy_model
+        .insert("a".to_string(), "electricity_maps_api".to_string());
+    gs.per_service_measured_ratio.insert("a".to_string(), 0.0);
+    assert_eq!(
+        format_energy_line(&gs, "<d>", "</d>"),
+        "  Energy:            0.500000 kWh (modeled from I/O counts)"
+    );
+}
+
+#[test]
 fn duration_format_covers_all_branches() {
     assert_eq!(format_duration_compact(0), "0ms");
     assert_eq!(format_duration_compact(750), "750ms");

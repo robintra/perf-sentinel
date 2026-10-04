@@ -40,9 +40,9 @@ use crate::correlate::Trace;
 use crate::detect::Finding;
 use crate::detect::correlate_cross::CrossTraceCorrelation;
 use crate::report::interpret::InterpretationLevel;
-use crate::score::carbon::{CarbonReport, RegionBreakdown, ScoringConfig};
+use crate::score::carbon::{CO2_MODEL_CAL_SUFFIX, CarbonReport, RegionBreakdown, ScoringConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Read `detection_config` without ever failing the enclosing report: a
 /// shape this binary cannot parse becomes `None`.
@@ -592,6 +592,63 @@ impl GreenSummary {
             messaging_waste: None,
         }
     }
+
+    /// Plain-text source of `energy_kwh` for display: `"source <tags>"`,
+    /// `"modeled from I/O counts"`, ... `None` when no energy was computed.
+    ///
+    /// A service counts as covered once its measured ratio is above zero.
+    /// Never reads `energy_model` as the source: on Electricity Maps
+    /// daemons it holds an intensity tag, and `io_proxy_vN` names the
+    /// intensity tier. The HTML dashboard's `energySourceLabel` mirrors
+    /// these rules and strings.
+    #[must_use]
+    pub fn energy_source_label(&self) -> Option<String> {
+        if self.energy_kwh.is_nan() || self.energy_kwh <= 0.0 {
+            return None;
+        }
+        let ratios = &self.per_service_measured_ratio;
+        let covered: Vec<&String> = ratios
+            .iter()
+            .filter(|(_, r)| **r > 0.0)
+            .map(|(svc, _)| svc)
+            .collect();
+        if covered.is_empty() {
+            let calibrated = std::iter::once(&self.energy_model)
+                .chain(self.per_service_energy_model.values())
+                .any(|m| m.ends_with(CO2_MODEL_CAL_SUFFIX));
+            let suffix = if calibrated { " \u{b7} calibrated" } else { "" };
+            return Some(format!("modeled from I/O counts{suffix}"));
+        }
+        let tags: BTreeSet<&str> = covered
+            .iter()
+            .filter_map(|svc| self.per_service_energy_model.get(*svc))
+            .filter_map(|tag| display_tag(tag))
+            .collect();
+        let tags = if tags.is_empty() {
+            "unknown".to_string()
+        } else {
+            tags.into_iter().collect::<Vec<_>>().join(", ")
+        };
+        if ratios.values().all(|r| *r >= 1.0) {
+            return Some(format!("source {tags}"));
+        }
+        Some(format!(
+            "source {tags} on {} of {} services \u{b7} rest modeled from I/O counts",
+            covered.len(),
+            ratios.len()
+        ))
+    }
+}
+
+/// A per-service energy tag without its `+cal` suffix, or `None` when it
+/// is not a short `[A-Za-z0-9_+-]` token (hostile `--input`, bidi bytes).
+fn display_tag(tag: &str) -> Option<&str> {
+    let tag = tag.strip_suffix(CO2_MODEL_CAL_SUFFIX).unwrap_or(tag);
+    let valid = (1..=64).contains(&tag.len())
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'-'));
+    valid.then_some(tag)
 }
 
 /// A top offender endpoint ranked by I/O Intensity Score.
@@ -798,5 +855,112 @@ mod tests {
         assert!(parsed.per_service_region.is_empty());
         assert!(parsed.per_service_energy_model.is_empty());
         assert!(parsed.per_service_measured_ratio.is_empty());
+    }
+
+    /// `energy_kwh` 1.0 with the given window tag and `(service, tag, ratio)` rows.
+    fn energy_summary(window: &str, rows: &[(&str, &str, f64)]) -> GreenSummary {
+        let mut gs = GreenSummary::disabled(0);
+        gs.energy_kwh = 1.0;
+        gs.energy_model = window.to_string();
+        for (svc, tag, ratio) in rows {
+            gs.per_service_energy_model
+                .insert((*svc).to_string(), (*tag).to_string());
+            gs.per_service_measured_ratio
+                .insert((*svc).to_string(), *ratio);
+        }
+        gs
+    }
+
+    #[test]
+    fn energy_source_label_none_without_energy() {
+        let mut gs = energy_summary("io_proxy_v3", &[("a", "io_proxy_v3", 0.0)]);
+        gs.energy_kwh = 0.0;
+        assert_eq!(gs.energy_source_label(), None);
+        gs.energy_kwh = f64::NAN;
+        assert_eq!(gs.energy_source_label(), None);
+    }
+
+    #[test]
+    fn energy_source_label_modeled_without_coverage() {
+        let modeled = Some("modeled from I/O counts".to_string());
+        assert_eq!(energy_summary("", &[]).energy_source_label(), modeled);
+        let proxy = energy_summary(
+            "io_proxy_v3",
+            &[("a", "io_proxy_v3", 0.0), ("b", "io_proxy_v3", f64::NAN)],
+        );
+        assert_eq!(proxy.energy_source_label(), modeled);
+        let emaps = energy_summary(
+            "electricity_maps_api",
+            &[("a", "electricity_maps_api", 0.0)],
+        );
+        let label = emaps.energy_source_label().unwrap();
+        assert_eq!(label, "modeled from I/O counts");
+        assert!(!label.contains("electricity_maps_api"));
+    }
+
+    #[test]
+    fn energy_source_label_flags_calibration() {
+        let window = energy_summary("io_proxy_v3+cal", &[("a", "io_proxy_v3", 0.0)]);
+        let per_service = energy_summary("io_proxy_v3", &[("a", "io_proxy_v3+cal", 0.0)]);
+        for gs in [window, per_service] {
+            assert_eq!(
+                gs.energy_source_label().as_deref(),
+                Some("modeled from I/O counts \u{b7} calibrated")
+            );
+        }
+    }
+
+    #[test]
+    fn energy_source_label_partial_coverage() {
+        let gs = energy_summary(
+            "scaphandre_rapl",
+            &[
+                ("a", "scaphandre_rapl", 0.5),
+                ("b", "io_proxy_v3", 0.0),
+                ("c", "io_proxy_v3", 0.0),
+            ],
+        );
+        assert_eq!(
+            gs.energy_source_label().as_deref(),
+            Some("source scaphandre_rapl on 1 of 3 services \u{b7} rest modeled from I/O counts")
+        );
+    }
+
+    #[test]
+    fn energy_source_label_full_coverage_sorts_and_dedupes() {
+        let gs = energy_summary(
+            "scaphandre_rapl",
+            &[
+                ("a", "scaphandre_rapl+cal", 1.0),
+                ("b", "kepler_ebpf", 1.0),
+                ("c", "scaphandre_rapl", 1.0),
+            ],
+        );
+        assert_eq!(
+            gs.energy_source_label().as_deref(),
+            Some("source kepler_ebpf, scaphandre_rapl")
+        );
+    }
+
+    #[test]
+    fn energy_source_label_drops_hostile_tags() {
+        let long = "a".repeat(65);
+        let gs = energy_summary(
+            "x",
+            &[
+                ("a", &long, 1.0),
+                ("b", "kepler\u{202e}_ebpf", 1.0),
+                ("c", "redfish_bmc", 1.0),
+            ],
+        );
+        assert_eq!(
+            gs.energy_source_label().as_deref(),
+            Some("source redfish_bmc")
+        );
+        let only_hostile = energy_summary("x", &[("a", &long, 1.0), ("b", "io_proxy_v3", 0.0)]);
+        assert_eq!(
+            only_hostile.energy_source_label().as_deref(),
+            Some("source unknown on 1 of 2 services \u{b7} rest modeled from I/O counts")
+        );
     }
 }

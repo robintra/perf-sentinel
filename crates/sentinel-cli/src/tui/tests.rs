@@ -501,6 +501,31 @@ fn analyze_view_renders_carbon_block_and_uncertainty_note() {
 }
 
 #[test]
+fn analyze_view_energy_line_names_the_energy_source() {
+    // An Electricity Maps daemon stamps its intensity tag on the window
+    // and on every unmeasured service: it is not an energy source.
+    let green_summary: GreenSummary = serde_json::from_str(
+        r#"{"total_io_ops":10,"avoidable_io_ops":0,"io_waste_ratio":0.0,"io_waste_ratio_band":"healthy","top_offenders":[],"energy_kwh":0.25,"energy_model":"electricity_maps_api","per_service_energy_model":{"a":"electricity_maps_api"},"per_service_measured_ratio":{"a":0.0}}"#,
+    )
+    .unwrap();
+    let quality_gate: QualityGate = serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+    let analysis: Analysis =
+        serde_json::from_str(r#"{"duration_ms":1,"events_processed":1,"traces_analyzed":1}"#)
+            .unwrap();
+    let app = make_test_app().with_summary(AnalyzeSummary {
+        green_summary,
+        quality_gate,
+        analysis,
+    });
+    let text = line_text(&app.build_analyze_lines());
+    assert!(
+        text.contains("Energy: 0.250000 kWh  (modeled from I/O counts)"),
+        "got: {text}"
+    );
+    assert!(!text.contains("electricity_maps_api"), "got: {text}");
+}
+
+#[test]
 fn interpret_band_color_matches_cli_palette() {
     // Must mirror render.rs `interpret_color`: Critical red, High yellow,
     // Moderate uncolored (Reset), Healthy green. Guards against the two

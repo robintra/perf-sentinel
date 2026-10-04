@@ -986,6 +986,16 @@ fn format_messaging_waste_line(mw: &sentinel_core::report::MessagingWaste) -> St
     })
 }
 
+/// The `Energy:` line, named by its energy source rather than the window
+/// tag (an intensity tag on Electricity Maps daemons). Pure so it is
+/// assertable like [`format_waste_line`].
+fn format_energy_line(gs: &sentinel_core::report::GreenSummary, dim: &str, reset: &str) -> String {
+    gs.energy_source_label().map_or_else(
+        || format!("  {dim}Energy:            not computed (no span resolved to a region){reset}"),
+        |src| format!("  {:<19}{} kWh ({src})", "Energy:", fmt_tiny(gs.energy_kwh)),
+    )
+}
+
 /// The CO2 block of the `GreenOps` summary. Split out of
 /// [`print_green_summary`] to keep that function's branching shallow.
 fn print_carbon_summary(carbon: &sentinel_core::score::carbon::CarbonReport) {
@@ -1035,7 +1045,7 @@ fn format_region_line(region: &sentinel_core::score::carbon::RegionBreakdown) ->
     )
 }
 
-/// The three figures that can legitimately be absent. Each prints greyed
+/// The figures that can legitimately be absent. Each prints greyed
 /// with its cause rather than vanishing, so a reader sees why a number is
 /// missing.
 fn print_absent_aware_figures(
@@ -1045,7 +1055,10 @@ fn print_absent_aware_figures(
     reset: &str,
 ) {
     match summary.co2.as_ref() {
-        Some(carbon) => print_carbon_summary(carbon),
+        Some(carbon) => {
+            print_carbon_summary(carbon);
+            println!("{}", format_energy_line(summary, dim, reset));
+        }
         // The trace count is the only reliable discriminant: a daemon stamps
         // scoring_config whenever Electricity Maps is configured, green
         // scoring off included.
