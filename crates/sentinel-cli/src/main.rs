@@ -240,80 +240,16 @@ async fn dispatch_command(command: Commands) {
             no_acknowledgments,
         ),
         #[cfg(feature = "tempo")]
-        Commands::Tempo {
-            endpoint,
-            trace_id,
-            service,
-            lookback,
-            window,
-            max_traces,
-            auth_header,
-            auth_header_env,
-            config,
-            sort,
-            format,
-            ci,
-            acknowledgments,
-            no_acknowledgments,
-            show_acknowledged,
-        } => {
-            let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            backend_cmd::cmd_backend_query(
-                backend_cmd::QueryBackend::Tempo,
-                &endpoint,
-                trace_id.as_deref(),
-                service.as_deref(),
-                &lookback,
-                window.from.as_deref(),
-                window.to.as_deref(),
-                max_traces as usize,
-                resolved_auth.as_deref(),
-                config.as_deref(),
-                sort.sort,
-                format,
-                ci,
-                acknowledgments.as_deref(),
-                no_acknowledgments,
-                show_acknowledged,
-            )
-            .await;
+        Commands::Tempo { endpoint, query } => {
+            backend_cmd::run_backend_query(backend_cmd::QueryBackend::Tempo, &endpoint, query)
+                .await;
         }
         #[cfg(feature = "jaeger-query")]
-        Commands::JaegerQuery {
-            endpoint,
-            trace_id,
-            service,
-            lookback,
-            window,
-            max_traces,
-            auth_header,
-            auth_header_env,
-            config,
-            sort,
-            format,
-            ci,
-            acknowledgments,
-            no_acknowledgments,
-            show_acknowledged,
-        } => {
-            let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
-            backend_cmd::cmd_backend_query(
+        Commands::JaegerQuery { endpoint, query } => {
+            backend_cmd::run_backend_query(
                 backend_cmd::QueryBackend::JaegerQuery,
                 &endpoint,
-                trace_id.as_deref(),
-                service.as_deref(),
-                &lookback,
-                window.from.as_deref(),
-                window.to.as_deref(),
-                max_traces as usize,
-                resolved_auth.as_deref(),
-                config.as_deref(),
-                sort.sort,
-                format,
-                ci,
-                acknowledgments.as_deref(),
-                no_acknowledgments,
-                show_acknowledged,
+                query,
             )
             .await;
         }

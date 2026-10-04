@@ -79,6 +79,64 @@ pub(crate) struct AbsoluteWindow {
     pub(crate) to: Option<String>,
 }
 
+/// Arguments shared by the trace backends (`tempo`, `jaeger-query`): one
+/// definition, so the two subcommands cannot drift apart.
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+#[derive(Args)]
+pub(crate) struct BackendQueryArgs {
+    /// Fetch a single trace by ID.
+    #[arg(long)]
+    pub(crate) trace_id: Option<String>,
+    /// Search traces by service name.
+    #[arg(long)]
+    pub(crate) service: Option<String>,
+    /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
+    #[arg(long, default_value = "1h")]
+    pub(crate) lookback: String,
+    #[command(flatten)]
+    pub(crate) window: AbsoluteWindow,
+    /// Maximum number of traces to fetch (1..=10000). The ceiling is
+    /// this client's, not the backend's: it is the largest search
+    /// response the ingest is sized to read back.
+    #[arg(
+        long,
+        default_value = "100",
+        value_parser = clap::value_parser!(u32)
+            .range(1..=sentinel_core::ingest::MAX_SEARCH_TRACES as i64)
+    )]
+    pub(crate) max_traces: u32,
+    /// Optional auth header in curl format to attach to every backend request.
+    /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
+    #[arg(long, conflicts_with = "auth_header_env")]
+    pub(crate) auth_header: Option<String>,
+    /// Read the auth header value from the named environment variable,
+    /// avoiding the `ps`-visibility of --auth-header. The env var value
+    /// must already be in `Name: Value` curl format.
+    #[arg(long, conflicts_with = "auth_header")]
+    pub(crate) auth_header_env: Option<String>,
+    /// Path to a `.perf-sentinel.toml` config file.
+    #[arg(short, long)]
+    pub(crate) config: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) sort: SortArg,
+    /// Output format: text (colored, default), json, sarif.
+    #[arg(long, value_enum)]
+    pub(crate) format: Option<OutputFormat>,
+    /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
+    #[arg(long)]
+    pub(crate) ci: bool,
+    /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+    /// filename in the current working directory.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) acknowledgments: Option<PathBuf>,
+    /// Disable acknowledgment filtering (full audit view).
+    #[arg(long)]
+    pub(crate) no_acknowledgments: bool,
+    /// Include acknowledged findings in the output, alongside ack metadata.
+    #[arg(long)]
+    pub(crate) show_acknowledged: bool,
+}
+
 /// The `--sort` flag the two backend-query subcommands share.
 ///
 /// Flattened into both rather than written twice, like [`AbsoluteWindow`]:
@@ -322,57 +380,8 @@ pub(crate) enum Commands {
         /// Tempo HTTP API endpoint (e.g. `http://localhost:3200`).
         #[arg(long)]
         endpoint: String,
-        /// Fetch a single trace by ID.
-        #[arg(long)]
-        trace_id: Option<String>,
-        /// Search traces by service name.
-        #[arg(long)]
-        service: Option<String>,
-        /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
-        #[arg(long, default_value = "1h")]
-        lookback: String,
         #[command(flatten)]
-        window: AbsoluteWindow,
-        /// Maximum number of traces to fetch (1..=10000). The ceiling is
-        /// this client's, not Tempo's: it is the largest search response
-        /// the ingest is sized to read back.
-        #[arg(
-            long,
-            default_value = "100",
-            value_parser = clap::value_parser!(u32)
-                .range(1..=sentinel_core::ingest::MAX_SEARCH_TRACES as i64)
-        )]
-        max_traces: u32,
-        /// Optional auth header in curl format to attach to every Tempo request.
-        /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
-        #[arg(long, conflicts_with = "auth_header_env")]
-        auth_header: Option<String>,
-        /// Read the auth header value from the named environment variable,
-        /// avoiding the `ps`-visibility of --auth-header. The env var value
-        /// must already be in `Name: Value` curl format.
-        #[arg(long, conflicts_with = "auth_header")]
-        auth_header_env: Option<String>,
-        /// Path to a `.perf-sentinel.toml` config file.
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-        #[command(flatten)]
-        sort: SortArg,
-        /// Output format: text (colored, default), json, sarif.
-        #[arg(long, value_enum)]
-        format: Option<OutputFormat>,
-        /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
-        #[arg(long)]
-        ci: bool,
-        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
-        /// filename in the current working directory.
-        #[arg(long, value_name = "PATH")]
-        acknowledgments: Option<PathBuf>,
-        /// Disable acknowledgment filtering (full audit view).
-        #[arg(long)]
-        no_acknowledgments: bool,
-        /// Include acknowledged findings in the output, alongside ack metadata.
-        #[arg(long)]
-        show_acknowledged: bool,
+        query: BackendQueryArgs,
     },
 
     /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
@@ -382,56 +391,8 @@ pub(crate) enum Commands {
         /// Jaeger query API endpoint (e.g. `http://localhost:16686` or `http://victoria:10428`).
         #[arg(long)]
         endpoint: String,
-        /// Fetch a single trace by ID.
-        #[arg(long)]
-        trace_id: Option<String>,
-        /// Search traces by service name.
-        #[arg(long)]
-        service: Option<String>,
-        /// Lookback window for search (e.g. `1h`, `30m`, `7d`).
-        #[arg(long, default_value = "1h")]
-        lookback: String,
         #[command(flatten)]
-        window: AbsoluteWindow,
-        /// Maximum number of traces to fetch (1..=10000). The same
-        /// ceiling as `tempo`, and this client's rather than Jaeger's.
-        #[arg(
-            long,
-            default_value = "100",
-            value_parser = clap::value_parser!(u32)
-                .range(1..=sentinel_core::ingest::MAX_SEARCH_TRACES as i64)
-        )]
-        max_traces: u32,
-        /// Optional auth header in curl format to attach to every backend request.
-        /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
-        #[arg(long, conflicts_with = "auth_header_env")]
-        auth_header: Option<String>,
-        /// Read the auth header value from the named environment variable,
-        /// avoiding the `ps`-visibility of --auth-header. The env var value
-        /// must already be in `Name: Value` curl format.
-        #[arg(long, conflicts_with = "auth_header")]
-        auth_header_env: Option<String>,
-        /// Path to a `.perf-sentinel.toml` config file.
-        #[arg(short, long)]
-        config: Option<PathBuf>,
-        #[command(flatten)]
-        sort: SortArg,
-        /// Output format: text (colored, default), json, sarif.
-        #[arg(long, value_enum)]
-        format: Option<OutputFormat>,
-        /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
-        #[arg(long)]
-        ci: bool,
-        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
-        /// filename in the current working directory.
-        #[arg(long, value_name = "PATH")]
-        acknowledgments: Option<PathBuf>,
-        /// Disable acknowledgment filtering (full audit view).
-        #[arg(long)]
-        no_acknowledgments: bool,
-        /// Include acknowledged findings in the output, alongside ack metadata.
-        #[arg(long)]
-        show_acknowledged: bool,
+        query: BackendQueryArgs,
     },
 
     /// Calibrate energy coefficients from real measurements.

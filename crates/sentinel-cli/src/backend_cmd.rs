@@ -44,6 +44,35 @@ impl QueryBackend {
     }
 }
 
+/// Resolves the auth header and runs the query for one backend
+/// subcommand, so `tempo` and `jaeger-query` share one dispatch.
+pub(crate) async fn run_backend_query(
+    backend: QueryBackend,
+    endpoint: &str,
+    query: crate::cli::BackendQueryArgs,
+) {
+    let auth = crate::resolve_auth_header_or_exit(query.auth_header, query.auth_header_env);
+    cmd_backend_query(
+        backend,
+        endpoint,
+        query.trace_id.as_deref(),
+        query.service.as_deref(),
+        &query.lookback,
+        query.window.from.as_deref(),
+        query.window.to.as_deref(),
+        query.max_traces as usize,
+        auth.as_deref(),
+        query.config.as_deref(),
+        query.sort.sort,
+        query.format,
+        query.ci,
+        query.acknowledgments.as_deref(),
+        query.no_acknowledgments,
+        query.show_acknowledged,
+    )
+    .await;
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_backend_query(
     backend: QueryBackend,
