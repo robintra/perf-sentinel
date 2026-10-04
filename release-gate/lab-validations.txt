@@ -468,3 +468,29 @@ v0.25.3	86e0143	2026-09-28	PASS
 # ci-e2e-* families. The release touches none of the Hub, the chart templates,
 # the resilience paths or the CI templates.
 v0.25.5	2cfc61f	2026-10-03	PASS
+#
+# v0.26.0, 2026-10-04. Targeted pass, not verify-all-scenarios. Daemon image
+# perf-sentinel:0.26.0-a8acbd60 built from the release branch, /api/status
+# answering 0.26.0, local CLI 0.26.0, scenarios reading the release worktree
+# (examples, dashboard, binary) through PERF_SENTINEL_REPO_PATH.
+# validate-findings 12/12 on the final image.
+# 17 scenarios pass on 0.26.0, covering the energy backends (Kepler zone,
+# Alumet warning, Redfish schemas), the energy source label of the HTML
+# report, the monitor and the analyze output, and the disclosures built on
+# measured energy: measured-energy-chain (Kepler and Redfish mocks, measured
+# attribution), scaphandre-mock-validation (shared Prometheus parser),
+# alumet-conformance, alumet-db-waste (HTML Database waste card next to the
+# new Energy card), broker-messaging-waste, config-fragments (Kepler and
+# Redfish example fragments), grafana-dashboard (overview dashboard parity),
+# query-monitor-api, pg-stat, ci-shift-left, output-formats-coverage,
+# disclose, disclose-temporal, sci-functional-unit, esrs-e1-crosswalk,
+# astronomy-shop, chart-prometheusrule-pdb.
+# Lab defects found and fixed on the way, none in the product: the lab copy
+# of the overview dashboard lacked the reworded energy descriptions;
+# alumet-db-waste disclosed over a fixed 2026 Q2-Q3 period, so its published
+# database_waste check skipped once the calendar left Q3. It now discloses
+# over the current quarter, and the check passes on a rerun.
+# Not run: the hub-*, limit-*, failure-mode-*, template-* and ci-e2e-*
+# families. The release touches none of the Hub, the resilience paths, the
+# detectors or the CI templates.
+v0.26.0	c8b06d6	2026-10-04	PASS
