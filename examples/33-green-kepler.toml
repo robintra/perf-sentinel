@@ -10,7 +10,10 @@ default_region = "eu-west-3"
 
 [green.kepler]
 # Prometheus /metrics URL. No default, required to activate the scraper.
-endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+# Upstream manifests expose Service kepler in namespace kepler on port 28282.
+# On a multi-node cluster that ClusterIP Service reaches one arbitrary node
+# per scrape, see examples/helm/values-green-kepler.yaml.
+endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"
 scrape_interval_secs = 5   # default 5, bounds 1..3600
 # "container" reads container_name. "process" reads the 15-byte Linux comm.
 metric_kind = "container"   # default "container", or "process"

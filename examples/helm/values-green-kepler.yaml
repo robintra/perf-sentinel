@@ -11,14 +11,15 @@
 # https://perf-sentinel.dev/docs/CONFIGURATION
 #
 # Kepler is the most Kubernetes-native of the measured backends: it already
-# ships as a DaemonSet and labels its metrics by container. On nodes without
-# readable RAPL it falls back to its own estimator, so check which mode yours
-# reports before publishing the figures as measurements.
+# ships as a DaemonSet and labels its metrics by container. It reads RAPL and,
+# since v0.12.0, falls back to hwmon sensors. It exits when neither is
+# readable, so a VM without RAPL passthrough gets no reading.
 #
 # Prerequisites:
-#   - Kepler installed, commonly in kube-system, with its /metrics Service.
+#   - Kepler installed with its /metrics Service. Upstream's manifests and Helm
+#     install instructions use the kepler namespace and port 28282.
 #   - The exporter reachable from the perf-sentinel pod. A NetworkPolicy that
-#     isolates kube-system needs an egress rule for this.
+#     isolates the kepler namespace needs an egress rule for this.
 #
 # /!\ One endpoint, one node. Kepler is a DaemonSet and the Service below is a
 # ClusterIP, so each scrape is load-balanced to one arbitrary pod and returns
@@ -48,7 +49,7 @@ config:
     33-green-kepler.toml: |
       [green.kepler]
       # Prometheus /metrics URL. No default, required to activate the scraper.
-      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required
+      endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"   # no default, required
       scrape_interval_secs = 5   # default 5, bounds 1..3600
       # "container" reads container_name. "process" reads the 15-byte Linux comm.
       # Keep "container" on Kubernetes: comm is truncated and shared across pods
@@ -65,8 +66,8 @@ config:
       # Default empty. Map each service to its container_name or comm label.
       # container_name is the container name from the pod spec, not the pod name
       # and not the Deployment name:
-      #   kubectl -n kube-system exec ds/kepler -- \
-      #     curl -s localhost:9102/metrics | grep container_name
+      #   kubectl -n kepler port-forward svc/kepler 28282:28282 &
+      #   curl -s localhost:28282/metrics | grep container_name
       [green.kepler.service_mappings]
       "order-svc" = "order-svc-deployment"
       "chat-svc" = "chat"

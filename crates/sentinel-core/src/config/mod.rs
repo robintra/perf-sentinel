@@ -209,7 +209,7 @@ pub struct GreenConfig {
     pub use_hourly_profiles: bool,
     /// Scaphandre RAPL scraper config (daemon only).
     pub scaphandre: Option<ScaphandreConfig>,
-    /// Kepler eBPF energy scraper config (daemon only).
+    /// Kepler energy scraper config (daemon only).
     pub kepler: Option<KeplerConfig>,
     /// Alumet energy scraper config (daemon only). Highest
     /// measured-energy precedence, overrides Scaphandre.

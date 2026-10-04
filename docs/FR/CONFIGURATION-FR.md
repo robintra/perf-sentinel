@@ -354,7 +354,7 @@ exe_contains = "/opt/native-svc/bin/native-svc"
 
 #### `[green.kepler]` (optionnel, opt-in)
 
-Intégration opt-in avec [Kepler](https://github.com/sustainable-computing-io/kepler) (projet CNCF sandbox) pour la mesure d'énergie par conteneur ou par processus via eBPF. Contrairement à Scaphandre, Kepler fonctionne sur ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) avec une précision dégradée mais un signal réel. Une fois configuré, le daemon `watch` scrape l'endpoint Prometheus `/metrics` de Kepler, calcule le delta de joules par service par rapport au scrape précédent, et publie un coefficient mesuré par opération étiqueté `kepler_ebpf`.
+Intégration opt-in avec [Kepler](https://github.com/sustainable-computing-io/kepler) (projet CNCF sandbox) pour la mesure d'énergie par conteneur ou par processus. Perf Sentinel lit Kepler 0.10 et suivants, qui lit RAPL via sysfs, avec hwmon en repli expérimental depuis la v0.12.0, et répartit la puissance active entre les charges au prorata du temps CPU. Une fois configuré, le daemon `watch` scrape l'endpoint Prometheus `/metrics` de Kepler, calcule le delta de joules par service par rapport au scrape précédent, et publie un coefficient mesuré par opération étiqueté `kepler_ebpf`. Le nom du tag est historique : depuis Kepler 0.10, seule version que lit Perf Sentinel, la source est RAPL (sysfs/powercap, hwmon expérimental), pas eBPF.
 
 | Champ                  | Type   | Défaut        | Description                                                                                                                                                                     |
 |------------------------|--------|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -367,7 +367,7 @@ Intégration opt-in avec [Kepler](https://github.com/sustainable-computing-io/ke
 
 ```toml
 [green.kepler]
-endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"
 scrape_interval_secs = 5
 metric_kind = "container"
 
@@ -380,9 +380,9 @@ metric_kind = "container"
 
 **Les compteurs partageant une valeur de label sont sommés, les zones non.** Un même nom de conteneur répété entre pods (ou un même `comm` partagé par plusieurs processus) produit plusieurs séries cumulatives sous une même valeur de mapping. Leurs compteurs sont sommés avant le calcul du delta par fenêtre, le coefficient les couvre donc ensemble. Kepler expose aussi une série par zone, et les zones se recouvrent : `package` contient déjà `core` et `uncore`. Seules les lignes dont le label `zone` vaut `zone` sont lues, comme le conseille la [documentation des métriques de Kepler](https://github.com/sustainable-computing-io/kepler/blob/v0.12.0/docs/user/metrics.md#energy-zones). Les lignes sans label `zone` sont gardées. Là où Kepler lit hwmon, les zones portent le nom des capteurs : réglez `zone` sur l'une des valeurs exposées, sinon l'avertissement de zéro échantillon se déclenche.
 
-**Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler est surtout utile sur ARM64, où Scaphandre est indisponible. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-kepler) pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
+**Précédence par rapport à Alumet et Scaphandre.** Les deux surclassent `kepler_ebpf` pour un même service. Tous trois lisent RAPL. Kepler attribue à chaque charge une part de la puissance active seule, au prorata de son temps CPU. Kepler est surtout utile sur Kubernetes, où il tourne en `DaemonSet` et étiquette ses séries par conteneur. Aucune image Kepler arm64 n'est publiée à la v0.12.0, et une VM sans RAPL n'obtient aucune lecture Kepler. Voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-kepler) pour les exigences de plateforme et les limites de précision.
 
-**Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Le scraper actuel effectue un GET direct et la réponse doit exposer les séries Kepler elles-mêmes. L'endpoint `/metrics` d'un serveur Prometheus expose les métriques internes de Prometheus, pas les séries qu'il a scrapées. Pour un cluster multi-nœuds, exécutez un Perf Sentinel par nœud ou fournissez un endpoint de fédération/proxy qui expose directement les séries Kepler agrégées au format d'exposition Prometheus. Le mode de requête PromQL natif est réservé à une version ultérieure.
+**Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Le scraper actuel effectue un GET direct et la réponse doit exposer les séries Kepler elles-mêmes. L'endpoint `/metrics` d'un serveur Prometheus expose les métriques internes de Prometheus, pas les séries qu'il a scrapées. L'endpoint d'exemple est le Service des manifestes amont (namespace `kepler`, port 28282). Ce Service ClusterIP envoie chaque scrape vers un pod Kepler arbitraire, il ne couvre donc tout le cluster que si celui-ci n'a qu'un nœud. Pour un cluster multi-nœuds, exécutez un Perf Sentinel par nœud ou fournissez un endpoint de fédération/proxy qui expose directement les séries Kepler agrégées au format d'exposition Prometheus. Le mode de requête PromQL natif est réservé à une version ultérieure.
 
 #### `[green.alumet]` (optionnel, opt-in)
 

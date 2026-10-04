@@ -88,9 +88,10 @@ pub const CO2_MODEL_ALUMET: &str = "alumet_rapl";
 /// RAPL-dependent).
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 
-/// Carbon estimation model: Kepler eBPF + perf-counter measurement.
+/// Carbon estimation model: Kepler measurement, RAPL split by CPU time.
 /// Sits between Scaphandre (RAPL) and the cloud `SPECpower` interpolation.
-/// Works on ARM with degraded precision vs the Scaphandre x86 path.
+/// The name is historical: since Kepler 0.10, the only version read, the
+/// source is RAPL (sysfs/powercap, hwmon experimental), not eBPF.
 pub const CO2_MODEL_KEPLER: &str = "kepler_ebpf";
 
 /// Carbon estimation model: Redfish BMC wall-plug power reading.
@@ -195,7 +196,7 @@ impl EnergyEntry {
         }
     }
 
-    /// Build an entry from a Kepler eBPF measurement.
+    /// Build an entry from a Kepler measurement.
     #[must_use]
     pub const fn kepler(energy_per_op_kwh: f64) -> Self {
         Self {

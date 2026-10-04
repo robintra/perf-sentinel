@@ -75,7 +75,7 @@ pub(super) struct ServiceCarbonAccumulator {
 
 /// Precedence between two measured energy sources observed on different
 /// spans of the same service. Alumet RAPL outranks Scaphandre RAPL,
-/// which outranks Kepler eBPF, which outranks Redfish BMC, which
+/// which outranks Kepler, which outranks Redfish BMC, which
 /// outranks cloud `SPECpower`.
 /// `None` is the absorbing identity (any `Some` wins).
 ///

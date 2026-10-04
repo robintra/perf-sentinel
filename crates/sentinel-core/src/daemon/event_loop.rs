@@ -1155,8 +1155,8 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 /// has a reading to inject. `process_traces` takes `&CarbonContext`
 /// so the Cow is cheap to use at the call site via `&*ctx`.
 ///
-/// Precedence (highest to lowest): Alumet RAPL, Scaphandre RAPL, Kepler
-/// eBPF, Redfish BMC, cloud `SPECpower`. Inserted in reverse order so
+/// Precedence (highest to lowest): Alumet RAPL, Scaphandre RAPL, Kepler,
+/// Redfish BMC, cloud `SPECpower`. Inserted in reverse order so
 /// the highest-fidelity entry wins for any service that appears in
 /// multiple snapshots.
 // Takes the whole `EnergySources` bundle rather than thirteen

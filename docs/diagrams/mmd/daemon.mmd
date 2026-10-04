@@ -26,7 +26,7 @@ flowchart TB
     subgraph scrapers["Energy scrapers (background tasks)"]
         alumet["Alumet<br/><i>RAPL per-cgroup<br/>joules per poll_interval<br/>scrape_interval_secs</i>"]
         scaph["Scaphandre<br/><i>RAPL per-process<br/>scrape_interval_secs</i>"]
-        kepler["Kepler<br/><i>eBPF joules counter<br/>ARM + x86<br/>scrape_interval_secs</i>"]
+        kepler["Kepler<br/><i>RAPL joules counter<br/>one zone (x86)<br/>scrape_interval_secs</i>"]
         redfish["Redfish BMC<br/><i>chassis wall-plug watts<br/>scrape_interval_secs (15-3600)</i>"]
         cloud["Cloud SPECpower<br/><i>CPU% from Prometheus<br/>scrape_interval_secs</i>"]
         emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]

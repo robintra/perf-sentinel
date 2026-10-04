@@ -486,19 +486,20 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # label_value = "kafka-pod"      # no default
 # region = "eu-west-3"           # default: the service region
 
-# --- Kepler eBPF energy scraper (opt-in, no default egress) ----------------
-# Works on ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) where
-# Scaphandre is unavailable. Reads Kepler's cumulative joule counter and
-# computes per-container deltas vs the previous scrape window. Model tag:
-# `kepler_ebpf` (sits between `scaphandre_rapl` and `cloud_specpower` in
-# the precedence chain).
+# --- Kepler energy scraper (opt-in, no default egress) ---------------------
+# Kepler 0.10+ reads RAPL through sysfs (hwmon as an experimental fallback
+# since v0.12.0) and splits the active power by CPU time. Reads Kepler's cumulative joule
+# counter and computes per-container deltas vs the previous scrape window.
+# Model tag: `kepler_ebpf`, a historical name since the source is RAPL, not
+# eBPF (sits between `scaphandre_rapl` and `cloud_specpower` in the
+# precedence chain).
 #
 # Prerequisites: Kepler installed and exposing /metrics. The current scraper
 # performs a direct GET, so the endpoint must return Kepler series themselves.
 # A Prometheus server's own /metrics endpoint returns only its internal metrics.
 #
 # [green.kepler]
-# endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"   # no default, required
+# endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"   # no default, required, one node per scrape
 # scrape_interval_secs = 5              # default 5
 # metric_kind = "container"             # default "container", or "process" (Kepler v2 series)
 # zone = "package"                      # default "package", one zone only: Kepler's zones overlap

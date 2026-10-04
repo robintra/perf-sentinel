@@ -340,7 +340,7 @@ Two behaviours to know before sizing. Upstream trace sampling (head-based vs tai
 <details>
 <summary><b>GreenOps (cross-cutting)</b></summary>
 
-![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler eBPF kWh on ARM and x86, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding Perf Sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler RAPL kWh per container or process, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding Perf Sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
 
 </details>
 
@@ -415,7 +415,7 @@ So size the pod from `max_retained_findings`, not from the idle figure: a few hu
 
 Every finding carries an **I/O intensity score (IIS)**, total I/O ops for an endpoint divided by invocations, and an **I/O waste ratio** (avoidable ops / total ops). Reducing N+1 queries and redundant calls improves response times *and* energy use.
 
-`co2.total` is reported as the [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) numerator `(E × I) + M`, summed over analyzed traces. Multi-region scoring is automatic when OTel spans carry `cloud.region`. In daemon mode, energy can be refined via measured sources (Alumet or Scaphandre RAPL on x86, Kepler eBPF on ARM and x86, Redfish BMC for bare-metal wall-plug power, or cloud-native CPU% + SPECpower), and grid intensity pulled live from Electricity Maps.
+`co2.total` is reported as the [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) numerator `(E × I) + M`, summed over analyzed traces. Multi-region scoring is automatic when OTel spans carry `cloud.region`. In daemon mode, energy can be refined via measured sources (Alumet or Scaphandre RAPL on x86, Kepler RAPL per container or process, Redfish BMC for bare-metal wall-plug power, or cloud-native CPU% + SPECpower), and grid intensity pulled live from Electricity Maps.
 
 No infrastructure prerequisite: the I/O proxy model and the embedded grid tables produce estimates from the first trace, measured sources refine them where the infrastructure allows.
 
@@ -423,7 +423,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 |--------------------------------------------------------------|---------------------------------------------|--------------------------------|
 | Any, zero setup                                              | I/O proxy model (default)                   | directional, ~2x bracket       |
 | Cloud VMs (AWS, GCP, Azure)                                  | Cloud SPECpower (CPU% + instance type)      | ~±30%                          |
-| Kubernetes, cloud or on-prem                                 | Kepler (eBPF per container)                 | good, best on RAPL nodes       |
+| Linux hosts with RAPL, on Kubernetes or not                  | Kepler (RAPL, per container or process)     | good, active CPU power only    |
 | Bare metal x86 (incl. AWS `*.metal`, OVH, Hetzner, Scaleway) | Alumet (recommended) or Scaphandre (RAPL)   | highest tier                   |
 | Physical servers with a BMC                                  | Redfish (wall-plug power per chassis)       | node-level, periphery included |
 | Anywhere, on top of any row above                            | Electricity Maps (real-time grid intensity) | refines the I axis, not E      |
@@ -432,7 +432,7 @@ No infrastructure prerequisite: the I/O proxy model and the embedded grid tables
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
 >
-> It is **not yet third-party verified** for standalone CSRD / GHG Protocol Scope 2/3 inventory reporting, which requires audit by a qualified body and integration with non-IT scopes. CO₂ figures carry a `~2×` uncertainty bracket in the default proxy mode (tighter with any measured-energy source: Alumet RAPL, Scaphandre RAPL, Kepler eBPF, Redfish BMC, or cloud SPECpower + calibration). Methodology, sources and bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+> It is **not yet third-party verified** for standalone CSRD / GHG Protocol Scope 2/3 inventory reporting, which requires audit by a qualified body and integration with non-IT scopes. CO₂ figures carry a `~2×` uncertainty bracket in the default proxy mode (tighter with any measured-energy source: Alumet RAPL, Scaphandre RAPL, Kepler RAPL, Redfish BMC, or cloud SPECpower + calibration). Methodology, sources and bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 >
 > **For a plain-language walk-through of how counts become kWh and gCO₂ per configured option, see [docs/ENERGY.md](docs/ENERGY.md).**
 
@@ -465,7 +465,7 @@ The Datadog figure is the one Datadog publishes for its Agent 7.34 on a c5.xlarg
 - **Not a continuous profiler.** It observes I/O patterns at the protocol level and does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well. Pyroscope shows where compute time goes, and Perf Sentinel shows which I/O patterns drive that time.
 - **Not a monitoring platform.** Daemon mode does analyze live and serves findings, metrics and correlations over HTTP, but it retains a bounded ring of recent findings (10,000 by default) rather than a queryable history. It neither builds custom dashboards nor routes alerts. The center of gravity stays CI quality gates and post-hoc trace analysis.
 - **Not a standalone regulatory carbon accounting platform.** Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case: see [GreenOps](#greenops-io-intensity-score-directional).
-- **Not a replacement for measured energy.** The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
+- **Not a replacement for measured energy.** The I/O-to-energy model is a directional estimate, not a measurement. For more accurate measured power, plug in Alumet (x86 RAPL, top of the precedence chain), Scaphandre (x86 RAPL), Kepler (RAPL, Kubernetes-native) or Redfish (bare-metal BMC wall-plug), all four supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
 - **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, Perf Sentinel has nothing to analyze.
 - **Not an IDE plugin.** Perf Sentinel itself runs in CI and as a daemon, not inside the editor. A first-party JetBrains plugin is in development: it reads findings from a running daemon and navigates to the code they point at, and it will be announced here once published.
 

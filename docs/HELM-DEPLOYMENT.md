@@ -528,7 +528,9 @@ config:
   fragments:
     33-green-kepler.toml: |
       [green.kepler]
-      endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+      # One arbitrary node per scrape on a multi-node cluster, see
+      # examples/helm/values-green-kepler.yaml.
+      endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"
       metric_kind = "container"
 
       [green.kepler.service_mappings]

@@ -55,11 +55,15 @@ impl KeplerMetricKind {
 ///
 /// ```toml
 /// [green.kepler]
-/// endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+/// endpoint = "http://kepler.kepler.svc.cluster.local:28282/metrics"
 /// scrape_interval_secs = 5
 /// metric_kind = "container"
+/// zone = "package"
 /// service_mappings = { "order-svc" = "order-svc-deployment", "chat-svc" = "chat" }
 /// ```
+///
+/// Behind a `ClusterIP` Service, each scrape reaches one arbitrary
+/// Kepler pod, so the endpoint covers one node per scrape.
 ///
 /// Absent config means no scraper is spawned and every service falls back to
 /// the proxy or cloud path. This struct is only constructed when the

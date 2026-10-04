@@ -1,4 +1,8 @@
-//! Kepler eBPF energy scraper (opt-in, daemon only).
+//! Kepler energy scraper (opt-in, daemon only).
+//!
+//! Reads Kepler 0.10+, which reads RAPL through sysfs (hwmon as a
+//! fallback since v0.12.0), not eBPF. The `kepler_ebpf` model tag is a
+//! historical name.
 //!
 //! Scrapes Kepler's Prometheus `/metrics` endpoint for cumulative
 //! per-container or per-process joule counters and provides measured
