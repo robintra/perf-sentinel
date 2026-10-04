@@ -1,7 +1,8 @@
 //! Redfish scraper task, HTTP client, and error types. Iterates the
 //! configured chassis endpoints per tick, parses the wattage gauge for
-//! whichever schema each endpoint declares (`legacy_power` reads
-//! `PowerControl[0].PowerConsumedWatts`, `environment_metrics` reads
+//! whichever schema each endpoint declares (`legacy_power` reads the
+//! chassis `PowerControl` entry's `PowerConsumedWatts`, else entry 0's,
+//! `environment_metrics` reads
 //! `PowerWatts.Reading`, `sensor` reads `Reading`), and publishes
 //! per-service coefficients via [`apply_chassis_scrape`]. TLS uses the
 //! shared webpki client. The `ca_bundle_path` deferral rationale lives

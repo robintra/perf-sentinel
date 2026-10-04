@@ -42,8 +42,10 @@ pub enum RedfishSchema {
 }
 
 impl RedfishSchema {
-    /// JSON pointer (RFC 6901) used by the parser to extract the
-    /// wattage reading from this schema's response shape.
+    /// Canonical JSON pointer (RFC 6901) of this schema's wattage
+    /// reading. For `LegacyPower` it names entry 0, which the parser
+    /// reads only when no `PowerControl` entry has `PhysicalContext`
+    /// `Chassis`. `Sensor` is read only from a chassis power sensor.
     #[must_use]
     pub const fn json_pointer(self) -> &'static str {
         match self {

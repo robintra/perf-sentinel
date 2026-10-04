@@ -18,8 +18,10 @@ pub enum ParseOutcome {
     Ok(f64),
     /// JSON parse failed (malformed body).
     InvalidJson,
-    /// Pointer resolved to nothing (vendor variance or wrong schema
-    /// declared for the endpoint).
+    /// No reading where the schema expects one (vendor variance or
+    /// wrong schema declared for the endpoint), or a `sensor` body that
+    /// is not a chassis power sensor (`ReadingUnits` other than `W`, or
+    /// a `PhysicalContext` other than `Chassis`).
     PathMissing,
     /// Pointer resolved but the value was not a finite positive number.
     InvalidValue,

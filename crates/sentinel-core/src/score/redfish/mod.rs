@@ -7,8 +7,9 @@
 //! Publishes the result to [`RedfishState`].
 //!
 //! Three endpoint schemas are supported, declared per-endpoint via the
-//! [`RedfishSchema`] enum: the legacy `/Power` resource with
-//! `PowerControl[0].PowerConsumedWatts` (deprecated by DMTF Release
+//! [`RedfishSchema`] enum: the legacy `/Power` resource with the
+//! `PowerConsumedWatts` of the chassis `PowerControl` entry, else of
+//! entry 0 (deprecated by DMTF Release
 //! 2020.4), the `EnvironmentMetrics` resource with `PowerWatts.Reading`
 //! (DMTF Release 2020.4+), and a chassis power `Sensor` resource with
 //! `Reading` (DMTF Release 2018.3+).
