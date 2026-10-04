@@ -75,7 +75,14 @@ function startServer() {
 // readability) hit real text first, not the {{ token }} template. :has() hides
 // it post-hydration regardless of order. ponytail: :has() => both blocks show
 // on pre-2023 browsers, acceptable for a marketing page.
-const CSS = '<style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style>';
+// With JS on, the snapshot is unstyled and flashed before hydration: .ps-js
+// hides it and paints the theme background instead. If the runtime has not
+// mounted after 4 s, the snapshot comes back so the page is never left blank.
+const JS = '<script id="seo-prerender-js">(function(){var d=document.documentElement,t;try{t=localStorage.getItem("ps-theme")}catch(e){}'
+  + 'd.classList.add("ps-js");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))d.classList.add("ps-dark");'
+  + 'setTimeout(function(){var r=document.getElementById("dc-root");if(!r||!r.children.length)d.classList.remove("ps-js")},4000)})()</script>';
+const CSS = JS + '<style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender,.ps-js #seo-prerender{display:none}'
+  + '.ps-js:not(:has(#dc-root:not(:empty))){background:#F1F6F3}.ps-js.ps-dark:not(:has(#dc-root:not(:empty))){background:#061F2C}</style>';
 const START = '<!--seo-prerender-start-->';
 const END = '<!--seo-prerender-end-->';
 const HL_START = '<!--hreflang-start-->';
@@ -108,6 +115,7 @@ async function renderPrerender(browser, path, lang) {
 
 function injectPrerender(s, html) {
   s = s.replace(/<style id="seo-prerender-css">[\s\S]*?<\/style>/g, '');
+  s = s.replace(/<script id="seo-prerender-js">[\s\S]*?<\/script>/g, '');
   s = s.replace(new RegExp(START + '[\\s\\S]*?' + END, 'g'), '');
   s = s.replace('</head>', CSS + '</head>');
   const block = START + '<div id="seo-prerender">' + html + '</div>' + END;
