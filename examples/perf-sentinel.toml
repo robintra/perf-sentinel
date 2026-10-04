@@ -423,15 +423,19 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 #   https://perf-sentinel.dev/docs/ENERGY
 # ###########################################################################
 
-# --- Redfish BMC wall-plug power scraper (opt-in, no default egress) -------
-# Bare-metal nodes with a BMC supporting Redfish 1.0+ (Dell iDRAC, HPE iLO,
-# Lenovo XCC, Supermicro X11+, OpenBMC). Reads PowerConsumedWatts from the
-# chassis Power resource and distributes the joules across mapped services
-# proportional to their ops. Every service mapped to the same chassis
-# receives the same node-level coefficient. Model tag: `redfish_bmc`.
+# --- Redfish BMC chassis power scraper (opt-in, no default egress) ---------
+# Physical servers whose BMC the daemon can reach, any CPU architecture.
+# Reads PowerConsumedWatts (/Power), PowerWatts (/EnvironmentMetrics) or a
+# chassis power Sensor, per endpoint schema, and distributes the joules
+# across mapped services proportional to their ops. Every service mapped to
+# the same chassis receives the same node-level coefficient. Model tag:
+# `redfish_bmc`.
 #
-# This release does NOT yet support self-signed BMC certificates. Front the
-# BMC with a reverse proxy presenting a publicly-signed cert if needed.
+# A BMC certificate from a private CA, or a self-signed one that is not a
+# CA certificate and whose subject alternative names cover the endpoint
+# host, is trusted once it is in SSL_CERT_FILE (rustls-webpki refuses a CA
+# certificate as the server certificate). Otherwise front the BMC with a
+# reverse proxy presenting a trusted cert.
 # /!\ `ca_bundle_path` is parsed but reserved: setting it makes the scraper
 # log an error and stop before its first poll, with the daemon otherwise
 # healthy, so leave it out until a release supports it.
@@ -442,8 +446,9 @@ max_tracked_pairs = 10000  # default 10000, memory ceiling for the table
 # auth_header = "Authorization: Basic BASE64"    # default unset, prefer PERF_SENTINEL_REDFISH_AUTH_HEADER
 # Each entry is a table, never a bare URL string. `schema` picks the wire
 # shape and therefore the field the parser reads: "legacy_power" for
-# /Chassis/{id}/Power, "environment_metrics" for the modern resource. Both
-# in docs/CONFIGURATION.md, "Which schema to choose".
+# /Chassis/{id}/Power, "environment_metrics" for /EnvironmentMetrics,
+# "sensor" for the chassis total-power sensor. All three in
+# docs/CONFIGURATION.md, "Which schema to choose".
 # [green.redfish.endpoints]
 # "chassis-1" = { url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power", schema = "legacy_power" }
 # [green.redfish.service_mappings]

@@ -26,7 +26,7 @@ Each row of this table replaces or refines the row above it. You can stop at any
 | Nothing (default)                     | Fixed `1e-7 kWh` per operation, weighted by SQL verb (SELECT 0.5x, INSERT/UPDATE 1.5x, DELETE 1.2x) and HTTP payload size tiers. Directional, order-of-magnitude, carries a 2x uncertainty bracket.            | `io_proxy_v3`                |
 | `calibrate` from a measured power CSV | The proxy coefficient is rescaled per service from your own measured joules per operation. Still a model, but anchored to your hardware.                                                                       | `io_proxy_*+cal`             |
 | `[green.cloud]`                       | Cloud VM energy interpolated from CPU utilization and the public SPECpower database of server power curves, following the Cloud Carbon Footprint methodology.                                                  | `cloud_specpower`            |
-| `[green.redfish]`                     | Wall-plug power read from the server's BMC. The only backend that sees fans, disks and power-supply overhead. Bare metal only.                                                                                 | `redfish_bmc`                |
+| `[green.redfish]`                     | Power of the whole chassis, read from the server's BMC. The only backend that sees fans, disks and network cards, plus power supply losses when the BMC measures at the supply input. Physical servers only.   | `redfish_bmc`                |
 | `[green.kepler]`                      | Kepler's RAPL readings per container or process. Ranked below the other RAPL backends: it splits only the active power, by CPU time, and its 0.10 rewrite has no independent evaluation yet, see the sources.  | `kepler_ebpf`                |
 | `[green.scaphandre]`                  | CPU energy from Intel RAPL counters, attributed per process by Scaphandre.                                                                                                                                     | `scaphandre_rapl`            |
 | `[green.alumet]`                      | CPU energy from RAPL, attributed per cgroup by Alumet. The recommended measured backend: same counters as Scaphandre, sampling characterized as less error-prone by its authors, container-shaped attribution. | `alumet_rapl`                |
@@ -34,7 +34,7 @@ Each row of this table replaces or refines the row above it. You can stop at any
 
 When several backends cover the same service, the daemon keeps the highest-fidelity reading: `alumet_rapl` beats `scaphandre_rapl`, which beats `kepler_ebpf`, then `redfish_bmc`, then `cloud_specpower`, then the proxy. All measured backends are daemon-only (`watch`). Batch `analyze` always uses the proxy path.
 
-One constraint applies to every RAPL-based rung: the hardware counters only see CPU and DRAM, which is roughly half to two thirds of what the server draws at the wall. Only Redfish sees the rest.
+One constraint applies to every RAPL-based rung: the hardware counters only see CPU and DRAM, which is roughly half to two thirds of what the server draws at the wall. Only Redfish also covers fans, disks and network cards, and power supply losses only when the BMC measures at the supply input.
 
 ## The database figure
 

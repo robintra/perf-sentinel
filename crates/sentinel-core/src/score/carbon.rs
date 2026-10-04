@@ -94,9 +94,9 @@ pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 /// source is RAPL (sysfs/powercap, hwmon experimental), not eBPF.
 pub const CO2_MODEL_KEPLER: &str = "kepler_ebpf";
 
-/// Carbon estimation model: Redfish BMC wall-plug power reading.
-/// Bare-metal only, node-level granularity (single shared coefficient
-/// across services on the same chassis).
+/// Carbon estimation model: Redfish BMC chassis power reading.
+/// Physical servers only, node-level granularity (single shared
+/// coefficient across services on the same chassis).
 pub const CO2_MODEL_REDFISH: &str = "redfish_bmc";
 
 /// Carbon estimation model: cloud CPU% + `SPECpower` interpolation.
@@ -205,7 +205,7 @@ impl EnergyEntry {
         }
     }
 
-    /// Build an entry from a Redfish BMC wall-plug measurement.
+    /// Build an entry from a Redfish BMC chassis power measurement.
     #[must_use]
     pub const fn redfish(energy_per_op_kwh: f64) -> Self {
         Self {

@@ -252,9 +252,9 @@ async fn run_scraper_loop(
     if cfg.ca_bundle_path.is_some() {
         tracing::error!(
             "[green.redfish] ca_bundle_path is set but custom-CA TLS support \
-             is not yet implemented. The scraper will not start. Front the BMC \
-             with a reverse proxy presenting a publicly-signed cert, or remove \
-             ca_bundle_path to use the public TLS roots. See \
+             is not yet implemented. The scraper will not start. Remove \
+             ca_bundle_path and put the BMC's CA in SSL_CERT_FILE, or front \
+             the BMC with a reverse proxy presenting a trusted cert. See \
              docs/LIMITATIONS.md#redfish-bmc-precision-bounds."
         );
         return;

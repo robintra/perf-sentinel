@@ -16,7 +16,7 @@ flowchart TD
         e_alumet["Alumet RAPL<br/><i>joules/interval -> watts<br/>per-cgroup (x86)</i><br/>model: alumet_rapl"]
         e_scaph["Scaphandre RAPL<br/><i>measured kWh/op (x86)</i><br/>model: scaphandre_rapl"]
         e_kepler["Kepler<br/><i>joules-delta / ops<br/>RAPL, one zone (x86)</i><br/>model: kepler_ebpf"]
-        e_redfish["Redfish BMC<br/><i>chassis watts / ops<br/>bare-metal wall-plug</i><br/>model: redfish_bmc"]
+        e_redfish["Redfish BMC<br/><i>chassis watts / ops<br/>physical servers</i><br/>model: redfish_bmc"]
         e_cloud["Cloud SPECpower<br/><i>CPU% interpolated</i><br/>model: cloud_specpower"]
 
         e_base --> e_coeff

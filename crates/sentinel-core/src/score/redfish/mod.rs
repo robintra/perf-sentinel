@@ -1,4 +1,4 @@
-//! Redfish BMC wall-plug-power scraper (opt-in, daemon only).
+//! Redfish BMC chassis-power scraper (opt-in, daemon only).
 //!
 //! Polls one or more BMC chassis via the Redfish power resource and
 //! converts the node-level reading into a per-service energy-per-op

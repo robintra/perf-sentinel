@@ -507,22 +507,23 @@ Un `instance_type` inconnu émet un avertissement et se rabat sur un défaut fou
 
 #### `[green.redfish]` (optionnel, opt-in)
 
-Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), Redfish lit la sortie réelle de l'alimentation via le BMC, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse. Bare-metal uniquement, pas de VMs cloud.
+Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour lire la puissance du châssis des serveurs physiques. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), la lecture du BMC couvre tout le châssis, ventilateurs, disques et cartes réseau compris. L'inclusion des pertes de l'alimentation dépend de l'endroit où le BMC mesure, voir [docs/FR/LIMITATIONS-FR.md](LIMITATIONS-FR.md#limites-de-précision-redfish-bmc). Serveurs physiques dont le BMC est joignable par le daemon, quelle que soit l'architecture du processeur, pas de VMs cloud.
 
 | Champ                  | Type   | Défaut    | Description                                                                                                                                                                                                                                                                                                                                                                        |
 |------------------------|--------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `endpoints`            | table  | *(vide)*  | Table `chassis_id` → table d'endpoint avec `url` + `schema`. Obligatoire pour activer le scraper.                                                                                                                                                                                                                                                                                  |
-| `scrape_interval_secs` | entier | `60`      | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC, plusieurs BMCs limitent en dessous de 30 s).                                                                                                                                                                                                                                |
+| `scrape_interval_secs` | entier | `60`      | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC).                                                                                                                                                                                                                                                                            |
 | `service_mappings`     | table  | `{}`      | Associe les noms de service Perf Sentinel au châssis qui les héberge. Chaque service mappé au même châssis reçoit le même coefficient au niveau du châssis.                                                                                                                                                                                                                        |
-| `ca_bundle_path`       | chaîne | *(aucun)* | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Un certificat BMC émis par une CA privée, ou un certificat auto-signé dont les noms alternatifs (SAN) couvrent l'hôte de l'endpoint, est accepté dès qu'il figure dans `SSL_CERT_FILE` (voir [Proxy sortant et CA privée](#proxy-sortant-et-ca-privée)). |
+| `ca_bundle_path`       | chaîne | *(aucun)* | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Un certificat BMC émis par une CA privée, ou un certificat auto-signé qui n'est pas un certificat de CA et dont les noms alternatifs (SAN) couvrent l'hôte de l'endpoint, est accepté dès qu'il figure dans `SSL_CERT_FILE` (voir [Proxy sortant et CA privée](#proxy-sortant-et-ca-privée)). |
 | `auth_header`          | chaîne | *(aucun)* | En-tête d'authentification Basic au format curl. Préférer la variable d'environnement `PERF_SENTINEL_REDFISH_AUTH_HEADER`. L'authentification Session-token (POST `/SessionService/Sessions`) n'est pas encore prise en charge.                                                                                                                                                    |
 
-Chaque table d'endpoint a deux champs : `url` (chaîne, URL Redfish complète chemin inclus) et `schema` (chaîne, soit `"legacy_power"` soit `"environment_metrics"`). Le schema sélectionne le pointeur JSON canonique utilisé par le parser, sans pointeur tapé par l'opérateur :
+Chaque table d'endpoint a deux champs : `url` (chaîne, URL Redfish complète chemin inclus) et `schema` (chaîne, `"legacy_power"`, `"environment_metrics"` ou `"sensor"`). Le schema sélectionne le pointeur JSON canonique utilisé par le parser, sans pointeur tapé par l'opérateur :
 
-| `schema`              | Chemin servi par le BMC                       | Pointeur JSON lu par le parser       |
-|-----------------------|-----------------------------------------------|--------------------------------------|
-| `legacy_power`        | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/0/PowerConsumedWatts` |
-| `environment_metrics` | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                |
+| `schema`              | Chemin servi par le BMC                       | Pointeur JSON lu par le parser                                                                          |
+|-----------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| `legacy_power`        | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/{n}/PowerConsumedWatts`, `{n}` l'entrée dont le `PhysicalContext` est `Chassis`, sinon 0 |
+| `environment_metrics` | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                                                                                   |
+| `sensor`              | `/redfish/v1/Chassis/{id}/Sensors/{sensorId}` | `/Reading`, si `ReadingUnits` vaut `W` et `PhysicalContext` vaut `Chassis` ou est absent                |
 
 ```toml
 [green.redfish]
@@ -542,7 +543,19 @@ schema = "environment_metrics"
 "ledger-svc" = "chassis-modern-1"
 ```
 
-**Quel schema choisir.** `/Power` (legacy_power) a été déprécié par DMTF Release 2020.4 mais reste obligatoire sur les firmwares BMC en 2026, tous les fournisseurs en production l'exposent. `/EnvironmentMetrics` (environment_metrics) est le remplacement moderne qui expose `PowerWatts.Reading` directement, présent en parallèle de `/Power` pendant la transition. Choisir `legacy_power` sauf si la documentation BMC recommande explicitement `EnvironmentMetrics`. Une flotte mixte se déclare en donnant à chaque châssis le schema que son firmware sert.
+**Quel schema choisir.** La DMTF a déprécié `/Power` (legacy_power) dans la Release 2020.4 au profit de `PowerSubsystem`, et la puissance du châssis est passée dans `EnvironmentMetrics.PowerWatts` (environment_metrics). La spécification Redfish rend facultative l'implémentation d'une ressource dépréciée, la prise en charge varie donc selon le firmware : le projet amont OpenBMC ne sert plus `/Power` par défaut depuis le 2025-08-26 et prévoit de retirer l'option, et certains firmwares actuels servent `/Power` sans lecture `PowerWatts` dans `/EnvironmentMetrics`. Relevez l'identifiant du châssis dans `/redfish/v1/Chassis`, interrogez les deux ressources sur votre BMC et gardez celle qui renvoie un nombre :
+
+```bash
+curl -sS -u "$BMC_USER" https://bmc.example/redfish/v1/Chassis | jq '.Members'
+curl -sS -u "$BMC_USER" https://bmc.example/redfish/v1/Chassis/1/EnvironmentMetrics | jq '.PowerWatts'
+curl -sS -u "$BMC_USER" https://bmc.example/redfish/v1/Chassis/1/Power | jq '.PowerControl'
+```
+
+Quand le certificat du BMC vient d'une CA privée, ajoutez `--cacert` avec le fichier de la CA, celui auquel le daemon fait confiance via `SSL_CERT_FILE`.
+
+Quand aucune des deux ne renvoie de nombre, pointez un endpoint `sensor` sur le capteur de puissance totale du châssis : le `DataSourceUri` de `PowerWatts` s'il est présent, sinon l'entrée de `/redfish/v1/Chassis/{id}/Sensors` dont le `ReadingType` vaut `Power` et qui couvre tout le châssis, avec un `PhysicalContext` `Chassis` ou aucun. Les capteurs de puissance de chaque alimentation, en entrée ou en sortie, et de chaque CPU rapportent aussi des `W`. Pointer l'un d'eux sous-estime le châssis, et le daemon ne le rejette que si son `PhysicalContext` désigne autre chose que `Chassis`.
+
+Une flotte mixte se déclare en donnant à chaque châssis le schema que son firmware sert.
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre et Kepler, seul `watch` intègre Redfish.
 

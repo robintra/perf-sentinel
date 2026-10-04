@@ -214,7 +214,7 @@ pub struct GreenConfig {
     /// Alumet energy scraper config (daemon only). Highest
     /// measured-energy precedence, overrides Scaphandre.
     pub alumet: Option<AlumetConfig>,
-    /// Redfish BMC wall-plug-power scraper config (daemon only).
+    /// Redfish BMC chassis-power scraper config (daemon only).
     pub redfish: Option<RedfishConfig>,
     /// Cloud CPU% + `SPECpower` config (daemon only).
     pub cloud_energy: Option<CloudEnergyConfig>,

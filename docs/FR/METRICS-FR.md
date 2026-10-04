@@ -427,7 +427,10 @@ Même forme que le bloc Kepler ci-dessus avec `kepler` -> `redfish`
 dans les noms de métriques. Le jeu de labels `reason` ajoute trois
 valeurs propres à Redfish à l'ensemble HTTP partagé : `invalid_json`,
 `path_missing`, `invalid_value` pour les modes d'échec liés à la
-variance JSON des BMC sur la réponse `/Power`.
+variance JSON des BMC sur la réponse de puissance, quel que soit le
+schema déclaré par l'endpoint. Un endpoint `sensor` dont la réponse
+n'est pas en `W`, ou dont le `PhysicalContext` désigne autre chose que
+`Chassis`, compte comme `path_missing`.
 
 ## Metrics GreenOps
 

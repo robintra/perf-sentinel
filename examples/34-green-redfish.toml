@@ -1,4 +1,4 @@
-# Measured chassis power from a bare-metal Redfish BMC.
+# Measured chassis power from the Redfish BMC of a physical server.
 # Each mapped service receives its chassis-level coefficient. Usable as is
 # after adjusting the endpoints and mappings:
 #
@@ -18,8 +18,10 @@ scrape_interval_secs = 60   # default 60, bounds 15..3600
 # auth_header = "Authorization: Basic BASE64"   # default unset
 
 # Default empty. At least one endpoint is required to activate the scraper.
-# Both fields have no default and are required. Use "legacy_power" for /Power
-# or "environment_metrics" for /EnvironmentMetrics.
+# Both fields have no default and are required. Use "legacy_power" for /Power,
+# "environment_metrics" for /EnvironmentMetrics, or "sensor" for the chassis
+# total-power sensor. Which one your BMC serves depends on its firmware, see
+# "Which schema to choose" in docs/CONFIGURATION.md.
 [green.redfish.endpoints."chassis-legacy-1"]
 url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
 schema = "legacy_power"
@@ -27,6 +29,13 @@ schema = "legacy_power"
 [green.redfish.endpoints."chassis-modern-1"]
 url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
 schema = "environment_metrics"
+
+# Firmware with neither reading: point at the sensor PowerWatts.DataSourceUri
+# names, or the /Sensors entry that covers the whole chassis. A power supply or
+# CPU power sensor also reads in W and under-counts the chassis.
+# [green.redfish.endpoints."chassis-sensor-1"]
+# url = "https://bmc-rack-03.dc.example/redfish/v1/Chassis/1/Sensors/TotalPower"
+# schema = "sensor"
 
 # Default empty. Map each service to an endpoint chassis ID declared above.
 [green.redfish.service_mappings]

@@ -64,10 +64,9 @@ pub struct RedfishEndpoint {
     pub schema: RedfishSchema,
 }
 
-/// Lower bound on `scrape_interval_secs`. Several BMCs (notably HPE
-/// iLO 4/5) rate-limit Redfish polling below 30 seconds. Many vendors
-/// also update their internal sensor cache every 30s, so a faster
-/// interval gains no information and risks 429 responses.
+/// Lower bound on `scrape_interval_secs`. A BMC is a small management
+/// controller other tools query too, so polling it faster than its
+/// readings refresh adds load without adding information.
 pub const MIN_SCRAPE_INTERVAL_SECS: u64 = 15;
 
 /// Upper bound on `scrape_interval_secs`. Same shape as Scaphandre /
@@ -116,9 +115,13 @@ pub struct RedfishConfig {
     /// BMC's TLS certificate.
     ///
     /// **Not yet implemented.** Setting this field causes the scraper
-    /// to fail loud at startup with a clear error. Operators with
-    /// self-signed BMC certs must currently front the BMC with a
-    /// reverse proxy that presents a publicly-signed cert.
+    /// to fail loud at startup with a clear error. A BMC certificate
+    /// from a private CA, or a self-signed one that is not a CA
+    /// certificate and whose subject alternative names cover the
+    /// endpoint host, is trusted once it is in `SSL_CERT_FILE`.
+    /// rustls-webpki refuses a CA certificate presented as the server
+    /// certificate (`CaUsedAsEndEntity`). Otherwise front the BMC with
+    /// a reverse proxy that presents a trusted cert.
     pub ca_bundle_path: Option<String>,
     /// Optional auth header in curl format (`"Name: Value"`) attached
     /// to every Redfish request. Most BMCs require Basic auth, e.g.

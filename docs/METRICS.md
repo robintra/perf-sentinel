@@ -404,8 +404,10 @@ startup warning on non-RAPL series names is the only net. See
 Same shape as the Kepler block above with `kepler` -> `redfish` in
 the metric names. The `reason` label set adds three Redfish-specific
 values on top of the shared HTTP set: `invalid_json`, `path_missing`,
-`invalid_value` for vendor-variance failure modes on the BMC
-`/Power` response.
+`invalid_value` for vendor-variance failure modes on the BMC power
+response, whichever schema the endpoint declares. A `sensor` endpoint
+whose body is not in `W`, or whose `PhysicalContext` names something
+other than `Chassis`, counts as `path_missing`.
 
 ## GreenOps metrics
 
