@@ -1344,8 +1344,9 @@
             + 'first\'s own occurrences, before the pair is worth reporting.',
         correlation_max_tracked_pairs: 'Cap on tracked pairs. The least frequent are evicted past it, '
             + 'and the daemon says so above when that happens.',
-        energy_model: 'Where the energy figure comes from. Measured means a power backend answered, '
-            + 'estimated means it was derived from I/O counts.',
+        energy_source: 'Where the energy figure comes from: the power backends that measured each '
+            + 'covered service, and how many services were modeled from I/O counts instead. Calibrated '
+            + 'means calibration factors rescaled that model.',
         api_version: 'The Electricity Maps API version these figures were scored against.',
         emission_factor_type: 'Lifecycle counts the whole chain behind the electricity, direct counts '
             + 'only what the generation itself emits.',
@@ -2061,9 +2062,9 @@
                 view.detection_config,
                 view.detection_defaults));
         }
-        if (view.scoring_config || view.energy_model) {
+        if (view.scoring_config || view.energy_source) {
             const scoring = Object.assign({}, view.scoring_config || {});
-            if (view.energy_model) scoring.energy_model = view.energy_model;
+            if (view.energy_source) scoring.energy_source = view.energy_source;
             cards.push(settingsCard(
                 sourceId,
                 '// carbon scoring',
