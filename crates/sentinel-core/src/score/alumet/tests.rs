@@ -848,3 +848,77 @@ fn post_scrape_bookkeeping_marks_liveness_and_runs_diagnostics() {
     db.add_window_kwh(1e-6, 1_234);
     assert!(db.take_window_kwh(1_300, 15_000).is_some());
 }
+
+// --- non-RAPL metric_name guard ---------------------------------------
+
+#[test]
+fn non_rapl_series_flags_upstream_non_rapl_sources_and_units() {
+    // Source names from the Alumet plugins at v0.9.5 and on main, behind
+    // the exporter's default `_alumet` suffix, a custom prefix, and the
+    // unit suffix the main branch appends after v0.9.5.
+    for name in [
+        "grace_energy_consumption_alumet",
+        "grace_instant_power_alumet",
+        "nvml_energy_consumption_alumet",
+        "nvml_instant_power_alumet",
+        "amd_gpu_energy_consumption_alumet",
+        "amd_gpu_power_consumption_alumet",
+        "input_power_alumet",
+        "estimated_consumed_energy_alumet",
+        "estimated_consumed_energy_alumet_joules",
+        "node_nvml_energy_consumption_alumet",
+        "grace_energy_consumption_alumet_millijoules",
+        "nvml_instant_power_alumet_milliwatts",
+        "grace_instant_power_alumet_microwatts",
+        "amd_gpu_power_consumption_alumet_watts",
+        "attributed_energy_cpu_alumet_millijoules",
+        "attributed_energy_cpu_alumet_microjoules",
+    ] {
+        assert!(
+            super::scraper::is_non_rapl_series(name),
+            "{name} must be flagged"
+        );
+    }
+    // The startup warn path itself must not panic on a flagged name.
+    super::scraper::warn_if_non_rapl_series("nvml_energy_consumption_alumet");
+}
+
+#[test]
+fn non_rapl_series_spares_rapl_paths_and_the_lab_wire_capture() {
+    // The documented RAPL paths, with and without the exporter's suffix
+    // and the main-branch `_joules` unit suffix, then every metric name
+    // of the lab's real Alumet v0.9.5 wire capture.
+    for name in [
+        "rapl_consumed_energy",
+        "rapl_consumed_energy_alumet",
+        "rapl_consumed_energy_alumet_joules",
+        "attributed_energy_cpu",
+        "attributed_energy_cpu_alumet",
+        "attributed_energy_cpu_alumet_joules",
+        "active_alumet",
+        "cached_alumet",
+        "cpu_percent_alumet",
+        "cpu_time_delta_alumet",
+        "inactive_alumet",
+        "kernel_context_switches_alumet_",
+        "kernel_cpu_time_alumet",
+        "kernel_n_procs_blocked_alumet_",
+        "kernel_n_procs_running_alumet_",
+        "kernel_new_forks_alumet_",
+        "mapped_alumet",
+        "mem_available_alumet",
+        "mem_free_alumet",
+        "mem_total_alumet",
+        "memory_usage_alumet",
+        "network_bytes_alumet",
+        "network_errors_alumet_",
+        "network_packet_drops_alumet_",
+        "network_packets_alumet_",
+        "swap_cached_alumet",
+    ] {
+        assert!(
+            !super::scraper::is_non_rapl_series(name),
+            "{name} must not be flagged"
+        );
+    }
+}

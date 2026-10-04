@@ -27,6 +27,44 @@ const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 /// the exporter's `prefix`/`suffix` shape the name.
 const ZERO_SAMPLE_WARN_THRESHOLD: u32 = 3;
 
+/// Name fragments of Alumet source plugins whose readings are not RAPL
+/// joules: Grace Hopper and NVML (mJ energy, uW or mW power), AMD GPU (mJ,
+/// W), the Jetson INA `input_power` gauge (mW) and the
+/// `energy-estimation-tdp` estimate. Matched anywhere in the name, the
+/// exporter's `prefix` is free-form.
+const NON_RAPL_SOURCES: [&str; 5] = [
+    "grace_",
+    "nvml_",
+    "amd_gpu_",
+    "input_power",
+    "estimated_consumed_energy",
+];
+
+/// Whether `metric_name` looks like an Alumet series this integration
+/// cannot read: a non-RAPL source, or a non-joules unit suffix (Alumet
+/// after v0.9.5 appends `_<prefix><unit>` to the name, `_millijoules`,
+/// `_watts`, ...). Plain `_joules` passes.
+pub(super) fn is_non_rapl_series(metric_name: &str) -> bool {
+    let unit = metric_name.rsplit('_').next().unwrap_or_default();
+    let wrong_unit = (unit.ends_with("joules") && unit != "joules") || unit.ends_with("watts");
+    wrong_unit || NON_RAPL_SOURCES.iter().any(|s| metric_name.contains(s))
+}
+
+/// Startup warn for a `metric_name` that [`is_non_rapl_series`] flags.
+pub(super) fn warn_if_non_rapl_series(metric_name: &str) {
+    if is_non_rapl_series(metric_name) {
+        tracing::warn!(
+            metric = %metric_name,
+            "[green.alumet] metric_name looks like a non-RAPL Alumet series \
+             (GPU, Grace, Jetson or TDP-estimate source, or a unit other \
+             than joules). Perf Sentinel reads joules per energy_interval_secs \
+             from a RAPL-derived series and tags it alumet_rapl, so this \
+             reading would be in the wrong unit or published under the \
+             wrong provenance."
+        );
+    }
+}
+
 /// Scrape the Alumet endpoint once via the hyper-util client.
 pub(super) async fn fetch_metrics_once(
     client: &HttpClient,
@@ -164,6 +202,7 @@ async fn run_scraper_loop(
         service_count = cfg.service_mappings.len(),
         "Alumet scraper started"
     );
+    warn_if_non_rapl_series(&cfg.metric_name);
     // A database-only configuration is legitimate, no warning then.
     if cfg.service_mappings.is_empty() && cfg.database.is_none() {
         tracing::warn!(
