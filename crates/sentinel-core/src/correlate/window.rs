@@ -641,6 +641,29 @@ fn reconcile_trace_buffer(buffer: &mut TraceBuffer) -> usize {
     updated
 }
 
+/// Keeps the first consumer met on the walk. An endpoint equal to the
+/// nearest destination came from it, so any route or resolved ancestor
+/// further out still replaces it.
+fn note_nearest_consumer(
+    nearest_consumer: &mut Option<ResolvedEndpoint>,
+    matches_source: &mut bool,
+    consumers: Option<&HashMap<String, String>>,
+    span_id: &str,
+    distance: usize,
+    source: &str,
+) {
+    if nearest_consumer.is_none()
+        && let Some(endpoint) = consumers.and_then(|entries| entries.get(span_id))
+    {
+        *matches_source |= endpoint == source;
+        *nearest_consumer = Some(ResolvedEndpoint {
+            endpoint: endpoint.clone(),
+            depth: distance,
+            proven: false,
+        });
+    }
+}
+
 fn resolve_parent_endpoint(
     service: &Arc<str>,
     parent_span_id: Option<&str>,
@@ -661,18 +684,14 @@ fn resolve_parent_endpoint(
     let mut matches_source = false;
 
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
-        // An endpoint equal to the nearest destination came from it, so any
-        // route or resolved ancestor further out still replaces it.
-        if nearest_consumer.is_none()
-            && let Some(endpoint) = consumers.and_then(|entries| entries.get(&current_span_id))
-        {
-            matches_source |= endpoint == source;
-            nearest_consumer = Some(ResolvedEndpoint {
-                endpoint: endpoint.clone(),
-                depth: distance,
-                proven: false,
-            });
-        }
+        note_nearest_consumer(
+            &mut nearest_consumer,
+            &mut matches_source,
+            consumers,
+            &current_span_id,
+            distance,
+            source,
+        );
         if let Some(endpoint) =
             roots.and_then(|root_endpoints| root_endpoints.get(&current_span_id))
         {
@@ -859,18 +878,14 @@ fn peek_parent_endpoint(
     let mut guess_at = None;
     let mut matches_source = false;
     for distance in 0..ANCESTOR_WALK_MAX_DEPTH {
-        // An endpoint equal to the nearest destination came from it, so any
-        // route or resolved ancestor further out still replaces it.
-        if nearest_consumer.is_none()
-            && let Some(endpoint) = consumers.and_then(|entries| entries.get(&current_span_id))
-        {
-            matches_source |= endpoint == source;
-            nearest_consumer = Some(ResolvedEndpoint {
-                endpoint: endpoint.clone(),
-                depth: distance,
-                proven: false,
-            });
-        }
+        note_nearest_consumer(
+            &mut nearest_consumer,
+            &mut matches_source,
+            consumers,
+            &current_span_id,
+            distance,
+            source,
+        );
         if let Some(endpoint) =
             roots.and_then(|root_endpoints| root_endpoints.get(&current_span_id))
         {
