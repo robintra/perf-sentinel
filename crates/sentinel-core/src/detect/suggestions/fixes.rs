@@ -1027,27 +1027,7 @@ pub(super) static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix
                 Some("https://symfony.com/doc/current/http_client.html"),
             ),
         ];
-        let mut m = HashMap::with_capacity(entries.len());
-        for ((ft, fw), recommendation, url) in entries {
-            m.insert(
-                (ft.clone(), *fw),
-                SuggestedFix {
-                    pattern: ft.as_str().to_string(),
-                    framework: fw.as_str().to_string(),
-                    recommendation: (*recommendation).to_string(),
-                    reference_url: url.map(ToString::to_string),
-                },
-            );
-        }
-        // Catch duplicate (FindingType, Framework) keys: HashMap.insert
-        // silently overwrites, so without this check a copy-paste error in
-        // the entries slice would land unnoticed.
-        debug_assert_eq!(
-            entries.len(),
-            m.len(),
-            "duplicate (FindingType, Framework) key in FIXES entries"
-        );
-        m
+        build_fix_table(entries, Framework::as_str, "FIXES")
     },
 );
 
@@ -1149,22 +1129,28 @@ pub(super) static MESSAGING_FIXES: LazyLock<HashMap<(FindingType, MessagingSyste
                 Some(JMS_LOCAL_TX),
             ),
         ];
-        let mut m = HashMap::with_capacity(entries.len());
-        for ((ft, system), recommendation, url) in entries {
-            m.insert(
-                (ft.clone(), *system),
-                SuggestedFix {
-                    pattern: ft.as_str().to_string(),
-                    framework: system.as_str().to_string(),
-                    recommendation: (*recommendation).to_string(),
-                    reference_url: url.map(ToString::to_string),
-                },
-            );
-        }
-        debug_assert_eq!(
-            entries.len(),
-            m.len(),
-            "duplicate (FindingType, MessagingSystem) key in MESSAGING_FIXES entries"
-        );
-        m
+        build_fix_table(entries, MessagingSystem::as_str, "MESSAGING_FIXES")
     });
+
+/// Builds a fix table from its entries. `HashMap::insert` silently
+/// overwrites, so the debug assertion catches a copy-pasted duplicate key.
+fn build_fix_table<K: Copy + Eq + std::hash::Hash>(
+    entries: &[((FindingType, K), &str, Option<&str>)],
+    label: fn(K) -> &'static str,
+    table: &str,
+) -> HashMap<(FindingType, K), SuggestedFix> {
+    let mut m = HashMap::with_capacity(entries.len());
+    for ((ft, key), recommendation, url) in entries {
+        m.insert(
+            (ft.clone(), *key),
+            SuggestedFix {
+                pattern: ft.as_str().to_string(),
+                framework: label(*key).to_string(),
+                recommendation: (*recommendation).to_string(),
+                reference_url: url.map(ToString::to_string),
+            },
+        );
+    }
+    debug_assert_eq!(entries.len(), m.len(), "duplicate key in {table} entries");
+    m
+}
