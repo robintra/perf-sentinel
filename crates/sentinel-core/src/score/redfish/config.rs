@@ -14,8 +14,11 @@ const LEGACY_POWER_JSON_POINTER: &str = "/PowerControl/0/PowerConsumedWatts";
 /// replaces the deprecated `/Power` array form.
 const ENVIRONMENT_METRICS_JSON_POINTER: &str = "/PowerWatts/Reading";
 
+/// JSON pointer for a DMTF `Sensor` resource (Release 2018.3).
+const SENSOR_JSON_POINTER: &str = "/Reading";
+
 /// Wire shape served by a Redfish endpoint. The schema is declared
-/// per-endpoint so a fleet can host both legacy and modern BMCs without
+/// per-endpoint so a fleet can mix BMC firmware generations without
 /// duplicating top-level config sections. The JSON pointer used by the
 /// parser is derived from this enum (see [`RedfishSchema::json_pointer`]).
 /// The operator never spells out a pointer.
@@ -30,6 +33,11 @@ pub enum RedfishSchema {
     /// Modern replacement, present alongside `/Power` during the
     /// transition period.
     EnvironmentMetrics,
+    /// `/Chassis/{id}/Sensors/{sensorId}` with `Reading`, e.g. the
+    /// target of `EnvironmentMetrics.PowerWatts.DataSourceUri`. Read
+    /// only when `ReadingUnits` is `W` and `PhysicalContext`, when
+    /// present, is `Chassis`.
+    Sensor,
 }
 
 impl RedfishSchema {
@@ -40,6 +48,7 @@ impl RedfishSchema {
         match self {
             Self::LegacyPower => LEGACY_POWER_JSON_POINTER,
             Self::EnvironmentMetrics => ENVIRONMENT_METRICS_JSON_POINTER,
+            Self::Sensor => SENSOR_JSON_POINTER,
         }
     }
 }
@@ -186,5 +195,6 @@ mod tests {
             RedfishSchema::EnvironmentMetrics.json_pointer(),
             "/PowerWatts/Reading"
         );
+        assert_eq!(RedfishSchema::Sensor.json_pointer(), "/Reading");
     }
 }

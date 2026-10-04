@@ -3623,6 +3623,10 @@ schema = "legacy_power"
 [green.redfish.endpoints."rack-modern"]
 url = "https://bmc-modern.local/redfish/v1/Chassis/1/EnvironmentMetrics"
 schema = "environment_metrics"
+
+[green.redfish.endpoints."rack-sensor"]
+url = "https://bmc-sensor.local/redfish/v1/Chassis/1/Sensors/power_total_power"
+schema = "sensor"
 "#;
     let cfg = load_from_str(toml).expect("kepler+redfish toml parses and validates");
     let kepler = cfg.green.kepler.expect("kepler section produced a config");
@@ -3632,7 +3636,7 @@ schema = "environment_metrics"
         .green
         .redfish
         .expect("redfish section produced a config");
-    assert_eq!(redfish.endpoints.len(), 2);
+    assert_eq!(redfish.endpoints.len(), 3);
     assert_eq!(
         redfish.endpoints.get("rack-legacy").unwrap().schema,
         RedfishSchema::LegacyPower
@@ -3640,6 +3644,10 @@ schema = "environment_metrics"
     assert_eq!(
         redfish.endpoints.get("rack-modern").unwrap().schema,
         RedfishSchema::EnvironmentMetrics
+    );
+    assert_eq!(
+        redfish.endpoints.get("rack-sensor").unwrap().schema,
+        RedfishSchema::Sensor
     );
 }
 

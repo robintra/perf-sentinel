@@ -6,11 +6,12 @@
 //! service mapped to the chassis receives the same coefficient).
 //! Publishes the result to [`RedfishState`].
 //!
-//! Two endpoint schemas are supported, declared per-endpoint via the
+//! Three endpoint schemas are supported, declared per-endpoint via the
 //! [`RedfishSchema`] enum: the legacy `/Power` resource with
-//! `PowerControl[0].PowerConsumedWatts` (still mandatory on BMC
-//! firmware as of 2026), and the modern `EnvironmentMetrics` resource
-//! with `PowerWatts.Reading` (DMTF Release 2020.4+).
+//! `PowerControl[0].PowerConsumedWatts` (deprecated by DMTF Release
+//! 2020.4), the `EnvironmentMetrics` resource with `PowerWatts.Reading`
+//! (DMTF Release 2020.4+), and a chassis power `Sensor` resource with
+//! `Reading` (DMTF Release 2018.3+).
 //!
 //! Node-level granularity: two services on the same chassis share a
 //! single coefficient. See `docs/LIMITATIONS.md` "Redfish BMC precision

@@ -1,5 +1,5 @@
-//! JSON parser for Redfish power responses (legacy `/Power` and modern
-//! `EnvironmentMetrics`).
+//! JSON parser for Redfish power responses (legacy `/Power`, modern
+//! `EnvironmentMetrics` and a chassis power `Sensor`).
 //!
 //! Resolves the canonical JSON pointer for the configured schema (see
 //! [`RedfishSchema`]) and validates that the value is a
@@ -32,6 +32,9 @@ pub fn parse_redfish_power(body: &str, schema: RedfishSchema) -> ParseOutcome {
         Ok(v) => v,
         Err(_) => return ParseOutcome::InvalidJson,
     };
+    if schema == RedfishSchema::Sensor && !is_chassis_power_sensor(&value) {
+        return ParseOutcome::PathMissing;
+    }
     let Some(node) = value.pointer(schema.json_pointer()) else {
         return ParseOutcome::PathMissing;
     };
@@ -42,6 +45,15 @@ pub fn parse_redfish_power(body: &str, schema: RedfishSchema) -> ParseOutcome {
         return ParseOutcome::InvalidValue;
     }
     ParseOutcome::Ok(watts)
+}
+
+/// A `Sensor` resource is read as the chassis wattage only when it
+/// reads in watts (DMTF requires `W` for `ReadingType` `Power`) and,
+/// when it states a `PhysicalContext`, names the whole chassis. Power
+/// supply and CPU power sensors read in watts too.
+fn is_chassis_power_sensor(value: &serde_json::Value) -> bool {
+    let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str);
+    text("ReadingUnits") == Some("W") && text("PhysicalContext").is_none_or(|c| c == "Chassis")
 }
 
 #[cfg(test)]
@@ -165,6 +177,70 @@ mod tests {
         assert_eq!(
             parse_redfish_power(body, RedfishSchema::EnvironmentMetrics),
             ParseOutcome::InvalidValue
+        );
+    }
+
+    #[test]
+    fn parses_sensor_shape() {
+        // Trimmed from dmtf/redfish-mockup-server v1.2.9 public-rackmount1
+        // mockup at GET /redfish/v1/Chassis/1U/Sensors/TotalPower.
+        let body = r##"{
+            "@odata.type": "#Sensor.v1_8_1.Sensor",
+            "Id": "TotalPower",
+            "ReadingType": "Power",
+            "ElectricalContext": "Total",
+            "Reading": 374,
+            "ReadingUnits": "W",
+            "PhysicalContext": "Chassis"
+        }"##;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::Sensor),
+            ParseOutcome::Ok(374.0)
+        );
+    }
+
+    #[test]
+    fn sensor_without_watt_units_returns_path_missing() {
+        // The same mockup's Sensors/CPU1Temp minus its PhysicalContext,
+        // as bmcweb serves temperatures: only ReadingUnits rejects it.
+        let body = r#"{"Id": "CPU1Temp", "Reading": 37, "ReadingUnits": "Cel"}"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::Sensor),
+            ParseOutcome::PathMissing
+        );
+    }
+
+    #[test]
+    fn sensor_outside_chassis_context_returns_path_missing() {
+        // Shape of the same mockup's Sensors/PS1InputPower: watts, but
+        // for one power supply, not the whole chassis.
+        let body = r#"{
+            "Id": "PS1InputPower",
+            "ReadingType": "Power",
+            "Reading": 374,
+            "ReadingUnits": "W",
+            "PhysicalContext": "PowerSupply",
+            "PhysicalSubContext": "Input"
+        }"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::Sensor),
+            ParseOutcome::PathMissing
+        );
+    }
+
+    #[test]
+    fn sensor_without_physical_context_resolves() {
+        // bmcweb only sets PhysicalContext on accelerator sensors, so
+        // its total-power sensor carries none (sensor_utils.hpp).
+        let body = r#"{
+            "Id": "power_total_power",
+            "ReadingType": "Power",
+            "Reading": 412.5,
+            "ReadingUnits": "W"
+        }"#;
+        assert_eq!(
+            parse_redfish_power(body, RedfishSchema::Sensor),
+            ParseOutcome::Ok(412.5)
         );
     }
 

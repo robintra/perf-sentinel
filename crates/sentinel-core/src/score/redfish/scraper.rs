@@ -2,9 +2,10 @@
 //! configured chassis endpoints per tick, parses the wattage gauge for
 //! whichever schema each endpoint declares (`legacy_power` reads
 //! `PowerControl[0].PowerConsumedWatts`, `environment_metrics` reads
-//! `PowerWatts.Reading`), and publishes per-service coefficients via
-//! [`apply_chassis_scrape`]. TLS uses the shared webpki client. The
-//! `ca_bundle_path` deferral rationale lives in design doc 05.
+//! `PowerWatts.Reading`, `sensor` reads `Reading`), and publishes
+//! per-service coefficients via [`apply_chassis_scrape`]. TLS uses the
+//! shared webpki client. The `ca_bundle_path` deferral rationale lives
+//! in design doc 05.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,7 +36,7 @@ pub(super) enum ScraperError {
     Utf8(#[source] std::string::FromUtf8Error),
     #[error("Redfish JSON parse failed")]
     InvalidJson,
-    #[error("Redfish power path missing from response")]
+    #[error("Redfish power reading missing from response, or sensor not in chassis watts")]
     PathMissing,
     #[error("Redfish power value was non-finite, null, or non-positive")]
     InvalidValue,

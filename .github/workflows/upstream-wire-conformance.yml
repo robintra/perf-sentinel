@@ -519,13 +519,43 @@ jobs:
             exit 1
           fi
 
+      - name: Wire assertion - PowerWatts source Sensor carries chassis watts
+        # The `sensor` schema reads `/Reading` from a DMTF Sensor resource
+        # and requires `ReadingUnits == "W"` plus a `PhysicalContext` that
+        # is absent or `Chassis` (parser.rs). The docs send operators to
+        # the sensor named by `PowerWatts.DataSourceUri`, so this step
+        # follows that link the same way.
+        id: sensor
+        run: |
+          sensor=$(jq -r '.PowerWatts.DataSourceUri // empty' /tmp/environmentmetrics.json)
+          if [ -z "${sensor}" ]; then
+            echo "::error::PowerWatts carries no DataSourceUri on the DMTF mockup, the documented way to find the chassis power sensor is gone."
+            exit 1
+          fi
+          echo "sensor=${sensor}" >> "${GITHUB_OUTPUT}"
+          curl -fsS "http://localhost:8000${sensor}" -o /tmp/sensor.json
+          echo "--- Sensor head"
+          jq . /tmp/sensor.json | head -30
+          echo "---"
+
+          if jq -e '(.Reading | numbers | select(. > 0)) and .ReadingUnits == "W" and ((.PhysicalContext // "Chassis") == "Chassis")' /tmp/sensor.json >/dev/null; then
+            value=$(jq -r '.Reading' /tmp/sensor.json)
+            echo "::notice::${sensor} Reading = ${value} W, matches sensor parser contract"
+          else
+            echo "::error::${sensor} does not carry a positive Reading in W with a Chassis or absent PhysicalContext. Parser contract for the sensor schema violated."
+            jq . /tmp/sensor.json
+            exit 1
+          fi
+
       - name: End-to-end assertion - perf-sentinel scrapes Redfish cleanly
-        # The wire assertion above already proves the parser would
+        # The wire assertions above already prove the parser would
         # match. Here we confirm the daemon side wires the scrape AND
-        # that both schemas (legacy_power + environment_metrics) parse
-        # without error from a single config. Two chassis-ids on
-        # the same mockup, one per schema, exercise the per-endpoint
-        # schema dispatch added in v0.7.6.
+        # that the three schemas (legacy_power, environment_metrics,
+        # sensor) parse without error from a single config. Three
+        # chassis-ids on the same mockup, one per schema, exercise the
+        # per-endpoint schema dispatch.
+        env:
+          SENSOR_PATH: ${{ steps.sensor.outputs.sensor }}
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
           cat > /tmp/perf-sentinel.toml <<EOF
@@ -547,9 +577,14 @@ jobs:
           url = "http://localhost:8000${chassis}/EnvironmentMetrics"
           schema = "environment_metrics"
 
+          [green.redfish.endpoints."chassis-sensor"]
+          url = "http://localhost:8000${SENSOR_PATH}"
+          schema = "sensor"
+
           [green.redfish.service_mappings]
           "wire-conformance-svc-legacy" = "chassis-legacy"
           "wire-conformance-svc-modern" = "chassis-modern"
+          "wire-conformance-svc-sensor" = "chassis-sensor"
           EOF
 
           ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
