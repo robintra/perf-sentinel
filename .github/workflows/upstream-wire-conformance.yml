@@ -93,7 +93,7 @@ jobs:
           cluster_name: kepler-wire
           wait: 60s
 
-      - name: Apply Kepler v0.11.4 DaemonSet
+      - name: Apply Kepler v0.12.0 DaemonSet
         run: |
           cat <<'EOF' | kubectl apply -f -
           apiVersion: v1
@@ -137,11 +137,14 @@ jobs:
             name: kepler
             namespace: kepler
           data:
-            # The fake-meter knob is `dev.fake-cpu-meter.enabled`,
-            # not `cpu.meters: ["fake"]` (the latter appears in some
-            # v0.11 release notes but is not in the parsed schema).
+            # `cpu.preferredMeters: ["fake"]` selects the fake meter
+            # (config/config.go@v0.12.0, `yaml:"preferredMeters"`). The
+            # legacy `dev.fake-cpu-meter.enabled` still works with a
+            # deprecation warning. `cpu.meters`, which some upstream docs
+            # show, is not in the parsed schema. `zones: []` keeps the
+            # fake meter's default zones: package, core and dram.
             # Kepler emits synthetic readings without RAPL but the
-            # metric NAMES are the real ones.
+            # metric NAMES and LABELS are the real ones.
             config.yaml: |
               log:
                 level: info
@@ -158,9 +161,10 @@ jobs:
                 podInformer:
                   mode: apiserver
                   pollInterval: 15s
+              cpu:
+                preferredMeters: ["fake"]
               dev:
                 fake-cpu-meter:
-                  enabled: true
                   zones: []
           ---
           apiVersion: v1
@@ -201,7 +205,7 @@ jobs:
                     key: node-role.kubernetes.io/master
                 containers:
                   - name: kepler
-                    image: quay.io/sustainable_computing_io/kepler@sha256:45571f233951fb96c3a2900e1d5e4cbb4ade9cd36ed419dcd87661e067168fdf  # v0.11.4 amd64
+                    image: quay.io/sustainable_computing_io/kepler@sha256:7681d8b453e4e10ac67c183e0b68238c3d19d3a8af80743354ef57b8511553b0  # v0.12.0 amd64
                     imagePullPolicy: IfNotPresent
                     command: ["/usr/bin/kepler"]
                     args:
@@ -256,13 +260,18 @@ jobs:
 
       - name: Wire assertion - Kepler /metrics conforms to parser contract
         # Assert the EXACT names and labels that
-        # crates/sentinel-core/src/score/kepler/config.rs:35-49 expects.
-        # If upstream renames a metric or a label, this step fails with
-        # the offending line printed, before any parser-side test runs.
+        # crates/sentinel-core/src/score/kepler/config.rs:35-49 expects,
+        # plus the `zone` label the scraper filters on ([green.kepler]
+        # zone, default "package"). If upstream renames a metric or a
+        # label, this step fails with the offending line printed, before
+        # any parser-side test runs. The joules lines are printed so each
+        # run keeps a real capture of the wire in its log.
         run: |
           curl -fsS http://localhost:28282/metrics -o /tmp/kepler-metrics.txt
-          echo "--- /metrics head (first 40 lines)"
-          head -40 /tmp/kepler-metrics.txt
+          for metric in kepler_container_cpu_joules_total kepler_process_cpu_joules_total; do
+            echo "--- ${metric} (first 9 lines)"
+            grep -E "^${metric}\{" /tmp/kepler-metrics.txt | head -9 || true
+          done
           echo "---"
 
           fail=0
@@ -282,6 +291,25 @@ jobs:
             echo "::error::Expected metric kepler_process_cpu_joules_total with label comm not found in Kepler /metrics. Parser contract violated."
             fail=1
           fi
+
+          # Kepler emits one series per zone and the zones overlap, so the
+          # scraper keeps one zone. Every joules line must carry the label,
+          # and the default zone must be on the wire.
+          unzoned=$(grep -E '^kepler_(container|process)_cpu_joules_total\{' /tmp/kepler-metrics.txt | grep -cv 'zone="' || true)
+          if [ "${unzoned}" -eq 0 ]; then
+            echo "::notice::every kepler_*_cpu_joules_total line carries a zone label"
+          else
+            echo "::error::${unzoned} kepler_*_cpu_joules_total lines carry no zone label. The scraper keeps them all, which sums overlapping zones again if upstream moved the label."
+            fail=1
+          fi
+          for metric in kepler_container_cpu_joules_total kepler_process_cpu_joules_total; do
+            if grep -qE "^${metric}\{[^}]*zone=\"package\"" /tmp/kepler-metrics.txt; then
+              echo "::notice::${metric} has zone=\"package\" series (the [green.kepler] zone default)"
+            else
+              echo "::error::${metric} has no zone=\"package\" series, so the default [green.kepler] zone would match nothing."
+              fail=1
+            fi
+          done
 
           exit "${fail}"
 
