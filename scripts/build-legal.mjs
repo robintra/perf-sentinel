@@ -24,6 +24,8 @@ const FT = {
 };
 const LEGAL_HREF = { fr: '/mentions-legales', en: '/legal-notice' };
 const PRIV_HREF = { fr: '/confidentialite', en: '/privacy-policy' };
+const HOME_HREF = { fr: '/fr/', en: '/' };
+const GUIDE_HREF = { fr: '/fr/guide', en: '/guide' };
 const HOME = { fr: 'Accueil', en: 'Home' };
 const LANGSW = { fr: 'EN', en: 'FR' };
 const OTHER = { fr: 'en', en: 'fr' };
@@ -41,8 +43,8 @@ const langCtl = (href, lang) => {
 
 function header(lang, otherHref) {
   return `<header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:18px">` +
-    `<a href="/" style="display:flex;align-items:center;flex:none">${logo}</a>` +
-    `<a class="ps-home-lnk" href="/" style="font-size:14px;color:var(--text-2);text-decoration:none">&larr; ${HOME[lang]}</a>` +
+    `<a href="${HOME_HREF[lang]}" style="display:flex;align-items:center;flex:none">${logo}</a>` +
+    `<a class="ps-home-lnk" href="${HOME_HREF[lang]}" style="font-size:14px;color:var(--text-2);text-decoration:none">&larr; ${HOME[lang]}</a>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:10px">` +
     langCtl(otherHref, lang) +
     `<button id="themeBtn" class="ps-th-btn" aria-label="Theme"><span class="ps-th-ico">${ICON_SYSTEM}</span><span class="ps-th-lbl">${lang === 'fr' ? 'Système' : 'System'}</span></button>` +
@@ -58,9 +60,9 @@ function footer(lang) {
   return `<footer style="border-top:1px solid var(--border);background:var(--surface-2)"><div style="max-width:1120px;margin:0 auto;padding:48px 28px 36px">` +
     `<div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px">` +
     `<div><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto"><p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">${f.tagline}</p></div>` +
-    col(f.product, [['/#detection', f.detection], ['/#modes', f.execution], ['/#perf', f.perf], ['/#greenops', f.greenops], ['/#comparatif', f.comparison]]) +
-    col(f.docs, [['/guide#quickstart', f.quickstart], ['/guide#cli', f.cli], ['/guide#config', f.config], ['/guide#metrics', f.method]]) +
-    col(f.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], ['/#license', f.license]]) +
+    col(f.product, [[HOME_HREF[lang] + '#detection', f.detection], [HOME_HREF[lang] + '#modes', f.execution], [HOME_HREF[lang] + '#perf', f.perf], [HOME_HREF[lang] + '#greenops', f.greenops], [HOME_HREF[lang] + '#comparatif', f.comparison]]) +
+    col(f.docs, [[GUIDE_HREF[lang] + '#quickstart', f.quickstart], [GUIDE_HREF[lang] + '#cli', f.cli], [GUIDE_HREF[lang] + '#config', f.config], [GUIDE_HREF[lang] + '#metrics', f.method]]) +
+    col(f.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], [HOME_HREF[lang] + '#license', f.license]]) +
     `</div>` +
     `<div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">` +
     `<div style="display:flex;flex-direction:column;gap:6px"><span>${f.copyright}</span><span style="display:flex;gap:14px"><a href="${LEGAL_HREF[lang]}">${f.legal}</a><a href="${PRIV_HREF[lang]}">${f.privacy}</a></span></div>` +
@@ -146,8 +148,8 @@ const notFound = (lang) => {
     `<h1 style="margin:22px 0 0;font-size:clamp(24px,3vw,32px);line-height:1.2;letter-spacing:-.018em">${n.h1}</h1>` +
     `<p style="margin:14px auto 0;max-width:460px">${n.p}</p>` +
     `<div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:32px">` +
-    `<a data-plain href="/" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px">${n.home}</a>` +
-    `<a data-plain href="/guide" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px">${n.docs}</a>` +
+    `<a data-plain href="${HOME_HREF[lang]}" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px">${n.home}</a>` +
+    `<a data-plain href="${GUIDE_HREF[lang]}" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px">${n.docs}</a>` +
     `</div></div>`;
 };
 // Centers the block in whatever height the viewport leaves between header and footer.

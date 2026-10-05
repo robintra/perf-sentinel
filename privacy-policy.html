@@ -97,7 +97,8 @@
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
-  @media(max-width:600px){[data-term]>div{white-space:pre;width:max-content}}
+  [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
+  @media(max-width:600px){[data-term]{font-size:12.5px!important;line-height:1.7!important}[data-term]>div{overflow-wrap:anywhere;margin-bottom:8px}[data-term]>div:not(.ps-l1),[data-term] .ps-l1>span{padding-left:1.1em;text-indent:-1.1em}[data-term] .ps-cm{display:block;text-indent:0}}
   /* Small screens: the comparison stacks by capability, each value under its column name */
   @media(max-width:600px){[data-cmp-head]{display:none!important}[data-cmp-row]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:start!important;gap:8px 16px;padding:14px 16px 16px}[data-cmp-row]>div{padding:0!important}[data-cmp-row]>div:first-child{grid-column:1/-1}[data-cmp-row]>[data-label]{display:grid;grid-row:2/span 2;grid-template-rows:subgrid;row-gap:2px}[data-cmp-row]>[data-label]::before{content:attr(data-label);font-size:12px;font-weight:600;color:var(--text-2)}[data-cmp-row]>[data-label]:last-child::before{color:var(--accent-strong)}}
   /* Small screens: no iframe (the script never sets its src), the finding card plus a button that opens the demo */

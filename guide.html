@@ -1070,10 +1070,10 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
   <header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1180px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:22px;position:relative">
       <input id="ps-navtoggle" type="checkbox" aria-hidden="true" style="display:none">
-      <a data-plain href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
+      <a data-plain href="{{ homeBase }}" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
       <span class="ps-hdr-badge" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>
       <nav class="ps-hdr-nav" style="display:flex;gap:22px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
-        <a data-plain data-plain href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)"><span data-ltext>{{ navHome }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
+        <a data-plain data-plain href="{{ homeBase }}" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)"><span data-ltext>{{ navHome }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
         <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">→</span></a>
       </nav>
@@ -1085,7 +1085,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
         <label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>
       </div>
       <nav data-mobnav="" aria-label="Menu">
-        <a data-plain href="/">{{ navHome }} <span style="font-size:11px;opacity:.7">→</span></a>
+        <a data-plain href="{{ homeBase }}">{{ navHome }} <span style="font-size:11px;opacity:.7">→</span></a>
         <a data-plain href="{{ refBase }}">{{ navRef }} <span style="font-size:11px;opacity:.7">→</span></a>
       </nav>
     </div>
@@ -1386,7 +1386,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
 
     </main>
   </div>
-  <footer style="border-top:1px solid var(--border);background:var(--surface-2)"><div style="max-width:1180px;margin:0 auto;padding:48px 28px 36px"><div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px"><div><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto"><p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">{{ ftTagline }}</p></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProduct }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="/#detection">{{ navDetection }}</a><a href="/#modes">{{ navExecution }}</a><a href="/#perf">{{ navPerf }}</a><a href="/#greenops">{{ navGreenops }}</a><a href="/#comparatif">{{ navComparison }}</a></div></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColDocs }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="/guide#quickstart">{{ ftDocQuickstart }}</a><a href="/guide#cli">{{ ftDocCli }}</a><a href="/guide#config">{{ ftDocConfig }}</a><a href="/guide#metrics">{{ ftDocMethod }}</a></div></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProject }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="https://github.com/robintra/perf-sentinel">GitHub</a><a href="https://crates.io/crates/perf-sentinel">crates.io</a><a href="https://docs.rs/perf-sentinel-core">docs.rs</a><a href="/#license">{{ ftProjLicense }}</a></div></div></div><div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)"><div style="display:flex;flex-direction:column;gap:6px"><span>{{ ftLeft }}</span><span style="display:flex;gap:14px"><a href="{{ ftLegalHref }}">{{ ftLegalNotice }}</a><a href="{{ ftPrivacyHref }}">{{ ftPrivacy }}</a></span></div><span>{{ ftCreditPrefix }}<a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" id="ftCredit">Gwendoline Meignen</a></span></div></div></footer>
+  <footer style="border-top:1px solid var(--border);background:var(--surface-2)"><div style="max-width:1180px;margin:0 auto;padding:48px 28px 36px"><div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px"><div><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto"><p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">{{ ftTagline }}</p></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProduct }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="{{ homeBase }}#detection">{{ navDetection }}</a><a href="{{ homeBase }}#modes">{{ navExecution }}</a><a href="{{ homeBase }}#perf">{{ navPerf }}</a><a href="{{ homeBase }}#greenops">{{ navGreenops }}</a><a href="{{ homeBase }}#comparatif">{{ navComparison }}</a></div></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColDocs }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="{{ guideBase }}#quickstart">{{ ftDocQuickstart }}</a><a href="{{ guideBase }}#cli">{{ ftDocCli }}</a><a href="{{ guideBase }}#config">{{ ftDocConfig }}</a><a href="{{ guideBase }}#metrics">{{ ftDocMethod }}</a></div></div><div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProject }}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)"><a href="https://github.com/robintra/perf-sentinel">GitHub</a><a href="https://crates.io/crates/perf-sentinel">crates.io</a><a href="https://docs.rs/perf-sentinel-core">docs.rs</a><a href="{{ homeBase }}#license">{{ ftProjLicense }}</a></div></div></div><div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)"><div style="display:flex;flex-direction:column;gap:6px"><span>{{ ftLeft }}</span><span style="display:flex;gap:14px"><a href="{{ ftLegalHref }}">{{ ftLegalNotice }}</a><a href="{{ ftPrivacyHref }}">{{ ftPrivacy }}</a></span></div><span>{{ ftCreditPrefix }}<a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" id="ftCredit">Gwendoline Meignen</a></span></div></div></footer>
   {{ lightboxEl }}
 
 </div>
@@ -1925,13 +1925,15 @@ class Component extends DCLogic {
     const lang = this.curLang();
     const t = this.dict()[lang];
     const refBase = lang === 'fr' ? '/docs/fr/' : '/docs/';
+    const guideBase = lang === 'fr' ? '/fr/guide' : '/guide';
+    const homeBase = lang === 'fr' ? '/fr/' : '/';
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     const navItems = ids.map((id, i) => ({ id, label: t.nav[i], active: this.state.active === id ? 'true' : 'false' }));
     const mode = this.curMode();
     const modeNames = lang === 'fr' ? { system: 'Système', light: 'Clair', dark: 'Sombre' } : { system: 'System', light: 'Light', dark: 'Dark' };
     return {
       theme,
-      refBase,
+      refBase, guideBase, homeBase,
       themeIcon: this.themeIcon(mode),
       themeLabel: React.createElement('span', { key: mode, className: 'ps-th-lbl' }, modeNames[mode]),
       themeAria: (lang === 'fr' ? 'Changer de thème (actuel : ' : 'Switch theme (current: ') + modeNames[mode] + ')',

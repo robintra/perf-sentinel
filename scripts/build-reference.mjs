@@ -251,6 +251,7 @@ function buildPage(id, lang) {
   const frHref = hrefFor(id, 'fr');
   const switchHref = hrefFor(id, fr ? 'en' : 'fr');
   const ui = UI[lang];
+  const home = fr ? '/fr/' : '/', guide = fr ? '/fr/guide' : '/guide';
   const hasToc = toc.length > 1;
 
   const head =
@@ -263,9 +264,9 @@ function buildPage(id, lang) {
 
   const header =
     `<header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px;position:relative"><input id="ps-navtoggle" type="checkbox" aria-hidden="true" style="display:none">` +
-    `<a href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>` +
+    `<a href="${home}" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>` +
     `<span class="ps-hdr-badge" style="font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>` +
-    `<nav class="ps-hdr-nav" style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="/">${ui.navHome} <span style="font-size:11px;opacity:.7">→</span></a><a href="/guide">${ui.navGuide} <span style="font-size:11px;opacity:.7">→</span></a></nav>` +
+    `<nav class="ps-hdr-nav" style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="${home}">${ui.navHome} <span style="font-size:11px;opacity:.7">→</span></a><a href="${guide}">${ui.navGuide} <span style="font-size:11px;opacity:.7">→</span></a></nav>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px">` +
     `<div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="${ui.search}" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div>` +
     langCtl(switchHref, fr, ui.switchLabel) +
@@ -273,7 +274,7 @@ function buildPage(id, lang) {
     `<a href="https://github.com/robintra/perf-sentinel" aria-label="Perf Sentinel on GitHub" style="display:flex;align-items:center;gap:8px;height:34px;box-sizing:border-box;font-size:13px;font-weight:600;color:#fff;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:0 12px"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg><span class="gh-txt">GitHub</span></a>` +
     `<label for="ps-navtoggle" data-burger="" aria-label="Menu"><i></i></label>` +
     `</div>` +
-    `<nav data-mobnav="" aria-label="Menu"><a href="/">${ui.navHome} <span style="font-size:11px;opacity:.7">→</span></a><a href="/guide">${ui.navGuide} <span style="font-size:11px;opacity:.7">→</span></a></nav>` +
+    `<nav data-mobnav="" aria-label="Menu"><a href="${home}">${ui.navHome} <span style="font-size:11px;opacity:.7">→</span></a><a href="${guide}">${ui.navGuide} <span style="font-size:11px;opacity:.7">→</span></a></nav>` +
     `</div></header>`;
 
   const main =
@@ -291,9 +292,9 @@ function buildPage(id, lang) {
     `<footer style="border-top:1px solid var(--border);background:var(--surface-2)"><div style="max-width:1320px;margin:0 auto;padding:48px 28px 36px">` +
     `<div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px">` +
     `<div><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto"><p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">${L.tagline}</p></div>` +
-    ftCol(L.product, [['/#detection', L.detection], ['/#modes', L.execution], ['/#perf', L.perf], ['/#greenops', L.greenops], ['/#comparatif', L.comparison]]) +
-    ftCol(L.docs, [['/guide#quickstart', L.quickstart], ['/guide#cli', L.cli], ['/guide#config', L.config], ['/guide#metrics', L.method]]) +
-    ftCol(L.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], ['/#license', L.license]]) +
+    ftCol(L.product, [[home + '#detection', L.detection], [home + '#modes', L.execution], [home + '#perf', L.perf], [home + '#greenops', L.greenops], [home + '#comparatif', L.comparison]]) +
+    ftCol(L.docs, [[guide + '#quickstart', L.quickstart], [guide + '#cli', L.cli], [guide + '#config', L.config], [guide + '#metrics', L.method]]) +
+    ftCol(L.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], [home + '#license', L.license]]) +
     `</div>` +
     `<div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">` +
     `<div style="display:flex;flex-direction:column;gap:6px"><span>${L.copyright}</span><span style="display:flex;gap:14px"><a href="${lang === 'fr' ? '/mentions-legales' : '/legal-notice'}">${L.legal}</a><a href="${lang === 'fr' ? '/confidentialite' : '/privacy-policy'}">${L.privacy}</a></span></div>` +
