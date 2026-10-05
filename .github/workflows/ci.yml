@@ -198,7 +198,7 @@ jobs:
         # Standalone suppression on the line above the match so the Dependabot
         # version comment stays clean and the marker survives the next bump.
         # nosemgrep: generic.secrets.security.detected-sonarqube-docs-api-key
-        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
