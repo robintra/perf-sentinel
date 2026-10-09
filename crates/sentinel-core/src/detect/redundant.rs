@@ -91,11 +91,15 @@ fn redundant_impl<'a>(
         })
         .collect();
 
-    for ((event_type, template, _params, grouping), indices) in &groups {
-        if indices.len() < 2 {
-            continue;
-        }
+    // First-span order: groups that tie on every `sort_findings` key (one
+    // template called with different params) keep the input order.
+    let mut groups: Vec<_> = groups
+        .into_iter()
+        .filter(|(_, indices)| indices.len() >= 2)
+        .collect();
+    groups.sort_unstable_by_key(|(_, indices)| indices[0]);
 
+    for ((event_type, template, _params, grouping), indices) in &groups {
         let n_plus_one_type = FindingType::from_event_type_n_plus_one(event_type);
         if n_plus_one_index.contains(&(&n_plus_one_type, *template, *grouping)) {
             continue;

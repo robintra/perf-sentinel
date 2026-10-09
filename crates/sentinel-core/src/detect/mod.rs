@@ -58,6 +58,20 @@ impl<'a> TraceIndices<'a> {
             span_index,
         }
     }
+
+    /// Parents with at least `min_children` children, in the order their
+    /// first child appears in the trace, so findings that tie on every
+    /// [`sort_findings`] key keep the input order rather than the map's.
+    pub(crate) fn parents_with_children(&self, min_children: usize) -> Vec<(&'a str, &[usize])> {
+        let mut parents: Vec<_> = self
+            .children_by_parent
+            .iter()
+            .filter(|(_, children)| children.len() >= min_children)
+            .map(|(&parent, children)| (parent, children.as_slice()))
+            .collect();
+        parents.sort_unstable_by_key(|(_, children)| children[0]);
+        parents
+    }
 }
 
 /// A detected performance anti-pattern.
@@ -705,9 +719,8 @@ pub fn apply_confidence(findings: &mut [Finding], confidence: Confidence) {
 
 /// Run per-trace + cross-trace detection on a set of traces.
 ///
-/// Returns the unsorted, unconfidence-stamped `Vec<Finding>`. Callers
-/// stamp confidence via [`apply_confidence`] then sort via
-/// [`sort_findings`] before emission.
+/// Returns the findings in [`sort_findings`] order, without confidence.
+/// Callers stamp confidence via [`apply_confidence`].
 ///
 /// Cross-trace detection is gated on `traces.len() >= 2` because the
 /// percentile-based `detect_slow_cross_trace` requires multiple
@@ -722,6 +735,7 @@ pub fn run_full_detection(traces: &[Trace], config: &DetectConfig) -> Vec<Findin
             config.slow_min_occurrences,
         );
         findings.append(&mut cross_trace);
+        sort_findings(&mut findings);
     }
     findings
 }
@@ -729,7 +743,8 @@ pub fn run_full_detection(traces: &[Trace], config: &DetectConfig) -> Vec<Findin
 /// Run all per-trace detectors on a set of traces.
 ///
 /// Does not include cross-trace analysis. See [`slow::detect_slow_cross_trace`]
-/// or use [`run_full_detection`] for the combined pass.
+/// or use [`run_full_detection`] for the combined pass. Findings come out
+/// in [`sort_findings`] order, which `explain` and the daemon rely on.
 #[must_use]
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -776,12 +791,15 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
         ));
     }
     suggestions::enrich(&mut findings);
+    sort_findings(&mut findings);
     findings
 }
 
 /// Sort findings deterministically for stable output.
 ///
-/// Orders by finding type, severity, trace ID, source endpoint, and template.
+/// Orders by finding type, severity, trace ID, source endpoint, template,
+/// grouping and first timestamp. The sort is stable and the detectors emit
+/// in input order, so findings that tie on every key keep that order.
 pub(crate) fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         a.finding_type
@@ -790,6 +808,8 @@ pub(crate) fn sort_findings(findings: &mut [Finding]) {
             .then_with(|| a.trace_id.cmp(&b.trace_id))
             .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
             .then_with(|| a.pattern.template.cmp(&b.pattern.template))
+            .then_with(|| a.grouping_identity().cmp(&b.grouping_identity()))
+            .then_with(|| a.first_timestamp.cmp(&b.first_timestamp))
     });
 }
 
@@ -1353,5 +1373,97 @@ mod tests {
             cfg.sanitizer_aware_classification,
             sanitizer_aware::SanitizerAwareMode::Strict
         );
+    }
+
+    /// Each detection draws fresh hash keys, so an order leaked from a map
+    /// would differ across these runs.
+    const RUNS: usize = 32;
+
+    #[test]
+    fn tied_findings_keep_one_order_across_runs() {
+        use crate::test_helpers::{grouping, make_sql_event, make_trace};
+        let mut events = Vec::new();
+        for ns in ["charlie", "alpha", "bravo"] {
+            for i in 0..6 {
+                let mut event = make_sql_event(
+                    "t1",
+                    &format!("{ns}-{i}"),
+                    &format!("SELECT * FROM item WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                );
+                event.grouping = grouping("k8s.namespace.name", ns);
+                events.push(event);
+            }
+        }
+        // One template, three param sets at one instant: these redundant
+        // findings tie on every sort key and keep the input order.
+        for (id, count) in [(3, 2), (1, 3), (2, 4)] {
+            for j in 0..count {
+                events.push(make_sql_event(
+                    "t1",
+                    &format!("users-{id}-{j}"),
+                    &format!("SELECT * FROM users WHERE id = {id}"),
+                    "2025-07-10T14:32:05.000Z",
+                ));
+            }
+        }
+        let trace = make_trace(events);
+
+        for _ in 0..RUNS {
+            let findings = detect(std::slice::from_ref(&trace), &default_config());
+            let of_type = |kind: FindingType| -> Vec<&Finding> {
+                findings.iter().filter(|f| f.finding_type == kind).collect()
+            };
+            let groupings: Vec<_> = of_type(FindingType::NPlusOneSql)
+                .into_iter()
+                .map(Finding::grouping_value)
+                .collect();
+            assert_eq!(groupings, [Some("alpha"), Some("bravo"), Some("charlie")]);
+            let counts: Vec<_> = of_type(FindingType::RedundantSql)
+                .into_iter()
+                .map(|f| f.pattern.occurrences)
+                .collect();
+            assert_eq!(counts, [2, 3, 4]);
+        }
+    }
+
+    #[test]
+    fn tied_fanout_parents_keep_the_input_order() {
+        use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
+        let parent = |id: &str| {
+            make_http_event(
+                "t1",
+                id,
+                "http://gateway/api/batch",
+                "2025-07-10T14:32:01.000Z",
+            )
+        };
+        let mut events = vec![parent("pa"), parent("pb")];
+        // The two findings differ only in their code location, which no
+        // sort key reads, and pb's children come first, so pb's leads.
+        for parent_id in ["pb", "pa"] {
+            for i in 0..21 {
+                let mut child = make_sql_event(
+                    "t1",
+                    &format!("{parent_id}-{i}"),
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.100Z",
+                );
+                child.parent_span_id = Some(parent_id.to_string());
+                child.code_function = Some(std::sync::Arc::from(format!("load_{parent_id}")));
+                events.push(child);
+            }
+        }
+        let trace = make_trace(events);
+
+        for _ in 0..RUNS {
+            let findings = detect(std::slice::from_ref(&trace), &default_config());
+            let functions: Vec<_> = findings
+                .iter()
+                .filter(|f| f.finding_type == FindingType::ExcessiveFanout)
+                .map(|f| f.code_location.as_ref().and_then(|c| c.function.as_deref()))
+                .collect();
+            assert_eq!(functions, [Some("load_pb"), Some("load_pa")]);
+        }
     }
 }
