@@ -3624,6 +3624,23 @@ fn dedup_credits_the_winning_split_per_service() {
     assert_eq!(per_service.values().sum::<usize>(), out.total);
 }
 
+/// One template in two groupings of the same trace is two disjoint span
+/// sets, so both count, each under its own grouping.
+#[test]
+fn dedup_counts_one_template_once_per_grouping_of_a_trace() {
+    let mut alpha = crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+    alpha.grouping = crate::test_helpers::k8s_grouping("alpha");
+    let mut bravo = alpha.clone();
+    bravo.grouping = crate::test_helpers::k8s_grouping("bravo");
+    let per_finding = alpha.pattern.occurrences - 1;
+
+    let (out, per_service) = dedup_avoidable_io_ops_by_service(&[alpha, bravo]);
+
+    assert_eq!(out.total, 2 * per_finding);
+    let groupings: Vec<_> = per_service.keys().map(|(_, g)| g.as_str()).collect();
+    assert_eq!(groupings, ["alpha", "bravo"]);
+}
+
 /// A shared finding charges every service in its split under the
 /// finding's own grouping, and two groupings of one service stay two
 /// entries.

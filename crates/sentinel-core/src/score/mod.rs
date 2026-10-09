@@ -294,8 +294,11 @@ pub(crate) struct AvoidableIoOps {
     pub messaging: usize,
 }
 
-/// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`),
-/// taking max, plus the per-service split of the same deduped ops (so
+/// `(trace_id, template, source_endpoint, grouping identity)`.
+type DedupKey<'a> = (&'a str, &'a str, &'a str, Option<(&'a str, &'a str)>);
+
+/// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`,
+/// grouping), taking max, plus the per-service split of the same deduped ops (so
 /// `service_avoidable_io_ops_total` cannot diverge from the global
 /// counter). Slow findings are not avoidable I/O: necessary operations
 /// that happen to be slow.
@@ -310,8 +313,9 @@ pub(crate) struct AvoidableIoOps {
 /// by the v1 report schema. Crediting the finding's grouping is exact
 /// because the N+1 and redundant detectors key their groups on the
 /// grouping identity, so every span a finding charges already carries
-/// it. The approximate part of the split is which service made the one
-/// necessary call.
+/// it, and the same template in two groupings of one trace is two
+/// disjoint span sets. The approximate part of the split is which
+/// service made the one necessary call.
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, BTreeMap<(String, String), usize>) {
@@ -321,15 +325,19 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         .count();
     // Value = (max avoidable, the finding it came from), so the winner's
     // type and per-service split ride along.
-    let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
-        HashMap::with_capacity(capacity);
+    let mut dedup: HashMap<DedupKey<'_>, (usize, &Finding)> = HashMap::with_capacity(capacity);
     for f in findings {
         if !f.finding_type.is_avoidable_io() {
             continue;
         }
         let avoidable = f.pattern.occurrences.saturating_sub(1);
         let entry = dedup
-            .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
+            .entry((
+                &f.trace_id,
+                &f.pattern.template,
+                &f.source_endpoint,
+                f.grouping_identity(),
+            ))
             .or_insert((avoidable, f));
         if avoidable > entry.0 {
             *entry = (avoidable, f);

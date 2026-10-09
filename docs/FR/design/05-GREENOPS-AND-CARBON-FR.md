@@ -262,7 +262,7 @@ Les valeurs distinctes de `total` et `avoidable` signalent aux consommateurs en 
 
 ### Évitable via ratio (choix de design)
 
-Calculer le CO₂ évitable de manière précise par région nécessiterait de propager la résolution de région à travers la phase de dédup des findings (qui agrège actuellement les ops I/O évitables globalement par `(trace_id, template, source_endpoint)`). C'est complexe et sujet aux erreurs.
+Calculer le CO₂ évitable de manière précise par région nécessiterait de propager la résolution de région à travers la phase de dédup des findings (qui agrège actuellement les ops I/O évitables globalement par `(trace_id, template, source_endpoint, grouping)`). C'est complexe et sujet aux erreurs.
 
 À la place, Perf Sentinel calcule :
 

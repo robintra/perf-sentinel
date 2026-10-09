@@ -262,7 +262,7 @@ The distinct values on `total` and `avoidable` signal to downstream consumers th
 
 ### Avoidable via ratio (design choice)
 
-Computing avoidable CO₂ accurately per-region would require threading region resolution through the finding dedup phase (which currently aggregates avoidable I/O ops globally by `(trace_id, template, source_endpoint)`). This is complex and error-prone.
+Computing avoidable CO₂ accurately per-region would require threading region resolution through the finding dedup phase (which currently aggregates avoidable I/O ops globally by `(trace_id, template, source_endpoint, grouping)`). This is complex and error-prone.
 
 Instead, Perf Sentinel computes:
 
