@@ -284,7 +284,7 @@ async fn process_traces_emits_cross_batch_slow_finding() {
 
     let findings = slow_sql_findings(&store).await;
     assert_eq!(findings.len(), 1);
-    assert!(!findings[0].signature.is_empty());
+    assert_ne!(findings[0].signature, "");
     assert_eq!(findings[0].pattern.occurrences, 3);
     assert!(
         metrics
@@ -307,7 +307,7 @@ async fn process_traces_without_slow_window_keeps_batch_behaviour() {
         test_ctx(&detect_config, &carbon, &metrics, &store, true, &cell),
     )
     .await;
-    assert!(slow_sql_findings(&store).await.is_empty());
+    assert_eq!(slow_sql_findings(&store).await, []);
 }
 
 #[test]
@@ -345,7 +345,7 @@ async fn context_only_batch_repairs_source_without_io_metric_inflation() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     let trace = window
         .lock()
         .await
@@ -393,7 +393,7 @@ async fn consumer_context_batch_names_an_unknown_event() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     let trace = window
         .lock()
         .await
@@ -423,10 +423,9 @@ async fn late_outer_server_replaces_known_nested_route_within_service() {
             endpoint: Some("/api/payments/history".to_string()),
         }],
     };
-    assert!(
-        ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter,)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter,).await,
+        []
     );
     assert_eq!(
         window
@@ -451,10 +450,9 @@ async fn late_outer_server_replaces_known_nested_route_within_service() {
             endpoint: Some("/api/fault/pool-saturation".to_string()),
         }],
     };
-    assert!(
-        ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter,)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter,).await,
+        []
     );
 
     let trace = window
@@ -501,10 +499,9 @@ async fn late_outer_route_crosses_a_retained_internal_edge() {
             },
         ],
     };
-    assert!(
-        ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(first, 1.0, &window, &metrics, &mut service_meter).await,
+        []
     );
     assert!((metrics.events_processed_total.get() - 1.0).abs() < f64::EPSILON);
 
@@ -519,10 +516,9 @@ async fn late_outer_route_crosses_a_retained_internal_edge() {
             endpoint: Some("/api/fault/pool-saturation".to_string()),
         }],
     };
-    assert!(
-        ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(outer, 1.0, &window, &metrics, &mut service_meter).await,
+        []
     );
     assert!((metrics.events_processed_total.get() - 1.0).abs() < f64::EPSILON);
 
@@ -549,7 +545,7 @@ async fn late_caller_root_does_not_cross_the_service_boundary() {
     callee_sql.event.source.endpoint = "/api/payments/history".to_string();
     let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
-    assert!(
+    assert_eq!(
         ingest_event_batch(
             super::super::IngestBatch {
                 events: vec![callee_sql.event],
@@ -567,10 +563,10 @@ async fn late_caller_root_does_not_cross_the_service_boundary() {
             &metrics,
             &mut service_meter,
         )
-        .await
-        .is_empty()
+        .await,
+        []
     );
-    assert!(
+    assert_eq!(
         ingest_event_batch(
             super::super::IngestBatch {
                 events: Vec::new(),
@@ -588,8 +584,8 @@ async fn late_caller_root_does_not_cross_the_service_boundary() {
             &metrics,
             &mut service_meter,
         )
-        .await
-        .is_empty()
+        .await,
+        []
     );
 
     let trace = window
@@ -638,7 +634,7 @@ async fn zero_sampling_drops_root_context_without_evicting_a_kept_trace() {
     .await;
 
     let guard = window.lock().await;
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     assert!(guard.peek_clone("kept").is_some());
     assert!(guard.peek_clone("dropped").is_none());
 }
@@ -675,7 +671,7 @@ async fn partial_sampling_keeps_only_matching_root_context() {
         }],
     };
 
-    assert!(
+    assert_eq!(
         ingest_event_batch(
             root_batch(&kept_trace_id, "/api/kept"),
             rate,
@@ -683,11 +679,11 @@ async fn partial_sampling_keeps_only_matching_root_context() {
             &metrics,
             &mut service_meter,
         )
-        .await
-        .is_empty()
+        .await,
+        []
     );
     assert!(window.lock().await.peek_clone(&kept_trace_id).is_some());
-    assert!(
+    assert_eq!(
         ingest_event_batch(
             root_batch(&dropped_trace_id, "/api/dropped"),
             rate,
@@ -695,8 +691,8 @@ async fn partial_sampling_keeps_only_matching_root_context() {
             &metrics,
             &mut service_meter,
         )
-        .await
-        .is_empty()
+        .await,
+        []
     );
 
     let guard = window.lock().await;
@@ -735,7 +731,7 @@ async fn same_batch_root_reconciles_new_trace_before_detection() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     let spans = window
         .lock()
         .await
@@ -785,7 +781,7 @@ async fn same_batch_root_reconciles_existing_and_new_events() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     let trace = window
         .lock()
         .await
@@ -879,7 +875,7 @@ async fn same_batch_reconciliation_stays_within_the_bounded_work_budget() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     assert!(
         started.elapsed() < Duration::from_secs(2),
         "same-batch reconciliation exceeded the bounded-work budget"
@@ -937,7 +933,7 @@ async fn oversized_root_group_is_reconciled_once_per_batch() {
     )
     .await;
 
-    assert!(evicted.is_empty());
+    assert_eq!(evicted, []);
     assert_eq!(window.lock().await.reconciliation_passes(), 1);
 }
 
@@ -986,7 +982,7 @@ async fn unresolved_io_only_batches_stay_within_the_bounded_work_budget() {
                 .event
             })
             .collect();
-        assert!(
+        assert_eq!(
             ingest_event_batch(
                 super::super::IngestBatch {
                     events,
@@ -997,8 +993,8 @@ async fn unresolved_io_only_batches_stay_within_the_bounded_work_budget() {
                 &metrics,
                 &mut service_meter,
             )
-            .await
-            .is_empty()
+            .await,
+            []
         );
     }
     let drained = window.lock().await.drain_all();
@@ -1096,7 +1092,7 @@ async fn daemon_otlp_batches_reconcile_two_late_roots_through_real_ingest() {
     for _ in 0..2 {
         let batch = rx.recv().await.expect("daemon ingest batch sent");
         let evicted = ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter).await;
-        assert!(evicted.is_empty());
+        assert_eq!(evicted, []);
     }
 
     let (trace_id, spans) = window
@@ -1138,10 +1134,9 @@ async fn daemon_otlp_root_first_batch_reconciles_later_io_through_real_ingest() 
     let window = test_window();
     let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
     let root_batch = rx.recv().await.expect("early root batch sent");
-    assert!(
-        ingest_event_batch(root_batch, 1.0, &window, &metrics, &mut service_meter)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(root_batch, 1.0, &window, &metrics, &mut service_meter).await,
+        []
     );
     assert!(metrics.events_processed_total.get().abs() < f64::EPSILON);
     assert!(
@@ -1161,10 +1156,9 @@ async fn daemon_otlp_root_first_batch_reconciles_later_io_through_real_ingest() 
         .await
         .expect("later I/O export accepted");
     let io_batch = rx.recv().await.expect("later I/O batch sent");
-    assert!(
-        ingest_event_batch(io_batch, 1.0, &window, &metrics, &mut service_meter)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(io_batch, 1.0, &window, &metrics, &mut service_meter).await,
+        []
     );
 
     let (trace_id, spans) = window
@@ -1213,10 +1207,9 @@ async fn daemon_otlp_blank_service_does_not_link_separate_exports_at_cap_one() {
     })));
     let mut service_meter = ServiceMeter::new(MAX_SERVICE_CARDINALITY, true);
 
-    assert!(
-        ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter)
-            .await
-            .is_empty()
+    assert_eq!(
+        ingest_event_batch(batch, 1.0, &window, &metrics, &mut service_meter).await,
+        []
     );
     let (_, spans) = window
         .lock()
@@ -1268,7 +1261,7 @@ fn evict_expired_returns_traces() {
 
     // Not yet expired
     let expired = w.evict_expired(50);
-    assert!(expired.is_empty());
+    assert_eq!(expired, []);
     assert_eq!(w.active_traces(), 1);
 
     // Now expired (150 - 0 = 150 > 100)

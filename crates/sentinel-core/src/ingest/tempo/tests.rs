@@ -79,7 +79,7 @@ fn protobuf_decode_empty_request() {
 
     let decoded = ExportTraceServiceRequest::decode(bytes::Bytes::from(buf)).unwrap();
     let events = crate::ingest::otlp::convert_otlp_request(&decoded);
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 // ---------------------------------------------------------------
@@ -225,7 +225,7 @@ async fn fetch_trace_decodes_empty_otlp_request() {
     let events = fetch_trace(&client, &endpoint, "abc123def456", None)
         .await
         .expect("valid OTLP must decode");
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     server.await.unwrap();
 }
 

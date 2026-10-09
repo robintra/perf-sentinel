@@ -267,20 +267,20 @@ mod tests {
         let mut win = tracker();
         for i in 0..4 {
             let id = format!("lock-{i}");
-            assert!(emitted(&mut win, &[slow_a(&id)], T0 + i * 15_000).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a(&id)], T0 + i * 15_000), []);
         }
         for k in 1..=4 {
             let id = format!("iso-{k}");
-            assert!(emitted(&mut win, &[slow_a(&id)], T0 + k * 20 * MIN).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a(&id)], T0 + k * 20 * MIN), []);
         }
     }
 
     #[test]
     fn lock_burst_across_consecutive_ticks_is_one_episode() {
         let mut win = tracker();
-        assert!(emitted(&mut win, &[slow_a("a"), slow_a("b")], T0).is_empty());
-        assert!(emitted(&mut win, &[slow_a("c")], T0 + 15_000).is_empty());
-        assert!(emitted(&mut win, &[slow_a("d")], T0 + 45_000).is_empty());
+        assert_eq!(emitted(&mut win, &[slow_a("a"), slow_a("b")], T0), []);
+        assert_eq!(emitted(&mut win, &[slow_a("c")], T0 + 15_000), []);
+        assert_eq!(emitted(&mut win, &[slow_a("d")], T0 + 45_000), []);
         assert_eq!(episode_counts(&win), vec![1]);
     }
 
@@ -296,8 +296,8 @@ mod tests {
     fn recurring_template_emits_once() {
         let mut win = tracker();
         let [a, b, c] = three_episodes();
-        assert!(emitted(&mut win, &[a], T0).is_empty());
-        assert!(emitted(&mut win, &[b], T0 + 2 * MIN).is_empty());
+        assert_eq!(emitted(&mut win, &[a], T0), []);
+        assert_eq!(emitted(&mut win, &[b], T0 + 2 * MIN), []);
         let batch = [c];
         let findings = emitted(&mut win, &batch, T0 + 5 * MIN);
         assert_eq!(findings.len(), 1);
@@ -337,7 +337,7 @@ mod tests {
         crate::acknowledgments::enrich_with_signatures(&mut windowed);
         crate::acknowledgments::enrich_with_signatures(&mut batch);
         assert_eq!(windowed.len(), 1);
-        assert!(!windowed[0].signature.is_empty());
+        assert_ne!(windowed[0].signature, "");
         // Only the representative trace differs: the signature ignores it.
         assert_eq!(windowed[0].trace_id, "c");
         windowed[0].trace_id.clone_from(&batch[0].trace_id);
@@ -347,9 +347,9 @@ mod tests {
     #[test]
     fn episodes_expire_outside_window() {
         let mut win = tracker();
-        assert!(emitted(&mut win, &[slow_a("a")], T0).is_empty());
-        assert!(emitted(&mut win, &[slow_a("b")], T0 + 8 * MIN).is_empty());
-        assert!(emitted(&mut win, &[slow_a("c")], T0 + 16 * MIN).is_empty());
+        assert_eq!(emitted(&mut win, &[slow_a("a")], T0), []);
+        assert_eq!(emitted(&mut win, &[slow_a("b")], T0 + 8 * MIN), []);
+        assert_eq!(emitted(&mut win, &[slow_a("c")], T0 + 16 * MIN), []);
         assert_eq!(episode_counts(&win), vec![2]);
     }
 
@@ -372,10 +372,10 @@ mod tests {
         // Cooldown runs until T0 + 20 min.
         for (i, m) in [7, 9, 12].into_iter().enumerate() {
             let id = format!("cd-{i}");
-            assert!(emitted(&mut win, &[slow_a(&id)], T0 + m * MIN).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a(&id)], T0 + m * MIN), []);
         }
         // Three episodes in the window, but no span of the key.
-        assert!(emitted(&mut win, &[], T0 + 21 * MIN).is_empty());
+        assert_eq!(emitted(&mut win, &[], T0 + 21 * MIN), []);
         // The 7 min episode expires, 9, 12 and 22 remain.
         assert_eq!(emitted(&mut win, &[slow_a("e")], T0 + 22 * MIN).len(), 1);
     }
@@ -389,7 +389,7 @@ mod tests {
         let batch_findings = crate::detect::slow::detect_slow_cross_trace(&batch, 500, 3);
         assert_eq!(batch_findings.len(), 1);
         let (findings, _) = win.observe(&batch, &batch_findings, T0 + 2 * MIN);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
         assert_eq!(win.entries.len(), 2);
         for entry in win.entries.values() {
             assert!(entry.episodes.is_empty());
@@ -403,9 +403,9 @@ mod tests {
         let batch = [slow_a("a1"), slow_a("a2"), slow_a("a3")];
         let batch_findings = crate::detect::slow::detect_slow_cross_trace(&batch, 500, 3);
         assert_eq!(batch_findings.len(), 1);
-        assert!(win.observe(&batch, &batch_findings, T0).0.is_empty());
+        assert_eq!(win.observe(&batch, &batch_findings, T0).0, []);
         for (m, id) in [(2, "b"), (4, "c"), (6, "d")] {
-            assert!(emitted(&mut win, &[slow_a(id)], T0 + m * MIN).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a(id)], T0 + m * MIN), []);
         }
     }
 
@@ -413,16 +413,25 @@ mod tests {
     fn services_are_not_merged() {
         let mut win = tracker();
         let ts = "2025-07-10T14:32:01.000Z";
-        assert!(emitted(&mut win, &[slow("a", "svc-a", ts, 600_000)], T0).is_empty());
-        assert!(emitted(&mut win, &[slow("b", "svc-b", ts, 600_000)], T0 + 2 * MIN).is_empty());
-        assert!(emitted(&mut win, &[slow("c", "svc-c", ts, 600_000)], T0 + 5 * MIN).is_empty());
+        assert_eq!(
+            emitted(&mut win, &[slow("a", "svc-a", ts, 600_000)], T0),
+            []
+        );
+        assert_eq!(
+            emitted(&mut win, &[slow("b", "svc-b", ts, 600_000)], T0 + 2 * MIN),
+            []
+        );
+        assert_eq!(
+            emitted(&mut win, &[slow("c", "svc-c", ts, 600_000)], T0 + 5 * MIN),
+            []
+        );
     }
 
     #[test]
     fn single_trace_id_does_not_emit() {
         let mut win = tracker();
         for m in [0, 2, 5] {
-            assert!(emitted(&mut win, &[slow_a("same")], T0 + m * MIN).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a("same")], T0 + m * MIN), []);
         }
         assert_eq!(episode_counts(&win), vec![3]);
     }
@@ -431,7 +440,7 @@ mod tests {
     fn clock_step_back_does_not_panic() {
         let mut win = tracker();
         for now in [T0 + 10 * MIN, T0, T0 + MIN, 0, T0 + 3 * MIN] {
-            assert!(emitted(&mut win, &[slow_a("a")], now).is_empty());
+            assert_eq!(emitted(&mut win, &[slow_a("a")], now), []);
         }
     }
 

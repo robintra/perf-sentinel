@@ -784,7 +784,7 @@ mod tests {
     fn report_warning_details_default_empty_when_absent() {
         let report: Report =
             serde_json::from_str(&minimal_report_json_without_warning_details()).expect("parse");
-        assert!(report.warning_details.is_empty());
+        assert_eq!(report.warning_details, []);
     }
 
     #[test]
@@ -792,7 +792,7 @@ mod tests {
         let report: Report =
             serde_json::from_str(&minimal_report_json_without_warning_details()).expect("parse");
         assert_eq!(report.warnings, vec!["legacy warning text".to_string()]);
-        assert!(report.warning_details.is_empty());
+        assert_eq!(report.warning_details, []);
     }
 
     #[test]
@@ -884,7 +884,7 @@ mod tests {
         });
         let parsed: GreenSummary = serde_json::from_value(legacy).expect("deserialize legacy");
         assert!(parsed.energy_kwh.abs() < f64::EPSILON);
-        assert!(parsed.energy_model.is_empty());
+        assert_eq!(parsed.energy_model, "");
         assert!(parsed.per_service_carbon_kgco2eq.is_empty());
         assert!(parsed.per_service_energy_kwh.is_empty());
         assert!(parsed.per_service_region.is_empty());

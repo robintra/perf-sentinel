@@ -232,7 +232,7 @@ fn ttl_evicts_all_expired() {
 fn drain_empty_window() {
     let mut w = TraceWindow::new(WindowConfig::default());
     let drained = w.drain_all();
-    assert!(drained.is_empty());
+    assert_eq!(drained, []);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn evict_expired_returns_traces() {
 
     // Not yet expired
     let expired = w.evict_expired(50);
-    assert!(expired.is_empty());
+    assert_eq!(expired, []);
     assert_eq!(w.active_traces(), 2);
 
     // t1 expired (150 - 0 = 150 > 100), t2 not (150 - 50 = 100 <= 100)
@@ -1063,7 +1063,7 @@ fn early_root_context_reconciles_later_multi_service_events_and_drains_io() {
             .is_none()
     );
     assert_eq!(w.active_traces(), 1);
-    assert!(w.peek_clone("t1").expect("context retained").is_empty());
+    assert_eq!(w.peek_clone("t1").expect("context retained"), []);
     assert!(
         w.push(make_child("t1", "svc-a", "a", "a-mid", "a", "unknown"), 20,)
             .is_none()
@@ -1151,7 +1151,7 @@ fn early_root_context_expires_without_an_empty_detection_batch() {
     )]);
 
     assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
-    assert!(w.evict_expired(101).is_empty());
+    assert_eq!(w.evict_expired(101), []);
     assert_eq!(w.active_traces(), 0);
     w.push(
         make_child("t1", "svc-a", "late", "root", "late", "unknown"),

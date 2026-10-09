@@ -527,7 +527,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -555,7 +555,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -587,7 +587,7 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         // Only 1 distinct param set, below threshold of 5
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -606,7 +606,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -676,7 +676,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 0, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -813,7 +813,7 @@ mod tests {
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
         // Inconclusive verdict: heuristic stays silent, leaves the group
         // for the redundant detector.
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -825,7 +825,7 @@ mod tests {
         );
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -1122,7 +1122,7 @@ mod tests {
         let trace = make_trace(events);
         let n_plus_one =
             detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
-        assert!(n_plus_one.is_empty());
+        assert_eq!(n_plus_one, []);
     }
 
     #[test]
@@ -1133,7 +1133,7 @@ mod tests {
         let trace = make_trace(events);
         let n_plus_one =
             detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
-        assert!(n_plus_one.is_empty());
+        assert_eq!(n_plus_one, []);
     }
 
     #[test]
@@ -1143,7 +1143,7 @@ mod tests {
         let trace = make_trace(events);
         let n_plus_one =
             detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
-        assert!(n_plus_one.is_empty());
+        assert_eq!(n_plus_one, []);
     }
 
     #[test]
@@ -1180,7 +1180,7 @@ mod tests {
         let trace = make_trace(events);
         let n_plus_one =
             detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
-        assert!(n_plus_one.is_empty());
+        assert_eq!(n_plus_one, []);
     }
 
     #[test]
@@ -1261,7 +1261,7 @@ mod tests {
         let events = http_same_id_events(&[100, 100, 100, 100, 100, 100, 100]);
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -1269,7 +1269,7 @@ mod tests {
         let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -1312,6 +1312,6 @@ mod tests {
         let trace = make_trace(events);
         let findings =
             detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict, DEFAULT_MIN_CV);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 }

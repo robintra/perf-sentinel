@@ -272,7 +272,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_redundant(&trace, &[]);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -402,7 +402,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_redundant(&trace, &[]);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]

@@ -280,18 +280,18 @@ mod tests {
 
     #[test]
     fn parse_empty_body() {
-        assert!(
-            parse_metric_samples("", "kepler_container_cpu_joules_total", "container_name")
-                .is_empty()
+        assert_eq!(
+            parse_metric_samples("", "kepler_container_cpu_joules_total", "container_name"),
+            []
         );
     }
 
     #[test]
     fn parse_comments_only() {
         let body = "# HELP kepler_container_cpu_joules_total ...\n# TYPE kepler_container_cpu_joules_total counter\n";
-        assert!(
-            parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name")
-                .is_empty()
+        assert_eq!(
+            parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name"),
+            []
         );
     }
 
@@ -339,14 +339,14 @@ mod tests {
     fn parse_skips_invalid_value() {
         let body = "kepler_container_cpu_joules_total{container_name=\"order-svc\"} not_a_number\n";
         let out = parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name");
-        assert!(out.is_empty());
+        assert_eq!(out, []);
     }
 
     #[test]
     fn parse_skips_missing_label() {
         let body = "kepler_container_cpu_joules_total{pod_name=\"only-pod\"} 5.0\n";
         let out = parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name");
-        assert!(out.is_empty());
+        assert_eq!(out, []);
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
         let body = "kepler_container_cpu_joules_total 99.0\n";
         let out = parse_metric_samples(body, "kepler_container_cpu_joules_total", "container_name");
         // No label block means no label_value, so the sample is skipped.
-        assert!(out.is_empty());
+        assert_eq!(out, []);
     }
 
     // Alumet's exporter emits every attribute as a label alongside four
@@ -388,7 +388,7 @@ mod tests {
     fn parse_does_not_match_longer_metric_name_prefix() {
         let body = "rapl_consumed_energy_alumet_joules{domain=\"package\"} 7.0\n";
         let out = parse_metric_samples(body, "rapl_consumed_energy_alumet", "domain");
-        assert!(out.is_empty());
+        assert_eq!(out, []);
     }
 
     const ZONED: &str = "kepler_container_cpu_joules_total{container_name=\"order\",zone=\"package\"} 100\n\

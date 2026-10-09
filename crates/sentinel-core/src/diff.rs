@@ -659,8 +659,8 @@ mod tests {
         let before = make_report(vec![f.clone()], vec![endpoint("svc", "POST /api", 6)]);
         let after = make_report(vec![f], vec![endpoint("svc", "POST /api", 6)]);
         let diff = diff_runs(&before, &after);
-        assert!(diff.new_findings.is_empty());
-        assert!(diff.resolved_findings.is_empty());
+        assert_eq!(diff.new_findings, []);
+        assert_eq!(diff.resolved_findings, []);
         assert!(diff.severity_changes.is_empty());
         assert!(diff.endpoint_metric_deltas.is_empty());
     }
@@ -680,7 +680,7 @@ mod tests {
         );
         let diff = diff_runs(&before, &after);
         assert_eq!(diff.new_findings.len(), 1);
-        assert!(diff.resolved_findings.is_empty());
+        assert_eq!(diff.resolved_findings, []);
         assert!(diff.severity_changes.is_empty());
     }
 
@@ -698,7 +698,7 @@ mod tests {
         );
         let after = make_report(vec![], vec![]);
         let diff = diff_runs(&before, &after);
-        assert!(diff.new_findings.is_empty());
+        assert_eq!(diff.new_findings, []);
         assert_eq!(diff.resolved_findings.len(), 1);
         assert!(diff.severity_changes.is_empty());
     }
@@ -717,8 +717,8 @@ mod tests {
         let before = make_report(vec![f_warn], vec![]);
         let after = make_report(vec![f_crit], vec![]);
         let diff = diff_runs(&before, &after);
-        assert!(diff.new_findings.is_empty());
-        assert!(diff.resolved_findings.is_empty());
+        assert_eq!(diff.new_findings, []);
+        assert_eq!(diff.resolved_findings, []);
         assert_eq!(diff.severity_changes.len(), 1);
         let change = &diff.severity_changes[0];
         assert_eq!(change.before_severity, Severity::Warning);
@@ -1011,8 +1011,8 @@ mod tests {
         );
         let report = diff_runs(&before, &after);
 
-        assert!(report.new_findings.is_empty());
-        assert!(report.resolved_findings.is_empty());
+        assert_eq!(report.new_findings, []);
+        assert_eq!(report.resolved_findings, []);
         assert_eq!(report.mutated_findings.len(), 1);
         let pair = &report.mutated_findings[0];
         assert_eq!(
@@ -1106,8 +1106,8 @@ mod tests {
     fn code_anchor_arbitrates_ambiguous_mutations() {
         let report = anchored_two_by_two(&FindingType::NPlusOneSql);
 
-        assert!(report.new_findings.is_empty());
-        assert!(report.resolved_findings.is_empty());
+        assert_eq!(report.new_findings, []);
+        assert_eq!(report.resolved_findings, []);
         assert_eq!(report.mutated_findings.len(), 2);
         for pair in &report.mutated_findings {
             assert_eq!(pair.before.code_location, pair.after.code_location);

@@ -50,7 +50,7 @@ perf-sentinel analyze --tui --input traces.json
 
 For frozen frames you can zoom into panel by panel, jump to [Still frames](#still-frames). The per-command animated demos are collapsed just below.
 
-**Grafana**, when you run the daemon: [`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) over Prometheus `/metrics`, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) over the query API through the Infinity plugin. Neither ships in the Helm chart. Import them into the Grafana you already run. A `Compatibility` badge on each says when the daemon feeding it is older than its panels need.
+**Grafana**, when you run the daemon: [`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) over Prometheus `/metrics`, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) over the query API through the Infinity plugin. Neither ships in the Helm chart. Import them into the Grafana you already run. A `Compatibility` badge on each says when the daemon feeding it is older than its panels need. French variants of both, with every title and description translated, sit under [`examples/FR/`](examples/FR).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">

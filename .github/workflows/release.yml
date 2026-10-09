@@ -94,7 +94,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       # The target must land on the toolchain `rust-toolchain.toml` pins
-      # (1.98.1). `rustup target add` applies to the active toolchain.
+      # (1.99.0). `rustup target add` applies to the active toolchain.
       # The two musl targets add a cross-libc target onto their host toolchain.
       # The macOS and Windows entries add their own host triple, a harmless
       # no-op.

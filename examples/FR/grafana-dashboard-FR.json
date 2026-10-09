@@ -1,0 +1,1955 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "L'instance Prometheus qui scrape l'endpoint /metrics du daemon perf-sentinel.",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "bargauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "gauge",
+      "name": "gauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "heatmap",
+      "name": "heatmap",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "piechart",
+      "name": "piechart",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "timeseries",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "perf-sentinel"
+      ],
+      "targetBlank": false,
+      "title": "Dashboards perf-sentinel",
+      "tooltip": "Le dashboard voisin qui porte le tag perf-sentinel : Perf Sentinel findings lit l'API de requêtage et répond quelle opération sur quel endpoint.",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": [],
+      "title": "Analyse (filtrée par namespace des services et par service)",
+      "type": "row"
+    },
+    {
+      "title": "Compatibilité",
+      "description": "Indique si le daemon qui alimente ce dashboard est assez récent pour ses panneaux. La vérification repose sur la présence de deux métriques dont dépendent les panneaux, et non sur un numéro de version, parce qu'aucune métrique perf-sentinel n'en porte.\n\nLa métrique `perf_sentinel_incidents_total` est apparue en 0.20.0 et `perf_sentinel_analysis_service_overflow_total` en 0.18.0. Les deux sont publiées dès le démarrage du daemon, quelle que soit la configuration, donc leur absence indique l'âge du binaire. Si une règle de relabel retire l'une des deux au relevé, le daemon apparaît ici comme ancien.\n\nPartiellement compatible veut dire que 'Silence des services' reste vide. Non compatible veut dire que les sélecteurs Service et Namespace des services proposent des noms que les panneaux de findings ne peuvent pas prendre en compte, si bien qu'une vue filtrée donne l'impression d'un service sans problème.\n\nDes panneaux vides sur un daemon à jour viennent de la configuration, pas de l'âge : `[green] enabled = false` rend muets le ratio de gaspillage et les compteurs d'opérations évitables, et `[daemon] per_service_labels = false` ou `per_grouping_labels = false` vident les deux sélecteurs.",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "(absent_over_time(perf_sentinel_incidents_total{job=~\"$job\", namespace=~\"$namespace\"}[10m]) or vector(0))\n+ (absent_over_time(perf_sentinel_analysis_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[10m]) or vector(0))\nand on() (count(up{job=~\"$job\", namespace=~\"$namespace\"} == 1) > 0)",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "Compatibilité du dashboard"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Compatible",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Partiellement compatible",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "Non compatible",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "noValue": "Inconnu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "title": "Débit d'opérations I/O par service",
+      "description": "Requêtes base de données et appels HTTP sortants de chaque service instrumenté, par seconde : la charge brute, avant tout jugement sur la nécessité des appels.\n\nUn service bruyant ici et aussi présent dans les panneaux de findings est celui où l'optimisation rapporte le plus.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__rate_interval]))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "p95 de durée des spans lents par nature",
+      "description": "95e centile de la durée des spans ayant dépassé le seuil de lenteur (500 ms par défaut, configurable), séparé par nature : SQL, HTTP sortant et messaging.\n\nSeuls les spans lents entrent dans cet histogramme, donc la valeur est toujours au-dessus du seuil par construction et n'est pas la latence globale.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 10,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\", type=\"sql\"}[$__rate_interval])))",
+          "legendFormat": "SQL p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\", type=\"http_out\"}[$__rate_interval])))",
+          "legendFormat": "HTTP p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\", type=\"messaging\"}[$__rate_interval])))",
+          "legendFormat": "Messaging p95",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Top 10 des types de findings par sévérité",
+      "description": "Un finding est une inefficacité détectée, par exemple une boucle N+1 (la même requête répétée une fois par ligne au lieu d'une seule requête groupée). Ce panneau classe les types les plus fréquents par sévérité sur la plage de temps sélectionnée.\n\nDes comptes qui montent signalent du trafic nouveau sur un chemin non optimisé, ou une livraison récente qui a régressé.",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0)",
+          "legendFormat": "{{type}} ({{severity}})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "SQL redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "HTTP redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "SQL lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "HTTP lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Messaging lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Fanout excessif$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Service bavard$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Saturation de pool$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Appels sérialisés$1"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Distribution des durées de spans lents",
+      "description": "Heatmap des tranches de spans lents dans le temps, en complément du panneau p95 global avec la distribution complète des durées. Des bandes chaudes au-dessus de la ligne p95 signalent une dérive de la latence de queue.",
+      "type": "heatmap",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (le) (rate(perf_sentinel_slow_duration_seconds_bucket{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__rate_interval]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Ratio d'I/O gaspillées",
+      "description": "Part des opérations I/O attribuées à des anti-motifs évitables sur la plage de temps sélectionnée : `perf_sentinel_service_avoidable_io_ops_total` divisé par `perf_sentinel_service_analyzed_io_ops_total`.\n\nLes services au-delà du plafond de 128 services se replient sur service=\"_other\", les paires (service, grouping) au-delà du plafond de 512 paires se replient sur grouping=\"_other\", et les deux compteurs sont muets si le scoring green est coupé.\n\nLe numérateur compte les répétitions au-delà du premier appel pour N+1 SQL, N+1 HTTP, N+1 messaging, SQL redondant et HTTP redondant. Les spans lents, Service bavard, Fanout excessif, Appels sérialisés et Saturation de pool sont des opérations nécessaires et n'y ajoutent rien.",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) / (sum(increase(perf_sentinel_service_analyzed_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0)",
+          "refId": "A",
+          "legendFormat": "ratio de gaspillage"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "semi-dark-yellow",
+                "value": 0.15
+              },
+              {
+                "color": "orange",
+                "value": 0.3
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Findings critiques",
+      "description": "Findings classés critiques sur la plage de temps sélectionnée. La sévérité mesure l'écart au seuil de détection, pas l'impact utilisateur : un bon candidat à l'optimisation, pas une panne.\n\nAffiche 0 plutôt que 'no data' quand aucun n'a été émis, donc un zéro constant veut dire sain, sauf si le service sélectionné, au-delà du plafond d'analyse de 128 services, a été replié sur service=\"_other\", ou si sa paire (service, grouping), au-delà du plafond de 512 paires, a été repliée sur grouping=\"_other\".",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\", severity=\"critical\"}[$__range])) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Répartition des findings par type",
+      "description": "Les mêmes findings que le panneau de classement, vus en part du total. Un seul type qui domine pointe en général vers un framework ou un motif de requête, pas vers un problème général.\n\nUn type absent de la légende n'a pas augmenté sur la plage, ce qui n'est pas la même chose que jamais émis.",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "SQL redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "HTTP redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "SQL lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "HTTP lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Messaging lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Fanout excessif$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Service bavard$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Saturation de pool$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Appels sérialisés$1"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Total des findings (cumulé)",
+      "description": "Findings émis depuis le démarrage du daemon pour les services sélectionnés (le total général avec All), tous types et toutes sévérités confondus. Complète les panneaux par type et par sévérité avec un seul chiffre d'ensemble.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 17
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}) or vector(0)",
+          "legendFormat": "total",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "semi-dark-yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "title": "Opérations I/O ingérées (cumulé)",
+      "description": "Opérations I/O ingérées depuis le démarrage du daemon, par service, comptées à l'admission : un blocage de l'analyse n'aplatit pas la série, surveiller `perf_sentinel_analysis_queue_depth` et les compteurs de délestage pour cela.\n\nLes opérations au-delà du plafond d'ingestion de 1024 services sont jetées, pas repliées, et les paires (service, grouping) au-delà du plafond de 4096 paires se replient sur grouping=\"_other\". Remis à zéro au redémarrage. Une série plate alors que le trafic continue veut dire que l'ingestion est bloquée.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(perf_sentinel_service_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}) or vector(0)",
+          "refId": "A",
+          "legendFormat": "ops ingérées"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Débit d'opérations I/O évitables",
+      "description": "Opérations par seconde que l'analyseur a marquées comme évitables, c'est-à-dire que le même résultat aurait pu être obtenu avec moins d'appels, lues sur `perf_sentinel_service_avoidable_io_ops_total`. Contrairement au ratio de gaspillage cumulé, ce panneau réagit tout de suite, donc l'arrivée d'une PR d'optimisation se voit ici.\n\nAlimenté par N+1 SQL, N+1 HTTP, N+1 messaging, SQL redondant et HTTP redondant, une opération évitable par répétition au-delà du premier appel.\n\nUne hausse avec un débit de findings plat veut dire qu'un motif existant a grossi, plus de répétitions par trace, pas qu'un nouveau est apparu.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(perf_sentinel_service_avoidable_io_ops_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "ops évitables/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Débit de findings par type",
+      "description": "Findings émis par seconde par type, pour le namespace des services et les services sélectionnés, lus sur `perf_sentinel_findings_total`. Le même compteur que lisent le classement, la répartition et le tableau sur toute la plage, vu ici en tendance, donc une livraison qui a dégradé ou corrigé un chemin apparaît comme une marche.\n\nSeul panneau avec les exemplars activés. Avec le stockage des exemplars côté Prometheus et un datasource de traces associé dans Grafana (docs/HELM-DEPLOYMENT.md, Exemplars), chaque série porte des losanges qui pointent vers la pire trace de son type, de sa sévérité, de son service et de son namespace, gardée 15 minutes après le lot qui l'a enregistrée. Sans cette configuration, les losanges sont absents et les comptes sont inchangés.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__rate_interval]))",
+          "legendFormat": "{{type}}",
+          "refId": "A",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_sql(.*)$",
+            "renamePattern": "N+1 SQL$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_http(.*)$",
+            "renamePattern": "N+1 HTTP$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^n_plus_one_messaging(.*)$",
+            "renamePattern": "N+1 messaging$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_sql(.*)$",
+            "renamePattern": "SQL redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^redundant_http(.*)$",
+            "renamePattern": "HTTP redondant$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_sql(.*)$",
+            "renamePattern": "SQL lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_http(.*)$",
+            "renamePattern": "HTTP lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^slow_messaging(.*)$",
+            "renamePattern": "Messaging lent$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^excessive_fanout(.*)$",
+            "renamePattern": "Fanout excessif$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^chatty_service(.*)$",
+            "renamePattern": "Service bavard$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^pool_saturation(.*)$",
+            "renamePattern": "Saturation de pool$1"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^serialized_calls(.*)$",
+            "renamePattern": "Appels sérialisés$1"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Détail des findings par type et sévérité",
+      "description": "Décompte des findings par type et sévérité sur la plage de temps sélectionnée, lu sur `perf_sentinel_findings_total`, la même fenêtre que les panneaux de classement et de répartition à côté, donc les trois ne se contredisent jamais.\n\nUtile pour le tri brut et le copier-coller dans un ticket. Le total cumulé depuis le démarrage du daemon est dans la statistique 'Total des findings (cumulé)'.",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (type, severity) (increase(perf_sentinel_findings_total{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\", grouping=~\"$grouping\"}[$__range])) > 0",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "displayMode": "color-background",
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "SQL redondant",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "HTTP redondant",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "SQL lent",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "HTTP lent",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Messaging lent",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Fanout excessif",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Service bavard",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Saturation de pool",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Appels sérialisés",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Silence des services (temps depuis le dernier span)",
+      "description": "Secondes écoulées depuis le dernier span reçu par le daemon pour chaque service, d'après `perf_sentinel_service_last_span_timestamp_seconds`.\n\nUn signal de trafic et non de vivacité : un plantage, une mise à zéro des réplicas, un déploiement progressif et une tâche planifiée silencieuse se ressemblent tous, donc alerter dessus avec un `for:` plus long que le creux normal du service.\n\nUne montée à côté d'un débit de findings plat est la forme d'un service qui s'est arrêté, et la fenêtre à passer à `/api/findings?since_ms=&until_ms=`.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "time() - perf_sentinel_service_last_span_timestamp_seconds{job=~\"$job\", namespace=~\"$namespace\", service=~\"$service\"}",
+          "legendFormat": "{{service}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "panels": [],
+      "title": "Santé du daemon (global)",
+      "type": "row"
+    },
+    {
+      "title": "Santé du daemon",
+      "description": "up{} du job de scrape du daemon perf-sentinel. 0 signifie que Prometheus n'atteint pas /metrics. Ajuster le label job pour coller au nommage du ServiceMonitor ou des scrape_configs.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "title": "Traces analysées (cumulé)",
+      "description": "Traces dont l'analyse s'est terminée depuis le démarrage du daemon. Cadence au niveau trace, là où le débit d'événements traités est au niveau span. Le rapport entre les deux donne la taille moyenne d'une trace, un bon contrôle de la couverture d'instrumentation.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_traces_analyzed_total{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "title": "Traces actives",
+      "description": "Traces actuellement gardées en mémoire en attente d'être complètes, d'après `perf_sentinel_active_traces`. Une trace part à l'analyse quand elle expire (30 s par défaut) ou quand la fenêtre est pleine.\n\nUn plateau stable est sain. Une croissance continue veut dire que les traces arrivent plus vite qu'elles n'expirent et que le plafond va commencer à jeter les plus anciennes, voir le panneau de marge.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_active_traces{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "semi-dark-yellow",
+                "value": 5000
+              },
+              {
+                "color": "red",
+                "value": 10000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pression mémoire à l'ingestion",
+      "description": "`perf_sentinel_ingest_memory_pressure`, à 1 tant que le garde-fou d'admission cgroup refuse l'ingestion (HTTP 503, gRPC UNAVAILABLE, tous deux rejouables) pour tenir la RSS sous la limite mémoire. `PerfSentinelMemoryPressureRejecting` se déclenche au bout de 5 minutes dans cet état.\n\nLes requêtes refusées sont comptées sur le panneau d'admission OTLP sous reason=\"memory_pressure\", en requêtes et non en spans.\n\nVaut 0 aussi quand le garde-fou est coupé (`[daemon] memory_high_water_pct = 0`, la valeur par défaut) ou sans limite mémoire cgroup v2 : OK ne dit donc pas que le garde-fou est armé, `/api/config` le dit. La zone derrière la valeur est l'état sur la plage sélectionnée.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_ingest_memory_pressure{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OK",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "REJECTING",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "title": "Débit d'événements traités",
+      "description": "Spans admis dans le pipeline d'analyse par seconde, d'après `perf_sentinel_events_processed_total`, une fois les spans sans I/O filtrés.\n\nÀ comparer au panneau d'admission OTLP : un écart important est normal, la plupart des spans d'une trace ne sont pas des I/O. Une chute à zéro alors que l'admission continue veut dire que le pipeline ne consomme plus.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "rate(perf_sentinel_events_processed_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval])",
+          "legendFormat": "événements/s {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Fraîcheur des relevés d'énergie",
+      "description": "Secondes écoulées depuis le dernier échantillon renvoyé par chaque backend d'énergie configuré. Les séries sont conditionnées à `perf_sentinel_energy_backend_configured`, donc un backend non configuré ne dessine rien.\n\nZéro veut dire frais. Un âge qui dépasse l'intervalle de relevé veut dire que les mesures sont périmées, et l'attribution carbone retombe silencieusement sur l'estimation interne alors que les chiffres restent plausibles.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_alumet_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
+          "legendFormat": "alumet {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "perf_sentinel_scaphandre_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
+          "refId": "B",
+          "legendFormat": "scaphandre {{instance}}"
+        },
+        {
+          "expr": "perf_sentinel_kepler_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
+          "legendFormat": "kepler {{instance}}",
+          "refId": "C"
+        },
+        {
+          "expr": "perf_sentinel_redfish_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
+          "legendFormat": "redfish {{instance}}",
+          "refId": "D"
+        },
+        {
+          "expr": "perf_sentinel_cloud_energy_last_scrape_age_seconds{job=~\"$job\", namespace=~\"$namespace\"}\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"cloud_energy\"} == 1)",
+          "refId": "E",
+          "legendFormat": "cloud_energy {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Aucun backend de mesure d'énergie configuré. Les chiffres carbone viennent du proxy I/O interne. Voir docs/ENERGY.md pour brancher Alumet, Scaphandre, Kepler, Redfish ou le SPECpower cloud."
+        }
+      }
+    },
+    {
+      "title": "Mémoire du daemon (RSS)",
+      "description": "`process_resident_memory_bytes` par réplica, issu du collecteur de processus standard. Il n'est enregistré que sur Linux : un panneau vide sur macOS ou Windows est donc normal.\n\nLe garde-fou de pression mémoire compare le working set du cgroup à `[daemon] memory_high_water_pct`, et non à ce chiffre (l'écart entre les deux est le cache de pages). Une montée qui ne se stabilise jamais est ce que le garde-fou arrête, et le niveau du plateau, face à `resources.limits.memory`, est le chiffre qui sert à dimensionner la limite.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=~\"$job\", namespace=~\"$namespace\"}",
+          "legendFormat": "rss {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "noValue": "Aucune métrique de processus : le collecteur de processus n'est enregistré que sur Linux."
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Résultat des relevés d'énergie",
+      "description": "Tentatives de relevé par seconde sur chaque backend de mesure d'énergie configuré, par résultat, conditionnées à `perf_sentinel_energy_backend_configured`. cloud_energy n'a pas de compteurs de résultat et n'apparaît que sur le panneau de fraîcheur.\n\nCe panneau montre ce que la jauge de fraîcheur cache : un backend encore jamais relevé n'a aucune série de succès, un backend qui échoue un tick sur deux a une série d'échecs à côté. Motifs : `perf_sentinel_<backend>_scrape_failed_total{reason}`.\n\nUne réponse HTTP 200 sans aucun échantillon correspondant compte quand même comme un succès, alors que l'attribution carbone est retombée sur l'estimation interne. Seuls le log warn du daemon et la ligne de source d'énergie de `query monitor` et du rapport HTML le montrent, et les services concernés y comptent comme modélisés à partir du nombre d'opérations I/O.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_alumet_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"alumet\"} == 1)",
+          "legendFormat": "alumet {{status}} {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_scaphandre_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"scaphandre\"} == 1)",
+          "legendFormat": "scaphandre {{status}} {{instance}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_kepler_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"kepler\"} == 1)",
+          "legendFormat": "kepler {{status}} {{instance}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (job, instance, namespace, status) (rate(perf_sentinel_redfish_scrape_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))\n  and on(job, instance, namespace)\n(perf_sentinel_energy_backend_configured{job=~\"$job\", namespace=~\"$namespace\", backend=\"redfish\"} == 1)",
+          "legendFormat": "redfish {{status}} {{instance}}",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0,
+          "noValue": "Aucun backend de mesure d'énergie configuré, ou aucun relevé pour l'instant."
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Marge d'exécution et délestage",
+      "description": "Axe de gauche : traces actives, file d'analyse et findings stockés en pourcentage de leur plafond. Le conseiller le signale à partir de 90 % (ligne rouge).\n\nAxe de droite, par seconde : les lots délestés et leurs traces, les fenêtres d'archive jetées, les évictions de paires. Les traces délestées ne sont jamais analysées. `PerfSentinelAnalysisShedding` se déclenche au-delà d'une trace par seconde sur dix minutes, et un délestage durable veut dire qu'il faut monter `analysis_queue_capacity` ou ajouter du CPU. Les fenêtres d'archive jetées ont été servies en direct, mais l'archive de publication les sous-déclare.\n\nLes évictions de paires sont le corrélateur qui recycle ses paires au plafond `max_tracked_pairs`, à partir de quoi `/api/correlations` renvoie un sous-ensemble arbitraire sans que rien ne le signale. Aucune alerte ne le couvre.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_active_traces{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_max_active_traces{job=~\"$job\", namespace=~\"$namespace\"} * 100",
+          "refId": "A",
+          "legendFormat": "active_traces {{instance}}"
+        },
+        {
+          "expr": "perf_sentinel_analysis_queue_depth{job=~\"$job\", namespace=~\"$namespace\"} / perf_sentinel_analysis_queue_capacity{job=~\"$job\", namespace=~\"$namespace\"} * 100",
+          "refId": "B",
+          "legendFormat": "analysis_queue {{instance}}"
+        },
+        {
+          "expr": "perf_sentinel_stored_findings{job=~\"$job\", namespace=~\"$namespace\"} / (perf_sentinel_max_retained_findings{job=~\"$job\", namespace=~\"$namespace\"} > 0) * 100",
+          "refId": "C",
+          "legendFormat": "findings_store {{instance}}"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_shed_batches_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "refId": "D",
+          "legendFormat": "shed_batches/s"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_archive_windows_dropped_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "refId": "E",
+          "legendFormat": "archive_drops/s"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_correlator_pairs_evicted_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "refId": "F",
+          "legendFormat": "pair_evictions/s"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_shed_traces_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "refId": "G",
+          "legendFormat": "shed_traces/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shed_batches/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "archive_drops/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pair_evictions/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "semi-dark-yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shed_traces/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Plafonds de cardinalité (débordement)",
+      "description": "Attributions par seconde qu'un plafond de cardinalité par exécution a écartées. Cinq des six se replient sur `service=\"_other\"` ou `grouping=\"_other\"`, donc les totaux restent exacts et seule l'attribution des services ou namespaces vus ensuite devient plus grossière. Le plafond de 1024 services du compteur I/O d'ingestion laisse plutôt le service de côté, et sous-compte ainsi son débit et son attribution d'énergie mesurée.\n\nUne ligne plate à zéro est l'état normal et rien ici ne déclenche d'alerte. Une série qui monte veut dire qu'il y a plus de services ou de namespaces que le plafond n'en accepte, et les variables Service et Namespace des services montrent sous `_other` ceux qui sont repliés.\n\nUne fois atteints, les plafonds le restent jusqu'au redémarrage du daemon, donc après une rafale de noms de services jetables, tous les services arrivés ensuite restent repliés.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(perf_sentinel_service_io_ops_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "ops I/O ingestion, 1024 services (écartés)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_service_io_ops_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "ops I/O ingestion, 4096 paires",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "analyse, 128 services",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_analysis_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "analyse, 512 paires",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_slow_duration_service_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "histogramme lents, 64 services",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_slow_duration_grouping_overflow_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "histogramme lents, 256 paires",
+          "refId": "F"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Admission des spans OTLP (reçus vs filtrés)",
+      "description": "Admission des spans à la frontière OTLP : reçus, filtrés et rejetés par seconde, les deux derniers séparés par raison.\n\n`filtered` désigne les spans sans opération d'I/O analysable. `not_io` est normal et représente en général la majorité, `non_sql_datastore` et `merged_db_span` sont volontaires. `missing_db_statement` et `missing_http_url` sont des trous d'instrumentation qui transforment chaque requête en zéro événement pendant que toutes les alertes livrées restent au vert.\n\n`rejected` : `channel_full` est du travail perdu et la seule raison qui déclenche `PerfSentinelIngestRejecting`, `memory_pressure` est le garde-fou d'admission, `parse_error` et `unsupported_media_type` sont des requêtes malformées à corriger chez le producteur.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 86
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(perf_sentinel_otlp_spans_received_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "reçus/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (reason) (rate(perf_sentinel_otlp_spans_filtered_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "filtrés/s {{reason}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (reason) (rate(perf_sentinel_otlp_rejected_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "rejetés/s {{reason}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Export vers le Hub (en attente et perdus)",
+      "description": "Le tampon borné d'export vers le Hub, pour les installations où `[daemon.hub_export]` est configuré, les séries restant plates à zéro sinon.\n\nEn attente compte les signatures de findings distinctes qui attendent la prochaine poussée : la série plafonne donc au nombre de problèmes distincts du parc et ne monte au-delà que si les poussées échouent. Perdus (axe de droite) compte les évictions à `hub_export.max_pending`, les findings trop gros pour la charge utile et les lots refusés avec un 4xx non rejouable. Rien ne les rejoue, donc un débit non nul veut dire que la vue du Hub sur ce daemon est incomplète.\n\nAucune alerte livrée : ajouter `rate(perf_sentinel_hub_export_dropped_total[15m]) > 0` via `prometheusRule.additionalRules` si le Hub est en service.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 94
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_hub_export_pending{job=~\"$job\", namespace=~\"$namespace\"}",
+          "legendFormat": "en attente {{instance}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(perf_sentinel_hub_export_dropped_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "dropped/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dropped/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              },
+              {
+                "id": "max",
+                "value": null
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "per second"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Débit d'exports de rapport",
+      "description": "rate(perf_sentinel_export_report_requests_total). Suit la fréquence d'appel de /api/export/report (instantanés de CI, tri en dev, passage du rapport du daemon vers une analyse locale).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 94
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "rate(perf_sentinel_export_report_requests_total{job=~\"$job\", namespace=~\"$namespace\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "exports/s {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "title": "Énergie par fenêtre de scoring (kWh)",
+      "description": "Électricité attribuée à la charge analysée pour la dernière fenêtre de scoring. Selon la configuration, elle est mesurée (un agent qui lit la puissance réelle) ou modélisée à partir du nombre d'opérations, et la ligne de source d'énergie de `query monitor` et du rapport HTML indique lequel des deux.\n\nLe détail par service et par région est tenu hors de /metrics et se trouve dans le monitor de requêtes.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 102
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_energy_kwh{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "énergie {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Carbone par fenêtre de scoring (gCO2e)",
+      "description": "Émissions opérationnelles pour la même fenêtre, sommées sur les régions : l'énergie multipliée par l'intensité carbone du réseau local.\n\nElles bougent avec la charge mais aussi avec le réseau électrique, donc une baisse peut être une heure plus propre plutôt qu'une optimisation. Les émissions de fabrication sont exclues.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 102
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_carbon_gco2{job=~\"$job\", namespace=~\"$namespace\"}",
+          "refId": "A",
+          "legendFormat": "carbone {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: gCO2e",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "perf-sentinel",
+    "observability",
+    "greenops"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_events_processed_total, job)",
+        "query": {
+          "query": "label_values(perf_sentinel_events_processed_total, job)",
+          "refId": "job"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Le job Prometheus qui scrape perf-sentinel, un par installation quand plusieurs daemons partagent un Prometheus. All couvre tout le parc, en choisir un pour séparer la recette de la production. Pas de repli .* ici, contrairement à Namespace : un scrape pose toujours job, donc All se développe en les jobs qui portent des métriques perf-sentinel et jamais en toutes les cibles connues de Prometheus."
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace du daemon",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_events_processed_total{job=~\"$job\"}, namespace)",
+        "query": {
+          "query": "label_values(perf_sentinel_events_processed_total{job=~\"$job\"}, namespace)",
+          "refId": "namespace"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Namespace où tourne l'installation du daemon (attaché par le scrape), pas un namespace des services analysés. Pour le namespace des charges analysées, utiliser Namespace des services."
+      },
+      {
+        "name": "grouping",
+        "label": "Namespace des services",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, grouping)",
+        "query": {
+          "query": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\"}, grouping)",
+          "refId": "grouping"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Namespace du trafic analysé : le premier attribut présent parmi [detection] grouping_attributes (k8s.namespace.name, puis service.namespace, par défaut), donc sur Kubernetes le namespace où tournent les services. Filtre la ligne Analyse et rétrécit la liste Service. La valeur seule sert de label : deux attributs de même valeur partagent une entrée. grouping=\"_other\" est le bac de repli pour les paires (service, grouping) au-delà des plafonds de paires par exécution (512 sur les findings et les compteurs I/O d'analyse, 256 sur l'histogramme des spans lents, 4096 sur le compteur d'ingestion) ; une paire repliée garde son service. Un span qui ne portait aucun des attributs configurés a une valeur vide, que Prometheus stocke comme une absence de label : ces séries ne sont visibles qu'avec All."
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\", grouping=~\"$grouping\"}, service)",
+        "query": {
+          "query": "label_values({__name__=~\"perf_sentinel_service_io_ops_total|perf_sentinel_findings_total|perf_sentinel_service_avoidable_io_ops_total|perf_sentinel_service_analyzed_io_ops_total|perf_sentinel_slow_duration_seconds_count\", job=~\"$job\", namespace=~\"$namespace\", grouping=~\"$grouping\"}, service)",
+          "refId": "service"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {},
+        "options": [],
+        "hide": 0,
+        "description": "Service analysé (service.name OTLP). Filtre la ligne Analyse ; la ligne Santé du daemon est à l'échelle du daemon. service=\"_other\" est le bac de repli pour les services au-delà des plafonds de cardinalité par exécution (128 sur les findings, 64 sur l'histogramme des spans lents) : un service admis à l'ingestion mais au-delà d'un plafond d'analyse a ses findings là, pas sous son propre nom. Rétréci par Namespace des services."
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "perf-sentinel overview",
+  "uid": "perf-sentinel-overview",
+  "version": 10,
+  "refresh": "1m"
+}

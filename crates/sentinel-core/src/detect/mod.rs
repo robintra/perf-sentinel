@@ -846,7 +846,7 @@ mod tests {
     #[test]
     fn empty_traces_produce_no_findings() {
         let findings = detect(&[], &default_config());
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -971,7 +971,7 @@ mod tests {
             .collect();
         let trace = make_trace(events);
         let findings = detect(&[trace], &default_config());
-        assert!(!findings.is_empty());
+        assert_ne!(findings, []);
         for f in &findings {
             assert_eq!(f.confidence, Confidence::CiBatch);
         }
@@ -1083,8 +1083,8 @@ mod tests {
         assert_eq!(FindingType::PoolSaturation.rgesn_criteria(), &["3.2"]);
         assert_eq!(FindingType::SerializedCalls.rgesn_criteria(), &["8.10"]);
         // slow_* has no direct RGESN criterion (family 9 is ML-specific).
-        assert!(FindingType::SlowSql.rgesn_criteria().is_empty());
-        assert!(FindingType::SlowHttp.rgesn_criteria().is_empty());
+        assert_eq!(FindingType::SlowSql.rgesn_criteria(), &[] as &[&str]);
+        assert_eq!(FindingType::SlowHttp.rgesn_criteria(), &[] as &[&str]);
     }
 
     #[test]

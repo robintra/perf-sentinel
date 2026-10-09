@@ -276,12 +276,7 @@ mod tests {
             store.retain_for(&[trace(id)], &[finding_on(id)]).await;
         }
         assert_eq!(store.len().await, 2);
-        assert!(
-            store
-                .snapshot_for(&[finding_on("a")], NO_BUDGET)
-                .await
-                .is_empty()
-        );
+        assert_eq!(store.snapshot_for(&[finding_on("a")], NO_BUDGET).await, []);
         assert_eq!(
             store
                 .snapshot_for(&[finding_on("c")], NO_BUDGET)
@@ -375,12 +370,7 @@ mod tests {
         let store = TracesStore::new(0, 1_000);
         store.retain_for(&[trace("a")], &[finding_on("a")]).await;
         assert!(store.is_empty().await);
-        assert!(
-            store
-                .snapshot_for(&[finding_on("a")], NO_BUDGET)
-                .await
-                .is_empty()
-        );
+        assert_eq!(store.snapshot_for(&[finding_on("a")], NO_BUDGET).await, []);
     }
 
     #[tokio::test]

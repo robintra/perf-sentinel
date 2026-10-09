@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn deserialize_event_without_grouping_defaults_to_empty() {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        assert!(event.grouping.is_empty());
+        assert_eq!(event.grouping, []);
         assert_eq!(event.grouping_value(), None);
     }
 

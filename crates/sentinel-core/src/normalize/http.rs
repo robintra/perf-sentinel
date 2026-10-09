@@ -235,14 +235,14 @@ mod tests {
     fn root_path() {
         let r = normalize_http("GET", "/");
         assert_eq!(r.template, "GET /");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
     fn no_numeric_or_uuid_segments() {
         let r = normalize_http("GET", "/api/health");
         assert_eq!(r.template, "GET /api/health");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
     fn url_without_path_keeps_host() {
         let r = normalize_http("GET", "http://example.com");
         assert_eq!(r.template, "GET example.com/");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
             r.template,
             "GET /api/users/abcdefghijklmnopqrstuvwxyz1234567890"
         );
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -377,7 +377,7 @@ mod tests {
     fn trailing_slash() {
         let r = normalize_http("GET", "/api/users/");
         assert_eq!(r.template, "GET /api/users/");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
         // %34%32 = "42" but URL-encoded, not decoded before detection
         let r = normalize_http("GET", "/api/users/%34%32");
         assert_eq!(r.template, "GET /api/users/%34%32");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     // -- Query params capped at 100 --

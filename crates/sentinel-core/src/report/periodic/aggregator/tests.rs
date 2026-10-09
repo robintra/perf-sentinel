@@ -226,7 +226,7 @@ fn archive_family_groups_rotations_and_separates_hosts() {
         key("/var/log/host-a.ndjson")
     );
     // A bare filename has no parent and must still yield a key.
-    assert!(!key("archive.ndjson").is_empty());
+    assert_ne!(key("archive.ndjson"), "");
 }
 
 #[test]

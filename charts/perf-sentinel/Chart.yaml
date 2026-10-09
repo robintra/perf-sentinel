@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.26.0
-appVersion: "0.26.0"
+version: 0.26.1
+appVersion: "0.26.1"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,15 +36,13 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "appVersion 0.26.0. Kepler-derived energy and carbon drop: the daemon summed overlapping Kepler zones and now reads one, set by the new `[green.kepler] zone` key, `package` by default, which also leaves DRAM out. Energy and carbon gauges, `/api/energy` and periodic disclosures are not comparable across the upgrade for services Kepler feeds. On hwmon hosts `zone` has to name a sensor zone. The perf-sentinel CLI in the image names the energy source in `query monitor` and `query inspect`. Findings, signatures, API routes and metric names do not change."
-    - kind: fixed
-      description: "With `schema = \"legacy_power\"`, `[green.redfish]` reads the `PowerControl` entry whose `PhysicalContext` is `Chassis`, where it read entry 0, which a BMC may give to a CPU or memory subsystem."
+    - kind: changed
+      description: "appVersion 0.26.1. The daemon's API, its metrics and the findings it exports do not change. The image is built with Rust 1.99.0 and the newest compatible releases of its dependencies."
     - kind: added
-      description: "`[green.redfish]` takes `schema = \"sensor\"` for a chassis power `Sensor` resource, on firmware that serves neither `/Power` nor `PowerWatts`. A 0.25.5 daemon rejects it and `[green.kepler] zone` at load, so drop both before rolling back. At start the daemon warns when `[green.alumet] metric_name` names a non-RAPL series. No values.yaml key is added or removed, and no template changes."
+      description: "The two example dashboards under `examples/` gain French variants under `examples/FR/`, with the same queries, panels, uid and version, so importing one replaces its English counterpart. They do not ship in the chart. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.26.0
+      image: ghcr.io/robintra/perf-sentinel:0.26.1
       platforms:
         - linux/amd64
         - linux/arm64

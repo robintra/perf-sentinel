@@ -50,7 +50,7 @@ perf-sentinel analyze --tui --input traces.json
 
 Pour des images fixes à examiner panneau par panneau, allez aux [Captures](#captures). Les démos animées par commande sont repliées juste en dessous.
 
-**Grafana**, quand vous faites tourner le daemon : [`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) au-dessus du `/metrics` Prometheus, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) au-dessus de l'API de query par le greffon Infinity. Aucun des deux n'est embarqué dans le chart Helm. Importez-les dans le Grafana que vous exploitez déjà. Une pastille `Compatibility` sur chacun dit quand le daemon qui l'alimente est plus ancien que ce que ses panneaux demandent.
+**Grafana**, quand vous faites tourner le daemon : [`examples/grafana-dashboard.json`](examples/grafana-dashboard.json) au-dessus du `/metrics` Prometheus, [`examples/grafana-findings-dashboard.json`](examples/grafana-findings-dashboard.json) au-dessus de l'API de query par le greffon Infinity. Aucun des deux n'est embarqué dans le chart Helm. Importez-les dans le Grafana que vous exploitez déjà. Une pastille `Compatibility` sur chacun dit quand le daemon qui l'alimente est plus ancien que ce que ses panneaux demandent. Leurs variantes françaises, titres et descriptions traduits, sont sous [`examples/FR/`](examples/FR).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/grafana/overview-dark.png">

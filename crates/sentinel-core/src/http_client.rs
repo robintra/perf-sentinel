@@ -476,7 +476,7 @@ WVrpkH89K3zaMAoGCCqGSM49BAMCA0gAMEUCIG+tlfC0Ghm/gLmhPlD3+TsQphYO
     #[test]
     fn missing_pem_bundle_loads_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(load_pem_roots(&dir.path().join("absent.pem")).is_empty());
+        assert_eq!(load_pem_roots(&dir.path().join("absent.pem")), []);
     }
 
     #[test]

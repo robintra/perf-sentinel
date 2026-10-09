@@ -291,7 +291,7 @@ mod tests {
 
         let back: EmbeddedSpan = serde_json::from_value(value).unwrap();
 
-        assert!(back.timestamp.is_empty());
+        assert_eq!(back.timestamp, "");
     }
 
     #[test]

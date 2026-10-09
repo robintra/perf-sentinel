@@ -3,10 +3,10 @@ members = ["crates/sentinel-core", "crates/sentinel-cli"]
 resolver = "3"
 
 [workspace.package]
-version = "0.26.0"
+version = "0.26.1"
 edition = "2024"
 license = "AGPL-3.0-only"
-rust-version = "1.98.1"
+rust-version = "1.99.0"
 repository = "https://github.com/robintra/perf-sentinel"
 homepage = "https://github.com/robintra/perf-sentinel"
 keywords = ["performance", "n-plus-one", "greenops", "observability", "opentelemetry"]

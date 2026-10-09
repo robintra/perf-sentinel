@@ -857,7 +857,7 @@ fn apply_to_report_future_ack_applied() {
         now_2026_05_02(),
         ReportOrigin::FreshAnalysis,
     );
-    assert!(report.findings.is_empty());
+    assert_eq!(report.findings, []);
     assert_eq!(report.acknowledged_findings.len(), 1);
 }
 
@@ -928,8 +928,8 @@ fn enrich_with_signatures_overwrites() {
     enrich_with_signatures(&mut findings);
     assert_ne!(findings[0].signature, "stale");
     assert_ne!(findings[1].signature, "also-stale");
-    assert!(!findings[0].signature.is_empty());
-    assert!(!findings[1].signature.is_empty());
+    assert_ne!(findings[0].signature, "");
+    assert_ne!(findings[1].signature, "");
 }
 
 #[test]

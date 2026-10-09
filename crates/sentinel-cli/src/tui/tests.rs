@@ -1304,8 +1304,8 @@ fn ack_modal_open_ack_focuses_reason_and_clears_buffers() {
         }
     );
     assert_eq!(modal.focus, AckFormField::Reason);
-    assert!(modal.reason_buf.is_empty());
-    assert!(modal.expires_buf.is_empty());
+    assert_eq!(modal.reason_buf, "");
+    assert_eq!(modal.expires_buf, "");
     assert!(modal.error_message.is_none());
 }
 

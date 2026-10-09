@@ -196,7 +196,7 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -246,6 +246,6 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 5);
 
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 }
