@@ -23,6 +23,11 @@ The embedded reference data keeps its vintages for this release: the SPECpower i
 - When one batch brought a trace more route roots, consumer destinations or parent links than `max_events_per_trace` holds, the daemon kept the ones its hash maps listed first, a choice that changed at every restart. A later span that resolved its endpoint through a dropped one could then read the real route on one run and `unknown` on another, and its finding's signature and per-endpoint metrics with it. The daemon now admits them in service then span ID order. With the default cap of 1000 this takes over a thousand roots or links for one trace in one batch.
 - A configuration whose `[green.service_regions]`, or whose `[green.electricity_maps] region_map` once a token enables that section, holds two keys that differ only in case and map to different values is rejected at load, naming both keys. Both tables match case-insensitively and are lowercased at load, so one key silently won, and which one followed a hash map: the region of that service, and every energy and CO2 figure derived from it, changed between runs and between daemon restarts. Such a configuration loaded before this release and now fails, so keep one of the two keys before upgrading. Keys that differ only in case but agree on the value still load. `docs/CONFIGURATION.md` and its French mirror say so.
 
+### Changed
+
+- `Cargo.lock` moves `cc` to 1.6.0, `const-hex` to 1.19.3, `find-msvc-tools` to 0.1.14 and `smallvec` to 1.16.2, and `fuzz/Cargo.lock` follows the root lock again on every crate they share. The fuzz lock had stayed on tokio 1.53.1, hyper 1.11.1, hyper-util 0.1.20, libc 0.2.189 and want 0.3.1, and an IDE that indexes both workspaces then held two `TcpStream` types and reported false E0277 errors in `daemon/tls.rs`.
+
+
 ## [0.26.1] - 2026-10-09
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature, and the daemon's API, its metrics and the findings it exports do not change. The two example dashboards gain French variants under `examples/FR/`, the toolchain moves to Rust 1.99.0 and the lockfiles move to the newest compatible dependency releases.
