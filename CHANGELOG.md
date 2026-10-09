@@ -11,6 +11,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - The pinned toolchain moves from Rust 1.98.1 to 1.99.0 (`rust-toolchain.toml`, `rust-version`, the CI comments that name it and CONTRIBUTING.md). Clippy 1.99 adds the pedantic lint `assert_is_empty`, so the 206 test assertions written `assert!(x.is_empty())` or `assert!(!x.is_empty())` become `assert_eq!` and `assert_ne!` against an empty value and print the value when they fail.
+- `Cargo.lock` and `fuzz/Cargo.lock` move to the newest compatible releases, with no requirement changed in the `Cargo.toml` files: hyper 1.12.0, hyper-rustls 0.27.10, hyper-util 0.1.21, which brings in base64 0.23.1, libc 0.2.190, lru 0.18.5, thiserror 2.0.21, tokio 1.53.2, tokio-rustls 0.26.6, toml 1.1.8, uuid 1.27.0 and want 0.3.2.
 
 ## [0.26.0] - 2026-10-04
 
