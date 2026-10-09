@@ -298,7 +298,8 @@ pub(crate) struct AvoidableIoOps {
 type DedupKey<'a> = (&'a str, &'a str, &'a str, Option<(&'a str, &'a str)>);
 
 /// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`,
-/// grouping), taking max, plus the per-service split of the same deduped ops (so
+/// grouping), keeping per key the larger of its N+1 figure and its
+/// redundant findings summed (see [`KeyOps`]), plus the per-service split of the same deduped ops (so
 /// `service_avoidable_io_ops_total` cannot diverge from the global
 /// counter). Slow findings are not avoidable I/O: necessary operations
 /// that happen to be slow.
@@ -316,6 +317,40 @@ type DedupKey<'a> = (&'a str, &'a str, &'a str, Option<(&'a str, &'a str)>);
 /// it, and the same template in two groupings of one trace is two
 /// disjoint span sets. The approximate part of the split is which
 /// service made the one necessary call.
+/// Avoidable ops seen at one dedup key. N+1 findings at one key describe
+/// the same spans, so the largest stands for them. Redundant findings at
+/// one key differ by their params, so their span sets are disjoint and
+/// they add up.
+#[derive(Default)]
+struct KeyOps<'a> {
+    n_plus_one: Option<(usize, &'a Finding)>,
+    redundant: Vec<(usize, &'a Finding)>,
+    redundant_total: usize,
+}
+
+impl<'a> KeyOps<'a> {
+    fn add(&mut self, avoidable: usize, finding: &'a Finding) {
+        if matches!(
+            finding.finding_type,
+            FindingType::RedundantSql | FindingType::RedundantHttp
+        ) {
+            self.redundant.push((avoidable, finding));
+            self.redundant_total += avoidable;
+        } else if self.n_plus_one.is_none_or(|(max, _)| avoidable > max) {
+            self.n_plus_one = Some((avoidable, finding));
+        }
+    }
+
+    /// The findings the key is credited from: its N+1 one, or its
+    /// redundant ones when they sum higher.
+    fn credited(&self) -> &[(usize, &'a Finding)] {
+        match &self.n_plus_one {
+            Some(entry) if entry.0 >= self.redundant_total => std::slice::from_ref(entry),
+            _ => &self.redundant,
+        }
+    }
+}
+
 pub(crate) fn dedup_avoidable_io_ops_by_service(
     findings: &[Finding],
 ) -> (AvoidableIoOps, BTreeMap<(String, String), usize>) {
@@ -323,25 +358,21 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
         .count();
-    // Value = (max avoidable, the finding it came from), so the winner's
-    // type and per-service split ride along.
-    let mut dedup: HashMap<DedupKey<'_>, (usize, &Finding)> = HashMap::with_capacity(capacity);
+    // The credited findings carry their type and per-service split along.
+    let mut dedup: HashMap<DedupKey<'_>, KeyOps<'_>> = HashMap::with_capacity(capacity);
     for f in findings {
         if !f.finding_type.is_avoidable_io() {
             continue;
         }
-        let avoidable = f.pattern.occurrences.saturating_sub(1);
-        let entry = dedup
+        dedup
             .entry((
                 &f.trace_id,
                 &f.pattern.template,
                 &f.source_endpoint,
                 f.grouping_identity(),
             ))
-            .or_insert((avoidable, f));
-        if avoidable > entry.0 {
-            *entry = (avoidable, f);
-        }
+            .or_default()
+            .add(f.pattern.occurrences.saturating_sub(1), f);
     }
     let mut out = AvoidableIoOps {
         total: 0,
@@ -351,7 +382,7 @@ pub(crate) fn dedup_avoidable_io_ops_by_service(
     // Borrowed keys while accumulating, one allocation per distinct pair
     // at the end rather than one per credited share.
     let mut per_service: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    for &(avoidable, f) in dedup.values() {
+    for &(avoidable, f) in dedup.values().flat_map(KeyOps::credited) {
         out.total += avoidable;
         let grouping = f.grouping_value().unwrap_or("");
         for (service, ops) in f.avoidable_by_service() {

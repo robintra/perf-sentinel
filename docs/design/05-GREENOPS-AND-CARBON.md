@@ -52,26 +52,23 @@ for (trace_idx, trace) in traces.iter().enumerate() {
 ### Step 2: dedup avoidable I/O
 
 ```rust
-// dedup_avoidable_io_ops_by_service: value = (max avoidable, the finding)
-let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
-    HashMap::with_capacity(capacity);
+// dedup_avoidable_io_ops_by_service: value = KeyOps, the largest N+1
+// finding and every redundant one seen at the key
+let mut dedup: HashMap<DedupKey<'_>, KeyOps<'_>> = HashMap::with_capacity(capacity);
 for f in findings {
     if !f.finding_type.is_avoidable_io() {
         continue; // slow findings are not avoidable
     }
-    let avoidable = f.pattern.occurrences.saturating_sub(1);
-    let entry = dedup
-        .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-        .or_insert((avoidable, f));
-    if avoidable > entry.0 {
-        *entry = (avoidable, f);
-    }
+    dedup
+        .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint, f.grouping_identity()))
+        .or_default()
+        .add(f.pattern.occurrences.saturating_sub(1), f);
 }
 // One pass over the deduped set feeds both the global total (split sql /
 // messaging by the retained type) and the per-service map behind
 // `perf_sentinel_service_avoidable_io_ops_total`, so the two cannot diverge.
 let mut per_service: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-for &(avoidable, f) in dedup.values() {
+for &(avoidable, f) in dedup.values().flat_map(KeyOps::credited) {
     out.total += avoidable;
     let grouping = f.grouping_value().unwrap_or("");
     for (service, ops) in f.avoidable_by_service() {
@@ -84,7 +81,7 @@ for &(avoidable, f) in dedup.values() {
 
 **Why include `source_endpoint` in the key?** The same SQL template (e.g., `SELECT * FROM config WHERE key = ?`) may be called from two different endpoints in the same trace. Each endpoint's avoidable ops should be counted independently. Without `source_endpoint`, `max(5, 3) = 5` would undercount. The correct total is `5 + 3 = 8`.
 
-**Why `max()` instead of `sum()`?** Within the same (trace, template, endpoint), both N+1 and redundant detectors may fire on overlapping sets of spans. Taking the max prevents double-counting: if N+1 reports 9 avoidable and redundant reports 4 avoidable for the same group, the true avoidable count is 9 (the larger set already includes the smaller one).
+**Why the larger of the N+1 figure and the redundant sum?** Two N+1 findings at one key describe the same spans, so the largest stands for them. Redundant findings at one key are one template called with different parameters, which are disjoint sets of spans, so they add up: 3 calls with `id = 1` and 4 with `id = 2` are 2 + 3 = 5 avoidable, not 3. The redundant detector skips a template the N+1 detector already reported in the same grouping, so an N+1 and a redundant finding no longer share a key. Keeping the larger of the two readings stays safe if they ever do, since the N+1 set would then include the redundant one.
 
 **Slow findings excluded:** slow queries are necessary operations that happen to be slow. They need optimization (indexing, caching), not elimination. Including them in the waste ratio would conflate "wasteful I/O" with "slow I/O".
 

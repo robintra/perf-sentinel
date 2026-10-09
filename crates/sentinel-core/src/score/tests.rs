@@ -3624,6 +3624,39 @@ fn dedup_credits_the_winning_split_per_service() {
     assert_eq!(per_service.values().sum::<usize>(), out.total);
 }
 
+/// One template called with two param sets is two redundant findings on
+/// disjoint spans at one key, so their avoidable ops add up.
+#[test]
+fn dedup_sums_redundant_findings_that_share_a_key() {
+    let mut by_id_1 = crate::test_helpers::make_finding(FindingType::RedundantSql, Severity::Info);
+    by_id_1.pattern.occurrences = 3;
+    let mut by_id_2 = by_id_1.clone();
+    by_id_2.pattern.occurrences = 4;
+
+    let (out, per_service) = dedup_avoidable_io_ops_by_service(&[by_id_1, by_id_2]);
+
+    assert_eq!(out.total, 5);
+    assert_eq!(out.sql, 5);
+    assert_eq!(per_service.values().sum::<usize>(), 5);
+    assert_eq!(per_service.len(), 1, "{per_service:?}");
+}
+
+/// The key keeps the larger reading: summed redundant findings above an
+/// N+1 figure win, and the N+1 split is not credited.
+#[test]
+fn dedup_credits_summed_redundant_findings_over_a_smaller_n_plus_one() {
+    let mut n_plus_one =
+        crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+    n_plus_one.pattern.occurrences = 3;
+    let mut redundant = n_plus_one.clone();
+    redundant.finding_type = FindingType::RedundantSql;
+    redundant.pattern.occurrences = 4;
+
+    let (out, _) = dedup_avoidable_io_ops_by_service(&[n_plus_one, redundant.clone(), redundant]);
+
+    assert_eq!(out.total, 6);
+}
+
 /// One template in two groupings of the same trace is two disjoint span
 /// sets, so both count, each under its own grouping.
 #[test]
