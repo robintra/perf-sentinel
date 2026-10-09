@@ -1126,6 +1126,10 @@
           <iframe id="ps-embed-frame" loading="lazy" title="Perf Sentinel HTML report" style="display:block;width:100%;height:600px;border:0;background:var(--embed-bg)"></iframe>
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center">{{ embedCaption }}</div>
+        <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:14px">
+          <a data-plain href="{{ psRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--rust);background:color-mix(in srgb,var(--rust) 12%,transparent);border:1px solid color-mix(in srgb,var(--rust) 38%,transparent);border-radius:999px;padding:8px 14px" style-hover="border-color:var(--rust)">{{ psRelLabel }}</a>
+          <a data-plain href="{{ hubRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--dotnet);background:color-mix(in srgb,var(--dotnet) 12%,transparent);border:1px solid color-mix(in srgb,var(--dotnet) 38%,transparent);border-radius:999px;padding:8px 14px" style-hover="border-color:var(--dotnet)">{{ hubRelLabel }}</a>
+        </div>
       </div>
     </section>
 
@@ -1517,10 +1521,6 @@
               <div><span class="ps-pr" style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span class="ps-cm" style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
             </div>
             <a data-plain data-tech-only="" href="{{ ctaGuideHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:#E0F4ED" style-hover="gap:11px"><span data-ltext>{{ ctaGuide }}</span><span data-arrow> →</span></a>
-            <div data-tech-only="" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
-              <a data-plain href="{{ psRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.3);border-radius:999px;padding:8px 14px" style-hover="border-color:rgba(224,244,237,.6)"><img src="assets/mark-dark.svg" alt="" width="15" height="15" style="display:block;flex:none">{{ psRelLabel }}</a>
-              <a data-plain href="{{ hubRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.3);border-radius:999px;padding:8px 14px" style-hover="border-color:rgba(224,244,237,.6)"><img src="assets/mark-dark.svg" alt="" width="15" height="15" style="display:block;flex:none">{{ hubRelLabel }}</a>
-            </div>
             <div data-nontech-only="" style="display:flex;gap:12px;flex-wrap:wrap">
               <a data-plain href="{{ ctaEndAHref }}" style="font-size:15px;font-weight:600;color:#0B523A;background:#E0F4ED;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(.96)">{{ ctaEndA }}</a>
               <a data-plain href="{{ ctaEndBHref }}" style="font-size:15px;font-weight:600;color:#E0F4ED;background:transparent;border:1px solid rgba(224,244,237,.3);border-radius:9px;padding:13px 22px" style-hover="border-color:rgba(224,244,237,.6)">{{ ctaEndB }}</a>
@@ -2504,8 +2504,8 @@ class Component extends DCLogic {
       ctaGuide: t.ctaGuide, ctaGuideHref: lang === 'fr' ? '/fr/guide#install' : '/guide#install',
       psRelLabel: 'Perf Sentinel ' + (this.state.psVersion || '0.26.2'),
       psRelHref: 'https://github.com/robintra/perf-sentinel/releases/tag/v' + (this.state.psVersion || '0.26.2'),
-      hubRelLabel: 'Perf Sentinel Hub ' + (this.state.hubVersion || '0.3.7'),
-      hubRelHref: 'https://github.com/robintra/PerfSentinelHub/releases/tag/v' + (this.state.hubVersion || '0.3.7'),
+      hubRelLabel: 'Perf Sentinel Hub ' + (this.state.hubVersion || '0.3.8'),
+      hubRelHref: 'https://github.com/robintra/PerfSentinelHub/releases/tag/v' + (this.state.hubVersion || '0.3.8'),
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
       ftDocQuickstart: t.ftDocQuickstart, ftDocCli: t.ftDocCli, ftDocConfig: t.ftDocConfig, ftDocMethod: t.ftDocMethod,
       ftProjLicense: t.ftProjLicense, ftBadgeNote: t.ftBadgeNote, ftBottomLeft: t.ftBottomLeft, ftBottomRight: t.ftBottomRight,
