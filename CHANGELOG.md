@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-10-09
+
+This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature, and the daemon's API, its metrics and the findings it exports do not change. The two example dashboards gain French variants under `examples/FR/`, the toolchain moves to Rust 1.99.0 and the lockfiles move to the newest compatible dependency releases.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure five days after 0.26.0 audited them and found inside their window. Nothing in 0.26.1 touches the scoring code.
+
 ### Added
 
 - `examples/FR/grafana-dashboard-FR.json` and `examples/FR/grafana-findings-dashboard-FR.json`, the two example dashboards with French titles, descriptions, variable labels, prose legends, value mappings and column headers. Queries, layout, units, thresholds, colors, uid and version are the English files', so importing a French file replaces its English counterpart. `scripts/translate-dashboards-fr.py` generates them from the English files, fails on any visible string its table does not know, on a column a transformation no longer finds and on an override that matches no legend, and `--check` verifies the committed files. `README.md`, `docs/HELM-DEPLOYMENT.md` and `docs/RELEASE-PROCEDURE.md` with their French mirrors, and `CONTRIBUTING.md`, mention them.

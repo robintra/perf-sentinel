@@ -10,6 +10,24 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.26.1]
+
+### Changed
+
+- **`appVersion` moves to `0.26.1`.** The daemon's API, its metrics and the
+  findings it exports do not change. The image is built with Rust 1.99.0
+  and the newest compatible releases of its dependencies, among them hyper
+  1.12.0, tokio 1.53.2 and toml 1.1.8.
+
+### Added
+
+- The two example dashboards under `examples/` gain French variants under
+  `examples/FR/`, with French titles, descriptions, legends and column
+  headers and the same queries, panels, uid and version, so importing one
+  replaces its English counterpart. They do not ship in the chart.
+
+No `values.yaml` key is added or removed, and no template changes.
+
 ## [0.26.0]
 
 ### Fixed
