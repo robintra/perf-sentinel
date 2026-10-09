@@ -897,3 +897,29 @@ fn messaging_chain_detects_publish_loop_and_keeps_traces_separate() {
         "five publishes to one topic are an N+1: {kinds:?}"
     );
 }
+
+/// Every analysis draws fresh hash keys, so an order, a tie-break or a
+/// floating-point sum that followed a map would differ across these runs.
+/// The fixture packs ties: one template in several groupings, redundant
+/// groups at one instant, tied fan-out and serialized parents, chatty
+/// calls tied on count, tied cross-trace slow traces, and one service
+/// whose traces carry two regions.
+#[test]
+fn analysis_output_is_identical_across_runs() {
+    let events = load_fixture("tied_findings.json");
+    let mut config = Config::default();
+    config.green.default_region = Some("eu-west-3".to_string());
+    let render = || {
+        let mut report = pipeline::analyze(events.clone(), &config);
+        report.analysis.duration_ms = 0;
+        serde_json::to_string(&report).expect("report serializes")
+    };
+    let first = render();
+    assert!(
+        first.contains("\"chatty_service\""),
+        "fixture must reach every detector"
+    );
+    for _ in 1..32 {
+        assert_eq!(render(), first);
+    }
+}

@@ -52,26 +52,23 @@ Le tri gratuit à l'itération du `BTreeMap` est noyé par son surcoût `O(log K
 ### Étape 2 : dédup des I/O évitables
 
 ```rust
-// dedup_avoidable_io_ops_by_service : valeur = (max évitable, le finding)
-let mut dedup: HashMap<(&str, &str, &str), (usize, &Finding)> =
-    HashMap::with_capacity(capacity);
+// dedup_avoidable_io_ops_by_service : valeur = KeyOps, le plus grand
+// finding N+1 et chaque finding redondant vu sur la clé
+let mut dedup: HashMap<DedupKey<'_>, KeyOps<'_>> = HashMap::with_capacity(capacity);
 for f in findings {
     if !f.finding_type.is_avoidable_io() {
         continue; // les findings lents ne sont pas évitables
     }
-    let avoidable = f.pattern.occurrences.saturating_sub(1);
-    let entry = dedup
-        .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
-        .or_insert((avoidable, f));
-    if avoidable > entry.0 {
-        *entry = (avoidable, f);
-    }
+    dedup
+        .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint, f.grouping_identity()))
+        .or_default()
+        .add(f.pattern.occurrences.saturating_sub(1), f);
 }
 // Une seule passe sur l'ensemble dédoublonné alimente à la fois le total global
 // (réparti sql / messaging selon le type retenu) et la map par service derrière
 // `perf_sentinel_service_avoidable_io_ops_total`, les deux ne peuvent donc pas diverger.
 let mut per_service: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-for &(avoidable, f) in dedup.values() {
+for &(avoidable, f) in dedup.values().flat_map(KeyOps::credited) {
     out.total += avoidable;
     let grouping = f.grouping_value().unwrap_or("");
     for (service, ops) in f.avoidable_by_service() {
@@ -84,7 +81,7 @@ for &(avoidable, f) in dedup.values() {
 
 **Pourquoi inclure `source_endpoint` dans la clé ?** Le même template SQL (ex. `SELECT * FROM config WHERE key = ?`) peut être appelé depuis deux endpoints différents dans la même trace. Les opérations évitables de chaque endpoint doivent être comptées indépendamment. Sans `source_endpoint`, `max(5, 3) = 5` sous-compterait : le total correct est `5 + 3 = 8`.
 
-**Pourquoi `max()` au lieu de `sum()` ?** Au sein du même (trace, template, endpoint), les détecteurs N+1 et redondant peuvent tous deux se déclencher sur des ensembles de spans qui se chevauchent. Prendre le max empêche le double comptage : si N+1 rapporte 9 évitables et redondant rapporte 4 évitables pour le même groupe, le vrai compteur d'évitables est 9 (l'ensemble le plus grand inclut déjà le plus petit).
+**Pourquoi le plus grand du chiffre N+1 et de la somme des redondants ?** Deux findings N+1 sur une même clé décrivent les mêmes spans, donc le plus grand les représente. Les findings redondants d'une même clé sont un même template appelé avec des paramètres différents, donc des ensembles de spans disjoints, et ils s'additionnent : 3 appels avec `id = 1` et 4 avec `id = 2` font 2 + 3 = 5 évitables, pas 3. Le détecteur redondant écarte un template que le détecteur N+1 a déjà signalé dans le même groupement, donc un finding N+1 et un finding redondant ne partagent plus de clé. Garder la plus grande des deux lectures reste sûr si cela arrivait, puisque l'ensemble N+1 inclurait alors le redondant.
 
 **Findings lents exclus :** les requêtes lentes sont des opérations nécessaires qui se trouvent être lentes. Elles ont besoin d'optimisation (indexation, cache), pas d'élimination. Les inclure dans le ratio de gaspillage confondrait "I/O gaspillées" avec "I/O lentes".
 
@@ -262,7 +259,7 @@ Les valeurs distinctes de `total` et `avoidable` signalent aux consommateurs en 
 
 ### Évitable via ratio (choix de design)
 
-Calculer le CO₂ évitable de manière précise par région nécessiterait de propager la résolution de région à travers la phase de dédup des findings (qui agrège actuellement les ops I/O évitables globalement par `(trace_id, template, source_endpoint)`). C'est complexe et sujet aux erreurs.
+Calculer le CO₂ évitable de manière précise par région nécessiterait de propager la résolution de région à travers la phase de dédup des findings (qui agrège actuellement les ops I/O évitables globalement par `(trace_id, template, source_endpoint, grouping)`). C'est complexe et sujet aux erreurs.
 
 À la place, Perf Sentinel calcule :
 

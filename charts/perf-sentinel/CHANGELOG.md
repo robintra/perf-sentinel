@@ -10,6 +10,32 @@ both, while a chart-only release bumps `version` alone and leaves
 through `0.9.21` and `0.9.27` did. Read `appVersion` in `Chart.yaml`, never
 the chart version, to know which daemon image ships.
 
+## [0.26.2]
+
+### Fixed
+
+- **`appVersion` moves to `0.26.2`.** The daemon's outputs no longer change
+  from one restart to the next on the same traffic. The order of
+  `/api/findings`, `/api/correlations`, `/api/acks` and the exported
+  report, the trace a tied cross-trace slow finding names and with it its
+  signature, the pair of calls a chatty suggestion names, and the source
+  endpoints kept past `max_events_per_trace` all followed hash maps that
+  change at every restart. Avoidable I/O rises on traces that span several
+  groupings or repeat one query with several parameter sets, so
+  `perf_sentinel_avoidable_io_ops`,
+  `perf_sentinel_service_avoidable_io_ops_total` and the periodic
+  disclosures are not comparable across the upgrade for such traffic.
+
+### Changed
+
+- A `config` or `fragments` entry whose `[green.service_regions]`, or a
+  `[green.electricity_maps] region_map` that a token enables, holds two
+  keys that differ only in case and map to different values is rejected
+  at load, naming both keys. Keep one of the two before upgrading, or the
+  pod fails to start.
+
+No `values.yaml` key is added or removed, and no template changes.
+
 ## [0.26.1]
 
 ### Changed

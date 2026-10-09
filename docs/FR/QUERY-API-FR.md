@@ -732,7 +732,9 @@ curl -sS "http://127.0.0.1:4318/api/explain/trace-does-not-exist"
 ### GET /api/correlations
 
 Retourne les corrélations temporelles cross-trace actives, triées par
-confiance décroissante. Tableau vide quand
+confiance puis par nombre de co-occurrences, tous deux décroissants, puis
+par source et cible, donc un même état se liste toujours dans le même
+ordre. Tableau vide quand
 `[daemon.correlation] enabled = false` (défaut). Plafonné à 1000 entrées.
 
 **Paramètres de requête :** aucun.
@@ -935,7 +937,7 @@ fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
 ### GET /api/acks
 
 Retourne le tableau des acks runtime actifs (post-replay, post-filtre
-d'expiration). Lecture seule, mais protégée dès que les écritures d'acks
+d'expiration), triés par signature. Lecture seule, mais protégée dès que les écritures d'acks
 le sont : quand `[daemon.ack] api_key` est défini, cet endpoint exige un
 en-tête `X-API-Key` correspondant ou un `Authorization: Bearer`,
 portant la clé d'ack ou, depuis 0.20.0, `[daemon] read_api_key`, et

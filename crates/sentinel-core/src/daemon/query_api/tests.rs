@@ -996,9 +996,8 @@ async fn the_namespace_label_is_carried_and_filters_the_listing() {
         list_incidents(Arc::clone(&state), "?namespace=nowhere")
             .await
             .as_array()
-            .unwrap()
-            .as_slice(),
-        [] as [serde_json::Value; 0]
+            .unwrap(),
+        &Vec::<serde_json::Value>::new()
     );
     assert_eq!(
         list_incidents(Arc::clone(&state), "?service=cart-svc&namespace=shop")

@@ -203,7 +203,14 @@ pub(crate) fn build_cross_trace_finding(
         return None;
     }
 
-    let &(max_dur, worst_trace_id, _, worst_event) = entries.iter().max_by_key(|entry| entry.0)?;
+    // Longest call, ties to the smallest trace id, earliest timestamp, then
+    // span id, so the trace the finding names does not follow entry order.
+    let &(max_dur, worst_trace_id, _, worst_event) = entries.iter().max_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| b.1.cmp(a.1))
+            .then_with(|| b.2.cmp(a.2))
+            .then_with(|| b.3.span_id.cmp(&a.3.span_id))
+    })?;
     let (window_ms, first_ts, last_ts) =
         super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
 
@@ -609,6 +616,31 @@ mod tests {
         assert_eq!(findings[0].pattern.occurrences, 3);
         assert!(findings[0].suggestion.contains("Cross-trace"));
         assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    #[test]
+    fn cross_trace_names_the_same_trace_whatever_the_trace_order() {
+        let trace = |id: &str| {
+            let mut ev = make_sql_event_with_duration(
+                id,
+                &format!("span-{id}"),
+                "SELECT * FROM big_table WHERE id = 1",
+                "2025-07-10T14:32:01.000Z",
+                900_000,
+            );
+            ev.source.endpoint = format!("GET /{id}");
+            make_trace(vec![ev])
+        };
+        for ids in [
+            ["trace-c", "trace-a", "trace-b"],
+            ["trace-b", "trace-a", "trace-c"],
+        ] {
+            let traces: Vec<_> = ids.iter().map(|id| trace(id)).collect();
+            let findings = detect_slow_cross_trace(&traces, 500, 3);
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].trace_id, "trace-a", "order {ids:?}");
+            assert_eq!(findings[0].source_endpoint, "GET /trace-a");
+        }
     }
 
     #[test]

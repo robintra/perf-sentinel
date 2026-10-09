@@ -40,16 +40,12 @@ fn fanout_impl<'a>(
     max_fanout: u32,
     collect_spans: bool,
 ) -> Vec<(Finding, Vec<&'a str>)> {
-    let children_by_parent = &indices.children_by_parent;
     let span_index = &indices.span_index;
 
     let mut findings = Vec::new();
 
-    for (parent_id, child_indices) in children_by_parent {
+    for (parent_id, child_indices) in indices.parents_with_children(max_fanout as usize + 1) {
         let count = child_indices.len();
-        if count <= max_fanout as usize {
-            continue;
-        }
 
         let severity = if count > (max_fanout as usize) * 3 {
             Severity::Critical
@@ -58,7 +54,7 @@ fn fanout_impl<'a>(
         };
 
         // Find the parent span for context (service, endpoint)
-        let parent_span = span_index.get(*parent_id).map(|&i| &trace.spans[i]);
+        let parent_span = span_index.get(parent_id).map(|&i| &trace.spans[i]);
 
         let service: String = parent_span.map_or_else(
             || trace.spans[child_indices[0]].event.service.to_string(),

@@ -636,7 +636,7 @@ def check_overrides(dashboard):
     own panel, otherwise the override is dead and nothing says so."""
     broken = []
     for panel in dashboard.get("panels", []):
-        legends = {t.get("legendFormat") for t in panel.get("targets", [])}
+        legends = {target.get("legendFormat") for target in panel.get("targets", [])}
         # An Infinity table names columns where a graph names legends, and a
         # computed column only exists after its transformation.
         legends |= {c.get("text") for tgt in panel.get("targets", []) for c in tgt.get("columns", [])}

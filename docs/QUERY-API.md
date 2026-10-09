@@ -709,7 +709,8 @@ curl -sS "http://127.0.0.1:4318/api/explain/trace-does-not-exist"
 ### GET /api/correlations
 
 Returns active cross-trace temporal correlations, sorted by confidence
-descending. Empty array when `[daemon.correlation] enabled = false`
+then co-occurrence count, both descending, then by source and target, so
+the same state always lists in the same order. Empty array when `[daemon.correlation] enabled = false`
 (default). Capped at 1000 entries.
 
 **Query parameters:** none.
@@ -908,7 +909,7 @@ read-only at runtime and require a PR against the
 ### GET /api/acks
 
 Returns the array of active runtime acks (post-replay, post-expiry
-filter). Read-only, but gated when the ack writes are: when
+filter), sorted by signature. Read-only, but gated when the ack writes are: when
 `[daemon.ack] api_key` is set, this endpoint requires a matching
 `X-API-Key` header or `Authorization: Bearer`, carrying the ack key or,
 since 0.20.0, `[daemon] read_api_key`, and returns `401` without it. The ack audit trail

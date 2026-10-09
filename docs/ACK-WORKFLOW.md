@@ -370,8 +370,8 @@ The daemon exposes Prometheus counters
 `perf_sentinel_avoidable_io_ops` and, since 0.18.0, its per-service
 split `perf_sentinel_service_avoidable_io_ops_total`) that accumulate
 monotonically over the daemon's lifetime. Each batch contributes its
-own per-batch dedup, keyed on `(trace_id, template, source_endpoint)`,
-which prevents counting the same pattern twice within one batch.
+own per-batch dedup, keyed on
+`(trace_id, template, source_endpoint, grouping)`, which prevents counting the same pattern twice within one batch.
 Distinct traces, including those produced after a service restart,
 contribute separately because they represent distinct request
 executions. The counters reset only when the daemon process restarts,

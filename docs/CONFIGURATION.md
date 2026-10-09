@@ -224,7 +224,7 @@ GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-
 
 #### `[green.service_regions]`
 
-Per-service region overrides used when OTel `cloud.region` is absent from spans (e.g. Jaeger / Zipkin ingestion). Maps a service name to a region key.
+Per-service region overrides used when OTel `cloud.region` is absent from spans (e.g. Jaeger / Zipkin ingestion). Maps a service name to a region key. Service names match case-insensitively, so two keys that differ only in case and map to different regions are rejected at load.
 
 ```toml
 [green]
@@ -602,7 +602,7 @@ Real-time carbon intensity from the Electricity Maps API. Daemon-only.
 | `emission_factor_type` | string  | `lifecycle`                          | Emission factor model. `lifecycle` (default) includes upstream emissions (manufacturing, transport). `direct` includes only combustion. Some Scope 2 frameworks prefer `direct` for stricter accountability |
 | `temporal_granularity` | string  | `hourly`                             | API response aggregation. `hourly` (default), `5_minutes`, or `15_minutes`. Sub-hour values require a paid plan that exposes them, otherwise the API silently coarsens to hourly                            |
 
-The `region_map` sub-table maps cloud regions to Electricity Maps zone codes:
+The `region_map` sub-table maps cloud regions to Electricity Maps zone codes. Regions match case-insensitively, so when a token enables the section, two keys that differ only in case and map to different zones are rejected at load:
 
 ```toml
 [green.electricity_maps]
@@ -708,7 +708,7 @@ Cross-trace temporal correlation in daemon mode. When enabled, the daemon detect
 | `lag_threshold_ms`   | integer | `5000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring, measured between the findings' own first-span timestamps (`first_timestamp`), not the time the daemon analysed them. The finding with the earlier timestamp is the source                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `min_co_occurrences` | integer | `5`     | Minimum number of co-occurrences over the window before a correlation is reported. Each source occurrence counts at most once per pair                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `min_confidence`     | float   | `0.7`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / source_total_occurrences`, both counted over the same window                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs retained simultaneously. It bounds what the correlator keeps, not what one batch walks: a wide topology scans the cross product of the incoming findings and the pairing horizon whatever this is set to, so lowering it makes the daemon refuse more rather than allocate less. Pairs scale with finding types times services, so a handful of services can overrun the default. Past the cap `/api/correlations` returns an arbitrary subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal, and the daemon logs a warning on the first eviction. Not comfort-zone checked at startup |
+| `max_tracked_pairs`  | integer | `10000` | Maximum number of finding pairs retained simultaneously. It bounds what the correlator keeps, not what one batch walks: a wide topology scans the cross product of the incoming findings and the pairing horizon whatever this is set to, so lowering it makes the daemon refuse more rather than allocate less. Pairs scale with finding types times services, so a handful of services can overrun the default. Past the cap the correlator evicts the lowest-count, stalest pairs, ties in pair order, so `/api/correlations` returns a subset with nothing on the output saying so. `perf_sentinel_correlator_pairs_evicted_total` is the signal, and the daemon logs a warning on the first eviction. Not comfort-zone checked at startup |
 
 ```toml
 [daemon.correlation]

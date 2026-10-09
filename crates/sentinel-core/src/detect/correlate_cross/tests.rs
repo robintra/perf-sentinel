@@ -1232,3 +1232,41 @@ fn correlation_serde_roundtrip() {
     let none_json = serde_json::to_string(&none_variant).unwrap();
     assert!(!none_json.contains("sample_trace_id"));
 }
+
+/// Each correlator draws fresh hash keys, so an order leaked from the pair
+/// map would differ across these runs.
+const RUNS: usize = 32;
+
+fn pair_names(correlations: &[CrossTraceCorrelation]) -> Vec<(String, String)> {
+    correlations
+        .iter()
+        .map(|c| (c.source.service.clone(), c.target.service.clone()))
+        .collect()
+}
+
+#[test]
+fn tied_correlations_come_out_in_pair_order() {
+    for _ in 0..RUNS {
+        let mut correlator = capped_correlator(10_000);
+        ingest_at(&mut correlator, &wide_batch(4), 1_000);
+        let pairs = pair_names(&correlator.active_correlations());
+        let mut sorted = pairs.clone();
+        sorted.sort();
+        assert_eq!(pairs.len(), 6);
+        assert_eq!(pairs, sorted);
+    }
+}
+
+#[test]
+fn the_cap_evicts_the_same_tied_pairs_on_every_run() {
+    let survivors = || {
+        let mut correlator = capped_correlator(10);
+        ingest_at(&mut correlator, &wide_batch(6), 1_000);
+        pair_names(&correlator.active_correlations())
+    };
+    let first = survivors();
+    assert!(first.len() < 15, "the cap must have evicted: {first:?}");
+    for _ in 1..RUNS {
+        assert_eq!(survivors(), first);
+    }
+}

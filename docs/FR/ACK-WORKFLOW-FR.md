@@ -392,7 +392,7 @@ Le daemon expose des compteurs Prometheus
 service `perf_sentinel_service_avoidable_io_ops_total`) qui croissent de manière
 monotone sur la durée de vie du daemon. Chaque batch contribue avec
 sa propre dédup intra-batch, indexée sur
-`(trace_id, template, source_endpoint)`, ce qui empêche de compter
+`(trace_id, template, source_endpoint, grouping)`, ce qui empêche de compter
 deux fois le même pattern dans un seul batch. Les traces distinctes,
 y compris celles produites après un redémarrage de service,
 contribuent séparément parce qu'elles représentent des exécutions de

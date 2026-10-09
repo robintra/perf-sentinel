@@ -259,18 +259,21 @@ impl AckStore {
         Arc::clone(&*self.active.read().await)
     }
 
-    /// List all active acks. Used by `GET /api/acks`. Filters expired
-    /// entries (they are removed from the persisted map at compaction
-    /// time, but a daemon that has been running past an entry's
-    /// `expires_at` would still surface them otherwise).
+    /// List all active acks, by signature. Used by `GET /api/acks`.
+    /// Filters expired entries (they are removed from the persisted map
+    /// at compaction time, but a daemon that has been running past an
+    /// entry's `expires_at` would still surface them otherwise).
     pub async fn list_active(&self) -> Vec<AckEntry> {
         let now = Utc::now();
         let active = self.active.read().await;
-        active
+        let mut entries: Vec<AckEntry> = active
             .values()
             .filter(|e| !is_expired(e, now))
             .cloned()
-            .collect()
+            .collect();
+        drop(active);
+        entries.sort_unstable_by(|a, b| a.signature.cmp(&b.signature));
+        entries
     }
 
     /// Path to the JSONL file. Exposed for diagnostics / log lines.
@@ -623,7 +626,11 @@ async fn rewrite_compacted(
     #[cfg(unix)]
     opts.mode(0o600);
     let mut tmp_file = opts.open(&tmp).await?;
-    for entry in active.values() {
+    // Chronological, so the audit file keeps its order and its bytes
+    // across restarts instead of following the map.
+    let mut entries: Vec<&AckEntry> = active.values().collect();
+    entries.sort_unstable_by(|a, b| a.at.cmp(&b.at).then_with(|| a.signature.cmp(&b.signature)));
+    for entry in entries {
         let mut line = serde_json::to_string(entry).map_err(AckError::Serialize)?;
         line.push('\n');
         tmp_file.write_all(line.as_bytes()).await?;
@@ -740,6 +747,42 @@ mod tests {
         assert!(store.list_active().await.is_empty());
         let content = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(content.lines().count(), 0);
+    }
+
+    /// Every restart rebuilds the map with fresh hash keys, so an order
+    /// leaked from it would differ across these restarts.
+    #[tokio::test]
+    async fn acks_list_by_signature_and_compact_in_ack_order() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("acks.jsonl");
+        let prefixes = ["f", "b", "d", "a", "e", "c"];
+        let t0 = Utc::now() - Duration::hours(1);
+        {
+            let store = AckStore::new(path.clone()).await.unwrap();
+            for (i, prefix) in prefixes.iter().enumerate() {
+                let mut entry =
+                    sample_entry(&valid_sig(&format!("{prefix}:svc:_e")), AckAction::Ack);
+                entry.at = t0 + Duration::seconds(i64::try_from(i).unwrap());
+                store.ack(entry).await.unwrap();
+            }
+        }
+        let first_char = |sig: &str| sig.chars().next().unwrap().to_string();
+        for _ in 0..8 {
+            let store = AckStore::new(path.clone()).await.unwrap();
+            let listed: Vec<_> = store
+                .list_active()
+                .await
+                .iter()
+                .map(|e| first_char(&e.signature))
+                .collect();
+            assert_eq!(listed, ["a", "b", "c", "d", "e", "f"]);
+            let content = tokio::fs::read_to_string(&path).await.unwrap();
+            let persisted: Vec<_> = content
+                .lines()
+                .map(|line| first_char(&serde_json::from_str::<AckEntry>(line).unwrap().signature))
+                .collect();
+            assert_eq!(persisted, prefixes);
+        }
     }
 
     #[tokio::test]

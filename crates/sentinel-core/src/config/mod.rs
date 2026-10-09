@@ -725,7 +725,7 @@ mod validate;
 
 use raw::{
     RawConfig, parse_daemon_environment, parse_kepler_metric_kind, validate_alumet_raw,
-    validate_broker_static_raw,
+    validate_broker_static_raw, validate_region_keys_raw,
 };
 use toml_paths::normalize_toml_path_strings;
 pub(crate) use validate::has_control_char;
@@ -738,7 +738,7 @@ use raw::{
     RedfishSection, ScaphandreSection, convert_alumet_section_with_env,
     convert_cloud_section_with_env, convert_electricity_maps_section_with_env,
     convert_kepler_section_with_env, convert_redfish_section_with_env,
-    convert_scaphandre_section_with_env,
+    convert_scaphandre_section_with_env, validate_region_keys_raw_with_env,
 };
 #[cfg(test)]
 use toml_paths::{TOML_PATH_STRING_KEYS, find_basic_string_end};
@@ -1054,6 +1054,7 @@ fn validate_raw_config(raw: RawConfig) -> Result<Config, ConfigError> {
     // dropped section.
     validate_alumet_raw(&raw.green.alumet).map_err(ConfigError::Validation)?;
     validate_broker_static_raw(&raw.green.broker_static).map_err(ConfigError::Validation)?;
+    validate_region_keys_raw(&raw).map_err(ConfigError::Validation)?;
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
     config.warn_listen_addr_if_non_loopback();

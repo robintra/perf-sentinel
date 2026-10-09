@@ -4540,3 +4540,50 @@ fn validate_daemon_cors_rejects_wildcard_with_any_key() {
     lone_read.cors_wildcard_with_lone_read_key();
     assert!(lone_read.validate_daemon_cors().is_ok());
 }
+
+#[test]
+fn service_region_keys_differing_only_in_case_are_rejected() {
+    let error = load_from_str(
+        "[green.service_regions]\n\"order-svc\" = \"eu-north-1\"\n\"Order-Svc\" = \"us-east-1\"\n",
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("[green.service_regions]"), "{message}");
+    assert!(message.contains("'Order-Svc' and 'order-svc'"), "{message}");
+}
+
+#[test]
+fn service_region_keys_differing_only_in_case_load_when_they_agree() {
+    let config = load_from_str(
+        "[green.service_regions]\n\"order-svc\" = \"eu-west-3\"\n\"Order-Svc\" = \"eu-west-3\"\n",
+    )
+    .expect("same value either way");
+    assert_eq!(
+        config
+            .green
+            .service_regions
+            .get("order-svc")
+            .map(String::as_str),
+        Some("eu-west-3")
+    );
+}
+
+const COLLIDING_REGION_MAP: &str =
+    "[green.electricity_maps.region_map]\n\"eu-west-3\" = \"FR\"\n\"EU-West-3\" = \"DE\"\n";
+
+#[test]
+fn electricity_maps_region_keys_differing_only_in_case_are_rejected() {
+    let raw: RawConfig = toml::from_str(COLLIDING_REGION_MAP).unwrap();
+    let message =
+        validate_region_keys_raw_with_env(&raw, || Some("token".to_string())).unwrap_err();
+    assert!(
+        message.contains("[green.electricity_maps] region_map"),
+        "{message}"
+    );
+}
+
+#[test]
+fn an_inert_electricity_maps_region_map_is_not_checked() {
+    let raw: RawConfig = toml::from_str(COLLIDING_REGION_MAP).unwrap();
+    assert_eq!(validate_region_keys_raw_with_env(&raw, || None), Ok(()));
+}

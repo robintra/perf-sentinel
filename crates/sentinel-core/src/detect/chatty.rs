@@ -1,6 +1,6 @@
 //! Chatty service detection: identifies traces with excessive inter-service HTTP calls.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 use crate::correlate::Trace;
@@ -16,8 +16,9 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
     // Partitioned by grouping like every other per-trace detector: counting
     // one deployment's calls into another's finding bills the wrong owner,
-    // and the HTML evidence filter would light up the other's spans.
-    let mut by_grouping: HashMap<Option<(&str, &str)>, Vec<usize>> = HashMap::new();
+    // and the HTML evidence filter would light up the other's spans. Ordered,
+    // so findings tied on the entry endpoint keep the grouping order.
+    let mut by_grouping: BTreeMap<Option<(&str, &str)>, Vec<usize>> = BTreeMap::new();
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.event_type == EventType::HttpOut {
             by_grouping
@@ -57,20 +58,18 @@ fn chatty_finding(trace: &Trace, http_indices: &[usize], min_calls: u32) -> Opti
     }
 
     // Top-2 by count: partial partition is O(k) vs a full O(k log k) sort
-    // for traces with high endpoint cardinality.
+    // for traces with high endpoint cardinality. Ties break on the template,
+    // so the pair does not follow the map's iteration order.
+    let by_count_then_template =
+        |a: &(&str, usize), b: &(&str, usize)| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0));
     let mut entries: Vec<(&str, usize)> = template_counts.iter().map(|(&k, &v)| (k, v)).collect();
-    let top_two = if entries.len() <= 2 {
-        entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
-        entries
-    } else {
-        // Partition so the first 2 are >= the rest, then sort just those 2.
-        entries.select_nth_unstable_by(1, |a, b| b.1.cmp(&a.1));
+    if entries.len() > 2 {
+        entries.select_nth_unstable_by(1, by_count_then_template);
         entries.truncate(2);
-        entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
-        entries
-    };
+    }
+    entries.sort_unstable_by(by_count_then_template);
     let mut top_str = String::with_capacity(64);
-    for (i, (tmpl, cnt)) in top_two.iter().enumerate() {
+    for (i, (tmpl, cnt)) in entries.iter().enumerate() {
         if i > 0 {
             top_str.push_str(", ");
         }
@@ -276,12 +275,11 @@ mod tests {
         assert!(findings.is_empty(), "10 HTTP calls <= 15 threshold");
     }
 
-    /// One trace crossing two deployments must not bill all its outbound
-    /// calls to whichever emitted the first span.
-    #[test]
-    fn calls_are_counted_per_grouping_not_per_trace() {
+    /// One trace with four outbound calls from each `service.namespace`, in
+    /// the given order, all from the same entry endpoint.
+    fn two_grouping_trace(namespaces: [&str; 2]) -> Trace {
         let mut events = Vec::new();
-        for (i, ns) in ["commerce", "finance"].into_iter().enumerate() {
+        for (i, ns) in namespaces.into_iter().enumerate() {
             for j in 0..4 {
                 let mut event = make_http_event(
                     "t1",
@@ -293,7 +291,14 @@ mod tests {
                 events.push(event);
             }
         }
-        let trace = make_trace(events);
+        make_trace(events)
+    }
+
+    /// One trace crossing two deployments must not bill all its outbound
+    /// calls to whichever emitted the first span.
+    #[test]
+    fn calls_are_counted_per_grouping_not_per_trace() {
+        let trace = two_grouping_trace(["commerce", "finance"]);
 
         let findings = detect_chatty(&trace, 3);
 
@@ -302,6 +307,96 @@ mod tests {
             findings.iter().all(|f| f.pattern.occurrences == 4),
             "neither deployment may absorb the other's calls: {findings:#?}"
         );
+    }
+
+    /// Runs per determinism check. Every `HashMap` draws fresh hash keys, so
+    /// an order that leaked from one would differ across these runs.
+    const RUNS: usize = 32;
+
+    /// The `(top: ...)` part of the suggestion for one trace calling each
+    /// `(name, count)` target `count` times, in the given order, asserted
+    /// identical over `RUNS` detections.
+    fn top_calls(calls: &[(&str, usize)], min_calls: u32) -> String {
+        let events: Vec<_> = calls
+            .iter()
+            .flat_map(|&(name, count)| (0..count).map(move |j| (name, j)))
+            .enumerate()
+            .map(|(i, (name, j))| {
+                make_http_event(
+                    "trace-1",
+                    &format!("span-{name}-{j}"),
+                    &format!("http://{name}-svc/api/{name}"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let top = || {
+            let findings = detect_chatty(&trace, min_calls);
+            assert_eq!(findings.len(), 1, "{findings:#?}");
+            let suggestion = &findings[0].suggestion;
+            let start = suggestion.find("(top: ").expect("top segment") + "(top: ".len();
+            let end = start + suggestion[start..].find(')').expect("closing paren");
+            suggestion[start..end].to_string()
+        };
+        let first = top();
+        for _ in 1..RUNS {
+            assert_eq!(top(), first);
+        }
+        first
+    }
+
+    #[test]
+    fn top_calls_break_ties_on_the_template() {
+        let names = [
+            "papa", "oscar", "november", "mike", "lima", "kilo", "juliet", "india", "hotel",
+            "golf", "foxtrot", "echo", "delta", "charlie", "bravo", "alpha",
+        ];
+        let calls: Vec<_> = names.iter().map(|&name| (name, 1)).collect();
+        assert_eq!(
+            top_calls(&calls, 15),
+            "GET alpha-svc/api/alpha x1, GET bravo-svc/api/bravo x1"
+        );
+    }
+
+    #[test]
+    fn top_calls_rank_by_count_before_the_template() {
+        let calls = [
+            ("mike", 2),
+            ("kilo", 2),
+            ("zulu", 3),
+            ("echo", 2),
+            ("alpha", 1),
+        ];
+        assert_eq!(
+            top_calls(&calls, 3),
+            "GET zulu-svc/api/zulu x3, GET echo-svc/api/echo x2"
+        );
+    }
+
+    #[test]
+    fn two_tied_templates_print_in_template_order() {
+        assert_eq!(
+            top_calls(&[("bravo", 2), ("alpha", 2)], 3),
+            "GET alpha-svc/api/alpha x2, GET bravo-svc/api/bravo x2"
+        );
+    }
+
+    #[test]
+    fn findings_tied_on_the_entry_endpoint_follow_the_grouping() {
+        let trace = two_grouping_trace(["finance", "commerce"]);
+
+        for _ in 0..RUNS {
+            let findings = detect_chatty(&trace, 3);
+            let order: Vec<_> = findings.iter().map(Finding::grouping_identity).collect();
+            assert_eq!(
+                order,
+                [
+                    Some(("service.namespace", "commerce")),
+                    Some(("service.namespace", "finance")),
+                ]
+            );
+        }
     }
 
     #[test]

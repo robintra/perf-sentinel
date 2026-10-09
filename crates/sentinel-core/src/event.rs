@@ -281,7 +281,7 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
 /// Not all instrumentation agents emit these attributes. When present,
 /// they allow findings to point to the exact function and file where the
 /// anti-pattern originates.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CodeLocation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,

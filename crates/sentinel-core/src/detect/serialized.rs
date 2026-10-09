@@ -75,16 +75,11 @@ fn serialized_impl<'a>(
 ) -> Vec<(Finding, Vec<&'a str>)> {
     let min_seq = min_sequential as usize;
 
-    let siblings = &indices.children_by_parent;
     let span_index = &indices.span_index;
 
     let mut findings = Vec::new();
 
-    for (parent_id, child_indices) in siblings {
-        if child_indices.len() < min_seq {
-            continue;
-        }
-
+    for (parent_id, child_indices) in indices.parents_with_children(min_seq) {
         let mut timed = timed_children(trace, child_indices);
 
         if timed.len() < min_seq {

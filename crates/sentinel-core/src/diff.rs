@@ -353,8 +353,8 @@ fn remove_indices(list: &mut Vec<Finding>, remove: &BTreeSet<usize>) {
 ///
 /// Tie-break for the kept Finding template: the first finding inserted
 /// at a key wins for `trace_id` / `first_timestamp` / `code_location` /
-/// `suggested_fix`. Since `pipeline::analyze` calls `sort_findings`
-/// before returning, this is deterministic.
+/// `suggested_fix`. Since `pipeline::analyze` returns findings in
+/// `sort_findings` order, this is deterministic.
 fn build_identity_map(findings: &[Finding], with_grouping: bool) -> BTreeMap<IdentityKey, Finding> {
     let mut map: BTreeMap<IdentityKey, Finding> = BTreeMap::new();
     for finding in findings {
