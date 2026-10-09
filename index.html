@@ -387,7 +387,7 @@
           <div data-dc-tpl="462" style="display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; height: 100%;">
             <div data-dc-tpl="463" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.04em;"><span class="sc-interp">mode daemon · central</span></div>
             <h3 data-dc-tpl="464" style="margin: 11px 0px 0px; font-size: 19px; font-weight: 700; color: var(--text);"><span class="sc-interp">Centralized</span></h3>
-            <p data-dc-tpl="465" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">One long-running daemon that an OTel Collector sends its traces to: gRPC :4317 + HTTP :4318, Prometheus /metrics, live dashboard, query API and cross-trace correlation.</span></p>
+            <p data-dc-tpl="465" style="margin: 10px 0px 18px; font-size: 14.5px; color: var(--text-2); line-height: 1.55; flex: 1 1 0%;"><span class="sc-interp">One long-running daemon that an OTel Collector sends its traces to: gRPC <code class="dc-cmd">:4317</code> + HTTP <code class="dc-cmd">:4318</code>, Prometheus <code class="dc-cmd">/metrics</code>, live dashboard, query API and cross-trace correlation.</span></p>
           </div>
         
       </div> <div data-dc-tpl="466" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; margin-top: 24px;"><a data-dc-tpl="467" data-plain="" href="/guide#deploy" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="468" data-ltext=""><span class="sc-interp">Deployment in depth in the guide</span></span><span data-dc-tpl="469" data-arrow=""> →</span></a><a data-dc-tpl="470" data-plain="" href="/docs/CI" class="scp4" style="display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="471" data-ltext=""><span class="sc-interp">GitHub Actions, GitLab CI and Jenkins templates</span></span><span data-dc-tpl="472" data-arrow=""> →</span></a></div>
@@ -398,7 +398,7 @@
       <div data-dc-tpl="474" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13px; color: var(--rust); letter-spacing: 0.04em;"><span class="sc-interp">// built in rust</span></div>
       <div data-dc-tpl="475" style="display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-top: 12px;">
         <h2 data-dc-tpl="476" style="margin: 0px; font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; letter-spacing: -0.018em; color: var(--text);"><span class="sc-interp">A single </span><span data-dc-tpl="477" style="color: var(--rust);"><span class="sc-interp">Rust</span></span><span class="sc-interp"> binary, measured</span></h2><div data-dc-tpl="478" style="display: inline-flex; align-items: center; gap: 9px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--rust); background: color-mix(in srgb,var(--rust) 12%,transparent); border: 1px solid color-mix(in srgb,var(--rust) 38%,transparent); border-radius: 999px; padding: 8px 14px;">
-          <span data-dc-tpl="479" data-ico="rust" role="img" aria-label="Rust" style="width: 15px; height: 15px;"></span><span class="sc-interp">Version 1.98.1</span>
+          <span data-dc-tpl="479" data-ico="rust" role="img" aria-label="Rust" style="width: 15px; height: 15px;"></span><span class="sc-interp">Version 1.99.0</span>
         </div>
       </div>
       <p data-dc-tpl="480" style="margin: 18px 0px 0px; font-size: 15px; color: var(--text-2); max-width: 700px; line-height: 1.6;"><span class="sc-interp">The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.</span></p>
@@ -534,7 +534,7 @@
           
             <div data-dc-tpl="540" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
               <h3 data-dc-tpl="541" style="margin: 0px; font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Multi-region <code class="dc-cmd">co2.total</code></span></h3>
-              <div data-dc-tpl="542" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.</span></div>
+              <div data-dc-tpl="542" style="margin-top: 7px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">SCI v1.0 numerator, automatic per-region scoring when spans carry <code class="dc-cmd">cloud.region</code>.</span></div>
             </div>
           
         </div>

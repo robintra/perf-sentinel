@@ -204,7 +204,7 @@
             <div data-dc-tpl="96" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
               <div data-dc-tpl="97" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
                 <span data-dc-tpl="98" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">watch</span></span>
-                <span data-dc-tpl="99" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Daemon OTLP : ingestion gRPC :4317 / HTTP :4318, /metrics Prometheus, /health, API de query.</span></span>
+                <span data-dc-tpl="99" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">Daemon OTLP : ingestion gRPC <code class="dc-cmd">:4317</code> / HTTP <code class="dc-cmd">:4318</code>, <code class="dc-cmd">/metrics</code> Prometheus, <code class="dc-cmd">/health</code>, API de query.</span></span>
               </div>
               <div data-dc-tpl="100" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="101" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span> <span style="color:var(--code-flag)">--listen-address</span> <span style="color:var(--code-num)">0.0.0.0</span></code></div>
             </div>
@@ -318,7 +318,7 @@
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="125" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">OTLP live</span></div>
-                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le <code class="dc-cmd">datadogreceiver</code> du Collector, voir</span> <a data-dc-tpl="128" href="/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</div>
+                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC <code class="dc-cmd">:4317</code> et HTTP <code class="dc-cmd">:4318</code>, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le <code class="dc-cmd">datadogreceiver</code> du Collector, voir</span> <a data-dc-tpl="128" href="/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Vous venez de Datadog</span></a>.</div>
                 </div>
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -374,7 +374,7 @@
               
                 <div data-dc-tpl="133" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="134" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Daemon live</span></div>
-                  <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Findings NDJSON, /metrics Prometheus, sonde /health, API de query.</span></div>
+                  <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">Findings NDJSON, <code class="dc-cmd">/metrics</code> Prometheus, sonde <code class="dc-cmd">/health</code>, API de query.</span></div>
                 </div>
               
                 <div data-dc-tpl="133" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -770,7 +770,7 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
           
             <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
               <div data-dc-tpl="218" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Collector central</span></div>
-              <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l’API de query. Le daemon garde sa fenêtre de traces en mémoire : un arrêt propre en termine l’analyse, un arrêt brutal la perd.</span></div>
+              <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec <code class="dc-cmd">/metrics</code> Prometheus et l’API de query. Le daemon garde sa fenêtre de traces en mémoire : un arrêt propre en termine l’analyse, un arrêt brutal la perd.</span></div>
             </div>
           
             <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
@@ -896,7 +896,7 @@ Un daemon en production a un tout autre profil. Sur un StatefulSet Kubernetes en
           
             <a data-dc-tpl="264" data-plain="" href="/docs/fr/METRICS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Métriques</span> →</div>
-              <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Métriques Prometheus sur /metrics</span></div>
+              <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Métriques Prometheus sur <code class="dc-cmd">/metrics</code></span></div>
             </a>
           
             <a data-dc-tpl="264" data-plain="" href="/docs/fr/QUERY-API" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -1564,7 +1564,7 @@ class Component extends DCLogic {
         cliPrimary: [
           { name: 'demo', desc: 'Built-in synthetic dataset, no capture required.', example: 'perf-sentinel demo --html demo.html' },
           { name: 'analyze', desc: 'Analyze captured traces. --ci to gate, --tui to drill down, --format json|sarif.', example: 'perf-sentinel analyze --input traces.json --ci' },
-          { name: 'watch', desc: 'OTLP daemon: gRPC :4317 / HTTP :4318 ingestion, Prometheus /metrics, /health, query API.', example: 'perf-sentinel watch --listen-address 0.0.0.0' },
+          { name: 'watch', desc: 'OTLP daemon: gRPC `:4317` / HTTP `:4318` ingestion, Prometheus `/metrics`, `/health`, query API.', example: 'perf-sentinel watch --listen-address 0.0.0.0' },
           { name: 'report', desc: 'Single-file offline HTML dashboard, light/dark, with CSV export.', example: 'perf-sentinel report --input traces.json --output report.html' },
         ],
         cliCheat: 'One-liner cheat sheet for the rest of the surface',
@@ -1594,7 +1594,7 @@ class Component extends DCLogic {
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
           { name: 'Trace files', desc: 'Native Perf Sentinel JSON, OTLP JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
-          { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector `datadogreceiver`, see', ddHref: '/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry', ddLink: 'Coming from Datadog' },
+          { name: 'Live OTLP', desc: 'gRPC `:4317` and HTTP `:4318`, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector `datadogreceiver`, see', ddHref: '/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry', ddLink: 'Coming from Datadog' },
           { name: 'Grafana Tempo', desc: 'Pull traces directly from a Tempo backend with perf-sentinel tempo.' },
           { name: 'Jaeger query API', desc: 'Pull from a Jaeger or Victoria Traces backend with perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
@@ -1606,7 +1606,7 @@ class Component extends DCLogic {
           { name: 'sarif (v2.1.0)', desc: 'GitHub/GitLab code scanning with inline PR annotations.' },
           { name: 'HTML dashboard', desc: 'Single-file offline report with CSV export.' },
           { name: 'Interactive TUI', desc: 'Analyze, Inspect and Explain in one keyboard drill-down.' },
-          { name: 'Live daemon', desc: 'NDJSON findings, Prometheus /metrics, /health probe, query API.' },
+          { name: 'Live daemon', desc: 'NDJSON findings, Prometheus `/metrics`, `/health` probe, query API.' },
           { name: 'Periodic disclosure', desc: 'Hash-verifiable perf-sentinel-report/v1.0 JSON, Sigstore-signable.' },
           { name: 'Hub export', desc: 'Bounded, coalesced push of live findings to PerfSentinelHub, retried on failure.' },
         ],
@@ -1681,7 +1681,7 @@ class Component extends DCLogic {
         ],
         cpFoot: 'The Datadog figure is the one Datadog publishes for its Agent 7.34 on a c5.xlarge instance, excluding the tracers loaded in each service. New Relic publishes no RSS figure for its APM agents, and Grafana sizes Alloy by profile volume. The Perf Sentinel figure likewise excludes the OTel instrumentation it reads. Real overhead depends on instrumentation scope.',
         dpTitle: 'Deployment', dpIntro: 'Pick the lightest deployment that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream trace sampling (head-based vs tail-based) and the daemon’s own `sampling_rate` undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion. Every shed batch is counted in the metrics.',
-        dpModes: [ { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' }, { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' }, { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' }, { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API. The daemon keeps its window of traces in memory: a clean shutdown finishes the analysis, a hard kill loses it.' }, { name: 'Hub-backed fleet', desc: 'Daemons push their findings to PerfSentinelHub, a separate service that keeps a queryable history across services and the date each finding was first seen. The central collector above holds a bounded ring and shares no state between replicas, so it cannot provide that history.' } ],
+        dpModes: [ { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' }, { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' }, { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' }, { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus `/metrics` and the query API. The daemon keeps its window of traces in memory: a clean shutdown finishes the analysis, a hard kill loses it.' }, { name: 'Hub-backed fleet', desc: 'Daemons push their findings to PerfSentinelHub, a separate service that keeps a queryable history across services and the date each finding was first seen. The central collector above holds a bounded ring and shares no state between replicas, so it cannot provide that history.' } ],
         dpMore: 'Full integration guide', dpMonitorPlay: 'Play the demo (GIF)',
         dpGrafanaCap: 'Two example Grafana dashboards ship in the repository. Neither ships in the Helm chart. You import them into the Grafana you already run. The overview reads the Prometheus `/metrics` counters, the findings one reads the query API through the Infinity plugin, and both carry a `Compatibility` badge that says when the daemon feeding them is older than their panels need. A collapsed `History (Hub)` row reads PerfSentinelHub instead, over the time picker’s range, where the daemon’s ring is bounded by volume and cannot look back:',
         dpGrafana: [
@@ -1711,7 +1711,7 @@ class Component extends DCLogic {
           ['CI', 'CI', 'GitHub Actions, GitLab, Jenkins recipes'],
           ['CONFIGURATION', 'Configuration', 'Full .perf-sentinel.toml reference'],
           ['CLI', 'CLI reference', 'Every subcommand and flag'],
-          ['METRICS', 'Metrics', 'Prometheus metrics on /metrics'],
+          ['METRICS', 'Metrics', 'Prometheus metrics on `/metrics`'],
           ['QUERY-API', 'Query API', 'Daemon HTTP endpoints'],
           ['SARIF', 'SARIF', 'Code scanning output format'],
           ['SCHEMA', 'Schema', 'Disclosure report JSON schema'],
@@ -1757,7 +1757,7 @@ class Component extends DCLogic {
         cliPrimary: [
           { name: 'demo', desc: 'Jeu de données synthétique intégré, aucune capture requise.', example: 'perf-sentinel demo --html demo.html' },
           { name: 'analyze', desc: 'Analyse des traces capturées. --ci pour le gate, --tui pour le drill-down, --format json|sarif.', example: 'perf-sentinel analyze --input traces.json --ci' },
-          { name: 'watch', desc: 'Daemon OTLP : ingestion gRPC :4317 / HTTP :4318, /metrics Prometheus, /health, API de query.', example: 'perf-sentinel watch --listen-address 0.0.0.0' },
+          { name: 'watch', desc: 'Daemon OTLP : ingestion gRPC `:4317` / HTTP `:4318`, `/metrics` Prometheus, `/health`, API de query.', example: 'perf-sentinel watch --listen-address 0.0.0.0' },
           { name: 'report', desc: 'Dashboard HTML offline en un seul fichier, clair/sombre, export CSV.', example: 'perf-sentinel report --input traces.json --output report.html' },
         ],
         cliCheat: 'Aide-mémoire en une ligne pour le reste de la surface',
@@ -1787,7 +1787,7 @@ class Component extends DCLogic {
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
           { name: 'Fichiers de traces', desc: 'JSON natif Perf Sentinel, JSON OTLP, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
-          { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector, voir', ddHref: '/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry', ddLink: 'Vous venez de Datadog' },
+          { name: 'OTLP live', desc: 'gRPC `:4317` et HTTP `:4318`, ingérés par le daemon watch depuis votre OTel Collector ou SDK. Sur dd-trace ? Faites le pont via le `datadogreceiver` du Collector, voir', ddHref: '/docs/fr/INTEGRATION#vous-venez-de-datadog-dd-trace-sans-opentelemetry', ddLink: 'Vous venez de Datadog' },
           { name: 'Grafana Tempo', desc: 'Récupère les traces directement depuis un backend Tempo avec perf-sentinel tempo.' },
           { name: 'API Jaeger query', desc: 'Récupère depuis un backend Jaeger ou Victoria Traces avec perf-sentinel jaeger-query.' },
           { name: '`pg_stat_statements`', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
@@ -1799,7 +1799,7 @@ class Component extends DCLogic {
           { name: 'sarif (v2.1.0)', desc: 'Code scanning GitHub/GitLab avec annotations PR inline.' },
           { name: 'Dashboard HTML', desc: 'Rapport offline en un seul fichier avec export CSV.' },
           { name: 'TUI interactif', desc: 'Analyze, Inspect et Explain en un seul drill-down clavier.' },
-          { name: 'Daemon live', desc: 'Findings NDJSON, /metrics Prometheus, sonde /health, API de query.' },
+          { name: 'Daemon live', desc: 'Findings NDJSON, `/metrics` Prometheus, sonde `/health`, API de query.' },
           { name: 'Divulgation périodique', desc: 'JSON perf-sentinel-report/v1.0 vérifiable par hash, signable Sigstore.' },
           { name: 'Export Hub', desc: 'Push borné et fusionné des findings live vers PerfSentinelHub, rejoué en cas d’échec.' },
         ],
@@ -1874,7 +1874,7 @@ class Component extends DCLogic {
         ],
         cpFoot: 'Le chiffre Datadog est celui que Datadog publie pour son Agent 7.34 sur une instance c5.xlarge, hors traceurs chargés dans chaque service. New Relic ne publie pas de RSS pour ses agents APM, et Grafana dimensionne Alloy selon le volume de profils. Le chiffre de Perf Sentinel exclut de même l\u2019instrumentation OTel qu\u2019il lit. L\u2019overhead réel dépend du périmètre d\u2019instrumentation.',
         dpTitle: 'Déploiement', dpIntro: 'Choisissez le déploiement le plus léger adapté à l\u2019endroit où vivent vos traces. Le collecteur central est un daemon unique avec état, donc des réplicas horizontaux exigent un load balancing par trace-id et ne partagent pas l’état de corrélation. L’échantillonnage de traces en amont (head ou tail) et le `sampling_rate` du daemon sous-comptent les détecteurs par répétition, et sous surcharge soutenue le daemon déleste des lots d’analyse entiers plutôt que de bloquer l’ingestion. Chaque lot délesté est compté dans les métriques.',
-        dpModes: [ { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' }, { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' }, { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' }, { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query. Le daemon garde sa fen\u00eatre de traces en m\u00e9moire : un arr\u00eat propre en termine l\u2019analyse, un arr\u00eat brutal la perd.' }, { name: 'Flotte adoss\u00e9e au Hub', desc: 'Les daemons poussent leurs findings vers PerfSentinelHub, un service s\u00e9par\u00e9 qui conserve un historique interrogeable \u00e0 l\u2019\u00e9chelle des services et la date de premi\u00e8re apparition de chaque finding. Le collector central ci-dessus garde un tampon born\u00e9 et ne partage aucun \u00e9tat entre r\u00e9pliques, il ne peut donc pas fournir cet historique.' } ],
+        dpModes: [ { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' }, { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' }, { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' }, { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec `/metrics` Prometheus et l\u2019API de query. Le daemon garde sa fen\u00eatre de traces en m\u00e9moire : un arr\u00eat propre en termine l\u2019analyse, un arr\u00eat brutal la perd.' }, { name: 'Flotte adoss\u00e9e au Hub', desc: 'Les daemons poussent leurs findings vers PerfSentinelHub, un service s\u00e9par\u00e9 qui conserve un historique interrogeable \u00e0 l\u2019\u00e9chelle des services et la date de premi\u00e8re apparition de chaque finding. Le collector central ci-dessus garde un tampon born\u00e9 et ne partage aucun \u00e9tat entre r\u00e9pliques, il ne peut donc pas fournir cet historique.' } ],
         dpMore: 'Guide d\u2019intégration complet', dpMonitorPlay: 'Lancer la démo (GIF)',
         dpGrafanaCap: 'Deux dashboards Grafana d\u2019exemple sont livrés dans le dépôt. Aucun n\u2019est livré dans le chart Helm. Vous les importez dans le Grafana que vous exploitez déjà. Celui de vue d\u2019ensemble lit les compteurs Prometheus `/metrics`, celui des findings lit l\u2019API de query via le greffon Infinity, et les deux portent un badge `Compatibility` qui signale quand le daemon qui les alimente est plus ancien que ce que leurs panneaux demandent. Une rangée repliée `History (Hub)` lit PerfSentinelHub à la place, sur la plage du sélecteur de temps, là où le tampon du daemon est borné par le volume et ne remonte pas :',
         dpGrafana: [
@@ -1904,7 +1904,7 @@ class Component extends DCLogic {
           ['CI', 'CI', 'Recettes GitHub Actions, GitLab, Jenkins'],
           ['CONFIGURATION', 'Configuration', 'Référence complète .perf-sentinel.toml'],
           ['CLI', 'Référence CLI', 'Toutes les sous-commandes et flags'],
-          ['METRICS', 'Métriques', 'Métriques Prometheus sur /metrics'],
+          ['METRICS', 'Métriques', 'Métriques Prometheus sur `/metrics`'],
           ['QUERY-API', 'API de query', 'Endpoints HTTP du daemon'],
           ['SARIF', 'SARIF', 'Format de sortie code scanning'],
           ['SCHEMA', 'Schéma', 'Schéma JSON du rapport de divulgation'],

@@ -204,7 +204,7 @@
             <div data-dc-tpl="96" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
               <div data-dc-tpl="97" style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;">
                 <span data-dc-tpl="98" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 15px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">watch</span></span>
-                <span data-dc-tpl="99" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">OTLP daemon: gRPC :4317 / HTTP :4318 ingestion, Prometheus /metrics, /health, query API.</span></span>
+                <span data-dc-tpl="99" style="font-size: 14px; color: var(--text-2);"><span class="sc-interp">OTLP daemon: gRPC <code class="dc-cmd">:4317</code> / HTTP <code class="dc-cmd">:4318</code> ingestion, Prometheus <code class="dc-cmd">/metrics</code>, <code class="dc-cmd">/health</code>, query API.</span></span>
               </div>
               <div data-dc-tpl="100" style="margin-top: 13px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 12.5px; color: var(--term-text); background: var(--term-bg); border-radius: 8px; padding: 11px 14px; overflow-x: auto; white-space: pre;"><span data-dc-tpl="101" style="color: var(--term-accent);">$ </span><code style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: pre-wrap;"><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span> <span style="color:var(--code-flag)">--listen-address</span> <span style="color:var(--code-num)">0.0.0.0</span></code></div>
             </div>
@@ -318,7 +318,7 @@
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="125" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Live OTLP</span></div>
-                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="128" href="/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</div>
+                  <div data-dc-tpl="126" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">gRPC <code class="dc-cmd">:4317</code> and HTTP <code class="dc-cmd">:4318</code>, ingested by the watch daemon from your OTel Collector or SDK. On dd-trace? Bridge it through the Collector <code class="dc-cmd">datadogreceiver</code>, see</span> <a data-dc-tpl="128" href="/docs/INTEGRATION#coming-from-datadog-dd-trace-no-opentelemetry" data-clink="1" style="color: var(--accent);"><span class="sc-interp">Coming from Datadog</span></a>.</div>
                 </div>
               
                 <div data-dc-tpl="124" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -374,7 +374,7 @@
               
                 <div data-dc-tpl="133" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
                   <div data-dc-tpl="134" style="font-size: 14.5px; font-weight: 600; color: var(--text);"><span class="sc-interp">Live daemon</span></div>
-                  <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">NDJSON findings, Prometheus /metrics, /health probe, query API.</span></div>
+                  <div data-dc-tpl="135" style="margin-top: 4px; font-size: 13px; color: var(--text-2); line-height: 1.5;"><span class="sc-interp">NDJSON findings, Prometheus <code class="dc-cmd">/metrics</code>, <code class="dc-cmd">/health</code> probe, query API.</span></div>
                 </div>
               
                 <div data-dc-tpl="133" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
@@ -770,7 +770,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
           
             <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
               <div data-dc-tpl="218" style="font-size: 16px; font-weight: 600; color: var(--text);"><span class="sc-interp">Central collector</span></div>
-              <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API. The daemon keeps its window of traces in memory: a clean shutdown finishes the analysis, a hard kill loses it.</span></div>
+              <div data-dc-tpl="219" style="margin-top: 6px; font-size: 14px; color: var(--text-2); line-height: 1.55;"><span class="sc-interp">An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus <code class="dc-cmd">/metrics</code> and the query API. The daemon keeps its window of traces in memory: a clean shutdown finishes the analysis, a hard kill loses it.</span></div>
             </div>
           
             <div data-dc-tpl="217" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;">
@@ -896,7 +896,7 @@ A production daemon is a different shape. On a Kubernetes StatefulSet running 0.
           
             <a data-dc-tpl="264" data-plain="" href="/docs/METRICS" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
               <div data-dc-tpl="265" style="font-size: 14.5px; font-weight: 600; color: var(--accent-strong);"><span class="sc-interp">Metrics</span> →</div>
-              <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Prometheus metrics on /metrics</span></div>
+              <div data-dc-tpl="266" style="margin-top: 3px; font-size: 13px; color: var(--text-2); line-height: 1.45;"><span class="sc-interp">Prometheus metrics on <code class="dc-cmd">/metrics</code></span></div>
             </a>
           
             <a data-dc-tpl="264" data-plain="" href="/docs/QUERY-API" class="scp3" style="display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
