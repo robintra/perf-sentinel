@@ -1513,6 +1513,10 @@
               <div><span class="ps-pr" style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span class="ps-cm" style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
             </div>
             <a data-plain data-tech-only="" href="{{ ctaGuideHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:#E0F4ED" style-hover="gap:11px"><span data-ltext>{{ ctaGuide }}</span><span data-arrow> →</span></a>
+            <div data-tech-only="" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+              <a data-plain href="{{ psRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.3);border-radius:999px;padding:8px 14px" style-hover="border-color:rgba(224,244,237,.6)"><img src="assets/mark-dark.svg" alt="" width="15" height="15" style="display:block;flex:none">{{ psRelLabel }}</a>
+              <a data-plain href="{{ hubRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.3);border-radius:999px;padding:8px 14px" style-hover="border-color:rgba(224,244,237,.6)"><img src="assets/mark-dark.svg" alt="" width="15" height="15" style="display:block;flex:none">{{ hubRelLabel }}</a>
+            </div>
             <div data-nontech-only="" style="display:flex;gap:12px;flex-wrap:wrap">
               <a data-plain href="{{ ctaEndAHref }}" style="font-size:15px;font-weight:600;color:#0B523A;background:#E0F4ED;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(.96)">{{ ctaEndA }}</a>
               <a data-plain href="{{ ctaEndBHref }}" style="font-size:15px;font-weight:600;color:#E0F4ED;background:transparent;border:1px solid rgba(224,244,237,.3);border-radius:9px;padding:13px 22px" style-hover="border-color:rgba(224,244,237,.6)">{{ ctaEndB }}</a>
@@ -1576,7 +1580,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;defaultMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;clair&quot;,&quot;sombre&quot;],&quot;default&quot;:&quot;clair&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultLang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;fr&quot;],&quot;default&quot;:&quot;en&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;installCommand&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;cargo install perf-sentinel --locked&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
-  state = { mode: null, sysFlip: false, lang: null, persona: null, spot: false, tip: false, copied: false, rustVersion: null, dotnetVersion: null, dots: null, dotCur: null };
+  state = { mode: null, sysFlip: false, lang: null, persona: null, spot: false, tip: false, copied: false, rustVersion: null, dotnetVersion: null, psVersion: null, hubVersion: null, dots: null, dotCur: null };
 
   componentDidMount() {
     // A stored French choice only moves the bare site root to /fr/. Any other
@@ -1606,6 +1610,8 @@ class Component extends DCLogic {
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(j => { const v = j && j.sdk && j.sdk.version; if (typeof v === 'string' && /^[\w.\-]+$/.test(v)) this.setState({ dotnetVersion: v }); })
       .catch(() => {});
+    this.fetchRelease('robintra/perf-sentinel', 'psVersion');
+    this.fetchRelease('robintra/PerfSentinelHub', 'hubVersion');
     if (location.hash && location.hash.length > 1) {
       const id = decodeURIComponent(location.hash.slice(1));
       const jump = () => { const el = document.getElementById(id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + (window.scrollY || 0) - 72 }); };
@@ -1624,6 +1630,22 @@ class Component extends DCLogic {
   }
 
   componentDidUpdate() { if (this._onDots) this._onDots(); }
+
+  // Latest published release, kept for the session: the unauthenticated
+  // GitHub API allows 60 calls an hour per IP.
+  fetchRelease(repo, key) {
+    const store = 'ps-rel-' + key;
+    try { const v = sessionStorage.getItem(store); if (v) { this.setState({ [key]: v }); return; } } catch (e) {}
+    fetch('https://api.github.com/repos/' + repo + '/releases/latest')
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(j => {
+        const v = j && typeof j.tag_name === 'string' ? j.tag_name.replace(/^v/, '') : '';
+        if (!/^\d+\.\d+\.\d+[\w.\-+]*$/.test(v)) return;
+        this.setState({ [key]: v });
+        try { sessionStorage.setItem(store, v); } catch (e) {}
+      })
+      .catch(() => {});
+  }
 
   syncDots() {
     const root = document.querySelector('#dc-root [data-ps-root]');
@@ -2476,6 +2498,10 @@ class Component extends DCLogic {
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
       copyLabel: t.copyLabel, copiedLabel: t.copiedLabel,
       ctaGuide: t.ctaGuide, ctaGuideHref: lang === 'fr' ? '/fr/guide#install' : '/guide#install',
+      psRelLabel: 'Perf Sentinel ' + (this.state.psVersion || '0.26.2'),
+      psRelHref: 'https://github.com/robintra/perf-sentinel/releases/tag/v' + (this.state.psVersion || '0.26.2'),
+      hubRelLabel: 'Perf Sentinel Hub ' + (this.state.hubVersion || '0.3.7'),
+      hubRelHref: 'https://github.com/robintra/PerfSentinelHub/releases/tag/v' + (this.state.hubVersion || '0.3.7'),
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
       ftDocQuickstart: t.ftDocQuickstart, ftDocCli: t.ftDocCli, ftDocConfig: t.ftDocConfig, ftDocMethod: t.ftDocMethod,
       ftProjLicense: t.ftProjLicense, ftBadgeNote: t.ftBadgeNote, ftBottomLeft: t.ftBottomLeft, ftBottomRight: t.ftBottomRight,
