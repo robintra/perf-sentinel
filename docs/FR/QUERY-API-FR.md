@@ -937,7 +937,7 @@ fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
 ### GET /api/acks
 
 Retourne le tableau des acks runtime actifs (post-replay, post-filtre
-d'expiration). Lecture seule, mais protégée dès que les écritures d'acks
+d'expiration), triés par signature. Lecture seule, mais protégée dès que les écritures d'acks
 le sont : quand `[daemon.ack] api_key` est défini, cet endpoint exige un
 en-tête `X-API-Key` correspondant ou un `Authorization: Bearer`,
 portant la clé d'ack ou, depuis 0.20.0, `[daemon] read_api_key`, et

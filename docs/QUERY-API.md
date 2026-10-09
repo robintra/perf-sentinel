@@ -909,7 +909,7 @@ read-only at runtime and require a PR against the
 ### GET /api/acks
 
 Returns the array of active runtime acks (post-replay, post-expiry
-filter). Read-only, but gated when the ack writes are: when
+filter), sorted by signature. Read-only, but gated when the ack writes are: when
 `[daemon.ack] api_key` is set, this endpoint requires a matching
 `X-API-Key` header or `Authorization: Bearer`, carrying the ack key or,
 since 0.20.0, `[daemon] read_api_key`, and returns `401` without it. The ack audit trail
