@@ -234,7 +234,7 @@ environments_measured = ["prod"]
     fn validate_for_official_passes_complete_config() {
         let file = write_toml(sample_toml());
         let cfg = load_from_path(file.path()).unwrap();
-        assert!(validate_for_official(&cfg).is_empty());
+        assert_eq!(validate_for_official(&cfg), Vec::<String>::new());
     }
 
     #[test]

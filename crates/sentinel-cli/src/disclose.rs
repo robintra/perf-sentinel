@@ -891,7 +891,10 @@ mod tests {
             largest_gap_days: 0,
         };
 
-        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, true, 0, 10).is_empty());
+        assert_eq!(
+            non_fatal_warnings(&healthy, ReportIntent::Internal, true, 0, 10),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -919,7 +922,10 @@ mod tests {
             largest_gap_days: 0,
         };
         // Full coverage and a declared request count: an official report stays quiet.
-        assert!(non_fatal_warnings(&healthy, ReportIntent::Official, true, 0, 0).is_empty());
+        assert_eq!(
+            non_fatal_warnings(&healthy, ReportIntent::Official, true, 0, 0),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -931,7 +937,10 @@ mod tests {
             largest_gap_days: 0,
         };
         // Internal intent skips the total_requests_in_period warning even when undeclared.
-        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, false, 0, 0).is_empty());
+        assert_eq!(
+            non_fatal_warnings(&healthy, ReportIntent::Internal, false, 0, 0),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

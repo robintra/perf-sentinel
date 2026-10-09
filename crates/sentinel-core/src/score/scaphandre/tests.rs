@@ -20,14 +20,14 @@ use super::state::ScaphandreState;
 
 #[test]
 fn parse_empty_body() {
-    assert!(parse_scaphandre_metrics("").is_empty());
+    assert_eq!(parse_scaphandre_metrics(""), []);
 }
 
 #[test]
 fn parse_comments_only() {
     let body = "# HELP scaph_host_power_microwatts host power\n\
                 # TYPE scaph_host_power_microwatts gauge\n";
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 #[test]
@@ -117,7 +117,7 @@ scaph_process_power_consumption_microwatts{exe="dotnet"} 5000000.0
 fn parse_unmatched_brace_is_skipped() {
     // Opening brace but no closing brace: the line is skipped.
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\",cmdline=\"broken 100.0\n";
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 #[test]
@@ -639,7 +639,7 @@ async fn fetch_metrics_once_surfaces_http_error_status() {
 #[test]
 fn parse_rejects_prefix_collision_metric() {
     let body = "scaph_process_power_consumption_microwatts_total{exe=\"java\"} 123\n";
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 /// A valid metric line with labels but without an `exe=` label must be
@@ -649,7 +649,7 @@ fn parse_rejects_prefix_collision_metric() {
 fn parse_skips_metric_without_exe_label() {
     let body =
         "scaph_process_power_consumption_microwatts{pid=\"1234\",cmdline=\"java -jar\"} 50000\n";
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 /// `extract_exe_label` must scan past unrelated labels before landing
@@ -675,7 +675,7 @@ fn parse_rejects_label_with_unterminated_value() {
     // The unmatched inner `}` will be consumed by find_label_block_end,
     // leaving an incomplete labels string that extract_exe_label cannot
     // terminate, so the line is skipped.
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 /// A labels block that opens `{` but never closes must be skipped
@@ -684,7 +684,7 @@ fn parse_rejects_label_with_unterminated_value() {
 fn parse_skips_unmatched_label_block() {
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\",pid=\"1 20000\n";
     // No closing `}` so the line is dropped.
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 /// A line where the numeric value does not parse as `f64` must be
@@ -692,7 +692,7 @@ fn parse_skips_unmatched_label_block() {
 #[test]
 fn parse_skips_line_with_non_numeric_value() {
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} not-a-number\n";
-    assert!(parse_scaphandre_metrics(body).is_empty());
+    assert_eq!(parse_scaphandre_metrics(body), []);
 }
 
 /// `unescape_prometheus_value` handles `\"`, `\\`, `\n`, and unknown

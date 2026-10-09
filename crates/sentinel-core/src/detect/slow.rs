@@ -344,7 +344,7 @@ mod tests {
         ];
         let trace = make_trace(events);
         let findings = detect_slow(&trace, 500, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -374,7 +374,7 @@ mod tests {
         ];
         let trace = make_trace(events);
         let findings = detect_slow(&trace, 500, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -582,7 +582,7 @@ mod tests {
             spans: vec![],
         };
         let findings = detect_slow(&trace, 500, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -795,7 +795,7 @@ mod tests {
             .collect();
 
         let findings = detect_slow_cross_trace(&traces, 500, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -1012,6 +1012,6 @@ mod tests {
             spans: vec![],
         };
         let findings = detect_slow(&trace, 500, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 }

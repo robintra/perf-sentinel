@@ -189,7 +189,7 @@ mod tests {
     fn apply_sampling_zero_rate_drops_all() {
         let events = vec![make_event("t1"), make_event("t2")];
         let sampled = apply_sampling(events, 0.0);
-        assert!(sampled.is_empty());
+        assert_eq!(sampled, []);
     }
 
     #[test]

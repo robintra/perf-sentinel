@@ -785,7 +785,7 @@ mod tests {
         // Should not panic despite cyclic parent references
         let tree = build_tree(&trace, &[]);
         let text = format_tree_text(&tree, false);
-        assert!(!text.is_empty());
+        assert_ne!(text, "");
     }
 
     #[test]

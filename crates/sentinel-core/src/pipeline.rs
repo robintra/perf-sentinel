@@ -236,7 +236,7 @@ mod tests {
     fn empty_pipeline_produces_empty_report() {
         let config = Config::default();
         let report = analyze(vec![], &config);
-        assert!(report.findings.is_empty());
+        assert_eq!(report.findings, []);
         assert_eq!(report.analysis.events_processed, 0);
         assert_eq!(report.analysis.traces_analyzed, 0);
         assert!(report.quality_gate.passed);
@@ -289,7 +289,7 @@ mod tests {
 
         let config = Config::default();
         let report = analyze(events, &config);
-        assert!(!report.findings.is_empty());
+        assert_ne!(report.findings, []);
         assert_eq!(report.green_summary.avoidable_io_ops, 6);
     }
 
@@ -336,7 +336,7 @@ mod tests {
         let config = Config::default();
         let report = analyze(events, &config);
 
-        assert!(report.findings.is_empty());
+        assert_eq!(report.findings, []);
         assert_eq!(report.green_summary.total_io_ops, 4);
         assert_eq!(report.green_summary.avoidable_io_ops, 0);
         assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
@@ -351,7 +351,7 @@ mod tests {
         let config = Config::default();
         let report = analyze(events, &config);
 
-        assert!(!report.findings.is_empty());
+        assert_ne!(report.findings, []);
         assert_eq!(report.green_summary.avoidable_io_ops, 5);
         assert!((report.green_summary.io_waste_ratio - 5.0_f64 / 6.0).abs() < f64::EPSILON);
         assert_eq!(report.green_summary.total_io_ops, 6);
@@ -421,7 +421,7 @@ mod tests {
             report.green_summary.co2.is_none(),
             "co2 should be None for empty traces"
         );
-        assert!(report.green_summary.regions.is_empty());
+        assert_eq!(report.green_summary.regions, []);
     }
 
     #[test]
@@ -440,13 +440,13 @@ mod tests {
         let report = analyze(events, &config);
 
         // Findings are still detected
-        assert!(!report.findings.is_empty());
+        assert_ne!(report.findings, []);
         // But green scoring is bypassed
         assert_eq!(report.green_summary.avoidable_io_ops, 0);
         assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
-        assert!(report.green_summary.top_offenders.is_empty());
+        assert_eq!(report.green_summary.top_offenders, []);
         assert!(report.green_summary.co2.is_none());
-        assert!(report.green_summary.regions.is_empty());
+        assert_eq!(report.green_summary.regions, []);
         // total_io_ops still counted
         assert_eq!(report.green_summary.total_io_ops, 6);
         for f in &report.findings {
@@ -600,13 +600,13 @@ mod tests {
         )
         .unwrap();
 
-        assert!(analyze(vec![], &config).warning_details.is_empty());
+        assert_eq!(analyze(vec![], &config).warning_details, []);
     }
 
     #[test]
     fn no_warning_when_the_rule_is_not_configured() {
         let report = analyze(vec![], &Config::default());
-        assert!(report.warning_details.is_empty());
+        assert_eq!(report.warning_details, []);
     }
 
     // --- ingest stats propagation ---
@@ -670,7 +670,7 @@ mod tests {
             ..Config::default()
         };
         let report = analyze(events, &config);
-        assert!(!report.findings.is_empty());
+        assert_ne!(report.findings, []);
         for f in &report.findings {
             assert!(f.confidence.is_batch(), "got {:?}", f.confidence);
         }

@@ -160,7 +160,7 @@ async fn findings_returns_empty_array() {
         .await
         .unwrap();
     let findings: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-    assert!(findings.is_empty());
+    assert_eq!(findings, Vec::<serde_json::Value>::new());
 }
 
 #[tokio::test]
@@ -177,7 +177,7 @@ async fn correlations_returns_empty_array() {
         .await
         .unwrap();
     let correlations: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-    assert!(correlations.is_empty());
+    assert_eq!(correlations, Vec::<serde_json::Value>::new());
 }
 
 #[tokio::test]
@@ -992,12 +992,13 @@ async fn the_namespace_label_is_carried_and_filters_the_listing() {
     let shop = list_incidents(Arc::clone(&state), "?namespace=shop").await;
     assert_eq!(shop.as_array().unwrap().len(), 1);
     assert_eq!(shop[0]["service"], "cart-svc");
-    assert!(
+    assert_eq!(
         list_incidents(Arc::clone(&state), "?namespace=nowhere")
             .await
             .as_array()
             .unwrap()
-            .is_empty()
+            .as_slice(),
+        [] as [serde_json::Value; 0]
     );
     assert_eq!(
         list_incidents(Arc::clone(&state), "?service=cart-svc&namespace=shop")
@@ -1791,7 +1792,10 @@ fn tuning_messages(metrics: &MetricsState, daemon: &crate::config::DaemonConfig)
 #[test]
 fn tuning_advisor_stays_silent_on_healthy_counters() {
     let metrics = MetricsState::new();
-    assert!(tuning_messages(&metrics, &crate::config::DaemonConfig::default()).is_empty());
+    assert_eq!(
+        tuning_messages(&metrics, &crate::config::DaemonConfig::default()),
+        Vec::<String>::new()
+    );
 }
 
 #[test]

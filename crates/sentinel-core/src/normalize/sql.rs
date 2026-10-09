@@ -546,7 +546,7 @@ mod tests {
     fn no_literals() {
         let r = normalize_sql("SELECT count(*) FROM users");
         assert_eq!(r.template, "SELECT count(*) FROM users");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -567,7 +567,7 @@ mod tests {
     fn empty_query() {
         let r = normalize_sql("");
         assert_eq!(r.template, "");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -604,7 +604,7 @@ mod tests {
         // col_1 is an identifier, the 1 is part of it
         let r = normalize_sql("SELECT col_1 FROM t");
         assert_eq!(r.template, "SELECT col_1 FROM t");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -766,14 +766,14 @@ mod tests {
     fn dollar_param_multiple() {
         let r = normalize_sql("SELECT * FROM t WHERE a = $1 AND b = $2");
         assert_eq!(r.template, "SELECT * FROM t WHERE a = $? AND b = $?");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
     fn dollar_param_two_digit_index() {
         let r = normalize_sql("SELECT * FROM t WHERE id = $12");
         assert_eq!(r.template, "SELECT * FROM t WHERE id = $?");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     #[test]
@@ -919,7 +919,7 @@ mod tests {
     fn unterminated_double_quote_flushed() {
         let r = normalize_sql("SELECT \"unterminated");
         assert_eq!(r.template, "SELECT \"unterminated");
-        assert!(r.params.is_empty());
+        assert_eq!(r.params, Vec::<String>::new());
     }
 
     // -- Double-quoted identifiers with escaped quotes --

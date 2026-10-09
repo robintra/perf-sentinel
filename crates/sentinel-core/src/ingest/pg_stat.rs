@@ -1149,7 +1149,7 @@ mod tests {
         let report = rank_pg_stat(&[], 10);
         assert_eq!(report.total_entries, 0);
         for ranking in &report.rankings {
-            assert!(ranking.entries.is_empty());
+            assert_eq!(ranking.entries, []);
         }
     }
 
@@ -1368,7 +1368,7 @@ mod tests {
     fn parse_prometheus_response_empty_result() {
         let json = br#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
         let entries = parse_prometheus_response(json, None, &PrometheusPgStat::default()).unwrap();
-        assert!(entries.is_empty());
+        assert_eq!(entries, []);
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]
@@ -1563,7 +1563,7 @@ mod tests {
         )
         .await
         .expect("fetch_from_prometheus must succeed");
-        assert!(entries.is_empty());
+        assert_eq!(entries, []);
 
         let captured = rx.recv().await.expect("captured request");
         let text = std::str::from_utf8(&captured).expect("utf8");

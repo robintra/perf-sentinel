@@ -564,7 +564,7 @@ mod tests {
     fn parses_empty_array() {
         let ingest = JsonIngest::new(1_048_576);
         let events = ingest.ingest(b"[]").unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -605,7 +605,7 @@ mod tests {
             .with_grouping_attributes(Vec::new())
             .ingest(&raw)
             .unwrap();
-        assert!(disabled[0].grouping.is_empty());
+        assert_eq!(disabled[0].grouping, []);
     }
 
     #[test]
@@ -780,7 +780,7 @@ mod tests {
         // spelled document that holds no resource span is not an error.
         let ingest = JsonIngest::new(1_048_576);
         let events = ingest.ingest(br#"{"resourceSpans": []}"#).unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -836,7 +836,7 @@ mod tests {
         let Some(any_value::Value::ArrayValue(av)) = any.value else {
             panic!("expected ArrayValue variant");
         };
-        assert!(av.values.is_empty());
+        assert_eq!(av.values, []);
     }
 
     #[test]

@@ -12,11 +12,11 @@ use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
 #[test]
 fn empty_input_returns_empty_summary() {
     let (findings, summary, _) = score_green(&[], vec![], None);
-    assert!(findings.is_empty());
+    assert_eq!(findings, []);
     assert_eq!(summary.total_io_ops, 0);
     assert_eq!(summary.avoidable_io_ops, 0);
     assert!((summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
-    assert!(summary.top_offenders.is_empty());
+    assert_eq!(summary.top_offenders, []);
 }
 
 #[test]
@@ -752,7 +752,7 @@ fn clean_traces_zero_waste() {
 
     let (findings, summary, _) = score_green(&[trace], vec![], None);
 
-    assert!(findings.is_empty());
+    assert_eq!(findings, []);
     assert_eq!(summary.total_io_ops, 4);
     assert_eq!(summary.avoidable_io_ops, 0);
     assert!((summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
@@ -989,7 +989,7 @@ fn co2_none_when_no_carbon_context() {
     let (_, summary, _) = score_green(&[trace], vec![], None);
 
     assert!(summary.co2.is_none());
-    assert!(summary.regions.is_empty());
+    assert_eq!(summary.regions, []);
     for offender in &summary.top_offenders {
         assert!(offender.co2_grams.is_none());
     }
@@ -1517,7 +1517,7 @@ fn top_offender_co2_some_in_single_region_mode() {
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
-    assert!(!summary.top_offenders.is_empty());
+    assert_ne!(summary.top_offenders, []);
     assert!(
         summary.top_offenders[0].co2_grams.is_some(),
         "single-region mode should populate TopOffender.co2_grams"
@@ -1542,7 +1542,7 @@ fn top_offender_co2_none_when_multi_region_via_service_regions() {
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
-    assert!(!summary.top_offenders.is_empty());
+    assert_ne!(summary.top_offenders, []);
     for offender in &summary.top_offenders {
         assert!(
             offender.co2_grams.is_none(),
@@ -1566,7 +1566,7 @@ fn top_offender_co2_none_when_multi_region_via_span_attribute() {
         ..CarbonContext::default()
     };
     let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
-    assert!(!summary.top_offenders.is_empty());
+    assert_ne!(summary.top_offenders, []);
     for offender in &summary.top_offenders {
         assert!(
             offender.co2_grams.is_none(),
@@ -1748,7 +1748,7 @@ fn empty_traces_with_carbon_context_returns_no_co2() {
         summary.co2.is_none(),
         "empty traces must not emit an all-zeros co2 object"
     );
-    assert!(summary.regions.is_empty());
+    assert_eq!(summary.regions, []);
 }
 
 #[test]

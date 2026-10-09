@@ -178,7 +178,7 @@ fn stable_db_system_name_non_sql_is_dropped() {
         }"#;
     let ingest = JaegerIngest::new(1_048_576);
     let events = ingest.ingest(json.as_bytes()).unwrap();
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn empty_data_array_produces_no_events() {
     let json = r#"{"data": []}"#;
     let ingest = JaegerIngest::new(1_048_576);
     let events = ingest.ingest(json.as_bytes()).unwrap();
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -267,7 +267,7 @@ fn empty_spans_array_produces_no_events() {
     let json = r#"{"data": [{"traceID": "t1", "spans": [], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
     let ingest = JaegerIngest::new(1_048_576);
     let events = ingest.ingest(json.as_bytes()).unwrap();
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -409,7 +409,7 @@ fn server_route_and_legacy_url_is_context_not_http_out() {
         .ingest(json.as_bytes())
         .unwrap();
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn server_url_full_without_route_is_context_not_http_out() {
         .ingest(json.as_bytes())
         .unwrap();
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]

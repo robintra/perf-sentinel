@@ -211,7 +211,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_chatty(&trace, 15);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_chatty(&trace, 15);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
 
         let trace = make_trace(events);
         let findings = detect_chatty(&trace, 15);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]

@@ -2725,7 +2725,7 @@ fn validate_daemon_ack_rejects_control_chars_in_storage_path() {
 fn validate_daemon_cors_accepts_empty_default() {
     let cfg = Config::default();
     assert!(cfg.validate_daemon_cors().is_ok());
-    assert!(cfg.daemon.cors.allowed_origins.is_empty());
+    assert_eq!(cfg.daemon.cors.allowed_origins, Vec::<String>::new());
 }
 
 #[test]
@@ -2848,7 +2848,7 @@ fn cors_disabled_with_api_disabled_is_accepted() {
         ..Config::default()
     };
     // An empty CORS list wires no layer, so there is no inconsistency.
-    assert!(cfg.daemon.cors.allowed_origins.is_empty());
+    assert_eq!(cfg.daemon.cors.allowed_origins, Vec::<String>::new());
     assert!(cfg.validate().is_ok());
 }
 
@@ -4303,7 +4303,7 @@ fn parse_grouping_attributes_empty_list_disables_grouping() {
         "an explicit empty list turns grouping off rather than falling back to the defaults"
     );
     let blank = load_from_str("[detection]\ngrouping_attributes = [\" \"]").unwrap();
-    assert!(blank.detection.grouping_attributes.is_empty());
+    assert_eq!(blank.detection.grouping_attributes, Vec::<String>::new());
 }
 
 #[test]

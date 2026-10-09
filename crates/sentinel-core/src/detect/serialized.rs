@@ -526,7 +526,7 @@ mod tests {
         let events = make_sequential_children("trace-1", "root", 2);
         let trace = make_trace(events);
         let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -666,7 +666,7 @@ mod tests {
             .collect();
         let trace = make_trace(events);
         let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]

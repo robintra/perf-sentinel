@@ -123,7 +123,7 @@ fn empty_request_returns_empty() {
     let req = ExportTraceServiceRequest {
         resource_spans: vec![],
     };
-    assert!(convert_otlp_request(&req).is_empty());
+    assert_eq!(convert_otlp_request(&req), []);
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn non_io_span_skipped() {
         ..Default::default()
     };
     let req = make_request("order-svc", vec![span]);
-    assert!(convert_otlp_request(&req).is_empty());
+    assert_eq!(convert_otlp_request(&req), []);
 }
 
 /// Bare span with only the given attributes (filter-reason fixtures).
@@ -273,7 +273,7 @@ fn non_sql_datastore_span_with_url_is_dropped_not_http() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_non_sql_datastore, 1);
 }
 
@@ -286,7 +286,7 @@ fn non_sql_datastore_span_without_statement_is_not_an_instrumentation_gap() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_non_sql_datastore, 1);
     assert_eq!(stats.filtered_missing_db_statement, 0);
 }
@@ -335,7 +335,7 @@ fn datadog_resource_with_unknown_db_type_is_not_tokenized_as_sql() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_missing_db_statement, 1);
 }
 
@@ -355,7 +355,7 @@ fn datadog_empty_resource_is_not_an_empty_sql_event() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_missing_db_statement, 1);
 }
 
@@ -431,7 +431,7 @@ fn datadog_stable_namespaced_non_sql_is_dropped() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_non_sql_datastore, 1);
 }
 
@@ -446,7 +446,7 @@ fn datadog_stable_unknown_db_system_name_without_statement_is_a_gap() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_missing_db_statement, 1);
 }
 
@@ -606,7 +606,7 @@ fn datadog_resource_without_db_signal_is_not_sql() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_not_io, 1);
 }
 
@@ -626,7 +626,7 @@ fn datadog_redis_resource_is_dropped_non_sql() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_non_sql_datastore, 1);
     assert_eq!(stats.filtered_missing_db_statement, 0);
 }
@@ -646,7 +646,7 @@ fn server_span_without_url_counts_not_io_not_missing_url() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(
         stats,
         SpanConversionStats {
@@ -670,7 +670,7 @@ fn counted_conversion_all_filtered_yields_zero_events() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.received, 1);
     assert_eq!(stats.filtered_not_io, 1);
 }
@@ -780,7 +780,7 @@ fn server_route_and_legacy_url_is_context_not_http_out() {
 
     let events = convert_otlp_request(&make_request("order-svc", vec![root]));
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -798,7 +798,7 @@ fn server_url_full_without_route_is_context_not_http_out() {
 
     let events = convert_otlp_request(&make_request("order-svc", vec![root]));
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
 }
 
 #[test]
@@ -1581,7 +1581,7 @@ fn grpc_server_rpc_span_is_not_admitted() {
     );
     span.kind = SPAN_KIND_SERVER;
     let req = make_request("order-svc", vec![span]);
-    assert!(convert_otlp_request(&req).is_empty());
+    assert_eq!(convert_otlp_request(&req), []);
 }
 
 #[test]
@@ -1664,7 +1664,7 @@ fn consumer_messaging_span_is_not_admitted() {
     );
     span.kind = SPAN_KIND_CONSUMER;
     let req = make_request("order-svc", vec![span]);
-    assert!(convert_otlp_request(&req).is_empty());
+    assert_eq!(convert_otlp_request(&req), []);
 }
 
 #[test]
@@ -2340,7 +2340,10 @@ fn micrometer_method_tag_without_url_is_not_http() {
         ..Default::default()
     };
 
-    assert!(convert_otlp_request(&make_request("order-svc", vec![span])).is_empty());
+    assert_eq!(
+        convert_otlp_request(&make_request("order-svc", vec![span])),
+        []
+    );
 }
 
 #[test]
@@ -2724,7 +2727,7 @@ fn instrumentation_scopes_empty_when_scope_absent() {
     let req = make_request("svc", vec![span]);
     let events = convert_otlp_request(&req);
     assert_eq!(events.len(), 1);
-    assert!(events[0].instrumentation_scopes.is_empty());
+    assert_eq!(events[0].instrumentation_scopes, []);
 }
 
 #[test]
@@ -3646,7 +3649,7 @@ mod http_handler {
         let response = router.oneshot(req).await.expect("router runs");
         assert_eq!(response.status(), StatusCode::OK);
         let batch = rx.recv().await.expect("context batch sent");
-        assert!(batch.events.is_empty());
+        assert_eq!(batch.events, []);
         assert_eq!(batch.source_endpoint_updates.len(), 1);
         let update = &batch.source_endpoint_updates[0];
         assert_eq!(update.trace_id, "01".repeat(16));
@@ -4266,7 +4269,7 @@ fn orphan_without_donor_stays_missing_db_statement() {
 
     let (events, stats) = convert_otlp_request_counted(&req);
 
-    assert!(events.is_empty());
+    assert_eq!(events, []);
     assert_eq!(stats.filtered_missing_db_statement, 2);
     assert_eq!(stats.filtered_merged_db_span, 0);
 }

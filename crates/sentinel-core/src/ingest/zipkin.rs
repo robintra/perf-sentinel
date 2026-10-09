@@ -587,7 +587,7 @@ mod tests {
         ]"#;
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -623,7 +623,7 @@ mod tests {
         let json = "[]";
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -643,7 +643,7 @@ mod tests {
         let json = r#"[{"traceId": "t1", "id": "s1"}]"#;
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -651,7 +651,7 @@ mod tests {
         let json = r#"[{"traceId": "t1", "id": "s1", "tags": {}}]"#;
         let ingest = ZipkinIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -770,7 +770,7 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -792,7 +792,7 @@ mod tests {
             .ingest(json.as_bytes())
             .unwrap();
 
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]

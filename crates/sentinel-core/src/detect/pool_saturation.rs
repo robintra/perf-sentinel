@@ -269,7 +269,7 @@ mod tests {
         let events = make_concurrent_sql("trace-1", "order-svc", 5, 200_000);
         let trace = make_trace(events);
         let findings = detect_pool_saturation(&trace, 10);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
 
         // With threshold 3: should not trigger
         let findings = detect_pool_saturation(&trace, 3);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 
     #[test]
@@ -445,6 +445,6 @@ mod tests {
             .collect();
         let trace = make_trace(events);
         let findings = detect_pool_saturation(&trace, 10);
-        assert!(findings.is_empty());
+        assert_eq!(findings, []);
     }
 }
