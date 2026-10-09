@@ -4,6 +4,10 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+### Fixed
+
+- `chatty_service` findings read the same from one run to the next on the same input. The two calls a suggestion names after `top:` are the most frequent outbound templates of its grouping, and calls tied on count were ordered by a hash map, so the pair, or its order, could change between runs. Ties now break on the template, in ascending order. A trace whose groupings share an entry endpoint also listed their chatty findings in hash order, and they now follow the grouping. This reached `analyze`, `explain`, the TUI, the JSON, SARIF and HTML reports and the daemon. No finding appears or disappears, and signatures, severities and counts do not change.
+
 ## [0.26.1] - 2026-10-09
 
 This release is a patch: it adds no API surface, removes nothing, and no public type of `perf-sentinel-core` changes shape. No finding appears, disappears or changes signature, and the daemon's API, its metrics and the findings it exports do not change. The two example dashboards gain French variants under `examples/FR/`, the toolchain moves to Rust 1.99.0 and the lockfiles move to the newest compatible dependency releases.
