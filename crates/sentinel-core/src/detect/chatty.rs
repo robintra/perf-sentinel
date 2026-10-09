@@ -275,12 +275,11 @@ mod tests {
         assert!(findings.is_empty(), "10 HTTP calls <= 15 threshold");
     }
 
-    /// One trace crossing two deployments must not bill all its outbound
-    /// calls to whichever emitted the first span.
-    #[test]
-    fn calls_are_counted_per_grouping_not_per_trace() {
+    /// One trace with four outbound calls from each `service.namespace`, in
+    /// the given order, all from the same entry endpoint.
+    fn two_grouping_trace(namespaces: [&str; 2]) -> Trace {
         let mut events = Vec::new();
-        for (i, ns) in ["commerce", "finance"].into_iter().enumerate() {
+        for (i, ns) in namespaces.into_iter().enumerate() {
             for j in 0..4 {
                 let mut event = make_http_event(
                     "t1",
@@ -292,7 +291,14 @@ mod tests {
                 events.push(event);
             }
         }
-        let trace = make_trace(events);
+        make_trace(events)
+    }
+
+    /// One trace crossing two deployments must not bill all its outbound
+    /// calls to whichever emitted the first span.
+    #[test]
+    fn calls_are_counted_per_grouping_not_per_trace() {
+        let trace = two_grouping_trace(["commerce", "finance"]);
 
         let findings = detect_chatty(&trace, 3);
 
@@ -378,20 +384,7 @@ mod tests {
 
     #[test]
     fn findings_tied_on_the_entry_endpoint_follow_the_grouping() {
-        let mut events = Vec::new();
-        for (i, ns) in ["finance", "commerce"].into_iter().enumerate() {
-            for j in 0..4 {
-                let mut event = make_http_event(
-                    "t1",
-                    &format!("s-{ns}-{j}"),
-                    &format!("http://{ns}-svc/api/items/{j}"),
-                    &format!("2025-07-10T14:32:0{}.000Z", i * 4 + j),
-                );
-                event.grouping = crate::test_helpers::grouping("service.namespace", ns);
-                events.push(event);
-            }
-        }
-        let trace = make_trace(events);
+        let trace = two_grouping_trace(["finance", "commerce"]);
 
         for _ in 0..RUNS {
             let findings = detect_chatty(&trace, 3);
