@@ -26,6 +26,7 @@ The embedded reference data keeps its vintages for this release: the SPECpower i
 ### Changed
 
 - `Cargo.lock` moves `cc` to 1.6.0, `const-hex` to 1.19.3, `find-msvc-tools` to 0.1.14 and `smallvec` to 1.16.2, and `fuzz/Cargo.lock` follows the root lock again on every crate they share. The fuzz lock had stayed on tokio 1.53.1, hyper 1.11.1, hyper-util 0.1.20, libc 0.2.189 and want 0.3.1, and an IDE that indexes both workspaces then held two `TcpStream` types and reported false E0277 errors in `daemon/tls.rs`.
+- The release workflow attaches only the release artifacts, the binaries, the SBOM and `SHA256SUMS.txt`. It downloaded every artifact of the run, and when the Docker job finished first, its `.dockerbuild` build record went out with the release, as it did on v0.26.1, from which it has been removed. That file was in neither `SHA256SUMS.txt` nor the build provenance attestation.
 
 
 ## [0.26.1] - 2026-10-09
