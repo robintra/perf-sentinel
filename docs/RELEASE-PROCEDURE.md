@@ -277,6 +277,12 @@ label the panels cannot do without, never on every release. The
 there never moves the daemon floor: its own dependency is the Hub version
 its panel description names.
 
+The French variants under `examples/FR/` are generated from the two
+English files and never edited by hand. A release that changed either
+English dashboard regenerates them with
+`python3 scripts/translate-dashboards-fr.py`, and `--check` confirms they
+are current. Only the English overview is published to Grafana Labs.
+
 ## What the release workflow does
 
 For reference, here is what `release.yml` runs on every `v*` tag push:

@@ -966,6 +966,13 @@ the Grafana you already run. Import it one of two ways.
 Manual import: in Grafana open Dashboards then Import, upload the JSON,
 and map the `DS_PROMETHEUS` input to your Prometheus datasource.
 
+A French variant,
+[`examples/FR/grafana-dashboard-FR.json`](../examples/FR/grafana-dashboard-FR.json),
+has the same panels and queries with translated titles and descriptions,
+and imports the same way. It keeps the English file's uid, so importing it
+replaces the English dashboard rather than adding a second one. The
+findings dashboard below has one too.
+
 **A `Compatibility` badge** ends the first panel line. It turns orange when
 the daemon predates 0.20.0, where `Service silence` has nothing to draw.
 It turns red below 0.18.0, where the `Service` and `Grouping` pickers still

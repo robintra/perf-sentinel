@@ -105,7 +105,7 @@ Read the conventions below before your first PR: this project rejects speculativ
 ### Language
 
 - All code, comments, doc comments, error messages and CLI output must be in **English**.
-- French is used only in `README-FR.md` and the `docs/FR/` mirror.
+- French is used only in `README-FR.md`, the `docs/FR/` mirror, the `examples/FR/` dashboards and the translation table of `scripts/translate-dashboards-fr.py` that generates them.
 
 ### Commit messages
 
@@ -181,6 +181,10 @@ The CLI `demo` subcommand bundles its own dataset, embedded at `crates/sentinel-
 ## Documentation assets
 
 Some changes require regenerating committed image assets so the README, the docs and the dashboard stills stay in sync with the code. The pipelines are scripted, so no manual screen-recording is needed.
+
+### French dashboards
+
+`examples/FR/grafana-dashboard-FR.json` and `examples/FR/grafana-findings-dashboard-FR.json` are generated from the two English dashboards and never edited by hand. After changing either English file, run `python3 scripts/translate-dashboards-fr.py` and commit its output with the change. The script fails on a visible string its table does not know, a column a transformation no longer finds, or an override that matches no legend: add the missing entry rather than forcing it through. `--check` verifies the committed files without writing.
 
 ### Terminal and TUI (VHS)
 

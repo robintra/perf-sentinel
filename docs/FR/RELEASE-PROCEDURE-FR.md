@@ -285,6 +285,12 @@ PerfSentinelHub et non le daemon, donc un changement de ce côté ne déplace
 jamais le plancher du daemon : sa propre dépendance est la version du Hub
 que nomme la description de son panneau.
 
+Les variantes françaises sous `examples/FR/` sont générées depuis les
+deux fichiers anglais et jamais modifiées à la main. Une release qui a
+changé l'un des deux tableaux de bord anglais les régénère avec
+`python3 scripts/translate-dashboards-fr.py`, et `--check` confirme
+qu'elles sont à jour. Seul l'aperçu anglais est publié chez Grafana Labs.
+
 ## Ce que fait le workflow de release
 
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :

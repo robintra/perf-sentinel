@@ -715,6 +715,14 @@ façons.
 Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
 JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
 
+Une variante française,
+[`examples/FR/grafana-dashboard-FR.json`](../../examples/FR/grafana-dashboard-FR.json),
+a les mêmes panneaux et les mêmes requêtes avec titres et descriptions
+traduits, et s'importe de la même façon. Elle garde l'uid du fichier
+anglais : l'importer remplace le tableau de bord anglais au lieu d'en
+ajouter un second. Le tableau de bord des findings décrit plus bas a la
+sienne.
+
 **Une pastille `Compatibility`** termine la première ligne de panneaux. Elle passe à
 l'orange quand le daemon est antérieur à la 0.20.0, où `Service silence`
 n'a rien à tracer. Elle passe au rouge sous la 0.18.0, où les sélecteurs
