@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # cargo-deny is a prebuilt binary and `cargo deny check` only runs
-      # `cargo metadata`, so the runner's cargo (pinned to 1.98.1 by
+      # `cargo metadata`, so the runner's cargo (pinned to 1.99.0 by
       # rust-toolchain.toml on first use) suffices, no toolchain step needed.
       # Pinned to match the deny.toml schema target (cargo-deny 0.19.x).
       - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
