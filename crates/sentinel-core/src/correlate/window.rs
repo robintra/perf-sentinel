@@ -426,6 +426,20 @@ fn carry_incoming_parent(
     }
 }
 
+/// Every `(service, span id, value)` of a batch's groups, in that order, so
+/// what the caps admit and the ancestry LRU keeps does not follow the maps'
+/// hash order.
+fn by_service_and_span<T>(
+    groups: &HashMap<Arc<str>, HashMap<String, T>>,
+) -> Vec<(&Arc<str>, &String, &T)> {
+    let mut entries: Vec<_> = groups
+        .iter()
+        .flat_map(|(service, items)| items.iter().map(move |(span_id, v)| (service, span_id, v)))
+        .collect();
+    entries.sort_unstable_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(b.1)));
+    entries
+}
+
 fn merge_source_endpoint_groups(
     buffer: &mut TraceBuffer,
     incoming: &HashMap<Arc<str>, HashMap<String, String>>,
@@ -447,28 +461,26 @@ fn merge_incoming_consumers(
     incoming_parents: &SourceEndpointParentGroups,
     root_cap: usize,
 ) {
-    for (service, consumers) in incoming {
-        for (span_id, endpoint) in consumers {
-            if let Some(existing) = buffer
-                .source_consumer_groups
-                .get_mut(service)
-                .and_then(|retained| retained.get_mut(span_id))
-            {
-                existing.clone_from(endpoint);
-                carry_incoming_parent(buffer, incoming_parents, service, span_id);
-                continue;
-            }
-            if buffer.source_consumer_count >= root_cap {
-                continue;
-            }
-            buffer
-                .source_consumer_groups
-                .entry(Arc::clone(service))
-                .or_default()
-                .insert(span_id.clone(), endpoint.clone());
+    for (service, span_id, endpoint) in by_service_and_span(incoming) {
+        if let Some(existing) = buffer
+            .source_consumer_groups
+            .get_mut(service)
+            .and_then(|retained| retained.get_mut(span_id))
+        {
+            existing.clone_from(endpoint);
             carry_incoming_parent(buffer, incoming_parents, service, span_id);
-            buffer.source_consumer_count += 1;
+            continue;
         }
+        if buffer.source_consumer_count >= root_cap {
+            continue;
+        }
+        buffer
+            .source_consumer_groups
+            .entry(Arc::clone(service))
+            .or_default()
+            .insert(span_id.clone(), endpoint.clone());
+        carry_incoming_parent(buffer, incoming_parents, service, span_id);
+        buffer.source_consumer_count += 1;
     }
 }
 
@@ -478,26 +490,24 @@ fn index_incoming_ancestry(
     buffer: &mut TraceBuffer,
     incoming_parents: &SourceEndpointParentGroups,
 ) {
-    for (service, parents) in incoming_parents {
-        for (span_id, parent_span_id) in parents {
-            let key = (Arc::clone(service), span_id.clone());
-            if let Some(entry) = buffer
-                .resolved_ancestry
-                .as_mut()
-                .and_then(|ancestry| ancestry.get_mut(&key))
-            {
-                entry.parent_span_id.clone_from(parent_span_id);
-            } else {
-                cache_ancestry_entry(
-                    &mut buffer.resolved_ancestry,
-                    buffer.resolved_ancestry_cap,
-                    key,
-                    AncestryEntry {
-                        parent_span_id: parent_span_id.clone(),
-                        resolution: None,
-                    },
-                );
-            }
+    for (service, span_id, parent_span_id) in by_service_and_span(incoming_parents) {
+        let key = (Arc::clone(service), span_id.clone());
+        if let Some(entry) = buffer
+            .resolved_ancestry
+            .as_mut()
+            .and_then(|ancestry| ancestry.get_mut(&key))
+        {
+            entry.parent_span_id.clone_from(parent_span_id);
+        } else {
+            cache_ancestry_entry(
+                &mut buffer.resolved_ancestry,
+                buffer.resolved_ancestry_cap,
+                key,
+                AncestryEntry {
+                    parent_span_id: parent_span_id.clone(),
+                    resolution: None,
+                },
+            );
         }
     }
 }
@@ -510,37 +520,35 @@ fn merge_incoming_roots(
     incoming_parents: &SourceEndpointParentGroups,
     root_cap: usize,
 ) {
-    for (service, roots) in incoming {
-        for (root_span_id, endpoint) in roots {
-            if let Some(existing) = buffer
-                .source_endpoint_groups
-                .get_mut(service)
-                .and_then(|service_roots| service_roots.get_mut(root_span_id))
-            {
-                existing.clone_from(endpoint);
-                carry_incoming_parent(buffer, incoming_parents, service, root_span_id);
-                continue;
-            }
-            if buffer
-                .source_endpoint_groups
-                .get(service)
-                .is_some_and(|retained_roots| !retained_roots.is_empty())
-            {
-                buffer
-                    .ambiguous_source_endpoint_services
-                    .insert(Arc::clone(service));
-            }
-            if buffer.source_endpoint_count >= root_cap {
-                continue;
-            }
-            buffer
-                .source_endpoint_groups
-                .entry(Arc::clone(service))
-                .or_default()
-                .insert(root_span_id.clone(), endpoint.clone());
+    for (service, root_span_id, endpoint) in by_service_and_span(incoming) {
+        if let Some(existing) = buffer
+            .source_endpoint_groups
+            .get_mut(service)
+            .and_then(|service_roots| service_roots.get_mut(root_span_id))
+        {
+            existing.clone_from(endpoint);
             carry_incoming_parent(buffer, incoming_parents, service, root_span_id);
-            buffer.source_endpoint_count += 1;
+            continue;
         }
+        if buffer
+            .source_endpoint_groups
+            .get(service)
+            .is_some_and(|retained_roots| !retained_roots.is_empty())
+        {
+            buffer
+                .ambiguous_source_endpoint_services
+                .insert(Arc::clone(service));
+        }
+        if buffer.source_endpoint_count >= root_cap {
+            continue;
+        }
+        buffer
+            .source_endpoint_groups
+            .entry(Arc::clone(service))
+            .or_default()
+            .insert(root_span_id.clone(), endpoint.clone());
+        carry_incoming_parent(buffer, incoming_parents, service, root_span_id);
+        buffer.source_endpoint_count += 1;
     }
 }
 

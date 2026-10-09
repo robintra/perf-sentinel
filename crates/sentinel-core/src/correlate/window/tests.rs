@@ -1597,6 +1597,32 @@ fn root_parent_context_shares_the_endpoint_cap() {
     );
 }
 
+/// Every incoming map draws fresh hash keys, so roots admitted in its
+/// iteration order would differ across these runs.
+#[test]
+fn the_endpoint_cap_admits_roots_in_span_id_order() {
+    for _ in 0..32 {
+        let mut w = TraceWindow::new(WindowConfig {
+            max_events_per_trace: 2,
+            ..WindowConfig::default()
+        });
+        let roots = HashMap::from([(
+            Arc::from("svc-a"),
+            (1..=6)
+                .map(|i| (format!("r{i}"), format!("/r{i}")))
+                .collect::<HashMap<_, _>>(),
+        )]);
+        assert!(w.retain_source_endpoint_groups("t1", &roots, 0).is_none());
+        let buffer = w.traces.peek("t1").expect("trace remains active");
+        let mut retained: Vec<_> = buffer.source_endpoint_groups["svc-a"]
+            .keys()
+            .map(String::as_str)
+            .collect();
+        retained.sort_unstable();
+        assert_eq!(retained, ["r1", "r2"]);
+    }
+}
+
 #[test]
 fn parent_only_context_uses_the_existing_ancestry_cap() {
     let mut w = TraceWindow::new(WindowConfig {
