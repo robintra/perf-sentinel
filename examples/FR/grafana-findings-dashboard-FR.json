@@ -1,0 +1,2851 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_INFINITY",
+      "label": "perf-sentinel API",
+      "description": "Le datasource Infinity qui pointe sur l'API de requêtage du daemon perf-sentinel, provisionné par examples/grafana-infinity-datasource.yaml.",
+      "type": "datasource",
+      "pluginId": "yesoreyeram-infinity-datasource",
+      "pluginName": "Infinity"
+    },
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "L'instance Prometheus qui scrape le /metrics du daemon. Elle n'alimente que les variables Namespace des services et Service, depuis les labels de perf_sentinel_findings_total, les mêmes que filtre le dashboard d'aperçu ; tous les tableaux lisent le daemon via DS_INFINITY.",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "yesoreyeram-infinity-datasource",
+      "name": "Infinity",
+      "version": "2.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "table",
+      "version": ""
+    }
+  ],
+  "title": "perf-sentinel findings",
+  "uid": "perf-sentinel-findings",
+  "tags": [
+    "perf-sentinel",
+    "observability"
+  ],
+  "schemaVersion": 39,
+  "editable": true,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "description": "Findings lus depuis l'API de requêtage de perf-sentinel via le datasource Infinity de examples/grafana-infinity-datasource.yaml. 'Perf Sentinel' compte les findings par type depuis Prometheus, ce dashboard nomme l'opération et l'endpoint.\n\nL'API n'a aucune gestion d'identité intégrée : restreindre le dossier du dashboard aux personnes autorisées à voir les modèles de requêtes SQL et les noms d'endpoints.\n\nIncidents et Findings de l'incident ignorent le sélecteur de temps et demandent [daemon] read_api_key, envoyé en X-API-Key. Corrélations demande que [daemon.correlation] soit activé et ignore les variables.\n\nNamespace des services et Service sont les labels du dashboard d'aperçu, envoyés en correspondance exacte. Lignes à sauter pagine au-delà du plafond de 1000 lignes.",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_INFINITY",
+        "label": "perf-sentinel API",
+        "type": "datasource",
+        "query": "yesoreyeram-infinity-datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "grouping",
+        "label": "Namespace des services",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_findings_total, grouping)",
+        "query": {
+          "query": "label_values(perf_sentinel_findings_total, grouping)",
+          "refId": "grouping"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Regroupement effectif des charges analysées : le premier attribut présent parmi [detection] grouping_attributes (k8s.namespace.name, puis service.namespace, par défaut), donc sur Kubernetes le namespace où tournent les charges. Listé depuis le label grouping de perf_sentinel_findings_total, il propose donc exactement ce que filtre le dashboard d'aperçu. Envoyé à l'API en correspondance exacte. All envoie une simple espace, que l'API lit comme l'absence de filtre : Grafana ignore une allValue vide, un blanc est donc la seule valeur qui atteigne la requête. Le datasource Prometheus ne sert que cette liste et celle de Service. grouping=\"_other\" est le bac de repli des métriques pour les paires au-delà des plafonds par exécution, pas une valeur que porte un finding : le choisir donne un tableau vide, les lignes qu'il représente étant sous leur vrai regroupement."
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_findings_total, service)",
+        "query": {
+          "query": "label_values(perf_sentinel_findings_total, service)",
+          "refId": "service"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Service analysé (service.name OTLP), listé depuis le label service de perf_sentinel_findings_total. Envoyé à l'API en correspondance exacte. All envoie une simple espace, que l'API lit comme l'absence de filtre : Grafana ignore une allValue vide, un blanc est donc la seule valeur qui atteigne la requête. Non rétréci par Namespace des services : un service absent du regroupement choisi donne un tableau vide."
+      },
+      {
+        "name": "type",
+        "label": "Type de finding",
+        "type": "custom",
+        "query": "N+1 SQL : n_plus_one_sql,N+1 HTTP : n_plus_one_http,N+1 messaging : n_plus_one_messaging,SQL redondant : redundant_sql,HTTP redondant : redundant_http,SQL lent : slow_sql,HTTP lent : slow_http,Messaging lent : slow_messaging,Fanout excessif : excessive_fanout,Service bavard : chatty_service,Saturation de pool : pool_saturation,Appels sérialisés : serialized_calls",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "N+1 SQL",
+            "value": "n_plus_one_sql"
+          },
+          {
+            "selected": false,
+            "text": "N+1 HTTP",
+            "value": "n_plus_one_http"
+          },
+          {
+            "selected": false,
+            "text": "N+1 messaging",
+            "value": "n_plus_one_messaging"
+          },
+          {
+            "selected": false,
+            "text": "SQL redondant",
+            "value": "redundant_sql"
+          },
+          {
+            "selected": false,
+            "text": "HTTP redondant",
+            "value": "redundant_http"
+          },
+          {
+            "selected": false,
+            "text": "SQL lent",
+            "value": "slow_sql"
+          },
+          {
+            "selected": false,
+            "text": "HTTP lent",
+            "value": "slow_http"
+          },
+          {
+            "selected": false,
+            "text": "Messaging lent",
+            "value": "slow_messaging"
+          },
+          {
+            "selected": false,
+            "text": "Fanout excessif",
+            "value": "excessive_fanout"
+          },
+          {
+            "selected": false,
+            "text": "Service bavard",
+            "value": "chatty_service"
+          },
+          {
+            "selected": false,
+            "text": "Saturation de pool",
+            "value": "pool_saturation"
+          },
+          {
+            "selected": false,
+            "text": "Appels sérialisés",
+            "value": "serialized_calls"
+          }
+        ],
+        "hide": 0,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "description": "Type de finding, envoyé à l'API en correspondance exacte sur type, sous les libellés de la colonne Type. All envoie une simple espace, que l'API lit comme l'absence de filtre, comme Namespace des services et Service. Restreindre côté daemon évite qu'un type rare comme SQL lent soit coupé par Lignes max, là où l'en-tête de la colonne Type ne filtre que la page déjà renvoyée. Les douze types sont figés dans le dashboard : un type ajouté par un daemon plus récent manque ici mais reste listé sous All."
+      },
+      {
+        "name": "limit",
+        "label": "Lignes max",
+        "type": "custom",
+        "query": "50,100,200,500,1000",
+        "current": {
+          "text": "200",
+          "value": "200"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "50",
+            "value": "50"
+          },
+          {
+            "selected": false,
+            "text": "100",
+            "value": "100"
+          },
+          {
+            "selected": true,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "500",
+            "value": "500"
+          },
+          {
+            "selected": false,
+            "text": "1000",
+            "value": "1000"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "Plafond appliqué côté serveur, après le regroupement des findings par signature. Le daemon refuse toute valeur au-dessus de 1000. À combiner avec Lignes à sauter pour lire au-delà."
+      },
+      {
+        "name": "offset",
+        "label": "Lignes à sauter",
+        "type": "custom",
+        "query": "0,200,400,600,800,1000,2000,3000,4000",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "1000",
+            "value": "1000"
+          },
+          {
+            "selected": false,
+            "text": "2000",
+            "value": "2000"
+          },
+          {
+            "selected": false,
+            "text": "3000",
+            "value": "3000"
+          },
+          {
+            "selected": false,
+            "text": "4000",
+            "value": "4000"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "L'offset de l'API : lignes regroupées sautées avant le début de la page, pour lire en tranches une liste qui dépasse le plafond de 1000 lignes. Ajouter Lignes max à chaque fois : 0, puis 200, 400 au défaut, ou 0, 1000, 2000 au plafond. Le tampon circulaire bouge entre deux requêtes, donc une ligne peut passer d'une tranche à l'autre ; restreindre d'abord avec Namespace des services et Service est ce qui fait tenir la plupart des pages sous le plafond."
+      },
+      {
+        "name": "include_acked",
+        "label": "Inclure les acquittés",
+        "type": "custom",
+        "query": "false,true",
+        "current": {
+          "text": "false",
+          "value": "false"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "false",
+            "value": "false"
+          },
+          {
+            "selected": false,
+            "text": "true",
+            "value": "true"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "Depuis la 0.5.20, l'API laisse par défaut les findings acquittés de côté : un problème critique que quelqu'un a acquitté est donc absent du tableau sans que rien ne le dise. true les redemande, et la colonne Acquitté via nomme l'origine (toml pour la base de référence de la CI, daemon pour le stock d'exécution), la même union que liste le tableau des acquittements plus bas."
+      },
+      {
+        "name": "incident",
+        "label": "Incident",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Id de l'incident dont le tableau Findings de l'incident montre les findings. Renseigné en cliquant une ligne du tableau Incidents, ou collé depuis GET /api/incidents. Vide, ce tableau reste sans données."
+      },
+      {
+        "name": "incident_offset",
+        "label": "Incidents à sauter",
+        "type": "custom",
+        "query": "0,50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "50",
+            "value": "50"
+          },
+          {
+            "selected": false,
+            "text": "100",
+            "value": "100"
+          },
+          {
+            "selected": false,
+            "text": "150",
+            "value": "150"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "250",
+            "value": "250"
+          },
+          {
+            "selected": false,
+            "text": "300",
+            "value": "300"
+          },
+          {
+            "selected": false,
+            "text": "350",
+            "value": "350"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "450",
+            "value": "450"
+          },
+          {
+            "selected": false,
+            "text": "500",
+            "value": "500"
+          },
+          {
+            "selected": false,
+            "text": "550",
+            "value": "550"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "650",
+            "value": "650"
+          },
+          {
+            "selected": false,
+            "text": "700",
+            "value": "700"
+          },
+          {
+            "selected": false,
+            "text": "750",
+            "value": "750"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "850",
+            "value": "850"
+          },
+          {
+            "selected": false,
+            "text": "900",
+            "value": "900"
+          },
+          {
+            "selected": false,
+            "text": "950",
+            "value": "950"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "Le décalage de l'API pour le tableau Incidents (Findings de l'incident demande par id, et ne lit cette page qu'auprès d'un daemon antérieur à la 0.24.0) : incidents sautés, du plus récent au plus ancien, avant le début de la page de 50. 0, puis 50, 100 pour remonter un tampon d'au plus 1000 incidents ([daemon.incidents] max_retained). Un nouvel incident décale chaque page d'une ligne."
+      },
+      {
+        "name": "DS_HUB",
+        "label": "Hub perf-sentinel",
+        "type": "datasource",
+        "query": "yesoreyeram-infinity-datasource",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "regex": "/hub/i",
+        "description": "Facultatif. Le datasource Infinity qui pointe vers PerfSentinelHub, lu par la seule ligne Historique (Hub). Seuls les datasources dont le nom contient Hub sont proposés, pour que la ligne ne se branche jamais sur le daemon par erreur. Laissé vide, la ligne est en erreur quand on l'ouvre et rien d'autre ne change."
+      },
+      {
+        "name": "environment",
+        "label": "Environnement",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(perf_sentinel_hub_findings, environment)",
+        "query": {
+          "query": "label_values(perf_sentinel_hub_findings, environment)",
+          "refId": "environment"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": " ",
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Environnement de la ligne Historique (Hub), parmi ceux que déclarent les sources du Hub, listés depuis le label environment de perf_sentinel_hub_findings : Prometheus doit donc scraper le Hub. All envoie une simple espace, que le Hub lit comme tout le parc. Le Hub répond 400 à un environnement qu'il ne connaît pas."
+      },
+      {
+        "name": "hub_offset",
+        "label": "Lignes Hub à sauter",
+        "type": "custom",
+        "query": "0,200,400,600,800,1000,2000,3000,4000",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          },
+          {
+            "selected": false,
+            "text": "200",
+            "value": "200"
+          },
+          {
+            "selected": false,
+            "text": "400",
+            "value": "400"
+          },
+          {
+            "selected": false,
+            "text": "600",
+            "value": "600"
+          },
+          {
+            "selected": false,
+            "text": "800",
+            "value": "800"
+          },
+          {
+            "selected": false,
+            "text": "1000",
+            "value": "1000"
+          },
+          {
+            "selected": false,
+            "text": "2000",
+            "value": "2000"
+          },
+          {
+            "selected": false,
+            "text": "3000",
+            "value": "3000"
+          },
+          {
+            "selected": false,
+            "text": "4000",
+            "value": "4000"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "description": "Le décalage du Hub pour la ligne Historique (Hub) : findings sautés, du plus récemment vu au plus ancien, avant le début de la page de Lignes max."
+      },
+      {
+        "name": "hub_url",
+        "label": "URL du Hub",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "hide": 0,
+        "description": "Origine du lanceur du Hub telle que votre navigateur l'atteint, par exemple https://hub.example.internal, sans barre oblique finale. Les liens Acquitter des trois tableaux de findings l'utilisent pour ouvrir la page d'acquittement du Hub. Vide, ces liens ne mènent nulle part."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Compatibilité",
+      "description": "Indique si le daemon derrière l'API de requêtage est assez récent pour ce dashboard. Le panneau lit `version` dans `GET /api/status`, que tous les daemons renvoient depuis la 0.4.0.\n\nAvant la 0.21.0, ce dashboard se trompe au lieu de se dégrader. `grouping` et `offset` n'existaient pas comme paramètres de requête, et l'API ignore ce qu'elle ne connaît pas : le sélecteur Namespace des services désigne donc un seul tenant alors que le tableau les liste tous, et 'Lignes à sauter' renvoie la même page quelle que soit la valeur. L'option 'All' envoie une simple espace, qu'un tel daemon prend pour une correspondance exacte, et il ne renvoie alors rien.\n\nSur un daemon à jour, des colonnes vides viennent de la configuration et non de l'ancienneté : `[daemon.correlation]` coupé laisse Corrélations vide, sans `[daemon.incidents]` l'API répond 503 sur les deux panneaux d'incidents, et le scoring green coupé laisse 'Ops/trace' vide.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/status",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "version",
+              "text": "Compatibilité",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^(0\\.(?:[0-9]|1[0-9]|20)\\..*)$",
+                "result": {
+                  "text": "Daemon $1 trop ancien",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "regex",
+              "options": {
+                "pattern": "^(.+)$",
+                "result": {
+                  "text": "Compatible, $1",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "noValue": "Inconnue"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "État du daemon",
+      "description": "GET /api/status, l'objet de vivacité que le daemon publie sur lui-même : version du binaire, secondes depuis le démarrage, et trois jauges d'exécution chacune suivie de son plafond (fenêtre de corrélation, file d'analyse, tampon circulaire des findings).\n\nUn uptime qui repart de zéro est un redémarrage, qui vide aussi le tableau des acquittements plus bas si [daemon.ack] ne persiste pas sur disque.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 20,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/status",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "version",
+              "text": "Version",
+              "type": "string"
+            },
+            {
+              "selector": "uptime_seconds",
+              "text": "Uptime",
+              "type": "number"
+            },
+            {
+              "selector": "active_traces",
+              "text": "Traces actives",
+              "type": "number"
+            },
+            {
+              "selector": "max_active_traces",
+              "text": "Plafond traces actives",
+              "type": "number"
+            },
+            {
+              "selector": "analysis_queue_depth",
+              "text": "File d'analyse",
+              "type": "number"
+            },
+            {
+              "selector": "analysis_queue_capacity",
+              "text": "Plafond file d'analyse",
+              "type": "number"
+            },
+            {
+              "selector": "stored_findings",
+              "text": "Findings stockés",
+              "type": "number"
+            },
+            {
+              "selector": "max_retained_findings",
+              "text": "Plafond findings stockés",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "table",
+      "title": "Findings",
+      "description": "Une ligne par problème distinct, regroupée sur la signature qu'utilisent les acquittements. Filtrer avec les en-têtes de colonnes.\n\n'Traces' compte les détections retenues : il baisse à mesure qu'elles expirent et repart de zéro au redémarrage, donc il mesure la présence et non un total depuis toujours. 'Occurrences' est le nombre de répétitions à l'intérieur de la trace affichée. 'Impact est. (ops)' vaut Traces x Ops/trace, soit les I/O évitables sur lesquelles trier, et 0 pour les types qui n'en gaspillent aucune.\n\n'Suggestion' est le correctif pour le framework ou le broker déduit de la trace quand il y en a un, sinon le conseil générique, et 'Correctif pour' nomme cette technologie, vide quand le conseil est générique. 'Code' est l'emplacement de l'appel lu dans les attributs code.* du span : la fonction puis fichier:ligne, comme les affiche la CLI, l'un des deux seul quand l'autre manque, vide quand l'instrumentation n'envoie rien.\n\n'Acquitté via' ne se remplit que si Inclure les acquittés vaut true : toml est le fichier de référence de la CI, daemon le stock d'exécution. Namespace des services, Service et Type de finding restreignent la requête, donc un tenant est complet jusqu'à Lignes max, et Lignes à sauter lit la suite.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/findings?limit=${limit}&offset=${offset}&grouping=${grouping}&service=${service}&type=${type}&include_acked=${include_acked}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & ($contains($l.namespace, \"\\\\\") or $contains($l.namespace, \"::\") ? \"::\" : \".\") & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "columns": [
+            {
+              "selector": "finding.severity",
+              "text": "Sévérité",
+              "type": "string"
+            },
+            {
+              "selector": "finding.type",
+              "text": "Type",
+              "type": "string"
+            },
+            {
+              "selector": "finding.service",
+              "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "finding.grouping.0.value",
+              "text": "Namespace des services",
+              "type": "string"
+            },
+            {
+              "selector": "finding.source_endpoint",
+              "text": "Endpoint",
+              "type": "string"
+            },
+            {
+              "selector": "seen_count",
+              "text": "Traces",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.occurrences",
+              "text": "Occurrences",
+              "type": "number"
+            },
+            {
+              "selector": "finding.green_impact.estimated_extra_io_ops",
+              "text": "Ops/trace",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.template",
+              "text": "Opération",
+              "type": "string"
+            },
+            {
+              "selector": "code",
+              "text": "Code",
+              "type": "string"
+            },
+            {
+              "selector": "fix",
+              "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "fix_for",
+              "text": "Correctif pour",
+              "type": "string"
+            },
+            {
+              "selector": "acknowledged_by.source",
+              "text": "Acquitté via",
+              "type": "string"
+            },
+            {
+              "selector": "finding.trace_id",
+              "text": "Trace",
+              "type": "string"
+            },
+            {
+              "selector": "stored_at_ms",
+              "text": "Vu le",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.signature",
+              "text": "Signature",
+              "type": "string"
+            },
+            {
+              "selector": "ack",
+              "text": "Acquitter",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sévérité"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "warning": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "info": {
+                        "color": "blue",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "SQL redondant",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "HTTP redondant",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "SQL lent",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "HTTP lent",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Messaging lent",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Fanout excessif",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Service bavard",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Saturation de pool",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Appels sérialisés",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Opération"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Code"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traces"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Occurrences"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Vu le"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Impact est. (ops)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ops/trace"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Acquitté via"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Correctif pour"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Acquitter"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Acquitter ou révoquer dans le Hub",
+                    "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Traces",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Traces",
+              "operator": "*",
+              "right": "Ops/trace"
+            },
+            "alias": "Impact est. (ops)"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Acquitter": 0,
+              "Sévérité": 1,
+              "Type": 2,
+              "Service": 3,
+              "Namespace des services": 4,
+              "Endpoint": 5,
+              "Traces": 6,
+              "Occurrences": 7,
+              "Ops/trace": 8,
+              "Impact est. (ops)": 9,
+              "Opération": 10,
+              "Code": 11,
+              "Suggestion": 12,
+              "Correctif pour": 13,
+              "Acquitté via": 14,
+              "Trace": 15,
+              "Vu le": 16,
+              "Signature": 17
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Corrélations",
+      "description": "GET /api/correlations : paires source-cible de findings déclenchés ensemble entre services d'un même regroupement, la cible à moins de lag_threshold_ms de la source. Vide tant que [daemon.correlation] enabled ne vaut pas true. Les paires ne sont pas persistées : elles disparaissent window_minutes après la dernière co-occurrence, et au redémarrage.\n\nConfiance vaut Co-occurrences divisé par Total source, 100 % quand la cible a toujours suivi. Délai médian donne le délai habituel. Les colonnes d'opération sont des modèles SQL ou HTTP, pas des routes. Trace source et Trace cible sont les deux côtés de la dernière co-occurrence, pour /api/explain.\n\nNamespace des services et Service ne restreignent pas ce tableau, ce sont les en-têtes qui le font. Plafonné à 1000 lignes, par confiance décroissante.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/correlations",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "source.service",
+              "text": "Service source",
+              "type": "string"
+            },
+            {
+              "selector": "source.finding_type",
+              "text": "Type source",
+              "type": "string"
+            },
+            {
+              "selector": "target.service",
+              "text": "Service cible",
+              "type": "string"
+            },
+            {
+              "selector": "target.finding_type",
+              "text": "Type cible",
+              "type": "string"
+            },
+            {
+              "selector": "confidence",
+              "text": "Confiance",
+              "type": "number"
+            },
+            {
+              "selector": "co_occurrence_count",
+              "text": "Co-occurrences",
+              "type": "number"
+            },
+            {
+              "selector": "source_total_occurrences",
+              "text": "Total source",
+              "type": "number"
+            },
+            {
+              "selector": "median_lag_ms",
+              "text": "Délai médian",
+              "type": "number"
+            },
+            {
+              "selector": "source.grouping_value",
+              "text": "Namespace des services",
+              "type": "string"
+            },
+            {
+              "selector": "source.template",
+              "text": "Opération source",
+              "type": "string"
+            },
+            {
+              "selector": "target.template",
+              "text": "Opération cible",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen",
+              "text": "Première détection",
+              "type": "timestamp"
+            },
+            {
+              "selector": "last_seen",
+              "text": "Vu le",
+              "type": "timestamp"
+            },
+            {
+              "selector": "source_sample_trace_id",
+              "text": "Trace source",
+              "type": "string"
+            },
+            {
+              "selector": "sample_trace_id",
+              "text": "Trace cible",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type source"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "SQL redondant",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "HTTP redondant",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "SQL lent",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "HTTP lent",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Messaging lent",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Fanout excessif",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Service bavard",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Saturation de pool",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Appels sérialisés",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type cible"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "SQL redondant",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "HTTP redondant",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "SQL lent",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "HTTP lent",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Messaging lent",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Fanout excessif",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Service bavard",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Saturation de pool",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Appels sérialisés",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Confiance"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Délai médian"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Co-occurrences"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total source"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Opération source"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Opération cible"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Première détection"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Vu le"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Confiance",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Service source": 0,
+              "Type source": 1,
+              "Service cible": 2,
+              "Type cible": 3,
+              "Confiance": 4,
+              "Co-occurrences": 5,
+              "Total source": 6,
+              "Délai médian": 7,
+              "Namespace des services": 8,
+              "Opération source": 9,
+              "Opération cible": 10,
+              "Première détection": 11,
+              "Vu le": 12,
+              "Trace source": 13,
+              "Trace cible": 14
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Acquittements du daemon",
+      "description": "Findings acquittés à l'exécution, depuis GET /api/acks, en général la raison pour laquelle un problème est absent du tableau au-dessus. Vide quand [daemon.ack] est désactivé. Si l'API d'acquittement est protégée par une clé, [daemon] read_api_key ouvre cette route sans donner le droit d'acquitter.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/acks",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "signature",
+              "text": "Signature",
+              "type": "string"
+            },
+            {
+              "selector": "by",
+              "text": "Par",
+              "type": "string"
+            },
+            {
+              "selector": "reason",
+              "text": "Motif",
+              "type": "string"
+            },
+            {
+              "selector": "at",
+              "text": "Acquitté le",
+              "type": "timestamp"
+            },
+            {
+              "selector": "expires_at",
+              "text": "Expire le",
+              "type": "timestamp"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Signature"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "type": "table",
+      "title": "Backends d'énergie",
+      "description": "GET /api/energy, une ligne par backend d'énergie ou d'intensité carbone, dans l'ordre de priorité : s'il est configuré (depuis [green], figé au démarrage), les secondes écoulées depuis le dernier relevé réussi, et les succès et échecs de relevé depuis le démarrage du daemon.\n\nUn âge et des compteurs vides veulent dire sans objet (non configuré ou jamais relevé, comme cloud_energy et electricity_maps), un 0 veut dire frais, et un âge de 0 avec 0 succès est un premier intervalle de relevé encore en attente. Si aucune ligne n'est configurée, les chiffres carbone viennent du proxy I/O interne.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/energy",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "backends",
+          "columns": [
+            {
+              "selector": "backend",
+              "text": "Backend",
+              "type": "string"
+            },
+            {
+              "selector": "configured",
+              "text": "Configuré",
+              "type": "boolean"
+            },
+            {
+              "selector": "last_scrape_age_seconds",
+              "text": "Âge du dernier relevé (s)",
+              "type": "number"
+            },
+            {
+              "selector": "scrapes_ok",
+              "text": "Relevés OK",
+              "type": "number"
+            },
+            {
+              "selector": "scrapes_failed",
+              "text": "Relevés en échec",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "type": "table",
+      "title": "Incidents",
+      "description": "GET /api/incidents, du plus récent au plus ancien, une ligne par incident posté par votre alerting, à activer par [daemon.incidents]. Une page de 50, qui commence après 'Incidents à sauter' incidents, donc 0 montre les 50 plus récents. Le sélecteur de temps ne s'applique pas.\n\nDemandé avec findings=false : chaque incident arrive avec finding_count à la place de ses findings figés, ce qui garde la réponse petite quel que soit le nombre de findings que la page a figés. Un daemon qui ignore le paramètre envoie quand même les findings, que le panneau compte alors.\n\n'Findings' est le nombre de lignes figées entre Fenêtre du et Fenêtre au, une fenêtre qui se ferme deux TTL de trace après l'incident. 'Capture' compare Tampon remonte à avec Fenêtre du : partial veut dire que le tampon avait évincé une partie de la fenêtre (l'archive NDJSON peut encore répondre), empty ring veut dire que rien n'a été retenu. 'Fin' reste vide tant que l'alerte est active.\n\nCliquer une ligne charge ses findings plus bas (variable Incident). Le datasource envoie [daemon] read_api_key en X-API-Key, jamais la clé avec laquelle votre alerting poste.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/incidents?limit=50&offset=${incident_offset}&findings=false",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "$map($, function($i) {{\"id\": $i.id, \"service\": $i.service, \"namespace\": $i.namespace, \"kind\": $i.kind, \"at_ms\": $i.at_ms, \"ended_at_ms\": $i.ended_at_ms, \"window_from_ms\": $i.window_from_ms, \"window_to_ms\": $i.window_to_ms, \"oldest_finding_ms\": $i.oldest_finding_ms, \"findings_count\": $exists($i.finding_count) ? $i.finding_count : $count($i.findings), \"capture\": $exists($i.oldest_finding_ms) ? ($i.oldest_finding_ms <= $i.window_from_ms ? \"complete\" : \"partial\") : \"empty ring\", \"detail\": $i.detail}})",
+          "columns": [
+            {
+              "selector": "at_ms",
+              "text": "Début",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "namespace",
+              "text": "Namespace",
+              "type": "string"
+            },
+            {
+              "selector": "service",
+              "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "kind",
+              "text": "Nature",
+              "type": "string"
+            },
+            {
+              "selector": "ended_at_ms",
+              "text": "Fin",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "window_from_ms",
+              "text": "Fenêtre du",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "window_to_ms",
+              "text": "Fenêtre au",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "findings_count",
+              "text": "Findings",
+              "type": "number"
+            },
+            {
+              "selector": "oldest_finding_ms",
+              "text": "Tampon remonte à",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "capture",
+              "text": "Capture",
+              "type": "string"
+            },
+            {
+              "selector": "detail",
+              "text": "Détail",
+              "type": "string"
+            },
+            {
+              "selector": "id",
+              "text": "Id",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          },
+          "links": [
+            {
+              "title": "Voir les findings de cet incident",
+              "url": "/d/perf-sentinel-findings?${__url_time_range}&var-DS_INFINITY=${DS_INFINITY}&var-limit=${limit}&var-include_acked=${include_acked}&var-incident_offset=${incident_offset}&var-incident=${__data.fields.Id}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Capture"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "complete": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "partial": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "empty ring": {
+                        "color": "blue",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Nature"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Findings"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Début",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Début": 0,
+              "Namespace": 1,
+              "Service": 2,
+              "Nature": 3,
+              "Fin": 4,
+              "Fenêtre du": 5,
+              "Fenêtre au": 6,
+              "Findings": 7,
+              "Tampon remonte à": 8,
+              "Capture": 9,
+              "Détail": 10,
+              "Id": 11
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Findings de l'incident",
+      "description": "Les findings figés pour l'incident sélectionné ci-dessus, lus depuis GET /api/incidents?id=, quelle que soit la page affichée par le tableau Incidents. Un daemon antérieur à la 0.24.0 ignore id et renvoie la page du tableau Incidents, où une ligne cliquée se trouve aussi. Vide jusqu'à ce qu'une ligne soit cliquée ou qu'Incident porte un id. Le sélecteur de temps ne s'applique pas.\n\nUne ligne par signature, repliée sur la seule fenêtre de l'incident, donc Traces et Première détection décrivent la fenêtre et non tout le tampon. La passe de stabilisation peut ajouter des lignes et augmenter des compteurs, jamais en retirer. Une ligne dont la Première détection est postérieure au Début ne s'est déclenchée qu'après le redémarrage.\n\nRequête envoyée avec [daemon] read_api_key en X-API-Key. Impact est., Suggestion, Correctif pour, Code et l'ordre des colonnes suivent le tableau Findings ci-dessus.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${DS_INFINITY}"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_INFINITY}"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "/api/incidents?id=${incident}&limit=50&offset=${incident_offset}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "$count($[id = \"${incident}\"].findings) > 0 ? $map($[id = \"${incident}\"].findings[], function($i) {{\"finding\": $i.finding, \"seen_count\": $i.seen_count, \"first_seen_ms\": $i.first_seen_ms, \"stored_at_ms\": $i.stored_at_ms, \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & ($contains($l.namespace, \"\\\\\") or $contains($l.namespace, \"::\") ? \"::\" : \".\") & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+          "columns": [
+            {
+              "selector": "finding.severity",
+              "text": "Sévérité",
+              "type": "string"
+            },
+            {
+              "selector": "finding.type",
+              "text": "Type",
+              "type": "string"
+            },
+            {
+              "selector": "finding.service",
+              "text": "Service",
+              "type": "string"
+            },
+            {
+              "selector": "finding.grouping.0.value",
+              "text": "Namespace des services",
+              "type": "string"
+            },
+            {
+              "selector": "finding.source_endpoint",
+              "text": "Endpoint",
+              "type": "string"
+            },
+            {
+              "selector": "seen_count",
+              "text": "Traces",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.occurrences",
+              "text": "Occurrences",
+              "type": "number"
+            },
+            {
+              "selector": "finding.green_impact.estimated_extra_io_ops",
+              "text": "Ops/trace",
+              "type": "number"
+            },
+            {
+              "selector": "finding.pattern.template",
+              "text": "Opération",
+              "type": "string"
+            },
+            {
+              "selector": "code",
+              "text": "Code",
+              "type": "string"
+            },
+            {
+              "selector": "fix",
+              "text": "Suggestion",
+              "type": "string"
+            },
+            {
+              "selector": "fix_for",
+              "text": "Correctif pour",
+              "type": "string"
+            },
+            {
+              "selector": "first_seen_ms",
+              "text": "Première détection",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.trace_id",
+              "text": "Trace",
+              "type": "string"
+            },
+            {
+              "selector": "stored_at_ms",
+              "text": "Vu le",
+              "type": "timestamp_epoch"
+            },
+            {
+              "selector": "finding.signature",
+              "text": "Signature",
+              "type": "string"
+            },
+            {
+              "selector": "ack",
+              "text": "Acquitter",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sévérité"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "warning": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "info": {
+                        "color": "blue",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "n_plus_one_sql": {
+                        "text": "N+1 SQL",
+                        "index": 0
+                      },
+                      "n_plus_one_http": {
+                        "text": "N+1 HTTP",
+                        "index": 1
+                      },
+                      "n_plus_one_messaging": {
+                        "text": "N+1 messaging",
+                        "index": 2
+                      },
+                      "redundant_sql": {
+                        "text": "SQL redondant",
+                        "index": 3
+                      },
+                      "redundant_http": {
+                        "text": "HTTP redondant",
+                        "index": 4
+                      },
+                      "slow_sql": {
+                        "text": "SQL lent",
+                        "index": 5
+                      },
+                      "slow_http": {
+                        "text": "HTTP lent",
+                        "index": 6
+                      },
+                      "slow_messaging": {
+                        "text": "Messaging lent",
+                        "index": 7
+                      },
+                      "excessive_fanout": {
+                        "text": "Fanout excessif",
+                        "index": 8
+                      },
+                      "chatty_service": {
+                        "text": "Service bavard",
+                        "index": 9
+                      },
+                      "pool_saturation": {
+                        "text": "Saturation de pool",
+                        "index": 10
+                      },
+                      "serialized_calls": {
+                        "text": "Appels sérialisés",
+                        "index": 11
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Opération"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Code"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 460
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Traces"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Occurrences"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Vu le"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Impact est. (ops)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ops/trace"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Première détection"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Correctif pour"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Acquitter"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Acquitter ou révoquer dans le Hub",
+                    "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Traces",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Traces",
+              "operator": "*",
+              "right": "Ops/trace"
+            },
+            "alias": "Impact est. (ops)"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Acquitter": 0,
+              "Sévérité": 1,
+              "Type": 2,
+              "Service": 3,
+              "Namespace des services": 4,
+              "Endpoint": 5,
+              "Traces": 6,
+              "Occurrences": 7,
+              "Ops/trace": 8,
+              "Impact est. (ops)": 9,
+              "Opération": 10,
+              "Code": 11,
+              "Suggestion": 12,
+              "Correctif pour": 13,
+              "Première détection": 14,
+              "Trace": 15,
+              "Vu le": 16,
+              "Signature": 17
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 100,
+      "title": "Historique (Hub)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "panels": [
+        {
+          "type": "table",
+          "id": 101,
+          "title": "Historique des findings",
+          "description": "Une ligne par problème que le Hub a vu dans l'environnement choisi pendant la période du dashboard, lue depuis le Hub et non depuis le tampon du daemon. Un jour compte quand le Hub a observé le finding ce jour-là, selon l'horloge du Hub en UTC.\n\n'Première détection', 'Vu le' et 'Statut' décrivent le seul environnement choisi, tout le parc sur All. Il n'y a pas de colonne d'occurrences : les compteurs du daemon sont relatifs à son tampon et ne s'additionnent pas sur des mois. 'Code' est l'emplacement de l'appel tel que le montre le tableau Findings ci-dessus, à la dernière observation.\n\n'Acquitté le' et 'Acquitté par' viennent du miroir que le Hub tient des acquittements de chaque daemon, 'Acquitté via' est l'annotation du daemon lui-même à la dernière observation. Le lien Acquitter ouvre la page d'acquittement du Hub pour cette signature, une fois URL du Hub renseignée.\n\nDemande PerfSentinelHub 0.3.0 : un Hub plus ancien ignore la période et l'environnement et renvoie son dernier état.",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "${DS_HUB}"
+          },
+          "gridPos": {
+            "h": 16,
+            "w": 24,
+            "x": 0,
+            "y": 69
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "yesoreyeram-infinity-datasource",
+                "uid": "${DS_HUB}"
+              },
+              "type": "json",
+              "source": "url",
+              "parser": "backend",
+              "format": "table",
+              "url": "/api/findings?environment=${environment}&from=${__from}&to=${__to}&limit=${limit}&offset=${hub_offset}&service=${service}&finding_type=${type}&include_acked=${include_acked}",
+              "url_options": {
+                "method": "GET"
+              },
+              "root_selector": "$count($) > 0 ? $map($, function($i) {{\"finding\": $i.finding, \"first_seen\": $i.first_seen, \"last_seen\": $i.last_seen, \"status\": $i.status, \"max_confidence\": $i.max_confidence, \"sources\": $join([$i.sources.name], \", \"), \"acked_on\": $join([$i.acks.source_id], \", \"), \"acked_by\": $join([$i.acks.by], \", \"), \"acknowledged_by\": $i.acknowledged_by, \"code\": ($l := $i.finding.code_location; $n := $l.function ? ($l.namespace ? ($substring($l.function, 0, $length($l.namespace)) = $l.namespace and $substring($l.function, $length($l.namespace), 1) in [\".\", \"\\\\\", \":\", \"#\"] ? $l.function : $l.namespace & ($contains($l.namespace, \"\\\\\") or $contains($l.namespace, \"::\") ? \"::\" : \".\") & $l.function) : $l.function) : $l.namespace; $f := $l.filepath ? $l.filepath & ($exists($l.lineno) ? \":\" & $string($l.lineno) : \"\") : undefined; $n and $f ? $n & \" (\" & $f & \")\" : ($n ? $n : $f)), \"ack\": \"Ack\", \"fix\": $i.finding.suggested_fix.recommendation ? $i.finding.suggested_fix.recommendation : $i.finding.suggestion, \"fix_for\": $replace($replace($i.finding.suggested_fix.framework, \"_generic\", \"\"), \"_\", \" \")}}) : []",
+              "columns": [
+                {
+                  "selector": "ack",
+                  "text": "Acquitter",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.severity",
+                  "text": "Sévérité",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.type",
+                  "text": "Type",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.service",
+                  "text": "Service",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.grouping.0.value",
+                  "text": "Namespace des services",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.source_endpoint",
+                  "text": "Endpoint",
+                  "type": "string"
+                },
+                {
+                  "selector": "status",
+                  "text": "Statut",
+                  "type": "string"
+                },
+                {
+                  "selector": "first_seen",
+                  "text": "Première détection",
+                  "type": "timestamp_epoch"
+                },
+                {
+                  "selector": "last_seen",
+                  "text": "Vu le",
+                  "type": "timestamp_epoch"
+                },
+                {
+                  "selector": "sources",
+                  "text": "Sources",
+                  "type": "string"
+                },
+                {
+                  "selector": "acked_on",
+                  "text": "Acquitté le",
+                  "type": "string"
+                },
+                {
+                  "selector": "acked_by",
+                  "text": "Acquitté par",
+                  "type": "string"
+                },
+                {
+                  "selector": "acknowledged_by.source",
+                  "text": "Acquitté via",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.pattern.template",
+                  "text": "Opération",
+                  "type": "string"
+                },
+                {
+                  "selector": "code",
+                  "text": "Code",
+                  "type": "string"
+                },
+                {
+                  "selector": "fix",
+                  "text": "Suggestion",
+                  "type": "string"
+                },
+                {
+                  "selector": "fix_for",
+                  "text": "Correctif pour",
+                  "type": "string"
+                },
+                {
+                  "selector": "max_confidence",
+                  "text": "Confiance",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.trace_id",
+                  "text": "Trace",
+                  "type": "string"
+                },
+                {
+                  "selector": "finding.signature",
+                  "text": "Signature",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Sévérité"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 100
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "critical": {
+                            "color": "red",
+                            "index": 0
+                          },
+                          "warning": {
+                            "color": "orange",
+                            "index": 1
+                          },
+                          "info": {
+                            "color": "blue",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Type"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "n_plus_one_sql": {
+                            "text": "N+1 SQL",
+                            "index": 0
+                          },
+                          "n_plus_one_http": {
+                            "text": "N+1 HTTP",
+                            "index": 1
+                          },
+                          "n_plus_one_messaging": {
+                            "text": "N+1 messaging",
+                            "index": 2
+                          },
+                          "redundant_sql": {
+                            "text": "SQL redondant",
+                            "index": 3
+                          },
+                          "redundant_http": {
+                            "text": "HTTP redondant",
+                            "index": 4
+                          },
+                          "slow_sql": {
+                            "text": "SQL lent",
+                            "index": 5
+                          },
+                          "slow_http": {
+                            "text": "HTTP lent",
+                            "index": 6
+                          },
+                          "slow_messaging": {
+                            "text": "Messaging lent",
+                            "index": 7
+                          },
+                          "excessive_fanout": {
+                            "text": "Fanout excessif",
+                            "index": 8
+                          },
+                          "chatty_service": {
+                            "text": "Service bavard",
+                            "index": 9
+                          },
+                          "pool_saturation": {
+                            "text": "Saturation de pool",
+                            "index": 10
+                          },
+                          "serialized_calls": {
+                            "text": "Appels sérialisés",
+                            "index": 11
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Opération"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 460
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Code"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 460
+                  },
+                  {
+                    "id": "custom.inspect",
+                    "value": true
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Statut"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 130
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "active": {
+                            "text": "Actif",
+                            "color": "orange",
+                            "index": 0
+                          },
+                          "likely_resolved": {
+                            "text": "Probablement résolu",
+                            "color": "green",
+                            "index": 1
+                          },
+                          "not_observed": {
+                            "text": "Non observé",
+                            "color": "blue",
+                            "index": 2
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Première détection"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 170
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Vu le"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 170
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Acquitter"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 70
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Acquitter ou révoquer dans le Hub",
+                        "url": "${hub_url}/?ack=${__data.fields.Signature:percentencode}&environment=${environment:percentencode}",
+                        "targetBlank": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Vu le",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "indexByName": {
+                  "Acquitter": 0,
+                  "Sévérité": 1,
+                  "Type": 2,
+                  "Service": 3,
+                  "Namespace des services": 4,
+                  "Endpoint": 5,
+                  "Statut": 6,
+                  "Première détection": 7,
+                  "Vu le": 8,
+                  "Sources": 9,
+                  "Acquitté le": 10,
+                  "Acquitté par": 11,
+                  "Acquitté via": 12,
+                  "Opération": 13,
+                  "Code": 14,
+                  "Suggestion": 15,
+                  "Correctif pour": 16,
+                  "Confiance": 17,
+                  "Trace": 18,
+                  "Signature": 19
+                },
+                "renameByName": {}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "perf-sentinel"
+      ],
+      "targetBlank": false,
+      "title": "Dashboards perf-sentinel",
+      "tooltip": "Le dashboard voisin qui porte le tag perf-sentinel : Perf Sentinel lit Prometheus et répond combien de findings, de quel type, et comment se porte le daemon.",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "timezone": "browser",
+  "version": 13
+}
