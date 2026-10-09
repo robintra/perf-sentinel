@@ -239,7 +239,7 @@ Configuration du scoring GreenOps alignée sur [SCI v1.0](https://github.com/Gre
 
 #### `[green.service_regions]`
 
-Surcharges de région par service utilisées quand `cloud.region` OTel est absent des spans (ex. ingestion Jaeger / Zipkin). Associe un nom de service à une clé de région.
+Surcharges de région par service utilisées quand `cloud.region` OTel est absent des spans (ex. ingestion Jaeger / Zipkin). Associe un nom de service à une clé de région. Les noms de service se comparent sans tenir compte de la casse, donc deux clés qui ne diffèrent que par la casse sont refusées au chargement.
 
 ```toml
 [green]
@@ -617,7 +617,7 @@ Intensité carbone en temps réel via l'API Electricity Maps. Mode daemon unique
 | `emission_factor_type` | chaîne | `lifecycle`                          | Modèle de facteur d'émission. `lifecycle` (défaut) inclut les émissions amont (fabrication, transport). `direct` inclut uniquement la combustion. Certains référentiels Scope 2 préfèrent `direct` pour une comptabilité plus stricte |
 | `temporal_granularity` | chaîne | `hourly`                             | Agrégation temporelle de la réponse API. `hourly` (défaut), `5_minutes` ou `15_minutes`. Les valeurs sub-horaires nécessitent un plan payant qui les expose, sinon l'API agrège silencieusement en horaire                            |
 
-La sous-table `region_map` associe les régions cloud aux zones Electricity Maps :
+La sous-table `region_map` associe les régions cloud aux zones Electricity Maps. Les régions se comparent sans tenir compte de la casse, donc deux clés qui ne diffèrent que par la casse sont refusées au chargement :
 
 ```toml
 [green.electricity_maps]

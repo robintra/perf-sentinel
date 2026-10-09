@@ -993,6 +993,33 @@ fn convert_broker_static_section(
     })
 }
 
+/// Reject keys of `[green.service_regions]` and `[green.electricity_maps]
+/// region_map` that differ only in case. The conversion lowercases them,
+/// so one would silently win, and which one followed the map's hash order.
+pub(super) fn validate_region_keys_raw(raw: &RawConfig) -> Result<(), String> {
+    reject_case_colliding_keys("[green.service_regions]", &raw.green.service_regions)?;
+    reject_case_colliding_keys(
+        "[green.electricity_maps] region_map",
+        &raw.green.electricity_maps.region_map,
+    )
+}
+
+fn reject_case_colliding_keys(section: &str, map: &HashMap<String, String>) -> Result<(), String> {
+    // Sorted, so the error names the same pair on every run.
+    let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    let mut seen: HashMap<String, &str> = HashMap::with_capacity(keys.len());
+    for key in keys {
+        if let Some(other) = seen.insert(key.to_ascii_lowercase(), key) {
+            return Err(format!(
+                "{section} has both '{other}' and '{key}', which are the same key \
+                 once lowercased: keep one"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Reject a half-declared `[green.broker_static]`: `nodes` and
 /// `instance_type` are both required and have no defensible default, so
 /// one without the other must be a loud error, not a silently inert

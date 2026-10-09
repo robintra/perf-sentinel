@@ -4540,3 +4540,27 @@ fn validate_daemon_cors_rejects_wildcard_with_any_key() {
     lone_read.cors_wildcard_with_lone_read_key();
     assert!(lone_read.validate_daemon_cors().is_ok());
 }
+
+#[test]
+fn service_region_keys_differing_only_in_case_are_rejected() {
+    let error = load_from_str(
+        "[green.service_regions]\n\"order-svc\" = \"eu-north-1\"\n\"Order-Svc\" = \"us-east-1\"\n",
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("[green.service_regions]"), "{message}");
+    assert!(message.contains("'Order-Svc' and 'order-svc'"), "{message}");
+}
+
+#[test]
+fn electricity_maps_region_keys_differing_only_in_case_are_rejected() {
+    let error = load_from_str(
+        "[green.electricity_maps.region_map]\n\"eu-west-3\" = \"FR\"\n\"EU-West-3\" = \"FR\"\n",
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.contains("[green.electricity_maps] region_map"),
+        "{message}"
+    );
+}
