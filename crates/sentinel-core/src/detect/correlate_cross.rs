@@ -85,7 +85,7 @@ impl RefusedPairs {
 }
 
 /// One side of a cross-trace correlation pair.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, serde::Deserialize)]
 pub struct CorrelationEndpoint {
     /// Finding type for this correlation side (e.g. `n_plus_one_sql`).
     pub finding_type: FindingType,
@@ -606,13 +606,21 @@ impl CrossTraceCorrelator {
             .collect();
         if doomed.len() < to_remove {
             let extra_needed = to_remove - doomed.len();
-            doomed.extend(
-                self.pair_counts
-                    .iter()
-                    .filter(|(_, v)| rank(v) == threshold)
-                    .take(extra_needed)
-                    .map(|(k, _)| k.clone()),
-            );
+            // Threshold ties in pair order, so the same pairs go whatever
+            // the map's iteration order.
+            let mut tied: Vec<PairKey> = self
+                .pair_counts
+                .iter()
+                .filter(|(_, v)| rank(v) == threshold)
+                .map(|(k, _)| k.clone())
+                .collect();
+            tied.sort_unstable_by(|a, b| {
+                a.source
+                    .cmp(&b.source)
+                    .then_with(|| a.target.cmp(&b.target))
+            });
+            tied.truncate(extra_needed);
+            doomed.append(&mut tied);
         }
         let mut removed = 0;
         for key in doomed {
@@ -623,10 +631,13 @@ impl CrossTraceCorrelator {
         removed
     }
 
-    /// Return all active correlations above the configured thresholds.
+    /// Return all active correlations above the configured thresholds,
+    /// by confidence then co-occurrence count, both descending, then by
+    /// source and target, so the order does not follow the pair map.
     #[must_use]
     pub fn active_correlations(&self) -> Vec<CrossTraceCorrelation> {
-        self.pair_counts
+        let mut correlations: Vec<CrossTraceCorrelation> = self
+            .pair_counts
             .iter()
             .filter_map(|(key, state)| {
                 let co_occurrences = state.co.total(self.now_idx);
@@ -658,7 +669,16 @@ impl CrossTraceCorrelator {
                     source_sample_trace_id: state.last_source_trace_id.clone(),
                 })
             })
-            .collect()
+            .collect();
+        // `total_cmp` orders a NaN confidence deterministically, last.
+        correlations.sort_unstable_by(|a, b| {
+            b.confidence
+                .total_cmp(&a.confidence)
+                .then_with(|| b.co_occurrence_count.cmp(&a.co_occurrence_count))
+                .then_with(|| a.source.cmp(&b.source))
+                .then_with(|| a.target.cmp(&b.target))
+        });
+        correlations
     }
 }
 

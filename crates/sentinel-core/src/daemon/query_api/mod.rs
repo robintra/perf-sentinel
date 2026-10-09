@@ -513,17 +513,9 @@ async fn handle_correlations(
 ) -> Json<Vec<CrossTraceCorrelation>> {
     match &state.correlator {
         Some(correlator) => {
+            // Cap response size. `active_correlations` sorts by confidence
+            // descending, so the most-significant correlations survive.
             let mut correlations = correlator.lock().await.active_correlations();
-            // Cap response size. Sort by confidence descending so the
-            // most-significant correlations survive the truncation.
-            // `f64::total_cmp` provides a total order and handles NaN
-            // deterministically (NaN sorts last), so we do not need
-            // `partial_cmp(...).unwrap_or(Equal)` to guard invariants.
-            correlations.sort_by(|a, b| {
-                b.confidence
-                    .total_cmp(&a.confidence)
-                    .then_with(|| b.co_occurrence_count.cmp(&a.co_occurrence_count))
-            });
             correlations.truncate(MAX_CORRELATIONS_LIMIT);
             Json(correlations)
         }
@@ -909,15 +901,10 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     // verdict shipped in the same payload.
     let findings: Vec<detect::Finding> = stored.into_iter().map(|s| s.finding).collect();
 
-    // Snapshot correlations, sorted + capped identically to
-    // `/api/correlations` so both endpoints stay consistent.
+    // Snapshot correlations, capped identically to `/api/correlations`
+    // over the same `active_correlations` order.
     let correlations = if let Some(correlator) = &state.correlator {
         let mut list = correlator.lock().await.active_correlations();
-        list.sort_by(|a, b| {
-            b.confidence
-                .total_cmp(&a.confidence)
-                .then_with(|| b.co_occurrence_count.cmp(&a.co_occurrence_count))
-        });
         list.truncate(MAX_CORRELATIONS_LIMIT);
         list
     } else {

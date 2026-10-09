@@ -732,7 +732,9 @@ curl -sS "http://127.0.0.1:4318/api/explain/trace-does-not-exist"
 ### GET /api/correlations
 
 Retourne les corrélations temporelles cross-trace actives, triées par
-confiance décroissante. Tableau vide quand
+confiance puis par nombre de co-occurrences, tous deux décroissants, puis
+par source et cible, donc un même état se liste toujours dans le même
+ordre. Tableau vide quand
 `[daemon.correlation] enabled = false` (défaut). Plafonné à 1000 entrées.
 
 **Paramètres de requête :** aucun.

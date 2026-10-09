@@ -709,7 +709,8 @@ curl -sS "http://127.0.0.1:4318/api/explain/trace-does-not-exist"
 ### GET /api/correlations
 
 Returns active cross-trace temporal correlations, sorted by confidence
-descending. Empty array when `[daemon.correlation] enabled = false`
+then co-occurrence count, both descending, then by source and target, so
+the same state always lists in the same order. Empty array when `[daemon.correlation] enabled = false`
 (default). Capped at 1000 entries.
 
 **Query parameters:** none.
