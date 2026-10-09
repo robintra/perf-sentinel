@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.26.1
-appVersion: "0.26.1"
+version: 0.26.2
+appVersion: "0.26.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,13 +36,13 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
+    - kind: fixed
+      description: "appVersion 0.26.2. The daemon's outputs no longer change from one restart to the next on the same traffic: the order of findings, correlations and acks, the trace a tied cross-trace slow finding names and with it its signature, the pair a chatty suggestion names, and the roots kept past max_events_per_trace. Avoidable I/O rises on traces that span several groupings or repeat one query with several parameter sets, in perf_sentinel_avoidable_io_ops, perf_sentinel_service_avoidable_io_ops_total and the periodic disclosures."
     - kind: changed
-      description: "appVersion 0.26.1. The daemon's API, its metrics and the findings it exports do not change. The image is built with Rust 1.99.0 and the newest compatible releases of its dependencies."
-    - kind: added
-      description: "The two example dashboards under `examples/` gain French variants under `examples/FR/`, with the same queries, panels, uid and version, so importing one replaces its English counterpart. They do not ship in the chart. No values.yaml key is added or removed, and no template changes."
+      description: "A config or fragment whose [green.service_regions], or active [green.electricity_maps] region_map, holds two keys that differ only in case and map to different values is rejected at load. Keep one of the two keys before upgrading. No values.yaml key is added or removed, and no template changes."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.26.1
+      image: ghcr.io/robintra/perf-sentinel:0.26.2
       platforms:
         - linux/amd64
         - linux/arm64

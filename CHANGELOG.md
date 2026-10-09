@@ -4,6 +4,12 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-10-09
+
+This release is a patch: it removes nothing, and no public type of `perf-sentinel-core` changes shape, `CorrelationEndpoint` and `CodeLocation` only gain `PartialOrd` and `Ord`. Its theme is reproducibility: outputs that followed the iteration order of a hash map, which differs on every run and every daemon restart, now follow the input or a total sort, so the same input gives the same report, SARIF, terminal output and daemon API responses. No finding appears or disappears and no detector verdict changes. A tied cross-trace slow finding now names the same trace on every run, and its signature with it. Three figures and one load rule move. Avoidable I/O, and the waste ratio, avoidable CO2, counters and disclosure figures built on it, rises on traces that span several groupings or repeat one query with several parameter sets, so it is not comparable across the upgrade for such traffic. A configuration whose region keys differ only in case and map to different values is rejected at load.
+
+The embedded reference data keeps its vintages for this release: the SPECpower instance table stays on `2026-04-24 (CCF aligned)`, the carbon table on `ember-2025`, the hourly grid profiles on `2022-2024 shapes, ember-2025 levels` and the per-provider PUE constants on `2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25, OVHcloud FY25, Scaleway 2024)`, all four audited under step 2.5 of the release procedure on the day 0.26.1 audited them and found inside their window. Unlike 0.26.1, this release touches the scoring path: the avoidable I/O dedup and the order of the floating-point carbon sums. The reference tables, the carbon formulas and the I/O proxy model do not change.
+
 ### Fixed
 
 - `chatty_service` findings read the same from one run to the next on the same input. The two calls a suggestion names after `top:` are the most frequent outbound templates of its grouping, and calls tied on count were ordered by a hash map, so the pair, or its order, could change between runs. Ties now break on the template, in ascending order. A trace whose groupings share an entry endpoint also listed their chatty findings in hash order, and they now follow the grouping. This reached `analyze`, `explain`, the TUI, the JSON, SARIF and HTML reports and the daemon. No finding appears or disappears, and signatures, severities and counts do not change.
