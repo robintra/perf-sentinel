@@ -13,21 +13,27 @@ pub struct Trace {
 }
 
 /// Group normalized events into traces by `trace_id`.
+///
+/// Traces come out in the order their first span appears in `events`, so
+/// every order-sensitive consumer (floating-point sums, first-seen picks,
+/// tie-breaks) reproduces from one run to the next.
 #[must_use]
 pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
     let estimated_traces = (events.len() / 10).max(events.len().min(1));
-    let mut map: HashMap<String, Vec<NormalizedEvent>> = HashMap::with_capacity(estimated_traces);
+    let mut index: HashMap<String, usize> = HashMap::with_capacity(estimated_traces);
+    let mut traces: Vec<Trace> = Vec::with_capacity(estimated_traces);
     for event in events {
-        if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {
-            vec.push(event);
+        if let Some(&i) = index.get(event.event.trace_id.as_str()) {
+            traces[i].spans.push(event);
         } else {
-            let key = event.event.trace_id.clone();
-            map.insert(key, vec![event]);
+            index.insert(event.event.trace_id.clone(), traces.len());
+            traces.push(Trace {
+                trace_id: event.event.trace_id.clone(),
+                spans: vec![event],
+            });
         }
     }
-    map.into_iter()
-        .map(|(trace_id, spans)| Trace { trace_id, spans })
-        .collect()
+    traces
 }
 
 #[cfg(test)]
@@ -88,5 +94,28 @@ mod tests {
 
         let t2 = traces.iter().find(|t| t.trace_id == "trace-2").unwrap();
         assert_eq!(t2.spans.len(), 1);
+    }
+
+    /// Every run draws fresh hash keys, so an order leaked from a map would
+    /// differ across these runs.
+    #[test]
+    fn traces_follow_first_appearance_in_the_input() {
+        let ids = ["t3", "t1", "t3", "t5", "t2", "t1", "t4"];
+        for _ in 0..32 {
+            let events = ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| make_event(id, &format!("span-{i}")))
+                .collect();
+            let traces = correlate(normalize::normalize_all(events));
+            let order: Vec<_> = traces.iter().map(|t| t.trace_id.as_str()).collect();
+            assert_eq!(order, ["t3", "t1", "t5", "t2", "t4"]);
+            let t1_spans: Vec<_> = traces[1]
+                .spans
+                .iter()
+                .map(|s| s.event.span_id.as_str())
+                .collect();
+            assert_eq!(t1_spans, ["span-1", "span-5"]);
+        }
     }
 }
