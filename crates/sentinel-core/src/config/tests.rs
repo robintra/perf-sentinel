@@ -4553,14 +4553,37 @@ fn service_region_keys_differing_only_in_case_are_rejected() {
 }
 
 #[test]
-fn electricity_maps_region_keys_differing_only_in_case_are_rejected() {
-    let error = load_from_str(
-        "[green.electricity_maps.region_map]\n\"eu-west-3\" = \"FR\"\n\"EU-West-3\" = \"FR\"\n",
+fn service_region_keys_differing_only_in_case_load_when_they_agree() {
+    let config = load_from_str(
+        "[green.service_regions]\n\"order-svc\" = \"eu-west-3\"\n\"Order-Svc\" = \"eu-west-3\"\n",
     )
-    .unwrap_err();
-    let message = error.to_string();
+    .expect("same value either way");
+    assert_eq!(
+        config
+            .green
+            .service_regions
+            .get("order-svc")
+            .map(String::as_str),
+        Some("eu-west-3")
+    );
+}
+
+const COLLIDING_REGION_MAP: &str =
+    "[green.electricity_maps.region_map]\n\"eu-west-3\" = \"FR\"\n\"EU-West-3\" = \"DE\"\n";
+
+#[test]
+fn electricity_maps_region_keys_differing_only_in_case_are_rejected() {
+    let raw: RawConfig = toml::from_str(COLLIDING_REGION_MAP).unwrap();
+    let message =
+        validate_region_keys_raw_with_env(&raw, || Some("token".to_string())).unwrap_err();
     assert!(
         message.contains("[green.electricity_maps] region_map"),
         "{message}"
     );
+}
+
+#[test]
+fn an_inert_electricity_maps_region_map_is_not_checked() {
+    let raw: RawConfig = toml::from_str(COLLIDING_REGION_MAP).unwrap();
+    assert_eq!(validate_region_keys_raw_with_env(&raw, || None), Ok(()));
 }

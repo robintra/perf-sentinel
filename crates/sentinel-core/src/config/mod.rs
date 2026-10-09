@@ -738,7 +738,7 @@ use raw::{
     RedfishSection, ScaphandreSection, convert_alumet_section_with_env,
     convert_cloud_section_with_env, convert_electricity_maps_section_with_env,
     convert_kepler_section_with_env, convert_redfish_section_with_env,
-    convert_scaphandre_section_with_env,
+    convert_scaphandre_section_with_env, validate_region_keys_raw_with_env,
 };
 #[cfg(test)]
 use toml_paths::{TOML_PATH_STRING_KEYS, find_basic_string_end};

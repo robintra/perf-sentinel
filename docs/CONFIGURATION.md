@@ -224,7 +224,7 @@ GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-
 
 #### `[green.service_regions]`
 
-Per-service region overrides used when OTel `cloud.region` is absent from spans (e.g. Jaeger / Zipkin ingestion). Maps a service name to a region key. Service names match case-insensitively, so two keys that differ only in case are rejected at load.
+Per-service region overrides used when OTel `cloud.region` is absent from spans (e.g. Jaeger / Zipkin ingestion). Maps a service name to a region key. Service names match case-insensitively, so two keys that differ only in case and map to different regions are rejected at load.
 
 ```toml
 [green]
@@ -602,7 +602,7 @@ Real-time carbon intensity from the Electricity Maps API. Daemon-only.
 | `emission_factor_type` | string  | `lifecycle`                          | Emission factor model. `lifecycle` (default) includes upstream emissions (manufacturing, transport). `direct` includes only combustion. Some Scope 2 frameworks prefer `direct` for stricter accountability |
 | `temporal_granularity` | string  | `hourly`                             | API response aggregation. `hourly` (default), `5_minutes`, or `15_minutes`. Sub-hour values require a paid plan that exposes them, otherwise the API silently coarsens to hourly                            |
 
-The `region_map` sub-table maps cloud regions to Electricity Maps zone codes. Regions match case-insensitively, so two keys that differ only in case are rejected at load:
+The `region_map` sub-table maps cloud regions to Electricity Maps zone codes. Regions match case-insensitively, so when a token enables the section, two keys that differ only in case and map to different zones are rejected at load:
 
 ```toml
 [green.electricity_maps]

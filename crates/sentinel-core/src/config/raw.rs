@@ -993,27 +993,50 @@ fn convert_broker_static_section(
     })
 }
 
-/// Reject keys of `[green.service_regions]` and `[green.electricity_maps]
-/// region_map` that differ only in case. The conversion lowercases them,
-/// so one would silently win, and which one followed the map's hash order.
+/// The Electricity Maps token, the environment variable winning over the
+/// file, or `None` when neither gives a non-empty one and the section is
+/// inert.
+fn electricity_maps_token(
+    raw: &ElectricityMapsSection,
+    from_env: Option<String>,
+) -> Option<String> {
+    from_env
+        .or_else(|| raw.api_key.clone())
+        .filter(|token| !token.is_empty())
+}
+
+/// Reject keys of `[green.service_regions]` and of an active
+/// `[green.electricity_maps] region_map` that differ only in case and map
+/// to different values. The conversion lowercases them, so one would
+/// silently win, and which one followed the map's hash order.
 pub(super) fn validate_region_keys_raw(raw: &RawConfig) -> Result<(), String> {
+    validate_region_keys_raw_with_env(raw, || std::env::var("PERF_SENTINEL_EMAPS_TOKEN").ok())
+}
+
+pub(super) fn validate_region_keys_raw_with_env(
+    raw: &RawConfig,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Result<(), String> {
     reject_case_colliding_keys("[green.service_regions]", &raw.green.service_regions)?;
-    reject_case_colliding_keys(
-        "[green.electricity_maps] region_map",
-        &raw.green.electricity_maps.region_map,
-    )
+    let maps = &raw.green.electricity_maps;
+    if electricity_maps_token(maps, env_lookup()).is_none() {
+        return Ok(());
+    }
+    reject_case_colliding_keys("[green.electricity_maps] region_map", &maps.region_map)
 }
 
 fn reject_case_colliding_keys(section: &str, map: &HashMap<String, String>) -> Result<(), String> {
     // Sorted, so the error names the same pair on every run.
-    let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
-    keys.sort_unstable();
-    let mut seen: HashMap<String, &str> = HashMap::with_capacity(keys.len());
-    for key in keys {
-        if let Some(other) = seen.insert(key.to_ascii_lowercase(), key) {
+    let mut entries: Vec<(&String, &String)> = map.iter().collect();
+    entries.sort_unstable();
+    let mut seen: HashMap<String, (&str, &str)> = HashMap::with_capacity(entries.len());
+    for (key, value) in entries {
+        if let Some((other, other_value)) = seen.insert(key.to_ascii_lowercase(), (key, value))
+            && other_value != value
+        {
             return Err(format!(
-                "{section} has both '{other}' and '{key}', which are the same key \
-                 once lowercased: keep one"
+                "{section} maps '{other}' and '{key}', the same key once lowercased, \
+                 to different values: keep one"
             ));
         }
     }
@@ -1248,13 +1271,8 @@ pub(super) fn convert_electricity_maps_section_with_env(
     raw: &ElectricityMapsSection,
     env_lookup: impl FnOnce() -> Option<String>,
 ) -> Option<crate::score::electricity_maps::ElectricityMapsConfig> {
-    // Auth token: env var takes precedence over config file.
     let from_env = env_lookup();
-    let token = from_env.clone().or_else(|| raw.api_key.clone())?;
-
-    if token.is_empty() {
-        return None;
-    }
+    let token = electricity_maps_token(raw, from_env.clone())?;
 
     // Nudge users toward the env var when the token is in the config file.
     if from_env.is_none() && raw.api_key.is_some() {
