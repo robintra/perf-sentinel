@@ -146,6 +146,8 @@ impl SlowWindowTracker {
             }
             !entry.episodes.is_empty() || entry.reported_at_ms.is_some()
         });
+        // `retain` walks the map in hash order.
+        crate::detect::sort_findings(&mut emitted);
         emitted
     }
 }
@@ -256,6 +258,46 @@ mod tests {
 
     fn emitted(t: &mut SlowWindowTracker, traces: &[Trace], now_ms: u64) -> Vec<Finding> {
         t.observe(traces, &[], now_ms).0
+    }
+
+    /// One trace holding one slow span on each of six tables.
+    fn six_templates(trace_id: &str) -> Trace {
+        let spans = ["orders", "carts", "users", "items", "payments", "invoices"]
+            .iter()
+            .enumerate()
+            .map(|(i, table)| {
+                normalize::normalize(make_sql_event_with_duration(
+                    trace_id,
+                    &format!("s{i}"),
+                    &format!("SELECT * FROM {table} WHERE id = 1"),
+                    "2025-07-10T14:32:01.000Z",
+                    600_000,
+                ))
+            })
+            .collect();
+        Trace {
+            trace_id: trace_id.to_string(),
+            spans,
+        }
+    }
+
+    /// Each tracker draws fresh hash keys, so an order leaked from its map
+    /// would differ across these runs.
+    #[test]
+    fn findings_emitted_together_come_out_in_one_order() {
+        for _ in 0..32 {
+            let mut win = SlowWindowTracker::new(15 * MIN, MIN, 500, 2);
+            assert_eq!(emitted(&mut win, &[six_templates("a")], T0), []);
+            let findings = emitted(&mut win, &[six_templates("b")], T0 + 2 * MIN);
+            let templates: Vec<_> = findings
+                .iter()
+                .map(|f| f.pattern.template.as_str())
+                .collect();
+            let mut sorted = templates.clone();
+            sorted.sort_unstable();
+            assert_eq!(templates.len(), 6);
+            assert_eq!(templates, sorted);
+        }
     }
 
     fn episode_counts(t: &SlowWindowTracker) -> Vec<usize> {

@@ -798,7 +798,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 /// Sort findings deterministically for stable output.
 ///
 /// Orders by finding type, severity, trace ID, source endpoint, template,
-/// grouping and first timestamp. The sort is stable and the detectors emit
+/// grouping, first timestamp and service. The sort is stable and the detectors emit
 /// in input order, so findings that tie on every key keep that order.
 pub(crate) fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
@@ -810,6 +810,7 @@ pub(crate) fn sort_findings(findings: &mut [Finding]) {
             .then_with(|| a.pattern.template.cmp(&b.pattern.template))
             .then_with(|| a.grouping_identity().cmp(&b.grouping_identity()))
             .then_with(|| a.first_timestamp.cmp(&b.first_timestamp))
+            .then_with(|| a.service.cmp(&b.service))
     });
 }
 
