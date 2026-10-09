@@ -28,10 +28,14 @@ pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
         } else {
             index.insert(event.event.trace_id.clone(), traces.len());
             traces.push(Trace {
-                trace_id: event.event.trace_id.clone(),
+                trace_id: String::new(),
                 spans: vec![event],
             });
         }
+    }
+    // Move the index keys in, one clone per trace rather than two.
+    for (trace_id, i) in index {
+        traces[i].trace_id = trace_id;
     }
     traces
 }

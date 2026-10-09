@@ -271,6 +271,7 @@ impl AckStore {
             .filter(|e| !is_expired(e, now))
             .cloned()
             .collect();
+        drop(active);
         entries.sort_unstable_by(|a, b| a.signature.cmp(&b.signature));
         entries
     }

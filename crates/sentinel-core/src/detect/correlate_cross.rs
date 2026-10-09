@@ -606,21 +606,23 @@ impl CrossTraceCorrelator {
             .collect();
         if doomed.len() < to_remove {
             let extra_needed = to_remove - doomed.len();
-            // Threshold ties in pair order, so the same pairs go whatever
-            // the map's iteration order.
-            let mut tied: Vec<PairKey> = self
+            // The first threshold ties in pair order, so the same pairs go
+            // whatever the map's iteration order. Only those are cloned.
+            let mut tied: Vec<&PairKey> = self
                 .pair_counts
                 .iter()
                 .filter(|(_, v)| rank(v) == threshold)
-                .map(|(k, _)| k.clone())
+                .map(|(k, _)| k)
                 .collect();
-            tied.sort_unstable_by(|a, b| {
-                a.source
-                    .cmp(&b.source)
-                    .then_with(|| a.target.cmp(&b.target))
-            });
-            tied.truncate(extra_needed);
-            doomed.append(&mut tied);
+            if tied.len() > extra_needed {
+                tied.select_nth_unstable_by(extra_needed - 1, |a, b| {
+                    a.source
+                        .cmp(&b.source)
+                        .then_with(|| a.target.cmp(&b.target))
+                });
+                tied.truncate(extra_needed);
+            }
+            doomed.extend(tied.into_iter().cloned());
         }
         let mut removed = 0;
         for key in doomed {

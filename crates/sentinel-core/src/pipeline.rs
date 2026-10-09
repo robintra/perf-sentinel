@@ -58,9 +58,6 @@ pub fn analyze_with_traces(
         )
     };
 
-    // Sort findings for deterministic output (HashMap iteration order is random)
-    detect::sort_findings(&mut findings);
-
     // Stamp confidence on every finding. `analyze` is the batch path: it
     // stamps CiBatch when a CI environment is detected, otherwise LocalBatch
     // (a developer-machine run). The daemon path (daemon::process_traces)
