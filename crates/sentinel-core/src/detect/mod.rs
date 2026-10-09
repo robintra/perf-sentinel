@@ -798,8 +798,9 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 /// Sort findings deterministically for stable output.
 ///
 /// Orders by finding type, severity, trace ID, source endpoint, template,
-/// grouping, first timestamp and service. The sort is stable and the detectors emit
-/// in input order, so findings that tie on every key keep that order.
+/// grouping, first timestamp, service, last timestamp, occurrences and code
+/// location. The sort is stable and the detectors emit in input order, so
+/// findings that still tie keep that order.
 pub(crate) fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         a.finding_type
@@ -811,6 +812,9 @@ pub(crate) fn sort_findings(findings: &mut [Finding]) {
             .then_with(|| a.grouping_identity().cmp(&b.grouping_identity()))
             .then_with(|| a.first_timestamp.cmp(&b.first_timestamp))
             .then_with(|| a.service.cmp(&b.service))
+            .then_with(|| a.last_timestamp.cmp(&b.last_timestamp))
+            .then_with(|| a.pattern.occurrences.cmp(&b.pattern.occurrences))
+            .then_with(|| a.code_location.cmp(&b.code_location))
     });
 }
 
@@ -1440,8 +1444,9 @@ mod tests {
             )
         };
         let mut events = vec![parent("pa"), parent("pb")];
-        // The two findings differ only in their code location, which no
-        // sort key reads, and pb's children come first, so pb's leads.
+        // The two findings differ only in their instrumentation scopes,
+        // which no sort key reads, and pb's children come first, so pb's
+        // leads.
         for parent_id in ["pb", "pa"] {
             for i in 0..21 {
                 let mut child = make_sql_event(
@@ -1451,7 +1456,8 @@ mod tests {
                     "2025-07-10T14:32:01.100Z",
                 );
                 child.parent_span_id = Some(parent_id.to_string());
-                child.code_function = Some(std::sync::Arc::from(format!("load_{parent_id}")));
+                child.instrumentation_scopes =
+                    vec![std::sync::Arc::from(format!("scope-{parent_id}"))];
                 events.push(child);
             }
         }
@@ -1459,12 +1465,33 @@ mod tests {
 
         for _ in 0..RUNS {
             let findings = detect(std::slice::from_ref(&trace), &default_config());
-            let functions: Vec<_> = findings
+            let scopes: Vec<_> = findings
                 .iter()
                 .filter(|f| f.finding_type == FindingType::ExcessiveFanout)
-                .map(|f| f.code_location.as_ref().and_then(|c| c.function.as_deref()))
+                .map(|f| f.instrumentation_scopes.join(","))
                 .collect();
-            assert_eq!(functions, [Some("load_pb"), Some("load_pa")]);
+            assert_eq!(scopes, ["scope-pb", "scope-pa"]);
         }
+    }
+
+    #[test]
+    fn sort_findings_breaks_full_ties_on_the_code_location() {
+        let located = |function: &str| {
+            let mut finding = test_finding_with_template("SELECT 1");
+            finding.code_location = Some(crate::event::CodeLocation {
+                function: Some(function.to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: None,
+            });
+            finding
+        };
+        let mut findings = vec![located("b"), located("a")];
+        sort_findings(&mut findings);
+        let order: Vec<_> = findings
+            .iter()
+            .map(|f| f.code_location.as_ref().and_then(|c| c.function.as_deref()))
+            .collect();
+        assert_eq!(order, [Some("a"), Some("b")]);
     }
 }
