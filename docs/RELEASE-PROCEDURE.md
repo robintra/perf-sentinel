@@ -20,7 +20,7 @@ git checkout main && git pull
 git checkout -b release/X.Y.Z
 ```
 
-The release lands on `main` as a fast-forward, so the `vX.Y.Z` tag delimits it: `git log vPREV..vX.Y.Z` lists its commits. Delete the branch once it is merged (step 6). Do not squash on merge. Naming convention: the **branch** is `release/X.Y.Z` (no leading `v`), the **tag** that ships later is `vX.Y.Z` (leading `v`). `scripts/check-tag-version.sh` accepts both forms as input.
+The release lands on `main` through a merge commit, which keeps each commit and its signature, and the `vX.Y.Z` tag on that merge commit delimits it: `git log vPREV..vX.Y.Z` lists its commits. Merge commits are the only merge method the repository allows. Naming convention: the **branch** is `release/X.Y.Z` (no leading `v`), the **tag** that ships later is `vX.Y.Z` (leading `v`). `scripts/check-tag-version.sh` accepts both forms as input.
 
 ### 2. Code, tests, version bumps
 
@@ -199,20 +199,14 @@ The age threshold is configurable for backfill or audit scenarios: `--max-age-da
 After the gate passes:
 
 ```bash
-git checkout main
-git merge --ff-only release/X.Y.Z
+gh pr merge <PR> --merge
+git checkout main && git pull
 git tag -s vX.Y.Z -m "vX.Y.Z"
-git push origin main vX.Y.Z
-```
-
-`main` requires a linear history and signed commits, so the release lands as a fast-forward. If `main` moved since the branch was cut, rebase the branch on it locally first, which re-signs every commit. GitHub's rebase merge and its Update branch button drop the signatures.
-
-Once `main` is pushed, the branch points at the same commit and the tag delimits the release, so delete it:
-
-```bash
-git push origin --delete release/X.Y.Z
+git push origin vX.Y.Z
 git branch -d release/X.Y.Z
 ```
+
+`main` requires signed commits. The merge commit keeps the branch commits with their SHA and signature, and GitHub signs the merge commit itself. If `main` moved since the branch was cut, bring the branch up to date locally with `git merge origin/main`, which signs the merge, rather than with GitHub's Update branch button, whose rebase variant drops the signatures. GitHub deletes the remote branch after the merge.
 
 The tag push triggers `.github/workflows/release.yml`. Its first job re-runs `scripts/check-tag-version.sh` as a sanity gate, then the build matrix produces binaries. The publish job pushes to crates.io strictly (no soft fallback on rate-limit), and the docker job scans the image with Trivy (hard exit on HIGH or CRITICAL) before pushing the multi-arch manifest to GHCR and Docker Hub.
 

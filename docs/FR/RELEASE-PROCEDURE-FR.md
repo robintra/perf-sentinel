@@ -20,7 +20,7 @@ git checkout main && git pull
 git checkout -b release/X.Y.Z
 ```
 
-La release arrive sur `main` en avance rapide, donc le tag `vX.Y.Z` la délimite : `git log vPREV..vX.Y.Z` liste ses commits. Supprimer la branche une fois fusionnée (étape 6). Ne pas squasher au merge. Convention de nommage : la **branche** est `release/X.Y.Z` (sans `v` initial), le **tag** publié plus tard est `vX.Y.Z` (avec `v` initial). `scripts/check-tag-version.sh` accepte les deux formes en entrée.
+La release arrive sur `main` par un commit de fusion, qui garde chaque commit et sa signature, et le tag `vX.Y.Z` posé sur ce commit de fusion la délimite : `git log vPREV..vX.Y.Z` liste ses commits. Le commit de fusion est la seule méthode de fusion que le dépôt autorise. Convention de nommage : la **branche** est `release/X.Y.Z` (sans `v` initial), le **tag** publié plus tard est `vX.Y.Z` (avec `v` initial). `scripts/check-tag-version.sh` accepte les deux formes en entrée.
 
 ### 2. Code, tests, bumps de version
 
@@ -203,20 +203,14 @@ Le seuil d'âge est configurable pour les scénarios de rattrapage ou d'audit. `
 Après que le gate passe :
 
 ```bash
-git checkout main
-git merge --ff-only release/X.Y.Z
+gh pr merge <PR> --merge
+git checkout main && git pull
 git tag -s vX.Y.Z -m "vX.Y.Z"
-git push origin main vX.Y.Z
-```
-
-`main` exige un historique linéaire et des commits signés, donc la release arrive en avance rapide. Si `main` a bougé depuis la création de la branche, rebasez d'abord la branche dessus en local, ce qui re-signe chaque commit. La fusion par rebase de GitHub et son bouton Update branch retirent les signatures.
-
-Une fois `main` poussée, la branche pointe sur le même commit et le tag délimite la release, donc supprimez-la :
-
-```bash
-git push origin --delete release/X.Y.Z
+git push origin vX.Y.Z
 git branch -d release/X.Y.Z
 ```
+
+`main` exige des commits signés. Le commit de fusion garde les commits de la branche avec leur SHA et leur signature, et GitHub signe lui-même le commit de fusion. Si `main` a bougé depuis la création de la branche, mettez la branche à jour en local avec `git merge origin/main`, qui signe la fusion, plutôt qu'avec le bouton Update branch de GitHub, dont la variante rebase retire les signatures. GitHub supprime la branche distante après la fusion.
 
 Le push du tag déclenche `.github/workflows/release.yml`. Son premier job relance `scripts/check-tag-version.sh` comme gate de vérification, puis la matrice de build produit les binaires. Le job de publication pousse vers crates.io strictement (pas de repli souple en cas de rate-limit), et le job docker scanne l'image avec Trivy (échec bloquant sur HIGH ou CRITICAL) avant de pousser le manifest multi-arch sur GHCR et Docker Hub.
 
