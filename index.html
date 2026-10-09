@@ -1126,10 +1126,6 @@
           <iframe id="ps-embed-frame" loading="lazy" title="Perf Sentinel HTML report" style="display:block;width:100%;height:600px;border:0;background:var(--embed-bg)"></iframe>
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center">{{ embedCaption }}</div>
-        <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:14px">
-          <a data-plain href="{{ psRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--rust);background:color-mix(in srgb,var(--rust) 12%,transparent);border:1px solid color-mix(in srgb,var(--rust) 38%,transparent);border-radius:999px;padding:8px 14px" style-hover="border-color:var(--rust)">{{ psRelLabel }}</a>
-          <a data-plain href="{{ hubRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--dotnet);background:color-mix(in srgb,var(--dotnet) 12%,transparent);border:1px solid color-mix(in srgb,var(--dotnet) 38%,transparent);border-radius:999px;padding:8px 14px" style-hover="border-color:var(--dotnet)">{{ hubRelLabel }}</a>
-        </div>
       </div>
     </section>
 
@@ -1148,7 +1144,13 @@
     <!-- READ FIRST -->
     <section data-tech-only="" data-band="tech" style="padding:48px 0 0">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em;margin-bottom:16px">{{ prereqTitle }}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;margin-bottom:16px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ prereqTitle }}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <a data-plain href="{{ psRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--rust);background:color-mix(in srgb,var(--rust) 12%,transparent);border:1px solid color-mix(in srgb,var(--rust) 38%,transparent);border-radius:999px;padding:6px 12px" style-hover="border-color:var(--rust)">{{ psRelLabel }}</a>
+            <a data-plain href="{{ hubRelHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--dotnet);background:color-mix(in srgb,var(--dotnet) 12%,transparent);border:1px solid color-mix(in srgb,var(--dotnet) 38%,transparent);border-radius:999px;padding:6px 12px" style-hover="border-color:var(--dotnet)">{{ hubRelLabel }}</a>
+          </div>
+        </div>
         <div style="display:flex;flex-direction:column;gap:12px">
           <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq1Label }}</strong> {{ prereq1Text }}</p>
           <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq2Label }}</strong> {{ prereq2Text }}</p>
