@@ -2125,7 +2125,7 @@ class Component extends DCLogic {
           { title: 'Part de gaspillage', body: 'La proportion d’opérations évitables sur le total, exactement ce qui peut être récupéré.' },
           { title: 'Carbone par région', body: 'Le total CO₂ calculé automatiquement selon la région d’hébergement et son mix électrique.' },
         ],
-        goNoteA: 'Estimation directionnelle, ', goNoteLink: 'resserrée en branchant une mesure d’énergie', goNoteB: '. Exploitable comme données d’activité pour Watershed, Sweep, Greenly ou Persefoni, ou pour étayer votre démarche RGESN. L’outil peut aussi produire des rapports de divulgation périodiques (trimestriels ou annuels), à signature cryptographique optionnelle et à l’intégrité vérifiable.',
+        goNoteA: 'Estimation directionnelle. ', goNoteLink: 'Une mesure d’énergie réelle', goNoteB: ', possible quand l’outil tourne en continu sur vos serveurs, rend l’énergie (E) plus fidèle. Exploitable comme données d’activité pour Watershed, Sweep, Greenly ou Persefoni, ou pour étayer votre démarche RGESN. L’outil peut aussi produire des rapports de divulgation périodiques (trimestriels ou annuels), à signature cryptographique optionnelle et à l’intégrité vérifiable.',
         cmpHApm: 'Outil commercial type',
         compare: [
           { cap: 'Poids sur vos serveurs', apm: 'Composant lourd sur chaque serveur', ps: 'Outil léger et autonome' },
@@ -2172,7 +2172,7 @@ class Component extends DCLogic {
           { title: 'Share of waste', body: 'The proportion of avoidable operations out of the total, exactly what can be recovered.' },
           { title: 'Carbon per region', body: 'The total CO₂ computed automatically from the hosting region and its electricity mix.' },
         ],
-        goNoteA: 'Directional estimate, ', goNoteLink: 'tightened by plugging in an energy measurement', goNoteB: '. Usable as activity data for Watershed, Sweep, Greenly or Persefoni, or to support your RGESN work. It can also produce periodic disclosure reports (quarterly or yearly), with optional cryptographic signing and verifiable integrity.',
+        goNoteA: 'Directional estimate. ', goNoteLink: 'A real energy measurement', goNoteB: ', possible when the tool runs continuously on your servers, makes the energy (E) more accurate. Usable as activity data for Watershed, Sweep, Greenly or Persefoni, or to support your RGESN work. It can also produce periodic disclosure reports (quarterly or yearly), with optional cryptographic signing and verifiable integrity.',
         cmpHApm: 'Typical commercial tool',
         compare: [
           { cap: 'Weight on your servers', apm: 'Heavy component on every server', ps: 'Light, standalone tool' },
@@ -2280,7 +2280,7 @@ class Component extends DCLogic {
           ctaText: 'Faites lancer Perf Sentinel par votre équipe technique sur une application : vous obtenez ses requêtes évitables et leur estimation en énergie et en carbone. La démo en direct montre le rapport sans rien installer.',
           ctaEndA: 'Ouvrir la démo en direct', ctaEndAHref: '/exemple/dashboard', ctaEndB: 'Transmettre la page technique à votre équipe', ctaEndBHref: '/fr/?profile=tech',
           cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.), facturées par hôte, par utilisateur ou par volume de données, et installées sur chaque serveur. Perf Sentinel ne les remplace pas, il s’y ajoute sans abonnement ni coût qui grandit avec le trafic. Le comparatif détaillé par outil figure dans la documentation.',
-          goNoteA: 'Estimation directionnelle, ', goNoteLink: 'resserrée en branchant une mesure d’énergie', goNoteB: '. Au-delà du carbone, chaque requête évitable supprimée réduit la charge sur vos serveurs : le même décompte d’opérations éclaire les arbitrages de coût d’infrastructure, sans prétendre chiffrer votre facture.',
+          goNoteB: ', possible quand l’outil tourne en continu sur vos serveurs, rend l’énergie (E) plus fidèle. Au-delà du carbone, chaque requête évitable supprimée réduit la charge sur vos serveurs : le même décompte d’opérations éclaire les arbitrages de coût d’infrastructure, sans prétendre chiffrer votre facture.',
         },
         legal: {
           eyebrowHero: 'Résultats reproductibles · Rapports périodiques signés · ', eyebrowHeroGreen: 'Spans bruts en mémoire seule',
@@ -2358,7 +2358,7 @@ class Component extends DCLogic {
           ctaText: 'Have your tech team run Perf Sentinel on one application: you get its avoidable queries and their energy and carbon estimate. The live demo shows the report with nothing to install.',
           ctaEndA: 'Open the live demo', ctaEndAHref: '/exemple/dashboard', ctaEndB: 'Send the technical page to your team', ctaEndBHref: '/?profile=tech',
           cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like), priced per host, per user or by data volume, and installed on every server. Perf Sentinel does not replace them. It runs alongside, without a subscription or a cost that grows with traffic. The full per-tool comparison is in the documentation.',
-          goNoteA: 'Directional estimate, ', goNoteLink: 'tightened by plugging in an energy measurement', goNoteB: '. Beyond carbon, every avoidable query removed cuts the load on your servers: the same operation count informs infrastructure-cost trade-offs, without claiming to price your bill.',
+          goNoteB: ', possible when the tool runs continuously on your servers, makes the energy (E) more accurate. Beyond carbon, every avoidable query removed cuts the load on your servers: the same operation count informs infrastructure-cost trade-offs, without claiming to price your bill.',
         },
         legal: {
           eyebrowHero: 'Reproducible results · Signed periodic reports · ', eyebrowHeroGreen: 'Raw spans in memory only',
@@ -2579,7 +2579,7 @@ class Component extends DCLogic {
           { title: 'I/O waste ratio', body: 'Avoidable operations over total operations, the directly recoverable share.' },
           { title: 'Multi-region `co2.total`', body: 'SCI v1.0 numerator, automatic per-region scoring when spans carry `cloud.region`.' },
         ],
-        goNoteA: 'Directional estimate (~2× bracket in proxy mode, ', goNoteLink: 'tighter with a measured energy source', goNoteB: '). The ~2× margin is enough to prioritize, compare before and after, and even to report when no measured source can be deployed: every report states its bounds. Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to support your RGESN work. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).',
+        goNoteA: 'Directional estimate, enough to prioritize and to compare before and after. ', goNoteLink: 'A measured energy source', goNoteB: ' (daemon mode) makes E itself more accurate. Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to support your RGESN work. It can also emit periodic public energy and carbon disclosure reports (quarterly or yearly JSON, optional Sigstore signature, hash-verifiable).',
         cmpEyebrow: '// how it compares',
         cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
@@ -2790,7 +2790,7 @@ class Component extends DCLogic {
           { title: 'Ratio de gaspillage I/O', body: 'Opérations évitables sur opérations totales, la part directement récupérable.' },
           { title: '`co2.total` multi-régions', body: 'Numérateur SCI v1.0, scoring par région automatique quand les spans portent `cloud.region`.' },
         ],
-        goNoteA: 'Estimation directionnelle (encadrement ~2× en mode proxy, ', goNoteLink: 'plus serrée avec une source d’énergie mesurée', goNoteB: '). La marge ~2× suffit pour prioriser, comparer un avant et un après, et même pour le reporting quand aucune source mesurée n’est déployable : chaque rapport en donne les bornes. Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour étayer votre démarche RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).',
+        goNoteA: 'Estimation directionnelle, suffisante pour prioriser et comparer un avant et un après. ', goNoteLink: 'Une source d’énergie mesurée', goNoteB: ' (mode daemon) rend E lui-même plus fidèle. Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour étayer votre démarche RGESN. Il peut aussi émettre des rapports de divulgation publique périodiques énergie et carbone (JSON trimestriel ou annuel, signature Sigstore optionnelle, vérifiables par hash).',
         cmpEyebrow: '// comment ça se compare',
         cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
         cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
