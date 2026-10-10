@@ -921,6 +921,14 @@
   @media(max-width:880px){[data-det-ex-cols]{grid-template-columns:minmax(0,1fr)!important}[data-det-ex-arrow]{padding:14px 0}[data-det-ex-arrow] svg{transform:rotate(90deg)}[data-det-ex] [data-tr]{font-size:11px}[data-det-ex] [data-tr]>span:first-child{width:150px;padding-right:8px}[data-det-ex] [data-tr="1"]>span:first-child{padding-left:10px}[data-det-ex] [data-tr="2"]>span:first-child{padding-left:20px}}
   @media(max-width:1040px){#detection [data-grid="cards2"]{grid-template-columns:1fr!important}#detection [data-grid="cards2"] svg{max-width:560px;margin:0 auto}}
   @media(max-width:560px){#detection [data-grid="cards2"] svg text{font-size:18px}#detection [data-grid="cards2"] svg text[y="156"]{transform:translateY(-2px)}#detection [data-grid="cards2"] svg text[y="14"]{transform:translateY(1px)}#detection [data-ser-on]{transform:translateY(2px)}}
+  [data-mod-hd]>span{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.06em;color:color-mix(in srgb,var(--text-2) 80%,var(--text))}
+  [data-mod-chev]{display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+  [data-mod-sub]{font-size:13px;color:var(--text-2)}[data-mod-sub][data-mono]{font-family:'JetBrains Mono',monospace;font-size:12px}
+  [data-mod-chip]{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4;padding:5px 10px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px}
+  [data-mod-chip="coral"]{color:color-mix(in srgb,var(--coral) 80%,var(--text));border-color:var(--coral)}[data-mod-chip="dotnet"]{color:var(--dotnet);border-color:var(--dotnet)}
+  /* Stacked flow: each mode becomes its own column, then its own group on phones, so no chevron runs from one mode into the other */
+  @media(max-width:1040px){[data-mod-flow]{grid-template-columns:repeat(2,minmax(0,1fr))!important;column-gap:16px}[data-mod-hd]{display:none!important}[data-mod-src]{grid-row:auto!important;grid-column:1/-1}[data-mod-line]{display:grid!important;grid-template-rows:subgrid;grid-row:span 6}[data-mod-chev] svg{transform:rotate(90deg)}}
+  @media(max-width:560px){[data-mod-flow]{grid-template-columns:minmax(0,1fr)!important}[data-mod-line]{grid-row:span 5}[data-mod-line]>[data-mod-chev]:first-child{display:none}[data-mod-line]+[data-mod-line]{margin-top:18px}}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
   [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
@@ -1437,12 +1445,28 @@
     <section id="modes" data-tech-only="" data-band="tech" data-screen-label="Exécution" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ modEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ modTitle }}</h2>
-      <div data-grid="cards4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px">
-        <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3">
-          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.04em">{{ m.tag }}</div>
-            <h3 style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ m.title }}</h3>
-            <p style="margin:10px 0 18px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ m.desc }}</p>
+      <div data-mod-flow="" style="display:grid;grid-template-columns:minmax(150px,190px) 28px minmax(170px,208px) 28px minmax(240px,1fr) 28px minmax(180px,207px);row-gap:14px;margin-top:34px">
+        <div data-mod-hd="" aria-hidden="true" style="display:contents"><span>{{ modCols.0 }}</span><span></span><span>{{ modCols.1 }}</span><span></span><span>{{ modCols.2 }}</span><span></span><span>{{ modCols.3 }}</span></div>
+        <div data-mod-src="" role="group" aria-label="{{ modCols.0 }}" style="grid-row:2/span 2;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:20px 18px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px">
+          <div style="font-size:17px;font-weight:700;color:var(--text)">{{ modSrc }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;color:var(--text-2)"><sc-for list="{{ modSrcList }}" as="s" hint-placeholder-count="3"><div>{{ s }}</div></sc-for></div>
+        </div>
+        <sc-for list="{{ modFlow }}" as="l" hint-placeholder-count="2">
+          <div data-mod-line="" style="display:contents">
+            <div data-mod-chev=""><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></div>
+            <div role="group" aria-label="{{ modCols.1 }}" style="display:flex;flex-direction:column;gap:6px;padding:18px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:color-mix(in srgb,var(--ca-strong) 90%,var(--text))">{{ l.tag }}</div>
+              <div style="font-size:16px;font-weight:700;color:var(--text)">{{ l.title }}</div>
+              <div data-mod-sub="" data-mono="{{ l.mono }}">{{ l.sub }}</div>
+            </div>
+            <div data-mod-chev=""><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></div>
+            <div role="group" aria-label="{{ modCols.2 }}" style="display:flex;flex-wrap:wrap;align-content:center;gap:8px;padding:18px;background:var(--surface);border:1px solid var(--border);border-radius:12px">
+              <sc-for list="{{ l.outs }}" as="o" hint-placeholder-count="4"><span data-mod-chip="">{{ o }}</span></sc-for><span data-mod-chip="{{ l.hlK }}">{{ l.hl }}</span>
+            </div>
+            <div data-mod-chev=""><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></div>
+            <div role="group" aria-label="{{ modCols.3 }}" style="display:flex;flex-direction:column;justify-content:center;gap:8px">
+              <sc-for list="{{ l.deps }}" as="d" hint-placeholder-count="2"><div style="padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px"><div style="font-size:14px;font-weight:700;color:var(--text)">{{ d.t }}</div><div style="font-size:13px;line-height:1.45;color:var(--text-2)">{{ d.s }}</div></div></sc-for>
+            </div>
           </div>
         </sc-for>
       </div> <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;margin-top:24px"><a data-plain href="{{ guideBase }}#deploy" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesMore }}</span><span data-arrow> →</span></a><a data-plain href="{{ refBase }}CI" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesCi }}</span><span data-arrow> →</span></a></div>
@@ -2270,11 +2294,11 @@ class Component extends DCLogic {
         hubMore: 'PerfSentinelHub on GitHub',
         modEyebrow: '// four ways to run it',
         modTitle: '1 binary, 2 modes, 4 ways to deploy',
-        modes: [
-          { tag: 'mode batch · local', title: 'Exploration', desc: 'Locally: keyboard drill-down across Analyze · Inspect · Explain in a TUI, or a single-file offline HTML dashboard to open and share. Built-in demo, nothing to set up.', cmd: 'perf-sentinel analyze --tui' },
-          { tag: 'mode batch · CI', title: 'CI batch', desc: 'On captured traces: exit 1 past a threshold, SARIF output for code scanning, deterministic JSON. The same traces always give the same verdict.', cmd: 'perf-sentinel analyze --input traces.json --ci' },
-          { tag: 'mode daemon · sidecar', title: 'Sidecar', desc: 'One daemon per service for isolated debugging, ingesting its OTLP traces right beside it.', cmd: 'perf-sentinel watch' },
-          { tag: 'mode daemon · central', title: 'Centralized', desc: 'One long-running daemon that an OTel Collector sends its traces to: gRPC `:4317` + HTTP `:4318`, Prometheus `/metrics`, live dashboard, query API and cross-trace correlation.', cmd: 'perf-sentinel watch --listen-address 0.0.0.0' },
+        modCols: ['SOURCE', 'MODE', 'OUTPUTS', 'DEPLOYMENTS'],
+        modSrc: 'Your traces', modSrcList: ['OpenTelemetry SDK', 'OTel Collector', 'Datadog via Collector'],
+        modFlow: [
+          { tag: 'mode batch', title: 'Captured traces', sub: 'Same traces, same verdict.', outs: ['TUI', 'offline HTML', 'SARIF', 'deterministic JSON'], hl: 'exit 1 on threshold', hlK: 'coral', deps: [{ t: 'Exploration', s: 'local, built-in demo' }, { t: 'Batch CI', s: 'quality gate in the pipeline' }] },
+          { tag: 'mode daemon', title: 'Continuous OTLP stream', sub: 'gRPC :4317 · HTTP :4318', mono: true, outs: ['Prometheus /metrics', 'live dashboard', 'query API', 'cross-trace correlation'], hl: '→ Hub (history)', hlK: 'dotnet', deps: [{ t: 'Sidecar', s: 'one daemon per service' }, { t: 'Centralized', s: 'a single daemon, via a Collector' }] },
         ],
         navPerf: 'Performance',
         perfEyebrow: '// built in rust',
@@ -2480,11 +2504,11 @@ class Component extends DCLogic {
         hubMore: 'PerfSentinelHub sur GitHub',
         modEyebrow: "// quatre façons de l'exécuter",
         modTitle: '1 binaire, 2 modes, 4 façons de le déployer',
-        modes: [
-          { tag: 'mode batch · local', title: 'Exploration', desc: 'En local : drill-down clavier Analyze · Inspect · Explain en TUI, ou un dashboard HTML offline en un seul fichier à ouvrir et partager. Démo intégrée, rien à configurer.', cmd: 'perf-sentinel analyze --tui' },
-          { tag: 'mode batch · CI', title: 'Batch CI', desc: 'Sur traces capturées : exit 1 au dépassement de seuil, sortie SARIF pour le code scanning, JSON déterministe. Les mêmes traces donnent toujours le même verdict.', cmd: 'perf-sentinel analyze --input traces.json --ci' },
-          { tag: 'mode daemon · sidecar', title: 'Sidecar', desc: 'Un daemon par service pour du debug isolé, qui ingère les traces OTLP de ce service juste à côté.', cmd: 'perf-sentinel watch' },
-          { tag: 'mode daemon · central', title: 'Centralisé', desc: 'Un seul daemon permanent, auquel un OTel Collector envoie ses traces : gRPC `:4317` + HTTP `:4318`, `/metrics` Prometheus, tableau de bord en direct, API de requête et corrélation entre traces.', cmd: 'perf-sentinel watch --listen-address 0.0.0.0' },
+        modCols: ['SOURCE', 'MODE', 'SORTIES', 'DÉPLOIEMENTS'],
+        modSrc: 'Vos traces', modSrcList: ['SDK OpenTelemetry', 'OTel Collector', 'Datadog via Collector'],
+        modFlow: [
+          { tag: 'mode batch', title: 'Traces capturées', sub: 'Mêmes traces, même verdict.', outs: ['TUI', 'HTML hors ligne', 'SARIF', 'JSON déterministe'], hl: 'exit 1 sur seuil', hlK: 'coral', deps: [{ t: 'Exploration', s: 'en local, démo intégrée' }, { t: 'Batch CI', s: 'quality gate dans le pipeline' }] },
+          { tag: 'mode daemon', title: 'Flux OTLP en continu', sub: 'gRPC :4317 · HTTP :4318', mono: true, outs: ['/metrics Prometheus', 'tableau de bord live', 'API de requête', 'corrélation cross-trace'], hl: '→ Hub (historique)', hlK: 'dotnet', deps: [{ t: 'Sidecar', s: 'un daemon par service' }, { t: 'Centralisé', s: 'un seul daemon, via Collector' }] },
         ],
         navPerf: 'Performance',
         perfEyebrow: '// écrit en rust',
@@ -2620,7 +2644,7 @@ class Component extends DCLogic {
       patterns: t.patterns.map((p) => ({ ...p, labels: p.labels.map((s) => [s]) })),
       stats: t.stats, detCols: t.detCols, detMatrix: t.detMatrix, detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead,
       detExTitle: t.detExTitle, detExSub: t.detExSub, detExNeeded: t.detExNeeded, detExAvoidable: t.detExAvoidable, detExBefore: t.detExBefore, detExAfter: t.detExAfter, detExBeforeSum: t.detExBeforeSum, detExBeforeNote: t.detExBeforeNote, detExAfterSum: t.detExAfterSum, detExAfterNote: t.detExAfterNote, detExFix: t.detExFix,
-      modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
+      green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot, stackEyebrow: t.stackEyebrow, stackTitle: t.stackTitle, stackIntro: t.stackIntro, stackLangs: t.stackLangs, stackFws: t.stackFws, stackOrm: t.stackOrm, stackLink: t.stackLink, stackHref: t.stackHref,
       whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyAccent: t.whyAccent || '', whyP1: t.whyP1, whyP2: t.whyP2 || '', whyToolsLabel: t.whyToolsLabel, whyTools: t.whyTools, whyToolPs: t.whyToolPs, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
@@ -2631,7 +2655,7 @@ class Component extends DCLogic {
       carbonCmpTitle: t.carbonCmpTitle, carbonCmpSub: t.carbonCmpSub, carbonResultLabel: t.carbonResultLabel,
       carbonTdEyebrow: t.carbonTdEyebrow, carbonTdTitle: t.carbonTdTitle, carbonTdPoints: t.carbonTdPoints, carbonTdResultA: t.carbonTdResultA, carbonTdResultB: t.carbonTdResultB, carbonTdResultC: t.carbonTdResultC, carbonTdResultD: t.carbonTdResultD,
       carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResultA: t.carbonBuResultA, carbonBuResultB: t.carbonBuResultB, carbonBuResultC: t.carbonBuResultC, carbonBuResultD: t.carbonBuResultD,
-      modEyebrow: t.modEyebrow, modTitle: t.modTitle,
+      modEyebrow: t.modEyebrow, modTitle: t.modTitle, modCols: t.modCols, modSrc: t.modSrc, modSrcList: t.modSrcList, modFlow: t.modFlow,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.99.0'), perfStats: t.perfStats,
       perfMore: t.perfMore, modesMore: t.modesMore, modesCi: t.modesCi,
       goBrA: t.goBrA, goBrN: t.goBrN, goBrB: t.goBrB,
