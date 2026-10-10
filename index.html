@@ -1245,6 +1245,27 @@
   [data-gxb-a="r"]{padding:0;background:none;border:0;margin-top:8px}[data-gxb-a="r"]::before{content:none}
   [data-gxb-scale],[data-gxb-tk]{margin-left:12%;margin-right:12%}[data-gxb-scale]::before{left:-9%;right:-9%}
 }
+/* Legal persona: integrity chain of the periodic report, step 04 optional, step 05 the outcome */
+[data-lgc]{margin:8px 0 6px;padding:24px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px}
+[data-lgc-ol]{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));column-gap:30px}
+[data-lgc-st]{position:relative;display:flex;flex-direction:column;gap:6px;padding:16px 16px 15px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+[data-lgc-st="opt"]{border:1.5px dashed color-mix(in srgb,var(--text-2) 70%,var(--border))}
+[data-lgc-st="end"]{background:var(--accent-soft);border-color:var(--accent)}
+[data-lgc-st="end"] [data-lgc-ch]{display:none}
+[data-lgc-n]{min-height:20px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2)}
+[data-lgc-tag]{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);border:1px dashed color-mix(in srgb,var(--text-2) 70%,var(--border));border-radius:999px;padding:1px 8px}
+[data-lgc-t]{font-size:15px;font-weight:700;line-height:1.35;color:var(--text)}
+[data-lgc-s]{font-size:13px;line-height:1.5;color:var(--text-2)}
+[data-lgc-st="end"] [data-lgc-s]{color:var(--text)}
+[data-lgc-s] code.dc-cmd{white-space:normal;overflow-wrap:anywhere}
+[data-lgc-ch]{position:absolute;right:-26px;top:50%;width:22px;height:22px;margin-top:-11px;display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+[data-lgc-scope]{display:flex;align-items:center;gap:9px;margin:16px 0 0;font-size:13.5px;line-height:1.5;color:var(--text-2)}
+[data-lgc-scope] svg{flex:none;color:var(--text-2)}
+@media(max-width:1040px){
+  [data-lgc]{padding:18px}
+  [data-lgc-ol]{grid-template-columns:minmax(0,1fr);row-gap:30px}
+  [data-lgc-ch]{right:auto;left:50%;top:auto;bottom:-27px;margin:0 0 0 -11px}[data-lgc-ch] svg{transform:rotate(90deg)}
+}
 </style>
 </helmet>
 
@@ -1370,6 +1391,14 @@
       <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px">
         <p style="margin:0;max-width:720px;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
         <p data-nontech-only="" style="margin:0;max-width:720px;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
+        <sc-if value="{{ lgcAria }}"><div data-lgc="">
+          <ol data-lgc-ol="" aria-label="{{ lgcAria }}">
+            <sc-for list="{{ lgcSteps }}" as="l" hint-placeholder-count="5">
+              <li data-lgc-st="{{ l.kind }}"><div data-lgc-n=""><span>{{ l.n }}</span><sc-if value="{{ l.tag }}"><span data-lgc-tag="">{{ l.tag }}</span></sc-if></div><div data-lgc-t="">{{ l.title }}</div><div data-lgc-s="">{{ l.sub }}</div><span data-lgc-ch="" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></li>
+            </sc-for>
+          </ol>
+          <p data-lgc-scope=""><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>{{ lgcScope }}</p>
+        </div></sc-if>
         <div data-tech-only="" style="margin:6px 0">
           <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ whyToolsLabel }}</div>
           <div data-grid="cards4" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px">
@@ -2294,6 +2323,15 @@ class Component extends DCLogic {
           whyP4: 'Les valeurs des requêtes sont normalisées en mémoire, et le daemon n’écrit jamais de spans bruts sur disque. Ce qu’il émet porte des modèles, pas les valeurs, à quelques exceptions documentées près, comme un commentaire SQL ou un segment d’URL non numérique.',
           ctaTitle: 'Des éléments reproductibles et signés',
           ctaText: 'Outil de contrôle interne et source de données d’activité, le reporting CSRD / GHG Scope 2-3 standalone requiert l’audit d’un organisme qualifié. Le détail de la licence AGPL est résumé plus haut.',
+          lgcAria: 'Chaîne d’intégrité du rapport périodique',
+          lgcSteps: [
+            { n: '01', kind: '', title: 'Traces archivées', sub: 'par fenêtre, par le daemon' },
+            { n: '02', kind: '', title: 'Rapport périodique', sub: '`perf-sentinel disclose`, même entrée, même sortie' },
+            { n: '03', kind: '', title: 'Empreinte SHA-\u2060256', sub: '`content_hash` du JSON canonique' },
+            { n: '04', kind: 'opt', tag: 'optionnelle', title: 'Signature Sigstore', sub: 'posée par l’opérateur' },
+            { n: '05', kind: 'end', title: 'Vérification par tous', sub: '`verify-hash` recalcule l’empreinte, vérifie signature et provenance du binaire' },
+          ],
+          lgcScope: 'Transparence publique, pas un reporting réglementaire.',
           ctaEndA: 'Vérifier un rapport signé', ctaEndAHref: '/docs/fr/REPORTING#vérifier-un-rapport-publié', ctaEndB: 'Ce que l’outil collecte et conserve', ctaEndBHref: '/docs/fr/SECURITY-OVERVIEW',
         },
         proc: {
@@ -2372,6 +2410,15 @@ class Component extends DCLogic {
           whyP4: 'Query values are normalized in memory, and the daemon never writes raw spans to disk. What it emits carries templates, not the values, with a few documented exceptions such as an SQL comment or a non-numeric URL segment.',
           ctaTitle: 'Reproducible, signed records',
           ctaText: 'An internal control tool and activity-data source, standalone CSRD / GHG Scope 2-3 reporting requires audit by a qualified body. The AGPL license is summarized above.',
+          lgcAria: 'Integrity chain of the periodic report',
+          lgcSteps: [
+            { n: '01', kind: '', title: 'Archived traces', sub: 'per window, by the daemon' },
+            { n: '02', kind: '', title: 'Periodic report', sub: '`perf-sentinel disclose`, same input, same output' },
+            { n: '03', kind: '', title: 'SHA-\u2060256 fingerprint', sub: '`content_hash` of the canonical JSON' },
+            { n: '04', kind: 'opt', tag: 'optional', title: 'Sigstore signature', sub: 'applied by the operator' },
+            { n: '05', kind: 'end', title: 'Anyone can verify', sub: '`verify-hash` recomputes the fingerprint, checks the signature and the binary provenance' },
+          ],
+          lgcScope: 'Public transparency, not regulatory reporting.',
           ctaEndA: 'Verify a signed report', ctaEndAHref: '/docs/REPORTING#verifying-a-published-disclosure', ctaEndB: 'What the tool collects and keeps', ctaEndBHref: '/docs/SECURITY-OVERVIEW',
         },
         proc: {
@@ -2904,6 +2951,7 @@ class Component extends DCLogic {
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.99.0'), perfStats: t.perfStats,
       perfMore: t.perfMore, modesMore: t.modesMore, modesCi: t.modesCi,
       goEqAria: t.goEqAria, goEqTotal: t.goEqTotal, goEqET: t.goEqET, goEqES: t.goEqES, goEqIT: t.goEqIT, goEqIS: t.goEqIS, goEqMT: t.goEqMT, goEqMS: t.goEqMS, goEqLo: t.goEqLo, goEqBounds: t.goEqBounds, goEqAvLabel: t.goEqAvLabel, goEqAvText: t.goEqAvText,
+      lgcAria: t.lgcAria || '', lgcSteps: t.lgcSteps || [], lgcScope: t.lgcScope || '',
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNoteA: t.goNoteA, goNoteLink: t.goNoteLink, goNoteB: t.goNoteB,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
       mesE: t.mesE, mesOr: t.mesOr, mesPerCont: t.mesPerCont, mesPerProc: t.mesPerProc, mesPerPod: t.mesPerPod, mesSoftNote: t.mesSoftNote, mesWallNote: t.mesWallNote, mesWallChip: t.mesWallChip, mesLiveNote: t.mesLiveNote,
