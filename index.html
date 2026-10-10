@@ -1174,7 +1174,7 @@
   [data-ps-root][data-persona]:not([data-persona="tech"]):not([data-persona="rse"]) [data-tech-rse]{display:none!important}
   [data-ps-root][data-persona="tech"] [data-not-tech-rse],[data-ps-root][data-persona="rse"] [data-not-tech-rse]{display:none!important}
 [data-ps-root] [data-why-accent="coral"]{color:var(--coral)!important}
-#security code.dc-cmd{color:var(--coral);background:color-mix(in srgb,var(--coral) 12%,transparent)}
+#security code.dc-cmd{color:color-mix(in srgb,var(--coral) 80%,var(--text));background:color-mix(in srgb,var(--coral) 12%,transparent)}
 /* Security: a ruled two-column ledger, icon + tag + title on the left, the description on the right */
 [data-sec-row]{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);grid-template-rows:auto 1fr;column-gap:48px}[data-sec-row]>h3{grid-column:1}[data-sec-row]>p{grid-column:2;grid-row:1/span 2;align-self:center;margin:0}
 @media(max-width:880px){[data-sec-row]{grid-template-columns:minmax(0,1fr);grid-template-rows:none}[data-sec-row]>p{grid-column:1;grid-row:auto;margin-top:8px}}
