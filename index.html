@@ -1193,6 +1193,8 @@
 [data-burger] i::before,[data-burger] i::after{content:'';position:absolute;left:0;width:17px;height:2px;background:var(--text-2);border-radius:2px}
 [data-burger] i::before{top:-5px}[data-burger] i::after{top:5px}
 [data-mobnav]{display:none}
+/* Phones: the arrow is drawn at the end of the link text, glued by a no-break space, so it never ends up alone on a line */
+@media(max-width:560px){a[data-plain]:has(>[data-ltext]+[data-arrow]){display:inline-block!important}a[data-plain]>[data-ltext]+[data-arrow]{display:none}a[data-plain]>[data-ltext]:has(+[data-arrow])::after{content:"\00a0→"}a[data-plain]>[data-ltext]:has(+[data-arrow="ext"])::after{content:"\00a0↗"}}
 @media(max-width:560px){.gh-txt{display:none}}@media(max-width:1120px){.ps-th-lbl{display:none!important}.ps-th-btn{width:34px;padding:0}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:980px){[data-nav]{gap:10px!important}}@media(max-width:1040px){[data-nav-sec]{display:none}}[data-ico="database"]{--ico:url(/assets/icons/database.svg)}[data-ico="arrow-left-right"]{--ico:url(/assets/icons/arrow-left-right.svg)}[data-ico="lock"]{--ico:url(/assets/icons/lock.svg)}[data-ico="shield-check"]{--ico:url(/assets/icons/shield-check.svg)}[data-ico="flag"]{--ico:url(/assets/icons/flag.svg)}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
 @media(max-width:920px){
 [data-burger]{display:inline-flex}
@@ -1393,7 +1395,7 @@
               <button type="button" data-embed-tab="tui" data-active="false" aria-pressed="false">TUI</button>
               <button type="button" data-embed-tab="hub" data-active="false" aria-pressed="false">HUB</button>
             </div>
-            <a data-plain id="ps-embed-open" href="exemple/dashboard" target="_blank" rel="noopener"><span data-embed-full="">{{ embedOpen }}</span><span data-embed-m="">{{ embedOpenMobile }}</span><span data-arrow> ↗</span></a>
+            <a data-plain id="ps-embed-open" href="exemple/dashboard" target="_blank" rel="noopener"><span data-embed-full="">{{ embedOpen }}</span><span data-embed-m="">{{ embedOpenMobile }}</span><span data-arrow="ext"> ↗</span></a>
           </div>
           <iframe id="ps-embed-frame" loading="lazy" title="Perf Sentinel HTML report" style="display:block;width:100%;height:600px;border:0;background:var(--embed-bg)"></iframe>
         </div>
@@ -1800,7 +1802,7 @@
           </sc-for>
         </div>
       </div>
-      <a data-plain href="{{ hubBenchHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;margin-right:22px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px"><span data-ltext>{{ hubBench }}</span><span data-arrow> →</span></a> <a data-plain href="https://github.com/robintra/PerfSentinelHub" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px" data-clink="1"><span data-ltext>{{ hubMore }}</span><span data-arrow> ↗</span></a>
+      <a data-plain href="{{ hubBenchHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;margin-right:22px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px"><span data-ltext>{{ hubBench }}</span><span data-arrow> →</span></a> <a data-plain href="https://github.com/robintra/PerfSentinelHub" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px" data-clink="1"><span data-ltext>{{ hubMore }}</span><span data-arrow="ext"> ↗</span></a>
     </section>
 
     <!-- GREENOPS -->
@@ -1936,7 +1938,7 @@
           </div>
           <div>
             <div data-term="" data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
-              <div class="ps-l1"><span><span class="ps-pr" style="color:#26CD94">$</span> {{ installCommand }}</span><button type="button" data-copy="{{ installCommand }}" data-copied="{{ copiedLabel }}" aria-live="polite">{{ copyLabel }}</button></div>
+              <div class="ps-l1"><span><span class="ps-pr" style="color:#26CD94">$</span> {{ installView }}</span><button type="button" data-copy="{{ installCommand }}" data-copied="{{ copiedLabel }}" aria-live="polite">{{ copyLabel }}</button></div>
               <div><span class="ps-pr" style="color:#26CD94">$</span> perf-sentinel demo <span class="ps-cm" style="color:#7FB6A2"># {{ demoCmt1 }}</span></div>
               <div><span class="ps-pr" style="color:#26CD94">$</span> perf-sentinel demo --tui <span class="ps-cm" style="color:#7FB6A2"># {{ demoCmt2 }}</span></div>
               <div><span class="ps-pr" style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span class="ps-cm" style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
@@ -2932,6 +2934,8 @@ class Component extends DCLogic {
       licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
       licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
       installCommand: install,
+      // Tokens stay whole on narrow screens, the line breaks between them, not inside perf-sentinel
+      installView: install.split(' ').flatMap((w, i) => [i ? ' ' : '', React.createElement('span', { key: i, style: { whiteSpace: 'nowrap' } }, w)]),
       copyLabel: this.state.copied ? t.copied : t.copy,
       termOut: t.termOut, termFail: t.termFail,
       exampleLabel: t.exampleLabel, embedLead: t.embedLead, embedOpen: t.embedOpen, embedOpenMobile: t.embedOpenMobile, embedCaption: t.embedCaption, dfCalls: t.dfCalls, dfLineA: t.dfLineA, dfLineB: t.dfLineB, dfMore: t.dfMore, dfLess: t.dfLess, dfBarsA: t.dfBarsA, dfBarsB: t.dfBarsB, dfWhatT: t.dfWhatT, dfWhat: t.dfWhat, dfCostT: t.dfCostT, dfCost: t.dfCost, dfFixT: t.dfFixT, dfFixA: t.dfFixA, dfFixB: t.dfFixB, dfTrace: t.dfTrace,
