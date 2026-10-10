@@ -317,7 +317,7 @@
 <ol>
 <li>Filtrer les spans pour ne garder que les appels HTTP sortants (<code class="ps-ic">type: http_out</code>)</li>
 <li>Compter le total de spans HTTP sortants dans la trace</li>
-<li>Si ce nombre est &lt; <code class="ps-ic">chatty_service_min_calls</code> (défaut 15), ignorer</li>
+<li>Si ce nombre est ≤ <code class="ps-ic">chatty_service_min_calls</code> (défaut 15), ignorer</li>
 <li>Collecter les endpoints normalisés les plus appelés pour le message de suggestion</li>
 <li>Assigner la sévérité : Warning si &gt; seuil, Critical si &gt; 3x seuil</li>
 </ol>
@@ -325,14 +325,14 @@
 Output: 0 or 1 ChattyService finding
 
 filter spans where type == http_out
-if count(http_spans) &lt; chatty_service_min_calls:
+if count(http_spans) &lt;= chatty_service_min_calls:
     return []
 
 group http_spans by normalized template
 sort groups by count descending
 top_endpoints = first 5 groups
 
-severity = Critical if count &gt;= 3 * threshold else Warning
+severity = Critical if count &gt; 3 * threshold else Warning
 emit finding with top_endpoints in suggestion</code></pre></div>
 <p class="ps-p"><strong>Complexité :</strong> O(n) pour filtrer et compter, O(k log k) pour trier les groupes, où k est le nombre de templates distincts. Comme k &lt;&lt; n en pratique, cela revient à O(n).</p>
 <h3 id="différence-avec-le-fanout" class="ps-h3">Différence avec le fanout</h3>

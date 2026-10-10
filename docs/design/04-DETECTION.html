@@ -317,7 +317,7 @@
 <ol>
 <li>Filter spans to HTTP outbound only (<code class="ps-ic">type: http_out</code>)</li>
 <li>Count total HTTP outbound spans in the trace</li>
-<li>If count &lt; <code class="ps-ic">chatty_service_min_calls</code> (default 15), skip</li>
+<li>If count ≤ <code class="ps-ic">chatty_service_min_calls</code> (default 15), skip</li>
 <li>Collect the top called normalized endpoints for the suggestion message</li>
 <li>Assign severity: Warning if &gt; threshold, Critical if &gt; 3x threshold</li>
 </ol>
@@ -325,14 +325,14 @@
 Output: 0 or 1 ChattyService finding
 
 filter spans where type == http_out
-if count(http_spans) &lt; chatty_service_min_calls:
+if count(http_spans) &lt;= chatty_service_min_calls:
     return []
 
 group http_spans by normalized template
 sort groups by count descending
 top_endpoints = first 5 groups
 
-severity = Critical if count &gt;= 3 * threshold else Warning
+severity = Critical if count &gt; 3 * threshold else Warning
 emit finding with top_endpoints in suggestion</code></pre></div>
 <p class="ps-p"><strong>Complexity:</strong> O(n) to filter and count, O(k log k) to sort groups where k is the number of distinct templates. Since k &lt;&lt; n in practice, this is effectively O(n).</p>
 <h3 id="difference-from-fanout" class="ps-h3">Difference from fanout</h3>
