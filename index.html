@@ -1104,6 +1104,14 @@
   [data-hub-step]{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--text-2)}[data-hub-step]>span:first-child{flex:none;width:12px;text-align:center;font-family:'JetBrains Mono',monospace;color:var(--dotnet)}[data-hub-step][data-back]>span:first-child{transform:rotate(180deg)}
   /* Stacked diagram: arrows turn a quarter clockwise, right becomes down and left (toward the Hub) becomes up */
   @media(max-width:1040px){[data-hub-dia]{grid-template-columns:minmax(0,1fr)!important;align-items:stretch!important}[data-hub-links]{flex-direction:row;justify-content:center;gap:28px;padding:14px 0!important}[data-hub-link]{flex-direction:row;align-items:center;gap:8px}[data-hub-arrow]{flex-direction:column}[data-hub-arrow] i{flex:none;height:28px;border-top-width:0;border-left-width:2px}[data-hub-arrow] svg,[data-hub-step]>span:first-child{transform:rotate(90deg)}[data-hub-step][data-back]>span:first-child{transform:rotate(270deg)}}
+  /* Hub figures: footer of the diagram panel. The ::after is placed in the Hub box column of the diagram grid, so the solid segment follows that column without a pixel offset */
+  [data-hub-dia]{position:relative}[data-hub-dia]::after{content:"";position:absolute;grid-area:2/3/3/4;top:26px;left:0;right:0;height:2px;background:var(--dotnet);border-radius:2px}
+  [data-hub-figs]{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:26px;padding-top:20px;border-top:1px dashed color-mix(in srgb,var(--dotnet) 32%,var(--border))}
+  [data-hub-fig]{min-width:0;padding:0 20px;border-left:1px solid var(--border)}[data-hub-fig]:first-child{padding-left:0;border-left:0}[data-hub-fig]:last-child{padding-right:0}
+  [data-hub-fig-v]{display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:600;letter-spacing:-.01em;color:var(--dotnet);white-space:nowrap}[data-hub-fig-v] [data-ico]{width:18px;height:18px}
+  [data-hub-fig-l]{margin-top:6px;font-size:13px;line-height:1.5;color:var(--text-2)}
+  @media(max-width:1040px){[data-hub-dia]::after{display:none}[data-hub-figs]{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:18px;margin-top:22px;border-top:2px solid var(--dotnet)}[data-hub-fig]:nth-child(odd){padding-left:0;border-left:0}[data-hub-fig]:nth-child(even){padding-right:0}}
+  @media(max-width:560px){[data-hub-figs]{grid-template-columns:minmax(0,1fr);row-gap:0;padding-top:4px}[data-hub-fig]:nth-child(n){padding:12px 0;border-left:0}[data-hub-fig]+[data-hub-fig]{border-top:1px solid var(--border)}[data-hub-fig-v]{font-size:17px}[data-hub-fig-v] [data-ico]{width:16px;height:16px}[data-hub-fig-l]{margin-top:4px}}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
   [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
@@ -1774,17 +1782,14 @@
           <div data-hub-step="" data-back=""><span aria-hidden="true">→</span><span>{{ hubPick }}</span></div>
           <div data-hub-step=""><span aria-hidden="true">→</span><span>{{ hubRun }}</span></div>
         </div>
-      </div>
-      <div data-grid="stats" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin-top:16px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden">
-        <sc-for list="{{ hubStats }}" as="s" hint-placeholder-count="4">
-          <div style="background:var(--surface);padding:20px 22px">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--dotnet)">
-              <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:600;letter-spacing:-.01em">{{ s.value }}</div>
-              <span data-ico="{{ s.icon }}" aria-hidden="true"></span>
+        <div data-hub-figs="">
+          <sc-for list="{{ hubStats }}" as="s" hint-placeholder-count="4">
+            <div data-hub-fig="">
+              <div data-hub-fig-v=""><span>{{ s.value }}</span><span data-ico="{{ s.icon }}" aria-hidden="true"></span></div>
+              <div data-hub-fig-l="">{{ s.label }}</div>
             </div>
-            <div style="margin-top:5px;font-size:13.5px;color:var(--text-2)">{{ s.label }}</div>
-          </div>
-        </sc-for>
+          </sc-for>
+        </div>
       </div>
       <a data-plain href="{{ hubBenchHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;margin-right:22px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px"><span data-ltext>{{ hubBench }}</span><span data-arrow> →</span></a> <a data-plain href="https://github.com/robintra/PerfSentinelHub" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px" data-clink="1"><span data-ltext>{{ hubMore }}</span><span data-arrow> ↗</span></a>
     </section>
