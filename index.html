@@ -1206,6 +1206,8 @@
 [data-mobnav]{display:none}
 /* Phones: the arrow is drawn at the end of the link text, glued by a no-break space, so it never ends up alone on a line */
 @media(max-width:560px){a[data-plain]:has(>[data-ltext]+[data-arrow]){display:inline-block!important}a[data-plain]>[data-ltext]+[data-arrow]{display:none}a[data-plain]>[data-ltext]:has(+[data-arrow])::after{content:"\00a0→"}a[data-plain]>[data-ltext]:has(+[data-arrow="ext"])::after{content:"\00a0↗"}}
+/* Below 768px the arrow doc links get a 44px hit area from a centred pseudo-element, so their layout (inline margin-top included) does not move */
+@media(max-width:767px){main a[data-plain]:has(>[data-ltext]+[data-arrow]){position:relative}main a[data-plain]:has(>[data-ltext]+[data-arrow])::after{content:"";position:absolute;left:0;right:0;top:50%;height:100%;min-height:44px;transform:translateY(-50%)}}
 @media(max-width:560px){.gh-txt{display:none}}@media(max-width:1120px){.ps-th-lbl{display:none!important}.ps-th-btn{width:34px;padding:0}}@media(max-width:1080px){[data-nav]{gap:16px!important}}@media(max-width:980px){[data-nav]{gap:10px!important}}@media(max-width:1040px){[data-nav-sec]{display:none}}@media(max-width:560px){header>div{gap:10px!important}}@media(max-width:380px){header img[data-logo]{height:30px!important}}
 @media(max-width:920px){
 [data-burger]{display:inline-flex}
