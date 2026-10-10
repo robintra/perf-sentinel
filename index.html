@@ -1433,7 +1433,7 @@
     </section>
 
     <!-- READ FIRST -->
-    <section data-tech-only="" data-band="tech">
+    <section data-tech-only="">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;margin-bottom:16px">
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ prereqTitle }}</div>
@@ -1448,86 +1448,6 @@
           <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereqNotLabel }}</strong> {{ prereqNotText }} <a href="#comparatif" style="color:var(--accent);" data-clink="1">{{ prereqNotLink }}</a>.</p>
           <p style="margin:0;font-size:14.5px;color:var(--text-2);line-height:1.6"><strong style="color:var(--text);font-weight:600">{{ prereq3Label }}</strong> {{ prereq3Text }}</p>
           <p style="margin:0;font-size:14.5px;line-height:1.6"><a href="{{ prereqHref }}" style="color:var(--accent);" data-clink="1">{{ prereqLink }}</a></p>
-        </div>
-      </div>
-    </section>
-
-    <!-- CARBON -->
-    <section id="carbone" data-band="biz rse">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonEyebrow }}</div>
-      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2a }}<br>{{ carbonT2b }}<span style="color:var(--coral)">{{ carbonTW2 }}</span>{{ carbonT3 }}</h2>
-      <p data-intro="">{{ carbonIntro }}</p>
-      <div data-grid="cards2" style="display:grid;grid-template-columns:1.05fr .95fr;gap:28px;margin-top:36px;align-items:start">
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px 26px">
-          <div style="font-size:15px;font-weight:600;color:var(--text)">{{ carbonChartTitle }}</div>
-          <div style="display:flex;gap:10px;margin:22px 0 0">
-            <div style="display:flex;flex-direction:column;justify-content:space-between;height:180px;font-size:12px;color:var(--text-2);text-align:right">
-              <span>5 %</span><span>4 %</span><span>3 %</span><span>2 %</span><span>1 %</span><span>0 %</span>
-            </div>
-            <div style="flex:1">
-              <div style="display:flex;gap:46px;justify-content:center;align-items:flex-end;height:180px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)">
-                <div style="position:relative;width:68px;height:36%;background:#5b9bd5;border-radius:5px 5px 0 0">
-                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:var(--td-strong);white-space:nowrap">{{ carbonAnnBasse }}</span>
-                </div>
-                <div style="position:relative;width:68px;height:78%;background:#5b9bd5;border-radius:5px 5px 0 0;box-sizing:border-box;padding:5px 5px 0;display:flex;flex-direction:column">
-                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:var(--td-strong)">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:700;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:var(--coral)">{{ carbonAnnHauteQ }}</span>)</span></span>
-                  <div style="height:54%;box-sizing:border-box;border:1.5px dashed var(--coral);border-radius:3px;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--coral) 55%,transparent) 0 2px,transparent 2px 7px);display:flex;align-items:center;justify-content:center"><span class="carbon-qmark" style="width:30px;height:30px;border-radius:50%;background:var(--coral);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800">?</span></div>
-                </div>
-              </div>
-              <div style="display:flex;gap:46px;justify-content:center;margin-top:9px">
-                <div style="width:68px;text-align:center;font-size:12px;color:var(--text-2)">{{ carbonBarBasse }}</div>
-                <div style="width:68px;text-align:center;font-size:12px;color:var(--text-2)">{{ carbonBarHaute }}</div>
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:7px;margin-top:18px;font-size:14px;color:var(--text)">
-            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#5b9bd5;flex:none"></span>{{ carbonLegMeasured }}</div>
-            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;box-sizing:border-box;border-radius:3px;border:1.5px dashed var(--coral);background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--coral) 55%,transparent) 0 2px,transparent 2px 7px);flex:none"></span>{{ carbonLegUnmeasured }}</div>
-          </div>
-          <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonChartSrc }}<a href="https://www.itu.int/en/ITU-D/Environment/Pages/Publications/GDC-25.aspx" target="_blank" rel="noopener">ITU 2025</a>, <a href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">IEA 2025</a>, <a href="https://doi.org/10.1016/j.patter.2021.100340" target="_blank" rel="noopener">Freitag et al. 2021</a></div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:18px">
-          <div>
-            <div style="font-size:18px;font-weight:600;color:var(--text)">{{ carbonNarrTitle }}</div>
-            <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);line-height:1.62">{{ carbonNarrText }}</p>
-          </div>
-          <div style="background:color-mix(in srgb,var(--accent) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:14px;padding:22px 24px">
-            <div style="font-size:40px;font-weight:800;color:var(--accent-strong);line-height:1">{{ carbonStatNum }}</div>
-            <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
-            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}<a href="https://nationalcentreforai.jiscinvolve.org/wp/2022/09/30/a-case-study-using-machine-learning-to-analyse-jiscs-website-carbon-footprint/" target="_blank" rel="noopener">Jisc, National Centre for AI (2022)</a></div>
-          </div>
-        </div>
-      </div>
-      <div style="margin-top:48px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonCmpTitle }}</div>
-        <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);max-width:680px">{{ carbonCmpSub }}</p>
-        <div data-grid="cards2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px">
-          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px">
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--td-strong)">{{ carbonTdEyebrow }}</div>
-            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonTdTitle }}</div>
-            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
-              <sc-for list="{{ carbonTdPoints }}" as="pt" hint-placeholder-count="3">
-                <div style="display:flex;gap:10px;font-size:14px;color:var(--text-2);line-height:1.5"><span style="color:var(--text-2);flex:none">•</span>{{ pt.t }}</div>
-              </sc-for>
-            </div>
-            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
-              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
-              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResultA }}<span style="color:var(--coral)">{{ carbonTdResultB }}</span>{{ carbonTdResultC }}<span style="color:var(--coral)">{{ carbonTdResultD }}</span>.</div>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--accent)">{{ carbonBuEyebrow }}</div>
-            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonBuTitle }}</div>
-            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
-              <sc-for list="{{ carbonBuPoints }}" as="pt" hint-placeholder-count="3">
-                <div style="display:flex;gap:10px;font-size:14px;color:var(--text);line-height:1.5"><span style="color:var(--accent);flex:none">✓</span>{{ pt.t }}</div>
-              </sc-for>
-            </div>
-            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
-              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
-              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonBuResultA }}<span style="color:var(--accent)">{{ carbonBuResultB }}</span>{{ carbonBuResultC }}<span style="color:var(--accent)">{{ carbonBuResultD }}</span>.</div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -1799,6 +1719,86 @@
         </div>
       </div>
       <div data-links="" style="margin-top:18px"><a data-plain href="{{ hubBenchHref }}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px"><span data-ltext>{{ hubBench }}</span><span data-arrow> →</span></a> <a data-plain href="https://github.com/robintra/PerfSentinelHub" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--dotnet)" style-hover="gap:11px" data-clink="1"><span data-ltext>{{ hubMore }}</span><span data-arrow="ext"> ↗</span></a></div>
+    </section>
+
+    <!-- CARBON -->
+    <section id="carbone" data-band="biz rse">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonEyebrow }}</div>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2a }}<br>{{ carbonT2b }}<span style="color:var(--coral)">{{ carbonTW2 }}</span>{{ carbonT3 }}</h2>
+      <p data-intro="">{{ carbonIntro }}</p>
+      <div data-grid="cards2" style="display:grid;grid-template-columns:1.05fr .95fr;gap:28px;margin-top:36px;align-items:start">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px 26px">
+          <div style="font-size:15px;font-weight:600;color:var(--text)">{{ carbonChartTitle }}</div>
+          <div style="display:flex;gap:10px;margin:22px 0 0">
+            <div style="display:flex;flex-direction:column;justify-content:space-between;height:180px;font-size:12px;color:var(--text-2);text-align:right">
+              <span>5 %</span><span>4 %</span><span>3 %</span><span>2 %</span><span>1 %</span><span>0 %</span>
+            </div>
+            <div style="flex:1">
+              <div style="display:flex;gap:46px;justify-content:center;align-items:flex-end;height:180px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)">
+                <div style="position:relative;width:68px;height:36%;background:#5b9bd5;border-radius:5px 5px 0 0">
+                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:var(--td-strong);white-space:nowrap">{{ carbonAnnBasse }}</span>
+                </div>
+                <div style="position:relative;width:68px;height:78%;background:#5b9bd5;border-radius:5px 5px 0 0;box-sizing:border-box;padding:5px 5px 0;display:flex;flex-direction:column">
+                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:var(--td-strong)">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:700;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:var(--coral)">{{ carbonAnnHauteQ }}</span>)</span></span>
+                  <div style="height:54%;box-sizing:border-box;border:1.5px dashed var(--coral);border-radius:3px;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--coral) 55%,transparent) 0 2px,transparent 2px 7px);display:flex;align-items:center;justify-content:center"><span class="carbon-qmark" style="width:30px;height:30px;border-radius:50%;background:var(--coral);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800">?</span></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:46px;justify-content:center;margin-top:9px">
+                <div style="width:68px;text-align:center;font-size:12px;color:var(--text-2)">{{ carbonBarBasse }}</div>
+                <div style="width:68px;text-align:center;font-size:12px;color:var(--text-2)">{{ carbonBarHaute }}</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px;margin-top:18px;font-size:14px;color:var(--text)">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#5b9bd5;flex:none"></span>{{ carbonLegMeasured }}</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;box-sizing:border-box;border-radius:3px;border:1.5px dashed var(--coral);background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--coral) 55%,transparent) 0 2px,transparent 2px 7px);flex:none"></span>{{ carbonLegUnmeasured }}</div>
+          </div>
+          <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonChartSrc }}<a href="https://www.itu.int/en/ITU-D/Environment/Pages/Publications/GDC-25.aspx" target="_blank" rel="noopener">ITU 2025</a>, <a href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">IEA 2025</a>, <a href="https://doi.org/10.1016/j.patter.2021.100340" target="_blank" rel="noopener">Freitag et al. 2021</a></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:18px">
+          <div>
+            <div style="font-size:18px;font-weight:600;color:var(--text)">{{ carbonNarrTitle }}</div>
+            <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);line-height:1.62">{{ carbonNarrText }}</p>
+          </div>
+          <div style="background:color-mix(in srgb,var(--accent) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));border-radius:14px;padding:22px 24px">
+            <div style="font-size:40px;font-weight:800;color:var(--accent-strong);line-height:1">{{ carbonStatNum }}</div>
+            <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}<a href="https://nationalcentreforai.jiscinvolve.org/wp/2022/09/30/a-case-study-using-machine-learning-to-analyse-jiscs-website-carbon-footprint/" target="_blank" rel="noopener">Jisc, National Centre for AI (2022)</a></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:48px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonCmpTitle }}</div>
+        <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);max-width:680px">{{ carbonCmpSub }}</p>
+        <div data-grid="cards2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px">
+          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--td-strong)">{{ carbonTdEyebrow }}</div>
+            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonTdTitle }}</div>
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
+              <sc-for list="{{ carbonTdPoints }}" as="pt" hint-placeholder-count="3">
+                <div style="display:flex;gap:10px;font-size:14px;color:var(--text-2);line-height:1.5"><span style="color:var(--text-2);flex:none">•</span>{{ pt.t }}</div>
+              </sc-for>
+            </div>
+            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResultA }}<span style="color:var(--coral)">{{ carbonTdResultB }}</span>{{ carbonTdResultC }}<span style="color:var(--coral)">{{ carbonTdResultD }}</span>.</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--accent)">{{ carbonBuEyebrow }}</div>
+            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonBuTitle }}</div>
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px;margin-bottom:20px">
+              <sc-for list="{{ carbonBuPoints }}" as="pt" hint-placeholder-count="3">
+                <div style="display:flex;gap:10px;font-size:14px;color:var(--text);line-height:1.5"><span style="color:var(--accent);flex:none">✓</span>{{ pt.t }}</div>
+              </sc-for>
+            </div>
+            <div style="margin-top:auto;padding-top:15px;border-top:1px solid var(--border)">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonBuResultA }}<span style="color:var(--accent)">{{ carbonBuResultB }}</span>{{ carbonBuResultC }}<span style="color:var(--accent)">{{ carbonBuResultD }}</span>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- GREENOPS -->
@@ -2077,7 +2077,7 @@ class Component extends DCLogic {
     const root = document.querySelector('#dc-root [data-ps-root]');
     if (!root) return;
     const el = (id) => id === 'top' ? root.querySelector('section[data-screen-label="Hero"]') : root.querySelector('#' + id);
-    const ids = ['top', 'why', 'carbone', 'detection', 'stack', 'modes', 'perf', 'hub', 'greenops', 'mesure', 'comparatif', 'license', 'security', 'start'];
+    const ids = ['top', 'why', 'detection', 'stack', 'modes', 'perf', 'hub', 'carbone', 'greenops', 'mesure', 'comparatif', 'license', 'security', 'start'];
     const vis = ids.filter(id => { const e = el(id); return e && e.getClientRects().length > 0; });
     const line = window.innerHeight * 0.4;
     let cur = vis[0] || null;
