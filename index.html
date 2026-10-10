@@ -882,11 +882,11 @@
 
   [data-matrix] [data-mh]{padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.04em;color:var(--text-2);background:var(--surface-2);border-bottom:1px solid var(--border)}
   [data-matrix] [data-mr]{padding:16px 22px;border-bottom:1px solid var(--border)}
-  @media(max-width:380px){[data-matrix] [role=rowheader]{padding-left:8px!important;padding-right:6px!important}[data-matrix] [role=rowheader] > div:first-child{font-size:14px!important}[data-matrix] [role=rowheader] > div + div{font-size:12px!important}}
+  @media(max-width:380px){[data-matrix] [role=rowheader]{padding-left:8px!important;padding-right:6px!important}[data-matrix] [role=rowheader] > div > div:first-child{font-size:14px!important}[data-matrix] [role=rowheader] > div > div + div{font-size:12px!important}}
   [data-matrix] [data-mc]{display:flex;align-items:center;justify-content:center;padding-left:6px;padding-right:6px;text-align:center}
   [data-matrix] [data-hit]{font-size:20px;font-weight:700}[data-matrix] [data-hit="yes"]{color:var(--accent)}[data-matrix] [data-hit="no"]{color:var(--text-2);opacity:.6}
   [data-matrix] [data-mrow]:last-child > [data-mr]{border-bottom:0}
-  @media(max-width:720px){[data-matrix]{grid-template-columns:minmax(0,1fr) repeat(3,minmax(max-content,clamp(50px,11vw,120px)))!important}[data-matrix] [data-mh]{padding:10px 12px;font-size:12px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:4px;padding-right:4px}}
+  @media(max-width:720px){[data-matrix]{grid-template-columns:minmax(0,1fr) repeat(3,minmax(max-content,clamp(50px,11vw,120px)))!important}[data-matrix] [data-mh]{padding:10px 12px;font-size:12px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:4px;padding-right:4px}[data-matrix] [data-mfig]{display:none}}
   @media(max-width:560px){[data-matrix] [data-mr]{padding:14px 12px}}
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
   [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="rust"]{--ico:url(/assets/rust.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
@@ -912,6 +912,8 @@
   [data-df-cols]{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-top:14px}
   [data-df-h]{font-size:11.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
+  @media(max-width:1040px){#detection [data-grid="cards2"]{grid-template-columns:1fr!important}#detection [data-grid="cards2"] svg{max-width:560px;margin:0 auto}}
+  @media(max-width:560px){#detection [data-grid="cards2"] svg text{font-size:18px}#detection [data-grid="cards2"] svg text[y="156"]{transform:translateY(-2px)}#detection [data-grid="cards2"] svg text[y="14"]{transform:translateY(1px)}#detection [data-ser-on]{transform:translateY(2px)}}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
   [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
@@ -1262,9 +1264,14 @@
         </div>
         <sc-for list="{{ detMatrix }}" as="r" hint-placeholder-count="3">
           <div data-mrow="" role="row" style="display:contents">
-          <div data-mr="" role="rowheader">
-            <div style="font-size:16.5px;font-weight:600;color:var(--coral)">{{ r.name }}</div>
-            <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ r.rule }}</div>
+          <div data-mr="" role="rowheader" style="display:flex;align-items:center;gap:24px">
+            <sc-if value="{{ r.fig == 'n1' }}"><svg data-mfig="" viewBox="0 0 120 44" width="120" height="44" aria-hidden="true" style="flex:none;fill:var(--coral)"><rect x="4" y="2" width="26" height="6" rx="1.5"></rect><rect x="14" y="11" width="26" height="6" rx="1.5"></rect><rect x="46" y="20" width="26" height="6" rx="1.5"></rect><rect x="78" y="29" width="26" height="6" rx="1.5"></rect><rect x="84" y="38" width="26" height="6" rx="1.5"></rect></svg></sc-if>
+            <sc-if value="{{ r.fig == 'dup' }}"><svg data-mfig="" viewBox="0 0 120 44" width="120" height="44" aria-hidden="true" style="flex:none;fill:var(--coral)"><rect x="4" y="19" width="30" height="6" rx="1.5"></rect><rect x="45" y="19" width="30" height="6" rx="1.5"></rect><rect x="86" y="19" width="30" height="6" rx="1.5"></rect><g font-family="JetBrains Mono, monospace" font-size="12" text-anchor="middle" style="fill:var(--text-2)"><text x="39.5" y="26">=</text><text x="80.5" y="26">=</text></g></svg></sc-if>
+            <sc-if value="{{ r.fig == 'slow' }}"><svg data-mfig="" viewBox="0 0 120 44" width="120" height="44" aria-hidden="true" style="flex:none;fill:var(--coral)"><rect x="4" y="8" width="80" height="6" rx="1.5"></rect><rect x="4" y="19" width="104" height="6" rx="1.5"></rect><rect x="4" y="30" width="92" height="6" rx="1.5"></rect><path d="M60 2V42" stroke-width="1.2" stroke-dasharray="3 3" style="stroke:var(--text)"></path></svg></sc-if>
+            <div style="min-width:0">
+              <div style="font-size:16.5px;font-weight:600;color:var(--coral)">{{ r.name }}</div>
+              <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ r.rule }}</div>
+            </div>
           </div>
           <div data-mr="" data-mc="" data-hit="{{ r.sqlHit }}" role="cell" aria-label="{{ r.sqlLabel }}">{{ r.sql }}</div>
           <div data-mr="" data-mc="" data-hit="{{ r.httpHit }}" role="cell" aria-label="{{ r.httpLabel }}">{{ r.http }}</div>
@@ -1275,9 +1282,54 @@
       <p style="margin:26px 0 0;font-size:15px;font-weight:600;color:var(--text)">{{ detStructLead }}</p>
       <div data-grid="cards2" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:14px">
         <sc-for list="{{ patterns }}" as="p" hint-placeholder-count="4">
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px" style-hover="border-color:var(--accent)">
-            <h3 style="margin:0;font-size:16.5px;font-weight:600;color:var(--coral)">{{ p.name }}</h3>
-            <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ p.trigger }}</div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden" style-hover="border-color:var(--accent)">
+            <div style="background:var(--surface-2);border-bottom:1px solid var(--border);padding:16px 20px">
+              <sc-if value="{{ p.fig == 'fanout' }}"><svg viewBox="0 0 520 160" width="100%" role="img" aria-label="{{ p.aria }}" font-family="JetBrains Mono, monospace" style="display:block">
+                <path d="M70 80L290 12M70 80L290 26M70 80L290 39M70 80L290 53M70 80L290 66M70 80L290 80M70 80L290 94M70 80L290 107M70 80L290 121M70 80L290 134M70 80L290 148M70 80L360 19M70 80L360 32M70 80L360 46M70 80L360 60M70 80L360 73M70 80L360 87M70 80L360 100M70 80L360 114M70 80L360 128M70 80L360 141M70 80L360 155" stroke-width="1.2" stroke-opacity=".35" fill="none" style="stroke:var(--coral)"></path>
+                <g style="fill:var(--coral)"><circle cx="290" cy="12" r="4"></circle><circle cx="290" cy="26" r="4"></circle><circle cx="290" cy="39" r="4"></circle><circle cx="290" cy="53" r="4"></circle><circle cx="290" cy="66" r="4"></circle><circle cx="290" cy="80" r="4"></circle><circle cx="290" cy="94" r="4"></circle><circle cx="290" cy="107" r="4"></circle><circle cx="290" cy="121" r="4"></circle><circle cx="290" cy="134" r="4"></circle><circle cx="290" cy="148" r="4"></circle><circle cx="360" cy="19" r="4"></circle><circle cx="360" cy="32" r="4"></circle><circle cx="360" cy="46" r="4"></circle><circle cx="360" cy="60" r="4"></circle><circle cx="360" cy="73" r="4"></circle><circle cx="360" cy="87" r="4"></circle><circle cx="360" cy="100" r="4"></circle><circle cx="360" cy="114" r="4"></circle><circle cx="360" cy="128" r="4"></circle><circle cx="360" cy="141" r="4"></circle><circle cx="360" cy="155" r="4"></circle></g>
+                <circle cx="70" cy="80" r="11" stroke-width="2" style="fill:var(--surface);stroke:var(--accent-strong)"></circle>
+                <text x="70" y="112" text-anchor="middle" font-size="11" style="fill:var(--text-2)">{{ p.labels.0 }}</text>
+                <text x="392" y="84" font-size="12" style="fill:color-mix(in srgb,var(--coral) 80%,var(--text))">{{ p.labels.1 }}</text>
+              </svg></sc-if>
+              <sc-if value="{{ p.fig == 'chatty' }}"><svg viewBox="0 0 520 160" width="100%" role="img" aria-label="{{ p.aria }}" font-family="JetBrains Mono, monospace" style="display:block">
+                <path d="M51 80L134 30M51 80L134 80M51 80L134 130" stroke-width="1.2" stroke-opacity=".6" fill="none" style="stroke:var(--text-2)"></path>
+                <path d="M166 30L226 20M166 30L254 20M166 30L282 20M166 30L226 40M166 30L254 40M166 80L226 70M166 80L254 70M166 80L282 70M166 80L226 90M166 80L254 90M166 80L282 90M166 130L226 120M166 130L254 120M166 130L282 120M166 130L226 140M166 130L254 140" stroke-width="1.2" stroke-opacity=".35" fill="none" style="stroke:var(--coral)"></path>
+                <g style="fill:var(--coral)"><circle cx="226" cy="20" r="4"></circle><circle cx="254" cy="20" r="4"></circle><circle cx="282" cy="20" r="4"></circle><circle cx="226" cy="40" r="4"></circle><circle cx="254" cy="40" r="4"></circle><circle cx="226" cy="70" r="4"></circle><circle cx="254" cy="70" r="4"></circle><circle cx="282" cy="70" r="4"></circle><circle cx="226" cy="90" r="4"></circle><circle cx="254" cy="90" r="4"></circle><circle cx="282" cy="90" r="4"></circle><circle cx="226" cy="120" r="4"></circle><circle cx="254" cy="120" r="4"></circle><circle cx="282" cy="120" r="4"></circle><circle cx="226" cy="140" r="4"></circle><circle cx="254" cy="140" r="4"></circle></g>
+                <g stroke-width="1.2" stroke-opacity=".6" style="fill:var(--surface);stroke:var(--text-2)"><rect x="134" y="20" width="32" height="20" rx="4"></rect><rect x="134" y="70" width="32" height="20" rx="4"></rect><rect x="134" y="120" width="32" height="20" rx="4"></rect></g>
+                <g font-size="11" text-anchor="middle" style="fill:var(--text-2)"><text x="150" y="34">A</text><text x="150" y="84">B</text><text x="150" y="134">C</text></g>
+                <circle cx="40" cy="80" r="11" stroke-width="2" style="fill:var(--surface);stroke:var(--accent-strong)"></circle>
+                <text x="40" y="112" text-anchor="middle" font-size="11" style="fill:var(--text-2)">{{ p.labels.0 }}</text>
+                <path d="M300 14H308V146H300" stroke-width="1.2" fill="none" style="stroke:var(--coral)"></path>
+                <g font-size="12" style="fill:color-mix(in srgb,var(--coral) 80%,var(--text))"><text x="320" y="76">{{ p.labels.1 }}</text><text x="320" y="94">{{ p.labels.2 }}</text></g>
+              </svg></sc-if>
+              <sc-if value="{{ p.fig == 'pool' }}"><svg viewBox="0 0 520 160" width="100%" role="img" aria-label="{{ p.aria }}" font-family="JetBrains Mono, monospace" style="display:block">
+                <path d="M20 138H500" stroke-width="1.2" style="stroke:var(--border)"></path>
+                <g fill-opacity=".6" style="fill:var(--text-2)"><rect x="40" y="4" width="140" height="7" rx="2"></rect><rect x="300" y="125" width="120" height="7" rx="2"></rect></g>
+                <g style="fill:var(--coral)"><rect x="90" y="15" width="210" height="7" rx="2"></rect><rect x="120" y="26" width="150" height="7" rx="2"></rect><rect x="150" y="37" width="180" height="7" rx="2"></rect><rect x="170" y="48" width="120" height="7" rx="2"></rect><rect x="190" y="59" width="170" height="7" rx="2"></rect><rect x="200" y="70" width="80" height="7" rx="2"></rect><rect x="210" y="81" width="130" height="7" rx="2"></rect><rect x="220" y="92" width="80" height="7" rx="2"></rect><rect x="230" y="103" width="80" height="7" rx="2"></rect><rect x="240" y="114" width="140" height="7" rx="2"></rect></g>
+                <path d="M250 0V142" stroke-width="1.2" stroke-dasharray="3 3" style="stroke:var(--text)"></path>
+                <text x="20" y="156" font-size="11" style="fill:var(--text-2)">{{ p.labels.0 }}</text>
+                <text x="258" y="156" font-size="11" style="fill:color-mix(in srgb,var(--coral) 80%,var(--text))">{{ p.labels.1 }}</text>
+              </svg></sc-if>
+              <sc-if value="{{ p.fig == 'serial' }}"><svg viewBox="0 0 520 160" width="100%" role="img" aria-label="{{ p.aria }}" font-family="JetBrains Mono, monospace" style="display:block">
+                <text x="10" y="14" font-size="11" style="fill:var(--text-2)">{{ p.labels.0 }}</text>
+                <!-- No fill reaches 4.5:1 on the light coral, so these letters sit above the bars -->
+                <g font-size="11" font-weight="600" text-anchor="middle" style="fill:var(--text)"><text x="70" y="33">A</text><text x="188" y="33">B</text><text x="311" y="33">C</text></g>
+                <g style="fill:var(--coral)"><rect x="10" y="38" width="120" height="16" rx="3"></rect><rect x="138" y="38" width="100" height="16" rx="3"></rect><rect x="246" y="38" width="130" height="16" rx="3"></rect></g>
+                <text x="10" y="90" font-size="11" style="fill:var(--text-2)">{{ p.labels.1 }}</text>
+                <g style="fill:var(--accent-strong)"><rect x="10" y="98" width="120" height="15" rx="3"></rect><rect x="10" y="117" width="100" height="15" rx="3"></rect><rect x="10" y="136" width="130" height="15" rx="3"></rect></g>
+                <g data-ser-on="" font-size="11" font-weight="600" text-anchor="middle" style="fill:var(--surface)"><text x="70" y="109">A</text><text x="60" y="128">B</text><text x="75" y="147">C</text></g>
+                <path d="M376 20V154" stroke-width="1.2" stroke-dasharray="4 3" style="stroke:var(--coral)"></path>
+                <path d="M140 92V154" stroke-width="1.2" stroke-dasharray="4 3" style="stroke:var(--accent-strong)"></path>
+                <text x="388" y="50" font-size="12" style="fill:color-mix(in srgb,var(--coral) 80%,var(--text))">{{ p.labels.2 }}</text>
+              </svg></sc-if>
+            </div>
+            <div style="padding:18px 20px">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px">
+                <h3 style="margin:0;font-size:16.5px;font-weight:600;color:var(--coral)">{{ p.name }}</h3>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);border:1px solid var(--border);border-radius:999px;padding:3px 8px;white-space:nowrap">{{ p.badge }}</span>
+              </div>
+              <div style="margin-top:8px;font-size:14px;color:var(--text-2);line-height:1.5">{{ p.trigger }}</div>
+            </div>
           </div>
         </sc-for>
       </div>
@@ -2114,17 +2166,17 @@ class Component extends DCLogic {
         detCols: ['SQL', 'HTTP', 'Messaging'],
         detMatrixLabel: 'Repetition and slowness patterns by protocol',
         detMatrix: [
-          { name: 'N+1', rule: 'The same template repeated at least 5 times within one trace, with different parameters (the same destination for messaging).', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '✓', msgHit: 'yes', msgLabel: 'Detected' },
-          { name: 'Redundant', rule: 'Identical call, identical parameters, same trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '—', msgHit: 'no', msgLabel: 'Not detected' },
-          { name: 'Slow', rule: 'The same operation over 500\u00a0ms at least 3 times within one trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '✓', msgHit: 'yes', msgLabel: 'Detected' },
+          { fig: 'n1', name: 'N+1', rule: 'The same template repeated at least 5 times within one trace, with different parameters (the same destination for messaging).', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '✓', msgHit: 'yes', msgLabel: 'Detected' },
+          { fig: 'dup', name: 'Redundant', rule: 'Identical call, identical parameters, same trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '—', msgHit: 'no', msgLabel: 'Not detected' },
+          { fig: 'slow', name: 'Slow', rule: 'The same operation over 500\u00a0ms at least 3 times within one trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Detected', http: '✓', httpHit: 'yes', httpLabel: 'Detected', msg: '✓', msgHit: 'yes', msgLabel: 'Detected' },
         ],
         detMatrixLead: 'Eight repetition and slowness patterns, by protocol:',
         detStructLead: 'Plus four structural patterns:',
         patterns: [
-          { name: 'Excessive fanout', trigger: 'A single operation (span) has more than 20 child calls (SQL, HTTP…), parallel or not.' },
-          { name: 'Chatty service', trigger: 'A single user request makes more than 15 outbound HTTP calls, whatever their target.' },
-          { name: 'Pool saturation', trigger: 'At least 10 SQL queries from one service in flight at the same time within one trace, a likely sign of connection pool contention.' },
-          { name: 'Serialized calls', trigger: 'At least 3 sibling I/O calls made one after another, on different templates, that could run in parallel.' },
+          { fig: 'fanout', name: 'Excessive fanout', badge: '> 20 children', trigger: 'A single operation (span) has more than 20 child calls (SQL, HTTP…), parallel or not.', aria: 'A parent operation linked to more than twenty child calls', labels: ['span', '22 children'] },
+          { fig: 'chatty', name: 'Chatty service', badge: '> 15 outbound HTTP', trigger: 'A single user request triggers more than 15 outbound HTTP calls in total, even when spread across several parents. That is what sets it apart from fanout.', aria: 'A request whose three parent spans together make sixteen outbound HTTP calls', labels: ['request', '16 outbound HTTP', 'across the trace'] },
+          { fig: 'pool', name: 'Pool saturation', badge: '≥ 10 concurrent SQL', trigger: 'At least 10 SQL queries from the same service in flight at the same instant in one trace. A likely sign of contention, inferred from overlapping spans, not from pool metrics.', aria: 'SQL spans from one service overlapping in time: ten in flight at the same instant', labels: ['service A · SQL spans', '10 at once'] },
+          { fig: 'serial', name: 'Serialized calls', badge: '≥ 3 sibling calls', trigger: 'At least 3 sibling I/O calls (same parent), on different templates, run one after another when they could run in parallel.', aria: 'Three sibling calls on different templates, A, B and C, run in series, compared with the same calls run in parallel', labels: ['today · same parent', 'possible', 'serial'] },
         ],
         detFoot: 'Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.',
         stackEyebrow: '// your stack', stackTitle: 'Works with your languages, frameworks and ORMs', stackIntro: 'Detection reads the protocol, so it works on any runtime that emits OpenTelemetry traces. The ones below also have a setup guide or fix hints written for them.', stackLangs: 'Languages', stackFws: 'Frameworks', stackOrm: '& ORMs', stackLink: 'Setup guides by language', stackHref: '/docs/INSTRUMENTATION',
@@ -2315,17 +2367,17 @@ class Component extends DCLogic {
         detCols: ['SQL', 'HTTP', 'Messaging'],
         detMatrixLabel: 'Patterns de répétition et de lenteur par protocole',
         detMatrix: [
-          { name: 'N+1', rule: 'Même template répété au moins 5 fois dans une trace, avec des paramètres différents (même destination pour le messaging).', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '✓', msgHit: 'yes', msgLabel: 'Détecté' },
-          { name: 'Redondant', rule: 'Appel identique, paramètres identiques, même trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '—', msgHit: 'no', msgLabel: 'Non détecté' },
-          { name: 'Lent', rule: 'Même opération au-delà de 500\u00a0ms au moins 3 fois dans une trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '✓', msgHit: 'yes', msgLabel: 'Détecté' },
+          { fig: 'n1', name: 'N+1', rule: 'Même template répété au moins 5 fois dans une trace, avec des paramètres différents (même destination pour le messaging).', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '✓', msgHit: 'yes', msgLabel: 'Détecté' },
+          { fig: 'dup', name: 'Redondant', rule: 'Appel identique, paramètres identiques, même trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '—', msgHit: 'no', msgLabel: 'Non détecté' },
+          { fig: 'slow', name: 'Lent', rule: 'Même opération au-delà de 500\u00a0ms au moins 3 fois dans une trace.', sql: '✓', sqlHit: 'yes', sqlLabel: 'Détecté', http: '✓', httpHit: 'yes', httpLabel: 'Détecté', msg: '✓', msgHit: 'yes', msgLabel: 'Détecté' },
         ],
         detMatrixLead: 'Huit patterns de répétition et de lenteur, par protocole :',
         detStructLead: 'Et quatre patterns de structure :',
         patterns: [
-          { name: 'Fanout excessif', trigger: 'Une même opération (span) déclenche plus de 20 appels enfants (SQL, HTTP…), en parallèle ou non.' },
-          { name: 'Service bavard', trigger: 'Une seule requête utilisateur déclenche plus de 15 appels HTTP sortants, toutes destinations confondues.' },
-          { name: 'Saturation de pool', trigger: 'Au moins 10 requêtes SQL d\u2019un même service en cours au même moment dans une seule trace, signe probable de contention sur le pool de connexions.' },
-          { name: 'Appels sérialisés', trigger: 'Au moins 3 appels I/O frères lancés l’un après l’autre, sur des templates différents, qui pourraient partir en parallèle.' },
+          { fig: 'fanout', name: 'Fanout excessif', badge: '> 20 enfants', trigger: 'Une même opération (span) déclenche plus de 20 appels enfants (SQL, HTTP…), en parallèle ou non.', aria: 'Une opération parente reliée à plus de vingt appels enfants', labels: ['span', '22 enfants'] },
+          { fig: 'chatty', name: 'Service bavard', badge: '> 15 HTTP sortants', trigger: 'Une seule requête utilisateur déclenche plus de 15 appels HTTP sortants au total, même répartis sur plusieurs parents. C’est ce qui le distingue du fanout.', aria: 'Une requête dont trois spans parents émettent ensemble seize appels HTTP sortants', labels: ['requête', '16 HTTP sortants', 'sur toute la trace'] },
+          { fig: 'pool', name: 'Saturation de pool', badge: '≥ 10 SQL simultanées', trigger: 'Au moins 10 requêtes SQL d’un même service en cours au même instant dans une trace. Signe probable de contention, déduit du chevauchement des spans, pas des métriques du pool.', aria: 'Spans SQL d’un même service qui se chevauchent dans le temps : dix en cours au même instant', labels: ['service A · spans SQL', '10 en même temps'] },
+          { fig: 'serial', name: 'Appels sérialisés', badge: '≥ 3 appels frères', trigger: 'Au moins 3 appels I/O frères (même parent), sur des templates différents, lancés l’un après l’autre alors qu’ils pourraient partir en parallèle.', aria: 'Trois appels frères aux templates différents A, B et C lancés en série, comparés aux mêmes appels lancés en parallèle', labels: ['aujourd’hui · même parent', 'possible', 'en série'] },
         ],
         detFoot: 'Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source et impact GreenOps. En mode daemon, s\u2019y ajoute la corrélation cross-trace.',
         stackEyebrow: '// vos technologies', stackTitle: 'Compatible avec vos langages, frameworks et ORM', stackIntro: 'La détection lit le protocole, elle fonctionne donc avec tout environnement d’exécution qui émet des traces OpenTelemetry. Ceux ci-dessous ont en plus un guide de mise en place ou des conseils de correction écrits pour eux.', stackLangs: 'Langages', stackFws: 'Frameworks', stackOrm: '& ORM', stackLink: 'Guides de mise en place par langage', stackHref: '/docs/fr/INSTRUMENTATION',
@@ -2482,7 +2534,9 @@ class Component extends DCLogic {
       hubEyebrow: t.hubEyebrow, hubStats: t.hubStats, hubBench: t.hubBench, hubBenchHref: t.hubBenchHref, hubTitleB1: t.hubTitleB1, hubWCs: t.hubWCs, hubTitleB2: t.hubTitleB2, hubBadge: t.perfBadgePrefix + (this.state.dotnetVersion || '10.0.401'),
       hubLeadA: t.hubLeadA, hubLeadB: t.hubLeadB,
       hubPoints: t.hubPoints, hubMore: t.hubMore,
-      stats: t.stats, patterns: t.patterns, detCols: t.detCols, detMatrix: t.detMatrix, detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
+      // SVG <text> drops the sc-interp span around a string, a one-element array renders as a bare text node
+      patterns: t.patterns.map((p) => ({ ...p, labels: p.labels.map((s) => [s]) })),
+      stats: t.stats, detCols: t.detCols, detMatrix: t.detMatrix, detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot, stackEyebrow: t.stackEyebrow, stackTitle: t.stackTitle, stackIntro: t.stackIntro, stackLangs: t.stackLangs, stackFws: t.stackFws, stackOrm: t.stackOrm, stackLink: t.stackLink, stackHref: t.stackHref,
       whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyAccent: t.whyAccent || '', whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
