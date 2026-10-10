@@ -1060,10 +1060,15 @@
   [data-matrix] [data-mr]{padding:16px 22px;border-bottom:1px solid var(--border)}
   @media(max-width:380px){[data-matrix] [role=rowheader]{padding-left:8px!important;padding-right:6px!important}[data-matrix] [role=rowheader] > div > div:first-child{font-size:14px!important}[data-matrix] [role=rowheader] > div > div + div{font-size:12px!important}}
   [data-matrix] [data-mc]{display:flex;align-items:center;justify-content:center;padding-left:6px;padding-right:6px;text-align:center}
-  [data-matrix] [data-hit]{font-size:20px;font-weight:700}[data-matrix] [data-hit="yes"]{color:var(--accent)}[data-matrix] [data-hit="no"]{color:var(--text-2);opacity:.6}
+  [data-matrix] [data-hit]{font-size:20px;font-weight:700}[data-matrix] [data-hit="yes"]{color:var(--accent)}[data-matrix] [data-hit="no"]{color:var(--text-2)}[data-matrix] [data-hit="no"]>span{opacity:.6}
   [data-matrix] [data-mrow]:last-child > [data-mr]{border-bottom:0}
   @media(max-width:720px){[data-matrix]{grid-template-columns:minmax(0,1fr) repeat(3,minmax(max-content,clamp(50px,11vw,120px)))!important}[data-matrix] [data-mh]{padding:10px 12px;font-size:12px;letter-spacing:-.02em}[data-matrix] [data-mh][data-mc],[data-matrix] [data-mr][data-mc]{padding-left:4px;padding-right:4px}[data-matrix] [role=row]>[data-mc]:last-child{padding-right:12px}[data-matrix] [data-mfig]{display:none}}
   @media(max-width:560px){[data-matrix] [data-mr]{padding:14px 12px}}
+  /* Phones: one block per pattern, the three protocols side by side under it, each cell labelled from data-col. The header row stays in the accessibility tree */
+  @media(max-width:560px){[data-matrix]{display:block!important;position:relative}[data-matrix]>[role=row]:first-child>[role=columnheader]{position:absolute;width:1px;height:1px;padding:0!important;border:0!important;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+    [data-matrix] [data-mrow]{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));border-bottom:1px solid var(--border)}[data-matrix] [data-mrow]:last-child{border-bottom:0}[data-matrix] [data-mrow]>[data-mr]{border-bottom:0}
+    [data-matrix] [data-mrow]>[role=rowheader]{grid-column:1/-1;padding:14px 16px 6px!important}[data-matrix] [data-mrow]>[data-mc]{justify-content:flex-start;gap:6px;padding:4px 16px 14px!important;font-size:16px}
+    [data-matrix] [data-mrow]>[data-mc]::before{content:attr(data-col);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--text-2)}}
   [data-ico]{flex:none;width:28px;height:28px;background:currentColor;-webkit-mask:var(--ico) center/contain no-repeat;mask:var(--ico) center/contain no-repeat}
   [data-ico="zap"]{--ico:url(/assets/icons/bolt.svg)}[data-ico="timer"]{--ico:url(/assets/icons/stopwatch-speed.svg)}[data-ico="gauge"]{--ico:url(/assets/icons/gauge.svg)}[data-ico="rust"]{--ico:url(/assets/rust.svg)}[data-ico="memory"]{--ico:url(/assets/icons/memory-stick.svg)}
   [data-ico="package"]{--ico:url(/assets/icons/package.svg)}[data-ico="layers"]{--ico:url(/assets/icons/layers.svg)}[data-ico="database"]{--ico:url(/assets/icons/database.svg)}[data-ico="arrow-left-right"]{--ico:url(/assets/icons/arrow-left-right.svg)}[data-ico="lock"]{--ico:url(/assets/icons/lock.svg)}[data-ico="shield-check"]{--ico:url(/assets/icons/shield-check.svg)}[data-ico="flag"]{--ico:url(/assets/icons/flag.svg)}
@@ -1499,9 +1504,9 @@
               <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ r.rule }}</div>
             </div>
           </div>
-          <div data-mr="" data-mc="" data-hit="{{ r.sqlHit }}" role="cell" aria-label="{{ r.sqlLabel }}">{{ r.sql }}</div>
-          <div data-mr="" data-mc="" data-hit="{{ r.httpHit }}" role="cell" aria-label="{{ r.httpLabel }}">{{ r.http }}</div>
-          <div data-mr="" data-mc="" data-hit="{{ r.msgHit }}" role="cell" aria-label="{{ r.msgLabel }}">{{ r.msg }}</div>
+          <div data-mr="" data-mc="" data-hit="{{ r.sqlHit }}" data-col="{{ r.colSql }}" role="cell" aria-label="{{ r.sqlLabel }}"><span>{{ r.sql }}</span></div>
+          <div data-mr="" data-mc="" data-hit="{{ r.httpHit }}" data-col="{{ r.colHttp }}" role="cell" aria-label="{{ r.httpLabel }}"><span>{{ r.http }}</span></div>
+          <div data-mr="" data-mc="" data-hit="{{ r.msgHit }}" data-col="{{ r.colMsg }}" role="cell" aria-label="{{ r.msgLabel }}"><span>{{ r.msg }}</span></div>
           </div>
         </sc-for>
       </div>
@@ -2984,7 +2989,7 @@ class Component extends DCLogic {
       hubSurvives: t.hubSurvives, hubBrowser: t.hubBrowser, hubLauncher: t.hubLauncher, hubPick: t.hubPick, hubRun: t.hubRun,
       // SVG <text> drops the sc-interp span around a string, a one-element array renders as a bare text node
       patterns: t.patterns.map((p) => ({ ...p, labels: p.labels.map((s) => [s]) })),
-      stats: t.stats, detCols: t.detCols, detMatrix: t.detMatrix, detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead,
+      stats: t.stats, detCols: t.detCols, detMatrix: t.detMatrix.map((r) => ({ ...r, colSql: t.detCols[0], colHttp: t.detCols[1], colMsg: t.detCols[2] })), detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead,
       detExTitle: t.detExTitle, detExSub: t.detExSub, detExNeeded: t.detExNeeded, detExAvoidable: t.detExAvoidable, detExBefore: t.detExBefore, detExAfter: t.detExAfter, detExBeforeSum: t.detExBeforeSum, detExBeforeNote: t.detExBeforeNote, detExAfterSum: t.detExAfterSum, detExAfterNote: t.detExAfterNote, detExFix: t.detExFix,
       green: t.green, compare: t.compare, badges: t.badges,
 
