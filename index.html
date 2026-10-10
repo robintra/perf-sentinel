@@ -1083,6 +1083,15 @@
   [data-df-bars]{display:flex;gap:3px}
   [data-df-bars] span{width:13px;height:20px;border-radius:3px;background:var(--coral);opacity:.8}
   [data-df-bars] span[data-ok]{background:var(--accent);opacity:1}
+  /* Non-tech heroes: one proof card in place of the live demo (rse, exec, proc). The exec and proc cards hug their content */
+  [data-proof]{position:relative;z-index:1;margin:46px 0 0;max-width:760px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px}
+  [data-proof-hd]{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 12px}[data-proof-hd]>strong{font-size:15px;color:var(--text)}
+  [data-proof-eq]{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2)}[data-proof-s]{margin-top:3px;font-size:13.5px;color:var(--text-2)}
+  [data-proof] [data-gxb-scale]{margin-top:14px}[data-proof-f]{margin-top:6px;font-size:12.5px;color:var(--text-2);text-align:center}
+  [data-proof="exec"]{width:fit-content;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}[data-proof-arr]{font-size:18px;color:var(--accent-strong)}[data-proof-l]{font-size:14.5px;color:var(--text)}
+  [data-proof="proc"]{width:fit-content;list-style:none;display:grid;grid-template-columns:repeat(3,auto);gap:8px}
+  [data-proof="proc"] li{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.4;padding:5px 10px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;white-space:nowrap}[data-proof="proc"] li>span{color:var(--accent-strong)}
+  @media(max-width:860px){[data-proof="proc"]{display:flex;flex-wrap:wrap}}@media(max-width:400px){[data-proof="proc"] li{white-space:normal}}
   [data-df-cols]{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-top:14px}
   [data-df-h]{font-size:11.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
   [data-df-p]{font-size:14px;color:var(--text-2);line-height:1.5}
@@ -1401,6 +1410,17 @@
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center">{{ embedCaption }}</div>
       </div>
+      <sc-if value="{{ proofAvT }}"><div data-proof="rse">
+        <div data-proof-hd=""><strong>{{ proofAvT }}</strong><span data-proof-eq="">{{ proofEq }}</span></div>
+        <div data-proof-s="">{{ proofAvS }}</div>
+        <div data-gxb-scale="" aria-hidden="true"><b></b><i></i><i></i><i></i></div>
+        <div data-gxb-tk="" aria-hidden="true"><span>{{ goEqLo }}</span><span>central</span><span>×2</span></div>
+        <div data-proof-f="">{{ proofFoot }}</div>
+      </div></sc-if>
+      <sc-if value="{{ proofCalls }}"><div data-proof="exec"><span data-df-bars="" aria-hidden="true"><span data-ok=""></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span><span data-proof-arr="" aria-hidden="true">→</span><span data-df-bars="" aria-hidden="true"><span data-ok=""></span></span><span data-proof-l="">{{ proofCalls }}</span></div></sc-if>
+      <sc-if value="{{ proofChipsAria }}"><ul data-proof="proc" aria-label="{{ proofChipsAria }}">
+        <sc-for list="{{ proofChips }}" as="c" hint-placeholder-count="6"><li><span aria-hidden="true">✓</span> {{ c.t }}</li></sc-for>
+      </ul></sc-if>
     </section>
 
     <!-- WHY -->
@@ -2291,6 +2311,7 @@ class Component extends DCLogic {
           ctaTitle: 'Mettez un chiffre sur le gaspillage',
           ctaText: 'Source de données d’activité et outil de pilotage interne, pas (encore) un reporting CSRD vérifié par un tiers. Incertitude ~×2, donnée par des bornes basse et haute dans chaque rapport.',
           ctaEndA: 'Comment l’estimation est calculée', ctaEndAHref: '/docs/fr/METHODOLOGY', ctaEndB: 'Ce que contient un rapport de divulgation', ctaEndBHref: '/docs/fr/REPORTING',
+          proofAvT: 'Part évitable', proofAvS: 'celle due aux opérations évitables, hors fabrication', proofEq: 'Total carbone = E × I + M', proofFoot: 'bornes basse et haute dans chaque rapport',
           mesT2: 'quand votre hébergement le permet',
           mesIntro: 'Par défaut, Perf Sentinel estime l’énergie à partir de l’activité du logiciel (requêtes, appels) : un ordre de grandeur, avec une incertitude d’un facteur 2. Quand il tourne en continu sur vos serveurs, il peut remplacer cette estimation par une mesure, et utiliser l’intensité carbone du réseau électrique en temps réel. Les données exportées et le rapport périodique de divulgation indiquent la méthode utilisée.',
           mesE: 'énergie, selon votre hébergement', mesSoft: 'Mesure par logiciel, sur le processeur',
@@ -2320,6 +2341,7 @@ class Component extends DCLogic {
           ctaTitle: 'Essayez-le sur une de vos applications',
           ctaText: 'Faites lancer Perf Sentinel par votre équipe technique sur une application : vous obtenez ses requêtes évitables et leur estimation en énergie et en carbone. La démo en direct montre le rapport sans rien installer.',
           ctaEndA: 'Ouvrir la démo en direct', ctaEndAHref: '/exemple/dashboard', ctaEndB: 'Transmettre la page technique à votre équipe', ctaEndBHref: '/fr/?profile=tech',
+          proofCalls: 'Exemple de la démo : 12 appels pour afficher un panier, 1 suffit',
           cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.), facturées par hôte, par utilisateur ou par volume de données, et installées sur chaque serveur. Perf Sentinel ne les remplace pas, il s’y ajoute sans abonnement ni coût qui grandit avec le trafic. Le comparatif détaillé par outil figure dans la documentation.',
           goNoteB: ', possible quand l’outil tourne en continu sur vos serveurs, rend l’énergie (E) plus fidèle. Au-delà du carbone, chaque requête évitable supprimée réduit la charge sur vos serveurs : le même décompte d’opérations éclaire les arbitrages de coût d’infrastructure, sans prétendre chiffrer votre facture.',
         },
@@ -2359,6 +2381,7 @@ class Component extends DCLogic {
           ctaTitle: 'Une dépendance que vous maîtrisez',
           ctaText: 'Le dossier de sécurité répond aux questions habituelles d’une revue fournisseur, et le guide d’approvisionnement montre comment vérifier vous-même la provenance et le SBOM.',
           ctaEndA: 'Le dossier de sécurité', ctaEndAHref: '/docs/fr/SECURITY-OVERVIEW', ctaEndB: 'Provenance et SBOM', ctaEndBHref: '/docs/fr/SUPPLY-CHAIN',
+          proofChipsAria: 'En bref', proofChips: [{ t: 'Binaire auto-hébergé' }, { t: 'AGPL-3.0' }, { t: 'SBOM SPDX à chaque version' }, { t: 'Provenance attestée (Sigstore)' }, { t: 'Tags de release signés' }, { t: 'Sans SaaS' }],
           cmpT1: 'Léger, ouvert, et ', cmpWCarbon: 'auditable',
           cmpFoot: '« Outil commercial type » désigne les solutions SaaS propriétaires à base d’agent (Datadog, New Relic, etc.). Perf Sentinel est sous licence AGPL-3.0, auto-hébergeable, avec des binaires à provenance attestée et vérifiable, les points qu’une revue de sécurité ou fournisseur vérifie en général. Le comparatif détaillé par outil figure dans la documentation.',
           supplyMore: 'Provenance, SBOM et audits dans le guide',
@@ -2378,6 +2401,7 @@ class Component extends DCLogic {
           ctaTitle: 'Put a number on the waste',
           ctaText: 'An activity-data source and internal steering tool, not (yet) a third-party-verified CSRD report. ~×2 uncertainty, stated as low and high bounds in every report.',
           ctaEndA: 'How the estimate is computed', ctaEndAHref: '/docs/METHODOLOGY', ctaEndB: 'What a periodic disclosure contains', ctaEndBHref: '/docs/REPORTING',
+          proofAvT: 'Avoidable share', proofAvS: 'the part due to avoidable operations, embodied excluded', proofEq: 'Total carbon = E × I + M', proofFoot: 'low and high bounds in every report',
           mesT2: 'where your hosting allows it',
           mesIntro: 'By default, Perf Sentinel estimates energy from software activity (queries, calls): an order of magnitude, with a factor-of-2 uncertainty. When it runs continuously on your servers, it can replace this estimate with a measurement, and use the live carbon intensity of the power grid. The exported data and the periodic disclosure report state which method was used.',
           mesE: 'energy, depending on your hosting', mesSoft: 'Software measurement, on the processor',
@@ -2407,6 +2431,7 @@ class Component extends DCLogic {
           ctaTitle: 'Try it on one of your applications',
           ctaText: 'Have your tech team run Perf Sentinel on one application: you get its avoidable queries and their energy and carbon estimate. The live demo shows the report with nothing to install.',
           ctaEndA: 'Open the live demo', ctaEndAHref: '/exemple/dashboard', ctaEndB: 'Send the technical page to your team', ctaEndBHref: '/?profile=tech',
+          proofCalls: 'Demo example: 12 calls to show one cart, 1 is enough',
           cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like), priced per host, per user or by data volume, and installed on every server. Perf Sentinel does not replace them. It runs alongside, without a subscription or a cost that grows with traffic. The full per-tool comparison is in the documentation.',
           goNoteB: ', possible when the tool runs continuously on your servers, makes the energy (E) more accurate. Beyond carbon, every avoidable query removed cuts the load on your servers: the same operation count informs infrastructure-cost trade-offs, without claiming to price your bill.',
         },
@@ -2446,6 +2471,7 @@ class Component extends DCLogic {
           ctaTitle: 'A dependency you control',
           ctaText: 'The security overview answers the usual vendor-review questions, and the supply-chain guide shows how to check provenance and the SBOM yourself.',
           ctaEndA: 'The security overview', ctaEndAHref: '/docs/SECURITY-OVERVIEW', ctaEndB: 'Provenance and SBOM', ctaEndBHref: '/docs/SUPPLY-CHAIN',
+          proofChipsAria: 'At a glance', proofChips: [{ t: 'Self-hosted binary' }, { t: 'AGPL-3.0' }, { t: 'SPDX SBOM with every release' }, { t: 'Attested provenance (Sigstore)' }, { t: 'Signed release tags' }, { t: 'No SaaS' }],
           cmpT1: 'Light, open, and ', cmpWCarbon: 'auditable',
           cmpFoot: '“Typical commercial tool” refers to proprietary agent-based SaaS solutions (Datadog, New Relic, and the like). Perf Sentinel is AGPL-3.0, self-hostable, with binaries of attested and verifiable provenance, the points a security or vendor review usually checks. The full per-tool comparison is in the documentation.',
           supplyMore: 'Provenance, SBOM and audits in the guide',
@@ -2966,6 +2992,7 @@ class Component extends DCLogic {
       perfMore: t.perfMore, modesMore: t.modesMore, modesCi: t.modesCi,
       goEqAria: t.goEqAria, goEqTotal: t.goEqTotal, goEqET: t.goEqET, goEqES: t.goEqES, goEqIT: t.goEqIT, goEqIS: t.goEqIS, goEqMT: t.goEqMT, goEqMS: t.goEqMS, goEqLo: t.goEqLo, goEqBounds: t.goEqBounds, goEqAvLabel: t.goEqAvLabel, goEqAvText: t.goEqAvText,
       lgcAria: t.lgcAria || '', lgcSteps: t.lgcSteps || [], lgcScope: t.lgcScope || '',
+      proofAvT: t.proofAvT || '', proofAvS: t.proofAvS || '', proofEq: t.proofEq || '', proofFoot: t.proofFoot || '', proofCalls: t.proofCalls || '', proofChipsAria: t.proofChipsAria || '', proofChips: t.proofChips || [],
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNoteA: t.goNoteA, goNoteLink: t.goNoteLink, goNoteB: t.goNoteB,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
       mesE: t.mesE, mesOr: t.mesOr, mesPerCont: t.mesPerCont, mesPerProc: t.mesPerProc, mesPerPod: t.mesPerPod, mesSoftNote: t.mesSoftNote, mesWallNote: t.mesWallNote, mesWallChip: t.mesWallChip, mesLiveNote: t.mesLiveNote,
