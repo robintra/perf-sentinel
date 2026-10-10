@@ -270,7 +270,7 @@ The daemon analyzes eviction batches of about `trace_ttl_ms / 2`, so a template 
 
 1. Filter spans to HTTP outbound only (`type: http_out`)
 2. Count total HTTP outbound spans in the trace
-3. If count < `chatty_service_min_calls` (default 15), skip
+3. If count ≤ `chatty_service_min_calls` (default 15), skip
 4. Collect the top called normalized endpoints for the suggestion message
 5. Assign severity: Warning if > threshold, Critical if > 3x threshold
 
@@ -279,14 +279,14 @@ Input:  trace with N spans
 Output: 0 or 1 ChattyService finding
 
 filter spans where type == http_out
-if count(http_spans) < chatty_service_min_calls:
+if count(http_spans) <= chatty_service_min_calls:
     return []
 
 group http_spans by normalized template
 sort groups by count descending
 top_endpoints = first 5 groups
 
-severity = Critical if count >= 3 * threshold else Warning
+severity = Critical if count > 3 * threshold else Warning
 emit finding with top_endpoints in suggestion
 ```
 
