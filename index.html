@@ -1101,9 +1101,9 @@
   [data-hub-links]{display:flex;flex-direction:column;gap:18px}[data-hub-link]{display:flex;flex-direction:column;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;text-align:center}
   [data-hub-arrow]{display:flex;align-items:center}[data-hub-arrow] i{flex:1;border:0 solid;border-top-width:2px}[data-hub-link][data-dashed] i{border-style:dashed}[data-hub-arrow] svg{flex:none}
   [data-hub-chip]{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dotnet);padding:3px 8px;border:1px solid color-mix(in srgb,var(--dotnet) 38%,transparent);border-radius:6px}
-  [data-hub-step]{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--text-2)}[data-hub-step]>span:first-child{flex:none;width:12px;text-align:center;font-family:'JetBrains Mono',monospace;color:var(--dotnet)}
+  [data-hub-step]{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--text-2)}[data-hub-step]>span:first-child{flex:none;width:12px;text-align:center;font-family:'JetBrains Mono',monospace;color:var(--dotnet)}[data-hub-step][data-back]>span:first-child{transform:rotate(180deg)}
   /* Stacked diagram: arrows turn a quarter clockwise, right becomes down and left (toward the Hub) becomes up */
-  @media(max-width:1040px){[data-hub-dia]{grid-template-columns:minmax(0,1fr)!important;align-items:stretch!important}[data-hub-links]{flex-direction:row;justify-content:center;gap:28px;padding:14px 0!important}[data-hub-link]{flex-direction:row;align-items:center;gap:8px}[data-hub-arrow]{flex-direction:column}[data-hub-arrow] i{flex:none;height:28px;border-top-width:0;border-left-width:2px}[data-hub-arrow] svg,[data-hub-step]>span:first-child{transform:rotate(90deg)}}
+  @media(max-width:1040px){[data-hub-dia]{grid-template-columns:minmax(0,1fr)!important;align-items:stretch!important}[data-hub-links]{flex-direction:row;justify-content:center;gap:28px;padding:14px 0!important}[data-hub-link]{flex-direction:row;align-items:center;gap:8px}[data-hub-arrow]{flex-direction:column}[data-hub-arrow] i{flex:none;height:28px;border-top-width:0;border-left-width:2px}[data-hub-arrow] svg,[data-hub-step]>span:first-child{transform:rotate(90deg)}[data-hub-step][data-back]>span:first-child{transform:rotate(270deg)}}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
   [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
@@ -1703,7 +1703,7 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;background:var(--surface);border:1px solid var(--border);border-radius:12px">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font-size:16px;font-weight:700;color:var(--text)">{{ hubBrowser }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dotnet)">{{ hubLauncher }}</span></div>
-          <div data-hub-step=""><span aria-hidden="true">←</span><span>{{ hubPick }}</span></div>
+          <div data-hub-step="" data-back=""><span aria-hidden="true">→</span><span>{{ hubPick }}</span></div>
           <div data-hub-step=""><span aria-hidden="true">→</span><span>{{ hubRun }}</span></div>
         </div>
       </div>
