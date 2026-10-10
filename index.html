@@ -2995,7 +2995,8 @@ class Component extends DCLogic {
 <script>
 (function(){
   var active='html';
-  function liveRoot(){return document.querySelector('[data-ps-root]');}
+  function liveRoot(){return document.querySelector('#dc-root [data-ps-root]');}
+  function frame(){return document.querySelector('#dc-root #ps-embed-frame');}
   function th(){var r=liveRoot();return (r&&r.getAttribute('data-theme'))||'dark';}
   // Absolute path so the embed and open link resolve from /fr/ as well as /.
   function dashUrl(){return '/exemple/dashboard?theme='+th();}
@@ -3010,7 +3011,7 @@ class Component extends DCLogic {
   if(small&&small.addEventListener)small.addEventListener('change',function(){apply(active);});
   function urlFor(which){return (TABS[which]||TABS.html)();}
   function apply(which){
-    var f=document.getElementById('ps-embed-frame');if(!f)return false;
+    var f=frame();if(!f)return false;
     active=which;
     var u=urlFor(which);
     if(!(small&&small.matches)&&f.getAttribute('src')!==u)f.setAttribute('src',u);
@@ -3022,7 +3023,7 @@ class Component extends DCLogic {
   // Post the live theme to the dashboard, same-origin only. The dashboard
   // applies it instantly, so a toggle does not reload the iframe.
   function pushTheme(){
-    var f=document.getElementById('ps-embed-frame');
+    var f=frame();
     if(f&&f.contentWindow){try{f.contentWindow.postMessage({psTheme:th()},location.origin);}catch(e){}}
   }
   function syncTheme(){
@@ -3046,10 +3047,10 @@ class Component extends DCLogic {
     watchTheme();
     // Re-assert the theme once the lazy iframe loads, so a toggle made before
     // its message listener existed is not lost.
-    var f0=document.getElementById('ps-embed-frame');if(f0&&!f0._psHook){f0._psHook=1;f0.addEventListener('load',function(){if(active!=='tui')pushTheme();});}
+    var f0=frame();if(f0&&!f0._psHook){f0._psHook=1;f0.addEventListener('load',function(){if(active!=='tui')pushTheme();});}
     var n=0,iv=setInterval(function(){
       watchTheme();
-      var f=document.getElementById('ps-embed-frame');
+      var f=frame();
       if(f&&!f.getAttribute('src'))apply(active);
       if(++n>30)clearInterval(iv);
     },200);
