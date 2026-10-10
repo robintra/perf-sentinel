@@ -929,6 +929,13 @@
   /* Stacked flow: each mode becomes its own column, then its own group on phones, so no chevron runs from one mode into the other */
   @media(max-width:1040px){[data-mod-flow]{grid-template-columns:repeat(2,minmax(0,1fr))!important;column-gap:16px}[data-mod-hd]{display:none!important}[data-mod-src]{grid-row:auto!important;grid-column:1/-1}[data-mod-line]{display:grid!important;grid-template-rows:subgrid;grid-row:span 6}[data-mod-chev] svg{transform:rotate(90deg)}}
   @media(max-width:560px){[data-mod-flow]{grid-template-columns:minmax(0,1fr)!important}[data-mod-line]{grid-row:span 5}[data-mod-line]>[data-mod-chev]:first-child{display:none}[data-mod-line]+[data-mod-line]{margin-top:18px}}
+  [data-hub-dmn]{padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:10px}[data-hub-dmn]>span{color:var(--text-2)}
+  [data-hub-links]{display:flex;flex-direction:column;gap:18px}[data-hub-link]{display:flex;flex-direction:column;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;text-align:center}
+  [data-hub-arrow]{display:flex;align-items:center}[data-hub-arrow] i{flex:1;border:0 solid;border-top-width:2px}[data-hub-link][data-dashed] i{border-style:dashed}[data-hub-arrow] svg{flex:none}
+  [data-hub-chip]{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dotnet);padding:3px 8px;border:1px solid color-mix(in srgb,var(--dotnet) 38%,transparent);border-radius:6px}
+  [data-hub-step]{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--text-2)}[data-hub-step]>span:first-child{flex:none;width:12px;text-align:center;font-family:'JetBrains Mono',monospace;color:var(--dotnet)}
+  /* Stacked diagram: arrows turn a quarter clockwise, right becomes down and left (toward the Hub) becomes up */
+  @media(max-width:1040px){[data-hub-dia]{grid-template-columns:minmax(0,1fr)!important;align-items:stretch!important}[data-hub-links]{flex-direction:row;justify-content:center;gap:28px;padding:14px 0!important}[data-hub-link]{flex-direction:row;align-items:center;gap:8px}[data-hub-arrow]{flex-direction:column}[data-hub-arrow] i{flex:none;height:28px;border-top-width:0;border-left-width:2px}[data-hub-arrow] svg,[data-hub-step]>span:first-child{transform:rotate(90deg)}}
   @media(max-width:620px){[data-embed-lead]{flex:1 1 100%}#ps-embed-open{margin-left:0}[data-embed-tab],#ps-embed-open{font-size:12.5px;padding:6px 10px}}
   [data-embed-m]{display:none}
   [data-term] .ps-pr{user-select:none;-webkit-user-select:none}[data-term] .ps-l1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}[data-term] .ps-l1>span{min-width:0}[data-copy]{flex:none;font-family:'DM Sans',system-ui,sans-serif;font-size:12.5px;font-weight:600;color:#E0F4ED;background:rgba(224,244,237,.08);border:1px solid rgba(224,244,237,.28);border-radius:7px;padding:2px 11px;line-height:1.7;cursor:pointer}[data-copy]:hover{background:rgba(224,244,237,.16)}[data-copy]:focus-visible{outline:2px solid #26CD94;outline-offset:2px}
@@ -1506,14 +1513,31 @@
         </div>
       </div>
       <p style="margin:16px 0 0;max-width:780px;font-size:15.5px;color:var(--text-2);line-height:1.62">{{ hubLeadA }}<code class="dc-cmd">/api/findings</code>{{ hubLeadB }}</p>
-      <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px">
-        <sc-for list="{{ hubPoints }}" as="h" hint-placeholder-count="3">
-          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--dotnet);letter-spacing:.04em">{{ h.tag }}</div>
-            <h3 style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ h.title }}</h3>
-            <p style="margin:10px 0 18px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ h.desc }}</p>
-          </div>
-        </sc-for>
+      <div data-hub-dia="" style="display:grid;grid-template-columns:220px 150px 300px 56px minmax(0,1fr);align-items:center;margin-top:30px;padding:28px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div data-hub-dmn="">perf-sentinel <span>· daemon 1</span></div>
+          <div data-hub-dmn="">perf-sentinel <span>· daemon 2</span></div>
+          <div data-hub-dmn="">perf-sentinel <span>· daemon 3</span></div>
+          <div style="padding-left:2px;font-size:12px;line-height:1.45;color:var(--text-2)">{{ hubDmnNote }}</div>
+        </div>
+        <div data-hub-links="" style="padding:0 14px">
+          <div data-hub-link="" style="color:var(--dotnet)"><span>{{ hubPush }}</span><div data-hub-arrow=""><i></i><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M0 0L10 5L0 10Z"></path></svg></div></div>
+          <div data-hub-link="" data-dashed="" style="color:var(--text-2)"><div data-hub-arrow=""><i></i><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M0 0L10 5L0 10Z"></path></svg></div><span>{{ hubPull }}</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;padding:20px 22px;background:var(--surface);border:2px solid var(--dotnet);border-radius:14px">
+          <div style="font-size:18px;font-weight:700;color:var(--dotnet)">Perf Sentinel Hub</div>
+          <div style="font-size:14px;line-height:1.5;color:var(--text)">{{ hubKeepA }}<b>{{ hubKeepB }}</b>{{ hubKeepC }}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ hubSurvives }}" as="c" hint-placeholder-count="3"><span data-hub-chip="">{{ c }}</span></sc-for></div>
+        </div>
+        <div data-hub-links="" aria-hidden="true" style="padding:0 8px;color:var(--dotnet)">
+          <div data-hub-arrow=""><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M10 0L0 5L10 10Z"></path></svg><i></i></div>
+          <div data-hub-arrow=""><i></i><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M0 0L10 5L0 10Z"></path></svg></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;background:var(--surface);border:1px solid var(--border);border-radius:12px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font-size:16px;font-weight:700;color:var(--text)">{{ hubBrowser }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dotnet)">{{ hubLauncher }}</span></div>
+          <div data-hub-step=""><span aria-hidden="true">←</span><span>{{ hubPick }}</span></div>
+          <div data-hub-step=""><span aria-hidden="true">→</span><span>{{ hubRun }}</span></div>
+        </div>
       </div>
       <div data-grid="stats" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin-top:16px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden">
         <sc-for list="{{ hubStats }}" as="s" hint-placeholder-count="4">
@@ -2286,11 +2310,10 @@ class Component extends DCLogic {
         hubTitleB1: 'A ', hubWCs: 'C#', hubTitleB2: ' Hub, for finding history',
         hubLeadA: 'A Perf Sentinel in daemon mode holds its findings in memory, oldest evicted first, and ',
         hubLeadB: ' answers at most 1,000 rows. That covers the current state but not the history. The Hub is a separate service that collects from every daemon and keeps what an eviction or a restart would erase, such as the date a finding first appeared.',
-        hubPoints: [
-          { tag: 'PUSH', title: 'Daemons push, the Hub polls as a fallback', desc: 'Each daemon posts its findings and retries a failed batch, and the Hub polls as a fallback.' },
-          { tag: 'HISTORY', title: 'Keeps the date a finding first appeared', desc: 'That date survives a daemon restart, an eviction or a change of normalized template.' },
-          { tag: 'LAUNCHER', title: 'Run an analysis from a browser', desc: 'Choose a source and the run settings, and the Hub runs Perf Sentinel and serves the dashboard.' }
-        ],
+        hubDmnNote: 'bounded memory, oldest evicted first', hubPush: 'push + retry', hubPull: 'fallback pull (the Hub polls)',
+        hubKeepA: 'Keeps the finding history, including the ', hubKeepB: 'first-seen date', hubKeepC: ', which survives:',
+        hubSurvives: ['a restart', 'an eviction', 'a template change'],
+        hubBrowser: 'Browser', hubLauncher: 'LAUNCHER', hubPick: 'picks a source and the run settings', hubRun: 'the Hub runs Perf Sentinel, then serves the dashboard',
         hubMore: 'PerfSentinelHub on GitHub',
         modEyebrow: '// four ways to run it',
         modTitle: '1 binary, 2 modes, 4 ways to deploy',
@@ -2496,11 +2519,10 @@ class Component extends DCLogic {
         hubTitleB1: 'Un Hub ', hubWCs: 'C#', hubTitleB2: ', pour l’historique des findings',
         hubLeadA: 'Un Perf Sentinel en mode daemon garde ses findings en mémoire, les plus anciens évincés d\u2019abord, et ',
         hubLeadB: " répond au plus 1 000 lignes. Cela couvre l'état courant, pas l'historique. Le Hub est un service séparé qui collecte auprès de chaque daemon et conserve ce qu'une éviction ou un redémarrage effacerait, comme la date de première apparition d'un finding.",
-        hubPoints: [
-          { tag: 'PUSH', title: 'Les daemons poussent, le Hub interroge en secours', desc: 'Chaque daemon pousse ses findings et réessaie un lot en échec, et le Hub interroge en secours.' },
-          { tag: 'HISTORIQUE', title: 'Garde la date de première apparition d’un finding', desc: 'Cette date survit à un redémarrage du daemon, à une éviction ou à un changement de template normalisé.' },
-          { tag: 'LANCEUR', title: 'Lancer une analyse depuis un navigateur', desc: 'Choisissez une source et les réglages du run, et le Hub lance Perf Sentinel puis sert le tableau de bord.' }
-        ],
+        hubDmnNote: 'mémoire bornée, éviction des plus anciens', hubPush: 'push + reprise', hubPull: 'pull de secours (le Hub interroge)',
+        hubKeepA: 'Conserve l’historique des findings, dont la ', hubKeepB: 'date de première apparition', hubKeepC: ', qui survit\u00a0:',
+        hubSurvives: ['au redémarrage', 'à l’éviction', 'au changement de template'],
+        hubBrowser: 'Navigateur', hubLauncher: 'LANCEUR', hubPick: 'choisit une source et les réglages du run', hubRun: 'le Hub lance Perf Sentinel, puis sert le tableau de bord',
         hubMore: 'PerfSentinelHub sur GitHub',
         modEyebrow: "// quatre façons de l'exécuter",
         modTitle: '1 binaire, 2 modes, 4 façons de le déployer',
@@ -2639,7 +2661,8 @@ class Component extends DCLogic {
       },
       hubEyebrow: t.hubEyebrow, hubStats: t.hubStats, hubBench: t.hubBench, hubBenchHref: t.hubBenchHref, hubTitleB1: t.hubTitleB1, hubWCs: t.hubWCs, hubTitleB2: t.hubTitleB2, hubBadge: t.perfBadgePrefix + (this.state.dotnetVersion || '10.0.401'),
       hubLeadA: t.hubLeadA, hubLeadB: t.hubLeadB,
-      hubPoints: t.hubPoints, hubMore: t.hubMore,
+      hubMore: t.hubMore, hubDmnNote: t.hubDmnNote, hubPush: t.hubPush, hubPull: t.hubPull, hubKeepA: t.hubKeepA, hubKeepB: t.hubKeepB, hubKeepC: t.hubKeepC,
+      hubSurvives: t.hubSurvives, hubBrowser: t.hubBrowser, hubLauncher: t.hubLauncher, hubPick: t.hubPick, hubRun: t.hubRun,
       // SVG <text> drops the sc-interp span around a string, a one-element array renders as a bare text node
       patterns: t.patterns.map((p) => ({ ...p, labels: p.labels.map((s) => [s]) })),
       stats: t.stats, detCols: t.detCols, detMatrix: t.detMatrix, detMatrixLabel: t.detMatrixLabel, detStructLead: t.detStructLead, detMatrixLead: t.detMatrixLead,
