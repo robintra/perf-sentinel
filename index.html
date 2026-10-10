@@ -991,7 +991,13 @@
   [data-ps-root] :is(a,button,summary,[tabindex],input):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   [data-skip]{position:absolute;left:12px;top:-60px;z-index:60;padding:10px 16px;border-radius:8px;background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--border)}
   [data-skip]:focus{top:12px}
-  [data-ps-root][data-persona="tech"] [data-band~="tech"],[data-ps-root][data-persona="rse"] [data-band~="rse"],[data-ps-root][data-persona="exec"] [data-band~="biz"],[data-ps-root][data-persona="legal"] [data-band~="biz"],[data-ps-root][data-persona="proc"] [data-band~="biz"]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding:56px 0!important;margin-top:40px}
+  [data-ps-root][data-persona="tech"] [data-band~="tech"],[data-ps-root][data-persona="rse"] [data-band~="rse"],[data-ps-root][data-persona="exec"] [data-band~="biz"],[data-ps-root][data-persona="legal"] [data-band~="biz"],[data-ps-root][data-persona="proc"] [data-band~="biz"]{background:var(--band);box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax);padding-block:var(--rh-band)}
+  /* Vertical rhythm by role: tight inside the evaluation chapter, default between sections, a large break before GreenOps and the CTA */
+  [data-ps-root]{--rh-1:clamp(32px,3vw,40px);--rh-2:clamp(48px,5vw,64px);--rh-3:clamp(80px,8vw,112px);--rh-band:clamp(40px,4vw,56px)}
+  main>section:not([data-screen-label="Hero"]){margin-top:var(--rh-gap,var(--rh-2))}
+  #greenops,#start{--rh-gap:var(--rh-3)}#comparatif,#license,#security{--rh-gap:var(--rh-1)}#start{padding-bottom:var(--rh-2)}
+  /* Without #mesure (exec, legal, proc), #comparatif opens the chapter and keeps the default gap */
+  [data-ps-root][data-persona]:not([data-persona="tech"]):not([data-persona="rse"]) #comparatif{--rh-gap:var(--rh-2)}
   [data-ps-root]{
     --bg:#F1F6F3; --surface:#FFFFFF;--embed-bg:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1; --band:#E3EDE7;
     --text:#3A4A43; --text-2:#5A6D64; --td-strong:#416E97;
@@ -1396,7 +1402,7 @@
     </section>
 
     <!-- WHY -->
-    <section id="why" style="padding:64px 0 12px">
+    <section id="why">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyT1 }}<span data-why-accent="{{ whyAccent }}" style="color:var(--accent)">{{ whyTName }}</span>{{ whyT2 }}</h2>
       <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px">
@@ -1425,7 +1431,7 @@
     </section>
 
     <!-- READ FIRST -->
-    <section data-tech-only="" data-band="tech" style="padding:48px 0 0">
+    <section data-tech-only="" data-band="tech">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;margin-bottom:16px">
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ prereqTitle }}</div>
@@ -1445,7 +1451,7 @@
     </section>
 
     <!-- CARBON -->
-    <section id="carbone" data-band="biz rse" style="padding:64px 0 12px">
+    <section id="carbone" data-band="biz rse">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2a }}<br>{{ carbonT2b }}<span style="color:var(--coral)">{{ carbonTW2 }}</span>{{ carbonT3 }}</h2>
       <p style="margin:18px 0 0;font-size:15.5px;color:var(--text-2);line-height:1.65;max-width:720px">{{ carbonIntro }}</p>
@@ -1525,7 +1531,7 @@
     </section>
 
     <!-- DETECTION -->
-    <section id="detection" data-tech-only="" data-band="tech" data-screen-label="Détection" style="padding:64px 0 12px">
+    <section id="detection" data-tech-only="" data-band="tech" data-screen-label="Détection">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ detEyebrow }}</div>
@@ -1657,7 +1663,7 @@
     </section>
 
     <!-- STACK: languages and frameworks with a setup guide or fix hints -->
-    <section id="stack" data-stack="" data-tech-only="" data-screen-label="Stack" style="padding:64px 0 12px">
+    <section id="stack" data-stack="" data-tech-only="" data-screen-label="Stack">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ stackEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ stackTitle }}</h2>
       <p style="margin:12px 0 0;max-width:720px;font-size:16px;line-height:1.6;color:var(--text-2)">{{ stackIntro }}</p>
@@ -1696,7 +1702,7 @@
     </section>
 
     <!-- MODES -->
-    <section id="modes" data-tech-only="" data-band="tech" data-screen-label="Exécution" style="padding:64px 0 12px">
+    <section id="modes" data-tech-only="" data-band="tech" data-screen-label="Exécution">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ modEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ modTitle }}</h2>
       <div data-mod-flow="" style="display:grid;grid-template-columns:minmax(150px,190px) 28px minmax(170px,208px) 28px minmax(240px,1fr) 28px minmax(180px,207px);row-gap:14px;margin-top:34px">
@@ -1727,7 +1733,7 @@
     </section>
 
     <!-- PERFORMANCE -->
-    <section id="perf" data-tech-only="" data-screen-label="Performance" style="padding:64px 0 12px">
+    <section id="perf" data-tech-only="" data-screen-label="Performance">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--rust);letter-spacing:.04em">{{ perfEyebrow }}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;margin-top:12px">
         <h2 style="margin:0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ perfT1 }}<span style="color:var(--rust)">{{ perfWRust }}</span>{{ perfT2 }}</h2>
@@ -1751,7 +1757,7 @@
     </section>
 
     <!-- HUB -->
-    <section id="hub" data-tech-only="" data-band="tech" data-screen-label="Hub" style="padding:64px 0 12px">
+    <section id="hub" data-tech-only="" data-band="tech" data-screen-label="Hub">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--dotnet);letter-spacing:.04em">{{ hubEyebrow }}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;margin-top:12px">
         <h2 style="margin:0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ hubTitleB1 }}<span style="color:var(--dotnet)">{{ hubWCs }}</span>{{ hubTitleB2 }}</h2>
@@ -1798,7 +1804,7 @@
     </section>
 
     <!-- GREENOPS -->
-    <section id="greenops" data-screen-label="GreenOps" style="padding:64px 0 12px">
+    <section id="greenops" data-screen-label="GreenOps">
       <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:clamp(28px,4vw,48px)">
         <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
           <div>
@@ -1832,7 +1838,7 @@
     </section>
 
     <!-- COMPARATIF -->
-    <section id="mesure" data-tech-rse="" data-band="tech rse" data-screen-label="Mesure" style="padding:64px 0 12px">
+    <section id="mesure" data-tech-rse="" data-band="tech rse" data-screen-label="Mesure">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ mesEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ mesT1 }}<span style="color:var(--accent)">{{ mesTWord }}</span>,<br> {{ mesT2 }}</h2>
       <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:720px;line-height:1.6">{{ mesIntro }}</p>
@@ -1840,7 +1846,7 @@
       <p style="margin:22px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:72ch">{{ mesCaveat }}</p>
       <a data-plain href="{{ goEnergyHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ mesMore }}</span><span data-arrow> →</span></a>
     </section>
-    <section id="comparatif" data-band="biz" data-screen-label="Comparatif" style="padding:64px 0 12px">
+    <section id="comparatif" data-band="biz" data-screen-label="Comparatif">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ cmpEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ cmpT1 }}<span style="color:var(--accent)">{{ cmpWCarbon }}</span></h2>
       <div style="margin-top:30px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface)">
@@ -1871,7 +1877,7 @@
     </section>
 
     <!-- LICENSE -->
-    <section id="license" data-hide-rse="" data-band="tech" data-screen-label="License" style="padding:64px 0 12px">
+    <section id="license" data-hide-rse="" data-band="tech" data-screen-label="License">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
@@ -1902,7 +1908,7 @@
     </section>
 
     <!-- Security -->
-    <section id="security" data-band="biz rse" data-screen-label="Security" style="padding:64px 0 12px">
+    <section id="security" data-band="biz rse" data-screen-label="Security">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ secEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ secTitle }}</h2>
       <p style="margin:16px 0 0;max-width:780px;font-size:15.5px;color:var(--text-2);line-height:1.62">{{ secIntro }}</p>
@@ -1921,7 +1927,7 @@
     </section>
 
     <!-- CTA -->
-    <section id="start" data-screen-label="CTA" style="padding:64px 0 72px">
+    <section id="start" data-screen-label="CTA">
       <div style="position:relative;overflow:hidden;border-radius:20px;border:1px solid var(--border);background:#0B523A;padding:clamp(34px,5vw,56px)">
         <div data-grid="cta" style="position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:28px 56px;align-items:center">
           <div>
