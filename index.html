@@ -996,6 +996,8 @@
   [data-links]{display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px}
   @media(max-width:560px){#start [data-nontech-only]>a{flex:1 1 100%;text-align:center}}
   #greenops,#start{--rh-gap:var(--rh-3)}#comparatif,#license,#security{--rh-gap:var(--rh-1)}#start{padding-bottom:var(--rh-2)}
+  /* Phones: the GreenOps panel drops its frame, the cards inside keep theirs and get the full width */
+  @media(max-width:767px){#greenops>div{padding:0!important;background:none!important;border:0!important;border-radius:0!important}}
   /* Without #mesure (exec, legal, proc), #comparatif opens the chapter and keeps the default gap */
   [data-ps-root][data-persona]:not([data-persona="tech"]):not([data-persona="rse"]) #comparatif{--rh-gap:var(--rh-2)}
   [data-ps-root]{
