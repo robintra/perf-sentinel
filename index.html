@@ -2459,7 +2459,7 @@ class Component extends DCLogic {
   dict() {
     return {
       en: {
-        nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
+        nav: ['Detection', 'Deploy', 'GreenOps', 'Comparison'],
         skipLink: 'Skip to content',
         dots: { aria: 'Page sections', top: 'Home', why: 'Why', carbone: 'Carbon', detection: 'Detection', stack: 'Stack', modes: 'Deploy', perf: 'Performance', hub: 'Hub', greenops: 'GreenOps', mesure: 'Measurement', comparatif: 'Comparison', license: 'License', security: 'Security', start: 'Get started' },
         eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
@@ -2606,7 +2606,7 @@ class Component extends DCLogic {
         perfEyebrow: '// built in rust',
         perfT1: 'A single ', perfWRust: 'Rust', perfT2: ' binary, measured',
         perfIntro: 'The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.',
-        perfBadgePrefix: 'Version ',
+        perfBadgeTpl: 'Rust ≥ {v} (MSRV)', hubBadgeTpl: '.NET SDK {v}',
         perfMore: 'Full benchmarks in the docs', modesMore: 'Deployment in depth in the guide', modesCi: 'GitHub Actions, GitLab CI and Jenkins templates',
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
@@ -2670,7 +2670,7 @@ class Component extends DCLogic {
         langSwitch: 'FR',
       },
       fr: {
-        nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
+        nav: ['Détection', 'Déploiement', 'GreenOps', 'Comparatif'],
         skipLink: 'Aller au contenu',
         dots: { aria: 'Sections de la page', top: 'Accueil', why: 'Pourquoi', carbone: 'Carbone', detection: 'Détection', stack: 'Technologies', modes: 'Déploiement', perf: 'Performance', hub: 'Hub', greenops: 'GreenOps', mesure: 'Mesure', comparatif: 'Comparatif', license: 'Licence', security: 'Sécurité', start: 'Démarrer' },
         eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
@@ -2817,7 +2817,7 @@ class Component extends DCLogic {
         perfEyebrow: '// écrit en rust',
         perfT1: 'Un mono-binaire ', perfWRust: 'Rust', perfT2: ', mesuré',
         perfIntro: 'Les chiffres ci-dessous chronomètrent le pipeline d\u2019analyse seul (mono-thread, sur jeux de données synthétiques) : ils isolent le coût du pipeline, pas un débit de bout en bout.',
-        perfBadgePrefix: 'Version ',
+        perfBadgeTpl: 'Rust ≥ {v} (MSRV)', hubBadgeTpl: 'SDK .NET {v}',
         perfMore: 'Benchmarks détaillés dans la doc', modesMore: 'Déploiement en détail dans le guide', modesCi: 'Modèles GitHub Actions, GitLab CI et Jenkins',
         perfStats: [
           { icon: 'gauge', value: '576k–\u20601.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
@@ -2942,7 +2942,7 @@ class Component extends DCLogic {
         this.setState({ copied: true });
         clearTimeout(this._t); this._t = setTimeout(() => this.setState({ copied: false }), 1600);
       },
-      hubEyebrow: t.hubEyebrow, hubStats: t.hubStats, hubBench: t.hubBench, hubBenchHref: t.hubBenchHref, hubTitleB1: t.hubTitleB1, hubWCs: t.hubWCs, hubTitleB2: t.hubTitleB2, hubBadge: t.perfBadgePrefix + (this.state.dotnetVersion || '10.0.401'),
+      hubEyebrow: t.hubEyebrow, hubStats: t.hubStats, hubBench: t.hubBench, hubBenchHref: t.hubBenchHref, hubTitleB1: t.hubTitleB1, hubWCs: t.hubWCs, hubTitleB2: t.hubTitleB2, hubBadge: t.hubBadgeTpl.replace('{v}', this.state.dotnetVersion || '10.0.401'),
       hubLeadA: t.hubLeadA, hubLeadB: t.hubLeadB,
       hubMore: t.hubMore, hubDmnNote: t.hubDmnNote, hubPush: t.hubPush, hubPull: t.hubPull, hubKeepA: t.hubKeepA, hubKeepB: t.hubKeepB, hubKeepC: t.hubKeepC,
       hubSurvives: t.hubSurvives, hubBrowser: t.hubBrowser, hubLauncher: t.hubLauncher, hubPick: t.hubPick, hubRun: t.hubRun,
@@ -2962,7 +2962,7 @@ class Component extends DCLogic {
       carbonTdEyebrow: t.carbonTdEyebrow, carbonTdTitle: t.carbonTdTitle, carbonTdPoints: t.carbonTdPoints, carbonTdResultA: t.carbonTdResultA, carbonTdResultB: t.carbonTdResultB, carbonTdResultC: t.carbonTdResultC, carbonTdResultD: t.carbonTdResultD,
       carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResultA: t.carbonBuResultA, carbonBuResultB: t.carbonBuResultB, carbonBuResultC: t.carbonBuResultC, carbonBuResultD: t.carbonBuResultD,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle, modCols: t.modCols, modSrc: t.modSrc, modSrcList: t.modSrcList, modFlow: t.modFlow,
-      navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.99.0'), perfStats: t.perfStats,
+      navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgeTpl.replace('{v}', this.state.rustVersion || '1.99.0'), perfStats: t.perfStats,
       perfMore: t.perfMore, modesMore: t.modesMore, modesCi: t.modesCi,
       goEqAria: t.goEqAria, goEqTotal: t.goEqTotal, goEqET: t.goEqET, goEqES: t.goEqES, goEqIT: t.goEqIT, goEqIS: t.goEqIS, goEqMT: t.goEqMT, goEqMS: t.goEqMS, goEqLo: t.goEqLo, goEqBounds: t.goEqBounds, goEqAvLabel: t.goEqAvLabel, goEqAvText: t.goEqAvText,
       lgcAria: t.lgcAria || '', lgcSteps: t.lgcSteps || [], lgcScope: t.lgcScope || '',
