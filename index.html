@@ -1153,6 +1153,9 @@
   [data-ps-root][data-persona="tech"] [data-not-tech-rse],[data-ps-root][data-persona="rse"] [data-not-tech-rse]{display:none!important}
 [data-ps-root] [data-why-accent="coral"]{color:var(--coral)!important}
 #security code.dc-cmd{color:var(--coral);background:color-mix(in srgb,var(--coral) 12%,transparent)}
+/* Security: a ruled two-column ledger, icon + tag + title on the left, the description on the right */
+[data-sec-row]{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);grid-template-rows:auto 1fr;column-gap:48px}[data-sec-row]>h3{grid-column:1}[data-sec-row]>p{grid-column:2;grid-row:1/span 2;align-self:center;margin:0}
+@media(max-width:880px){[data-sec-row]{grid-template-columns:minmax(0,1fr);grid-template-rows:none}[data-sec-row]>p{grid-column:1;grid-row:auto;margin-top:8px}}
 /* First visit: spotlight the persona bar, then a short hint once a profile is picked */
 [data-spot-back]{position:fixed;inset:0;z-index:90;background:color-mix(in srgb,#000 60%,transparent)}
 [data-persona-bar][data-spot="true"]{z-index:91;background:var(--bg);border-radius:14px;box-shadow:0 0 0 10px var(--bg),0 0 0 11px var(--accent)}
@@ -1903,15 +1906,15 @@
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ secEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ secTitle }}</h2>
       <p style="margin:16px 0 0;max-width:780px;font-size:15.5px;color:var(--text-2);line-height:1.62">{{ secIntro }}</p>
-      <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:30px">
+      <div data-sec-ledger="" style="margin-top:30px;border-top:1px solid color-mix(in srgb,var(--text-2) 28%,transparent)">
         <sc-for list="{{ secPoints }}" as="s" hint-placeholder-count="6">
-          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--accent)">
+          <div data-sec-row="" style="padding:22px 0;border-bottom:1px solid color-mix(in srgb,var(--text-2) 28%,transparent)">
+            <div style="display:flex;align-items:center;gap:10px;color:var(--accent)">
+              <span data-ico="{{ s.icon }}" aria-hidden="true" style="width:20px;height:20px"></span>
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.04em">{{ s.tag }}</div>
-              <span data-ico="{{ s.icon }}" aria-hidden="true"></span>
             </div>
-            <h3 style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ s.title }}</h3>
-            <p style="margin:10px 0 0;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ s.desc }}</p>
+            <h3 style="margin:8px 0 0;font-size:18px;font-weight:700;color:var(--text);text-wrap:balance">{{ s.title }}</h3>
+            <p style="max-width:68ch;font-size:14.5px;color:var(--text-2);line-height:1.55">{{ s.desc }}</p>
           </div>
         </sc-for>
       </div> <a data-plain href="{{ secMoreHref }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ secMore }}</span><span data-arrow> →</span></a>
