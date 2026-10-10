@@ -1145,11 +1145,20 @@
     <section id="why" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyT1 }}<span data-why-accent="{{ whyAccent }}" style="color:var(--accent)">{{ whyTName }}</span>{{ whyT2 }}</h2>
-      <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px;max-width:720px">
-        <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
-        <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
-        <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP3 }}</p>
-        <p style="margin:0;font-size:15.5px;color:var(--text);line-height:1.65;border-left:2px solid var(--accent);padding-left:18px">{{ whyP4 }}</p>
+      <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px">
+        <p style="margin:0;max-width:720px;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
+        <p data-nontech-only="" style="margin:0;max-width:720px;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
+        <div data-tech-only="" style="margin:6px 0">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ whyToolsLabel }}</div>
+          <div data-grid="cards4" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px">
+            <sc-for list="{{ whyTools }}" as="w" hint-placeholder-count="3">
+              <div style="border:1px solid var(--border);border-radius:10px;padding:14px 16px"><div style="font-size:15px;font-weight:600;color:var(--text)">{{ w.name }}</div><div style="margin-top:4px;font-size:13px;line-height:1.45;color:var(--text-2)">{{ w.note }}</div></div>
+            </sc-for>
+            <div style="background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:14px 16px"><div style="font-size:15px;font-weight:600;color:color-mix(in srgb,var(--ca-strong) 90%,var(--text))">Perf Sentinel</div><div style="margin-top:4px;font-size:13px;line-height:1.45;color:var(--text)">{{ whyToolPs }}</div></div>
+          </div>
+        </div>
+        <p style="margin:0;max-width:720px;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP3 }}</p>
+        <p style="margin:0;max-width:720px;font-size:15.5px;color:var(--text);line-height:1.65;border-left:2px solid var(--accent);padding-left:18px">{{ whyP4 }}</p>
       </div>
     </section>
 
@@ -2173,7 +2182,13 @@ class Component extends DCLogic {
         whyEyebrow: '// the problem',
         whyT1: 'Why ', whyTName: 'Perf Sentinel', whyT2: '?',
         whyP1: 'I/O anti-patterns hit any app, monolith or microservices. In distributed systems one request cascades across several services, so the waste only shows up when you look at the whole trace.',
-        whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. Perf Sentinel detects these anti-patterns at the protocol level, on your own infrastructure, as a CI gate or as an OTLP daemon.',
+        whyToolsLabel: 'EXISTING TOOLS EACH COVER A SLICE',
+        whyTools: [
+          { name: 'Hypersistence', note: 'JPA-only' },
+          { name: 'Datadog · New Relic', note: 'heavy proprietary agents' },
+          { name: 'Sentry', note: 'tied to its SDK' },
+        ],
+        whyToolPs: 'at the protocol level, on your own infrastructure, as a CI gate or as an OTLP daemon',
         whyP3: 'Perf Sentinel reads the traces your app already emits (SQL, HTTP, broker publishes), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
         whyP4: 'Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.',
         prereqTitle: 'Read this first',
@@ -2377,7 +2392,13 @@ class Component extends DCLogic {
         whyEyebrow: '// le problème',
         whyT1: 'Pourquoi ', whyTName: 'Perf Sentinel', whyT2: ' ?',
         whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête traverse plusieurs services en cascade, et le gaspillage n’apparaît qu’en regardant la trace entière.',
-        whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Perf Sentinel détecte ces anti-patterns au niveau protocole, sur votre propre infrastructure, en contrôle de CI comme en daemon OTLP.',
+        whyToolsLabel: 'LES OUTILS EXISTANTS N’EN COUVRENT QU’UNE PART',
+        whyTools: [
+          { name: 'Hypersistence', note: 'limité à JPA' },
+          { name: 'Datadog · New Relic', note: 'agents lourds' },
+          { name: 'Sentry', note: 'dépend de son SDK' },
+        ],
+        whyToolPs: 'au niveau protocole, sur votre infra, en CI comme en daemon OTLP',
         whyP3: 'Perf Sentinel lit les traces que votre application émet déjà (SQL, HTTP, publications vers un broker), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
         whyP4: 'Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
         prereqTitle: 'À lire en premier',
@@ -2602,7 +2623,7 @@ class Component extends DCLogic {
       modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot, stackEyebrow: t.stackEyebrow, stackTitle: t.stackTitle, stackIntro: t.stackIntro, stackLangs: t.stackLangs, stackFws: t.stackFws, stackOrm: t.stackOrm, stackLink: t.stackLink, stackHref: t.stackHref,
-      whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyAccent: t.whyAccent || '', whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
+      whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyAccent: t.whyAccent || '', whyP1: t.whyP1, whyP2: t.whyP2 || '', whyToolsLabel: t.whyToolsLabel, whyTools: t.whyTools, whyToolPs: t.whyToolPs, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
       prereq1Label: t.prereq1Label, prereq1Text: t.prereq1Text, prereq2Label: t.prereq2Label, prereq2Text: t.prereq2Text, prereqNotLabel: t.prereqNotLabel, prereqNotText: t.prereqNotText, prereqNotLink: t.prereqNotLink, prereq3Label: t.prereq3Label, prereq3Text: t.prereq3Text, prereqLink: t.prereqLink, prereqHref: t.prereqHref, carbonEyebrow: t.carbonEyebrow, carbonT1: t.carbonT1, carbonTW: t.carbonTW, carbonT2a: t.carbonT2a, carbonT2b: t.carbonT2b, carbonTW2: t.carbonTW2, carbonT3: t.carbonT3, carbonIntro: t.carbonIntro,
       carbonChartTitle: t.carbonChartTitle, carbonAnnBasse: t.carbonAnnBasse, carbonAnnHaute: t.carbonAnnHaute, carbonAnnHauteSubPre: t.carbonAnnHauteSubPre, carbonAnnHauteQ: t.carbonAnnHauteQ, carbonBarBasse: t.carbonBarBasse, carbonBarHaute: t.carbonBarHaute,
       carbonLegMeasured: t.carbonLegMeasured, carbonLegUnmeasured: t.carbonLegUnmeasured, carbonChartSrc: t.carbonChartSrc,
